@@ -10,11 +10,28 @@ if (started) {
 const createWindow = () => {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
+    width: 1280,
+    height: 800,
+    minWidth: 1100,
+    minHeight: 700,
+    useContentSize: true,
+    center: true,
+    show: false,
+    backgroundColor: '#11131a',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
+      zoomFactor: 1,
     },
+  });
+
+  // Avoid showing a blank white window while the renderer is loading.
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+  });
+
+  // Always start the editor at 100% zoom.
+  mainWindow.webContents.on('did-finish-load', () => {
+    mainWindow.webContents.setZoomFactor(1);
   });
 
   // and load the index.html of the app.
@@ -25,9 +42,6 @@ const createWindow = () => {
       path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
     );
   }
-
-  // Open the DevTools.
-  mainWindow.webContents.openDevTools();
 };
 
 // This method will be called when Electron has finished

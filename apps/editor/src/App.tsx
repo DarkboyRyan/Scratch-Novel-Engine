@@ -6,17 +6,9 @@ type Dialogue = {
   text: string;
 };
 
-const initialDialogues: Dialogue[] = [
-  {
-    id: crypto.randomUUID(),
-    speaker: '旁白',
-    text: '故事从这里开始。',
-  },
-];
-
 export default function App() {
   const [dialogues, setDialogues] =
-    useState<Dialogue[]>(initialDialogues);
+    useState<Dialogue[]>([]);
 
   const [speaker, setSpeaker] = useState('');
   const [text, setText] = useState('');
@@ -24,10 +16,10 @@ export default function App() {
   const latestDialogue = dialogues.at(-1);
 
   const previewSpeaker =
-    speaker.trim() || latestDialogue?.speaker || '旁白';
+    speaker.trim() || latestDialogue?.speaker || '';
 
   const previewText =
-    text || latestDialogue?.text || '请在右侧输入一句对白。';
+    text || latestDialogue?.text || '';
 
   function handleAddDialogue(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -61,8 +53,8 @@ export default function App() {
 
       <aside className="panel scene-panel">
         <div className="panel-heading">
-          <h2>Scene 1</h2>
-          <span>{dialogues.length} dialogues</span>
+          <h2>场景 1</h2>
+          <span>{dialogues.length} 条目</span>
         </div>
 
         <ol className="dialogue-list">
@@ -84,7 +76,7 @@ export default function App() {
       <main className="preview-panel">
         <div className="preview-stage">
           <p className="preview-placeholder">
-            Character and background preview
+            预览界面
           </p>
 
           <div className="dialogue-box">
@@ -96,12 +88,12 @@ export default function App() {
 
       <aside className="panel inspector-panel">
         <div className="panel-heading">
-          <h2>Add Dialogue</h2>
+          <h2>剧情编辑</h2>
         </div>
 
         <form onSubmit={handleAddDialogue}>
           <label>
-            Speaker
+            角色名
             <input
               value={speaker}
               onChange={(event) =>
@@ -112,7 +104,7 @@ export default function App() {
           </label>
 
           <label>
-            Dialogue
+            具体文本
             <textarea
               value={text}
               onChange={(event) => setText(event.target.value)}
@@ -121,7 +113,7 @@ export default function App() {
             />
           </label>
 
-          <button type="submit">Add Dialogue</button>
+          <button type="submit">加入剧情</button>
         </form>
       </aside>
     </div>
