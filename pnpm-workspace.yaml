@@ -1,0 +1,13 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+nodeLinker: hoisted
+blockExoticSubdeps: false
+
+# pnpm 11 blocks dependency install scripts by default. Vite needs esbuild's
+# platform-specific binary, and Electron needs its runtime download step.
+allowBuilds:
+  esbuild: true
+  electron: true
+  electron-winstaller: true

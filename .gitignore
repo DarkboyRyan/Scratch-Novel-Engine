@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build results
+out/
+dist/
+release/
+.vite/
+.webpack/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# macOS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Electron / Vite build output
+out/
+dist/
+release/
+.vite/
+.webpack/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# macOS and editors
+.DS_Store
+.vscode/
+.idea/
