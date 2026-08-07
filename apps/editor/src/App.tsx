@@ -1,31 +1,20 @@
-import { useState, type FormEvent } from 'react';
+import { useReducer, useState, type FormEvent } from 'react';
 
-// SceneDocument 中的每一个剧情条目都是一个节点。
-// 目前先支持 dialogue，之后可以扩展 background、choice、jump 等类型。
-type DialogueNode = {
-  id: string;
-  type: 'dialogue';
-  speaker: string;
-  text: string;
-};
+import {
+  createEmptyScene,
+  type DialogueNode,
+} from './model/scene';
+import { sceneReducer } from './state/sceneReducer';
 
-// 一个场景包含场景信息和按顺序排列的剧情节点。
-// schemaVersion 会在未来 JSON 数据结构升级时用于迁移旧项目。
-type SceneDocument = {
-  schemaVersion: 1;
-  id: string;
-  name: string;
-  nodes: DialogueNode[];
-};
+const initialScene = createEmptyScene();
 
 export default function App() {
-  // scene 是当前正在编辑的场景，也是之后保存成 JSON 的核心数据。
-  const [scene, setScene] = useState<SceneDocument>({
-    schemaVersion: 1,
-    id: crypto.randomUUID(),
-    name: '场景 1',
-    nodes: [],
-  });
+  // useReducer 把“当前场景”和“场景如何变化”连接起来。
+  // App 只 dispatch 用户意图，具体数组操作由 sceneReducer 负责。
+  const [scene, dispatchScene] = useReducer(
+    sceneReducer,
+    initialScene,
+  );
 
   // 这里只保存选中节点的 ID，不复制整个节点，避免产生两份不同步的数据。
   // null 代表右侧表单处于“新建模式”，有 ID 则代表“编辑模式”。
@@ -75,20 +64,12 @@ export default function App() {
     const normalizedSpeaker = speaker.trim() || '旁白';
 
     if (selectedNode) {
-      // 编辑已有节点时用 map 创建新数组，只替换 ID 匹配的节点。
-      // 其他节点保持原来的顺序和内容。
-      setScene((currentScene) => ({
-        ...currentScene,
-        nodes: currentScene.nodes.map((node) =>
-          node.id === selectedNode.id
-            ? {
-                ...node,
-                speaker: normalizedSpeaker,
-                text: trimmedText,
-              }
-            : node,
-        ),
-      }));
+      dispatchScene({
+        type: 'dialogue/update',
+        nodeId: selectedNode.id,
+        speaker: normalizedSpeaker,
+        text: trimmedText,
+      });
 
       setSpeaker(normalizedSpeaker);
       setText(trimmedText);
@@ -102,16 +83,14 @@ export default function App() {
       text: trimmedText,
     };
 
-    // 新建节点时也不直接 push，而是创建新的 scene 和 nodes 数组。
-    setScene((currentScene) => ({
-      ...currentScene,
-      nodes: [...currentScene.nodes, newDialogue],
-    }));
+    dispatchScene({
+      type: 'dialogue/add',
+      node: newDialogue,
+    });
 
-    // 新增完成后自动进入该节点的编辑模式。
-    setSelectedNodeId(newDialogue.id);
-    setSpeaker(newDialogue.speaker);
-    setText(newDialogue.text);
+    // 新增完成后返回新建模式，清空表单以便连续录入下一句对白。
+    // 已创建的节点仍保留在左侧列表，需要修改时再点击该节点。
+    handleStartNewDialogue();
   }
 
   function handleDeleteDialogue(nodeId: string) {
@@ -143,10 +122,10 @@ export default function App() {
       (node) => node.id !== nodeId,
     );
 
-    setScene((currentScene) => ({
-      ...currentScene,
-      nodes: remainingNodes,
-    }));
+    dispatchScene({
+      type: 'node/delete',
+      nodeId,
+    });
 
     // 删除的不是当前选中节点时，右侧编辑状态应该保持不变。
     if (nodeId !== selectedNodeId) {
@@ -163,6 +142,17 @@ export default function App() {
     } else {
       handleStartNewDialogue();
     }
+  }
+
+  function handleMoveDialogue(
+    nodeId: string,
+    direction: -1 | 1,
+  ) {
+    dispatchScene({
+      type: 'node/move',
+      nodeId,
+      direction,
+    });
   }
 
   return (
@@ -184,7 +174,7 @@ export default function App() {
             className="scene-add-dialogue-button"
             onClick={handleStartNewDialogue}
           >
-            新建对白
+            +
           </button>
         </div>
 
@@ -211,15 +201,45 @@ export default function App() {
                 </div>
               </button>
 
-              <button
-                type="button"
-                className="dialogue-delete-button"
-                aria-label={`删除 ${dialogue.speaker} 的对白`}
-                title="删除这条对白"
-                onClick={() => handleDeleteDialogue(dialogue.id)}
-              >
-                删除
-              </button>
+              <div className="dialogue-item-actions">
+                <button
+                  type="button"
+                  className="dialogue-move-button"
+                  disabled={index === 0}
+                  aria-label={`上移 ${dialogue.speaker} 的对白`}
+                  title="上移"
+                  onClick={() =>
+                    handleMoveDialogue(dialogue.id, -1)
+                  }
+                >
+                  ↑
+                </button>
+
+                <button
+                  type="button"
+                  className="dialogue-move-button"
+                  disabled={index === scene.nodes.length - 1}
+                  aria-label={`下移 ${dialogue.speaker} 的对白`}
+                  title="下移"
+                  onClick={() =>
+                    handleMoveDialogue(dialogue.id, 1)
+                  }
+                >
+                  ↓
+                </button>
+
+                <button
+                  type="button"
+                  className="dialogue-delete-button"
+                  aria-label={`删除 ${dialogue.speaker} 的对白`}
+                  title="删除这条对白"
+                  onClick={() =>
+                    handleDeleteDialogue(dialogue.id)
+                  }
+                >
+                  删除
+                </button>
+              </div>
             </li>
           ))}
         </ol>
@@ -238,7 +258,7 @@ export default function App() {
 
       <aside className="panel inspector-panel">
         <div className="panel-heading">
-          <h2>{selectedNode ? '编辑对白' : '新建对白'}</h2>
+          <h2>{selectedNode ? '编辑对白' : '对话管理'}</h2>
         </div>
 
         <form onSubmit={handleSubmitDialogue}>
