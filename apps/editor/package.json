@@ -6,16 +6,20 @@
   "main": ".vite/build/main.js",
   "private": true,
   "scripts": {
-    "start": "electron-forge start",
-    "package": "electron-forge package",
-    "make": "electron-forge make",
-    "publish": "electron-forge publish",
-    "lint": "eslint --ext .ts,.tsx ."
-  },
+  "start": "electron-forge start",
+  "package": "electron-forge package",
+  "make": "electron-forge make",
+  "publish": "electron-forge publish",
+  "lint": "eslint --ext .ts,.tsx .",
+  "typecheck": "tsc --noEmit",
+  "test": "vitest run",
+  "test:watch": "vitest"
+},
+
   "keywords": [],
   "author": {
     "name": "Hongyi Ding",
-    "email": "ding.hon@northeastern.edu"
+    "email": "dinghongyi8@gmail.com"
   },
   "license": "MIT",
   "pnpm": {
@@ -43,7 +47,8 @@
     "eslint": "^8.57.1",
     "eslint-plugin-import": "^2.32.0",
     "typescript": "~5.9.3",
-    "vite": "^5.4.21"
+    "vite": "^5.4.21",
+    "vitest": "3.2.7"
   },
   "dependencies": {
     "electron-squirrel-startup": "1.0.1",
