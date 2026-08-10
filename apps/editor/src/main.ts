@@ -17,7 +17,7 @@ const createWindow = () => {
     useContentSize: true,
     center: true,
     show: false,
-    backgroundColor: '#11131a',
+    backgroundColor: '#f4f5f7',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       zoomFactor: 1,
