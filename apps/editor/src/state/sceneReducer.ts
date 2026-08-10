@@ -6,7 +6,11 @@ import type {
 // Action 描述“用户想做什么”，而不是界面应该怎样修改数组。
 // 以后实现 Undo/Redo 时，也可以把这些 Action 记录到历史中。
 export type SceneAction =
-  | { type: 'dialogue/add'; node: DialogueNode }
+  | {
+      type: 'dialogue/add';
+      node: DialogueNode;
+      afterNodeId?: string | null;
+    }
   | {
       type: 'dialogue/update';
       nodeId: string;
@@ -27,11 +31,29 @@ export function sceneReducer(
   action: SceneAction,
 ): SceneDocument {
   switch (action.type) {
-    case 'dialogue/add':
+    case 'dialogue/add': {
+      // 指定 afterNodeId 时插在该节点后面；没有指定或找不到时追加到末尾。
+      const afterNodeIndex = action.afterNodeId
+        ? state.nodes.findIndex(
+            (node) => node.id === action.afterNodeId,
+          )
+        : -1;
+
+      if (afterNodeIndex === -1) {
+        return {
+          ...state,
+          nodes: [...state.nodes, action.node],
+        };
+      }
+
+      const nextNodes = [...state.nodes];
+      nextNodes.splice(afterNodeIndex + 1, 0, action.node);
+
       return {
         ...state,
-        nodes: [...state.nodes, action.node],
+        nodes: nextNodes,
       };
+    }
 
     case 'dialogue/update':
       return {

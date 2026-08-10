@@ -50,6 +50,26 @@ export default function App() {
     setText('');
   }
 
+  function handleInsertEmptyDialogue() {
+    // “+” 是场景结构操作：点击后立即创建一个真实的空节点。
+    const newDialogue: DialogueNode = {
+      id: crypto.randomUUID(),
+      type: 'dialogue',
+      speaker: '',
+      text: '',
+    };
+
+    dispatchScene({
+      type: 'dialogue/add',
+      node: newDialogue,
+      // 有选中节点时插在它后面；没有选中节点时 Reducer 会追加到末尾。
+      afterNodeId: selectedNodeId,
+    });
+
+    // 自动选中新节点，让右侧 Inspector 可以立即填写它。
+    handleSelectNode(newDialogue);
+  }
+
   function handleSubmitDialogue(event: FormEvent<HTMLFormElement>) {
     // HTML 表单默认会刷新页面；Electron 编辑器只需要更新 React 状态。
     event.preventDefault();
@@ -172,7 +192,9 @@ export default function App() {
           <button
             type="button"
             className="scene-add-dialogue-button"
-            onClick={handleStartNewDialogue}
+            aria-label="在当前节点后插入空对白"
+            title="在当前节点后插入空对白"
+            onClick={handleInsertEmptyDialogue}
           >
             +
           </button>
