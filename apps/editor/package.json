@@ -1,33 +1,32 @@
 {
   "name": "editor",
-  "productName": "editor",
+  "productName": "VN Engine Editor",
   "version": "1.0.0",
-  "description": "My Electron application description",
+  "description": "A visual novel editor powered by React and C++20",
   "main": ".vite/build/main.js",
   "private": true,
   "scripts": {
-  "start": "electron-forge start",
-  "package": "electron-forge package",
-  "make": "electron-forge make",
-  "publish": "electron-forge publish",
-  "lint": "eslint --ext .ts,.tsx .",
-  "typecheck": "tsc --noEmit",
-  "test": "vitest run",
-  "test:watch": "vitest"
-},
-
-  "keywords": [],
+    "engine:configure": "cmake -S ../../engine -B ../../engine/build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON",
+    "engine:build": "pnpm run engine:configure && cmake --build ../../engine/build --parallel",
+    "engine:test": "ctest --test-dir ../../engine/build --output-on-failure",
+    "engine:configure:release": "cmake -S ../../engine -B ../../engine/build-release -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF",
+    "engine:build:release": "pnpm run engine:configure:release && cmake --build ../../engine/build-release --config Release --target vn_engine_backend --parallel",
+    "engine:stage:release": "pnpm run engine:build:release && cmake --install ../../engine/build-release --config Release --prefix ../../engine/stage/backend",
+    "start": "pnpm run engine:build && electron-forge start",
+    "package": "pnpm run engine:stage:release && electron-forge package",
+    "make": "pnpm run engine:stage:release && electron-forge make",
+    "publish": "pnpm run engine:stage:release && electron-forge publish",
+    "lint": "eslint --ext .ts,.tsx .",
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm run engine:build && pnpm run engine:test && vitest run",
+    "test:integration": "pnpm run engine:build && vitest run tests/integration",
+    "test:watch": "vitest"
+  },
   "author": {
     "name": "Hongyi Ding",
     "email": "dinghongyi8@gmail.com"
   },
   "license": "MIT",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "electron",
-      "electron-winstaller"
-    ]
-  },
   "devDependencies": {
     "@electron-forge/cli": "7.11.2",
     "@electron-forge/maker-deb": "7.11.2",
