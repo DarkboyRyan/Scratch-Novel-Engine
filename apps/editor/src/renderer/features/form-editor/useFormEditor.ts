@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import type { DialogueNode } from '../../../shared/projectTypes';
+import { EMPTY_DIALOGUE_MESSAGE } from '../../editorMessages';
 import type { EngineProjectState } from '../../hooks/useEngineProject';
 
 // Controller hook 负责 Renderer 状态、选择规则以及调用 C++。
@@ -49,6 +50,21 @@ export function useFormEditor({
   const selectedNode = scene?.nodes.find(
     (node) => node.id === selectedNodeId,
   );
+
+  // 如果其他编辑模式更新了当前节点，就用 C++ 最新快照刷新表单草稿。
+  // 依赖具体字段值，避免无关的 Project 更新覆盖未提交草稿。
+  useEffect(() => {
+    if (!selectedNode) {
+      return;
+    }
+
+    setSpeaker(selectedNode.speaker);
+    setText(selectedNode.text);
+  }, [
+    selectedNode?.id,
+    selectedNode?.speaker,
+    selectedNode?.text,
+  ]);
 
   function startNewDialogue() {
     setSelectedNodeId(null);
@@ -124,7 +140,7 @@ export function useFormEditor({
 
     // 这是为了即时提示；C++ 也会执行同样的最终校验。
     if (!text.trim()) {
-      setEngineMessage('对白内容不能为空');
+      setEngineMessage(EMPTY_DIALOGUE_MESSAGE);
       return;
     }
 

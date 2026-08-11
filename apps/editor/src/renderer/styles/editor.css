@@ -97,6 +97,53 @@
   color: var(--danger);
 }
 
+.error-dialog {
+  width: min(360px, calc(100vw - 40px));
+  padding: 0;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgb(28 34 44 / 22%);
+}
+
+.error-dialog::backdrop {
+  background: rgb(30 34 40 / 28%);
+  backdrop-filter: blur(2px);
+}
+
+.error-dialog-content {
+  padding: 24px;
+}
+
+.error-dialog h2 {
+  margin: 0;
+  color: var(--danger);
+  font-size: 17px;
+}
+
+.error-dialog p {
+  margin: 12px 0 22px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.error-dialog button {
+  display: block;
+  min-width: 72px;
+  margin-left: auto;
+  padding: 8px 14px;
+  color: #ffffff;
+  cursor: pointer;
+  background: var(--primary);
+  border: 0;
+  border-radius: 7px;
+}
+
+.error-dialog button:hover {
+  background: var(--primary-hover);
+}
+
 .block-editor {
   grid-column: 1 / -1;
   display: grid;
@@ -111,6 +158,39 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.block-editor-heading {
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.block-editor-heading-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.block-editor-scene-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.block-editor-scene-select {
+  width: 180px;
+  height: 34px;
+}
+
+.block-editor-sync-badge {
+  padding: 5px 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  background: var(--panel-subtle);
+  border: 1px solid var(--border);
+  border-radius: 999px;
 }
 
 .block-editor-heading h1 {

@@ -1,18 +1,20 @@
 import type * as Blockly from 'blockly';
 
-export const starterToolbox: Blockly.utils.toolbox.ToolboxDefinition = {
-  kind: 'flyoutToolbox',
+import { DIALOGUE_BLOCK_TYPE } from './blocks/dialogueBlock';
+
+export const blockEditorToolbox: Blockly.utils.toolbox.ToolboxDefinition = {
+  kind: 'categoryToolbox',
   contents: [
     {
-      kind: 'block',
-      type: 'text',
-      fields: {
-        TEXT: '第一句测试对白',
-      },
-    },
-    {
-      kind: 'block',
-      type: 'text_print',
+      kind: 'category',
+      name: '剧情',
+      colour: '35',
+      contents: [
+        {
+          kind: 'block',
+          type: DIALOGUE_BLOCK_TYPE,
+        },
+      ],
     },
   ],
 };

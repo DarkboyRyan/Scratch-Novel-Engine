@@ -2,6 +2,19 @@ import { useEffect, useState } from 'react';
 
 import type { EngineMutationResult } from '../../shared/engineProtocol';
 import type { ProjectDocument } from '../../shared/projectTypes';
+import { EMPTY_DIALOGUE_MESSAGE } from '../editorMessages';
+
+export type AddDialogueAction = (
+  sceneId: string,
+  afterNodeId?: string | null,
+) => Promise<boolean>;
+
+export type UpdateDialogueAction = (
+  sceneId: string,
+  nodeId: string,
+  speaker: string,
+  text: string,
+) => Promise<boolean>;
 
 // StrictMode 会在开发环境重复挂载。共享初始化 Promise 可以避免因此向 C++
 // 连续发送两个 ensureProject 请求。
@@ -21,6 +34,13 @@ function requestInitialProject(): Promise<EngineMutationResult> {
 }
 
 function readableError(error: unknown): string {
+  if (
+    error instanceof Error &&
+    error.message.includes('dialogue text must not be empty')
+  ) {
+    return EMPTY_DIALOGUE_MESSAGE;
+  }
+
   return error instanceof Error
     ? error.message
     : 'C++ 后端发生了未知错误';
@@ -76,12 +96,43 @@ export function useEngineProject() {
     }
   }
 
+  async function addDialogue(
+    sceneId: string,
+    afterNodeId?: string | null,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.addDialogue(sceneId, afterNodeId),
+    );
+
+    return result !== null;
+  }
+
+  async function updateDialogue(
+    sceneId: string,
+    nodeId: string,
+    speaker: string,
+    text: string,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.updateDialogue(
+        sceneId,
+        nodeId,
+        speaker,
+        text,
+      ),
+    );
+
+    return result !== null;
+  }
+
   return {
     project,
     isBusy,
     engineMessage,
     setEngineMessage,
     runEngineAction,
+    addDialogue,
+    updateDialogue,
   };
 }
 

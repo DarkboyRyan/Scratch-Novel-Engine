@@ -1,6 +1,8 @@
 import { useState } from 'react';
 
+import { ErrorDialog } from './components/ErrorDialog';
 import { Toolbar, type EditorMode } from './components/Toolbar';
+import { EMPTY_DIALOGUE_MESSAGE } from './editorMessages';
 import { BlockEditor } from './features/block-editor/BlockEditor';
 import { FormEditor } from './features/form-editor/FormEditor';
 import { useFormEditor } from './features/form-editor/useFormEditor';
@@ -44,8 +46,21 @@ export default function App() {
       {editorMode === 'form' ? (
         <FormEditor editor={editor} />
       ) : (
-        <BlockEditor project={project} />
+        <BlockEditor
+          project={project}
+          scene={scene}
+          onSceneChange={editor.selectScene}
+          onDialogueUpdate={engine.updateDialogue}
+          onDialogueAdd={engine.addDialogue}
+        />
       )}
+
+      <ErrorDialog
+        open={editor.engineMessage === EMPTY_DIALOGUE_MESSAGE}
+        title="错误"
+        message={EMPTY_DIALOGUE_MESSAGE}
+        onConfirm={() => engine.setEngineMessage('')}
+      />
     </div>
   );
 }
