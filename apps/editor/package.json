@@ -50,6 +50,7 @@
     "vitest": "3.2.7"
   },
   "dependencies": {
+    "blockly": "13.1.1",
     "electron-squirrel-startup": "1.0.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"

@@ -1,4 +1,5 @@
 import type { ProjectDocument } from '../../../shared/projectTypes';
+import { BlocklyWorkspace } from './BlocklyWorkspace';
 
 type BlockEditorProps = {
   project: ProjectDocument;
@@ -15,9 +16,11 @@ export function BlockEditor({ project }: BlockEditorProps) {
         <span>{project.scenes.length} 个场景</span>
       </header>
 
-      <section className="block-editor-workspace" aria-label="积木工作区">
-        <strong>Blockly 工作区</strong>
-        <p>下一步将在这里加入可拖拽的对白、人物和场景积木。</p>
+      <section
+        className="block-editor-workspace"
+        aria-label="图形化积木工作区"
+        >
+        <BlocklyWorkspace />
       </section>
     </main>
   );
