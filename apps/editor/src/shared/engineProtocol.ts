@@ -7,6 +7,33 @@ export type EngineMutationResult = {
   nodeId?: string;
 };
 
+export type AddDialogueParams = {
+  sceneId: string;
+  afterNodeId?: string | null;
+  beforeNodeId?: string | null;
+  speaker?: string;
+  text?: string;
+};
+
+export type ReorderDialogueParams = {
+  sceneId: string;
+  nodeId: string;
+  // null 明确表示移动到当前场景末尾。
+  beforeNodeId: string | null;
+};
+
+export type ReorderDialoguesParams = {
+  sceneId: string;
+  nodeIds: string[];
+  // null 明确表示把整个选择组移动到当前场景末尾。
+  beforeNodeId: string | null;
+};
+
+export type DeleteDialoguesParams = {
+  sceneId: string;
+  nodeIds: string[];
+};
+
 export const ENGINE_METHODS = [
   'project.create',
   'project.ensure',
@@ -17,7 +44,10 @@ export const ENGINE_METHODS = [
   'dialogue.add',
   'dialogue.update',
   'dialogue.delete',
+  'dialogue.deleteMany',
   'dialogue.move',
+  'dialogue.reorder',
+  'dialogue.reorderMany',
 ] as const;
 
 export type EngineMethod = (typeof ENGINE_METHODS)[number];
@@ -38,12 +68,7 @@ export type EngineParamsByMethod = {
   'scene.delete': {
     sceneId: string;
   };
-  'dialogue.add': {
-    sceneId: string;
-    afterNodeId?: string | null;
-    speaker?: string;
-    text?: string;
-  };
+  'dialogue.add': AddDialogueParams;
   'dialogue.update': {
     sceneId: string;
     nodeId: string;
@@ -54,11 +79,14 @@ export type EngineParamsByMethod = {
     sceneId: string;
     nodeId: string;
   };
+  'dialogue.deleteMany': DeleteDialoguesParams;
   'dialogue.move': {
     sceneId: string;
     nodeId: string;
     direction: -1 | 1;
   };
+  'dialogue.reorder': ReorderDialogueParams;
+  'dialogue.reorderMany': ReorderDialoguesParams;
 };
 
 export type EngineInvocation = {
@@ -100,10 +128,7 @@ export type VnEngineApi = {
   ): Promise<EngineMutationResult>;
   deleteScene(sceneId: string): Promise<EngineMutationResult>;
   addDialogue(
-    sceneId: string,
-    afterNodeId?: string | null,
-    speaker?: string,
-    text?: string,
+    params: AddDialogueParams,
   ): Promise<EngineMutationResult>;
   updateDialogue(
     sceneId: string,
@@ -115,10 +140,19 @@ export type VnEngineApi = {
     sceneId: string,
     nodeId: string,
   ): Promise<EngineMutationResult>;
+  deleteDialogues(
+    params: DeleteDialoguesParams,
+  ): Promise<EngineMutationResult>;
   moveDialogue(
     sceneId: string,
     nodeId: string,
     direction: -1 | 1,
+  ): Promise<EngineMutationResult>;
+  reorderDialogue(
+    params: ReorderDialogueParams,
+  ): Promise<EngineMutationResult>;
+  reorderDialogues(
+    params: ReorderDialoguesParams,
   ): Promise<EngineMutationResult>;
 };
 

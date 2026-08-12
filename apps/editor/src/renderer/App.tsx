@@ -1,15 +1,19 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { ErrorDialog } from './components/ErrorDialog';
 import { Toolbar, type EditorMode } from './components/Toolbar';
 import { EMPTY_DIALOGUE_MESSAGE } from './editorMessages';
 import { BlockEditor } from './features/block-editor/BlockEditor';
+import type { BlockEditorLayoutStore } from './features/block-editor/blockEditorLayout';
 import { FormEditor } from './features/form-editor/FormEditor';
 import { useFormEditor } from './features/form-editor/useFormEditor';
 import { useEngineProject } from './hooks/useEngineProject';
 
 export default function App() {
   const [editorMode, setEditorMode] = useState<EditorMode>('form');
+  // Blockly 会在切换到表单模式时卸载；布局提升到 App 后仍能保留。
+  const blockEditorLayouts =
+    useRef<BlockEditorLayoutStore>(new Map());
   const engine = useEngineProject();
   const editor = useFormEditor(engine);
   const { project, scene } = editor;
@@ -49,9 +53,13 @@ export default function App() {
         <BlockEditor
           project={project}
           scene={scene}
+          layoutStore={blockEditorLayouts.current}
           onSceneChange={editor.selectScene}
           onDialogueUpdate={engine.updateDialogue}
           onDialogueAdd={engine.addDialogue}
+          onDialogueReorder={engine.reorderDialogue}
+          onDialoguesReorder={engine.reorderDialogues}
+          onDialogueDelete={engine.deleteDialogues}
         />
       )}
 

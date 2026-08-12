@@ -29,10 +29,10 @@ const vnEngine: VnEngineApi = {
     }),
   deleteScene: (sceneId) =>
     invokeEngine({ method: 'scene.delete', params: { sceneId } }),
-  addDialogue: (sceneId, afterNodeId, speaker, text) =>
+  addDialogue: (params) =>
     invokeEngine({
       method: 'dialogue.add',
-      params: { sceneId, afterNodeId, speaker, text },
+      params,
     }),
   updateDialogue: (sceneId, nodeId, speaker, text) =>
     invokeEngine({
@@ -44,10 +44,25 @@ const vnEngine: VnEngineApi = {
       method: 'dialogue.delete',
       params: { sceneId, nodeId },
     }),
+  deleteDialogues: (params) =>
+    invokeEngine({
+      method: 'dialogue.deleteMany',
+      params,
+    }),
   moveDialogue: (sceneId, nodeId, direction) =>
     invokeEngine({
       method: 'dialogue.move',
       params: { sceneId, nodeId, direction },
+    }),
+  reorderDialogue: (params) =>
+    invokeEngine({
+      method: 'dialogue.reorder',
+      params,
+    }),
+  reorderDialogues: (params) =>
+    invokeEngine({
+      method: 'dialogue.reorderMany',
+      params,
     }),
 };
 

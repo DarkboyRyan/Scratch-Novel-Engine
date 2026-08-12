@@ -33,15 +33,25 @@ export function isEngineInvocation(
       return hasString('sceneId') && hasString('name');
     case 'scene.delete':
       return hasString('sceneId');
-    case 'dialogue.add':
+    case 'dialogue.add': {
+      const hasAfterNodeId = hasString('afterNodeId');
+      const hasBeforeNodeId = hasString('beforeNodeId');
+
       return (
         hasString('sceneId') &&
         (params.afterNodeId === undefined ||
           params.afterNodeId === null ||
-          hasString('afterNodeId')) &&
-        (params.speaker === undefined || hasString('speaker')) &&
-        (params.text === undefined || hasString('text'))
+          hasAfterNodeId) &&
+        (params.beforeNodeId === undefined ||
+          params.beforeNodeId === null ||
+          hasBeforeNodeId) &&
+        !(hasAfterNodeId && hasBeforeNodeId) &&
+        (params.speaker === undefined ||
+          hasString('speaker')) &&
+        (params.text === undefined ||
+          hasString('text'))
       );
+    }
     case 'dialogue.update':
       return (
         hasString('sceneId') &&
@@ -51,11 +61,36 @@ export function isEngineInvocation(
       );
     case 'dialogue.delete':
       return hasString('sceneId') && hasString('nodeId');
+    case 'dialogue.deleteMany':
+    case 'dialogue.reorderMany': {
+      const hasValidNodeIds =
+        Array.isArray(params.nodeIds) &&
+        params.nodeIds.length > 0 &&
+        params.nodeIds.every(
+          (nodeId) => typeof nodeId === 'string',
+        ) &&
+        new Set(params.nodeIds).size === params.nodeIds.length;
+
+      return (
+        hasString('sceneId') &&
+        hasValidNodeIds &&
+        (value.method === 'dialogue.deleteMany' ||
+          params.beforeNodeId === null ||
+          hasString('beforeNodeId'))
+      );
+    }
     case 'dialogue.move':
       return (
         hasString('sceneId') &&
         hasString('nodeId') &&
         (params.direction === -1 || params.direction === 1)
+      );
+    case 'dialogue.reorder':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        (params.beforeNodeId === null ||
+          hasString('beforeNodeId'))
       );
     default:
       return false;

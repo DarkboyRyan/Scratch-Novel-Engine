@@ -111,6 +111,84 @@ void inserts_empty_dialogue_after_selected_node() {
   CHECK(!vnengine::add_dialogue(project, ids, "missing-scene").has_value());
 }
 
+void inserts_dialogue_before_requested_node() {
+  SequenceIdGenerator ids;
+  vnengine::Project project =
+      vnengine::create_empty_project(ids);
+  const std::string scene_id =
+      project.entry_scene_id;
+
+  const std::string first_id =
+      *vnengine::add_dialogue(
+          project, ids, scene_id, "A", "第一句");
+  const std::string second_id =
+      *vnengine::add_dialogue(
+          project, ids, scene_id, "B", "第二句");
+
+  const std::string before_first_id =
+      *vnengine::add_dialogue(
+          project,
+          ids,
+          scene_id,
+          "Start",
+          "最前面",
+          std::nullopt,
+          first_id);
+
+  const std::string before_second_id =
+      *vnengine::add_dialogue(
+          project,
+          ids,
+          scene_id,
+          "Middle",
+          "中间",
+          std::nullopt,
+          second_id);
+
+  const vnengine::Scene* scene =
+      vnengine::find_scene(project, scene_id);
+
+  CHECK(scene != nullptr);
+  CHECK(scene->nodes.size() == 4);
+  CHECK(scene->nodes[0].id == before_first_id);
+  CHECK(scene->nodes[1].id == first_id);
+  CHECK(scene->nodes[2].id == before_second_id);
+  CHECK(scene->nodes[3].id == second_id);
+
+  const auto node_count = scene->nodes.size();
+
+  // 不存在的 before 目标必须被拒绝。
+  CHECK(!vnengine::add_dialogue(
+             project,
+             ids,
+             scene_id,
+             "",
+             "",
+             std::nullopt,
+             "missing-node")
+             .has_value());
+  CHECK(scene->nodes.size() == node_count);
+
+  // 同时提供 after 和 before 也必须被拒绝。
+  CHECK(!vnengine::add_dialogue(
+             project,
+             ids,
+             scene_id,
+             "",
+             "",
+             first_id,
+             second_id)
+             .has_value());
+  CHECK(scene->nodes.size() == node_count);
+
+  // 两次失败操作都不应消耗 ID；下一个成功节点仍然是 id-7。
+  const std::string appended_id = *vnengine::add_dialogue(
+      project, ids, scene_id, "End", "最后一句");
+  CHECK(appended_id == "id-7");
+  CHECK(scene->nodes.size() == node_count + 1);
+  CHECK(scene->nodes.back().id == appended_id);
+}
+
 void updates_deletes_and_moves_dialogue() {
   SequenceIdGenerator ids;
   vnengine::Project project = vnengine::create_empty_project(ids);
@@ -142,6 +220,145 @@ void updates_deletes_and_moves_dialogue() {
   CHECK(scene->nodes[0].id == second_id);
   CHECK(scene->nodes[1].id == third_id);
   CHECK(!vnengine::delete_dialogue(project, scene_id, "missing"));
+  CHECK(!vnengine::validate_project(project).has_value());
+}
+
+void reorders_one_dialogue_to_an_arbitrary_position() {
+  SequenceIdGenerator ids;
+  vnengine::Project project = vnengine::create_empty_project(ids);
+  const std::string scene_id = project.entry_scene_id;
+  const std::string first_id = *vnengine::add_dialogue(
+      project, ids, scene_id, "A", "1");
+  const std::string second_id = *vnengine::add_dialogue(
+      project, ids, scene_id, "B", "2");
+  const std::string third_id = *vnengine::add_dialogue(
+      project, ids, scene_id, "C", "3");
+  const std::string fourth_id = *vnengine::add_dialogue(
+      project, ids, scene_id, "D", "4");
+
+  auto dialogue_ids = [&project, &scene_id]() {
+    std::vector<std::string> result;
+    const vnengine::Scene* scene = vnengine::find_scene(project, scene_id);
+    for (const vnengine::Dialogue& dialogue : scene->nodes) {
+      result.push_back(dialogue.id);
+    }
+    return result;
+  };
+
+  CHECK(vnengine::reorder_dialogue(
+      project, scene_id, fourth_id, second_id));
+  CHECK(dialogue_ids() ==
+        std::vector<std::string>({first_id, fourth_id, second_id, third_id}));
+
+  CHECK(vnengine::reorder_dialogue(
+      project, scene_id, first_id, third_id));
+  CHECK(dialogue_ids() ==
+        std::vector<std::string>({fourth_id, second_id, first_id, third_id}));
+
+  CHECK(vnengine::reorder_dialogue(
+      project, scene_id, second_id, std::nullopt));
+  CHECK(dialogue_ids() ==
+        std::vector<std::string>({fourth_id, first_id, third_id, second_id}));
+
+  CHECK(!vnengine::reorder_dialogue(
+      project, scene_id, second_id, std::nullopt));
+  CHECK(!vnengine::reorder_dialogue(
+      project, scene_id, first_id, first_id));
+  CHECK(!vnengine::reorder_dialogue(
+      project, scene_id, "missing", first_id));
+  CHECK(!vnengine::reorder_dialogue(
+      project, scene_id, first_id, "missing"));
+  CHECK(!vnengine::reorder_dialogue(
+      project, "missing", first_id, std::nullopt));
+  CHECK(dialogue_ids() ==
+        std::vector<std::string>({fourth_id, first_id, third_id, second_id}));
+  CHECK(!vnengine::validate_project(project).has_value());
+}
+
+void reorders_multiple_dialogues_atomically() {
+  SequenceIdGenerator ids;
+  vnengine::Project project = vnengine::create_empty_project(ids);
+  const std::string scene_id = project.entry_scene_id;
+  std::vector<std::string> dialogue_ids;
+
+  for (const std::string& speaker : {"A", "B", "C", "D", "E", "F"}) {
+    dialogue_ids.push_back(*vnengine::add_dialogue(
+        project, ids, scene_id, speaker, speaker));
+  }
+
+  auto current_ids = [&project, &scene_id]() {
+    std::vector<std::string> result;
+    for (const vnengine::Dialogue& dialogue :
+         vnengine::find_scene(project, scene_id)->nodes) {
+      result.push_back(dialogue.id);
+    }
+    return result;
+  };
+
+  const std::string& first = dialogue_ids[0];
+  const std::string& second = dialogue_ids[1];
+  const std::string& third = dialogue_ids[2];
+  const std::string& fourth = dialogue_ids[3];
+  const std::string& fifth = dialogue_ids[4];
+  const std::string& sixth = dialogue_ids[5];
+
+  // Even a reverse-order payload moves the selection in authoritative order.
+  CHECK(vnengine::reorder_dialogues(
+      project, scene_id, {fourth, second}, fifth));
+  CHECK(current_ids() ==
+        std::vector<std::string>({first, third, second, fourth, fifth, sixth}));
+
+  CHECK(vnengine::reorder_dialogues(
+      project, scene_id, {second, fourth}, first));
+  CHECK(current_ids() ==
+        std::vector<std::string>({second, fourth, first, third, fifth, sixth}));
+
+  CHECK(vnengine::reorder_dialogues(
+      project, scene_id, {second, fourth}, std::nullopt));
+  CHECK(current_ids() ==
+        std::vector<std::string>({first, third, fifth, sixth, second, fourth}));
+
+  const std::vector<std::string> unchanged = current_ids();
+  CHECK(!vnengine::reorder_dialogues(
+      project, scene_id, {}, std::nullopt));
+  CHECK(!vnengine::reorder_dialogues(
+      project, scene_id, {first, first}, std::nullopt));
+  CHECK(!vnengine::reorder_dialogues(
+      project, scene_id, {first, "missing"}, std::nullopt));
+  CHECK(!vnengine::reorder_dialogues(
+      project, scene_id, {first, third}, third));
+  CHECK(!vnengine::reorder_dialogues(
+      project, scene_id, {first}, "missing"));
+  CHECK(!vnengine::reorder_dialogues(
+      project, "missing", {first}, std::nullopt));
+  CHECK(current_ids() == unchanged);
+  CHECK(!vnengine::validate_project(project).has_value());
+}
+
+void deletes_multiple_dialogues_atomically() {
+  SequenceIdGenerator ids;
+  vnengine::Project project = vnengine::create_empty_project(ids);
+  const std::string scene_id = project.entry_scene_id;
+  const std::string first_id = *vnengine::add_dialogue(
+      project, ids, scene_id, "A", "1");
+  const std::string second_id = *vnengine::add_dialogue(
+      project, ids, scene_id, "B", "2");
+  const std::string third_id = *vnengine::add_dialogue(
+      project, ids, scene_id, "C", "3");
+
+  CHECK(!vnengine::delete_dialogues(
+      project, scene_id, {first_id, "missing"}));
+  CHECK(vnengine::find_scene(project, scene_id)->nodes.size() == 3);
+
+  CHECK(!vnengine::delete_dialogues(
+      project, scene_id, {first_id, first_id}));
+  CHECK(vnengine::find_scene(project, scene_id)->nodes.size() == 3);
+
+  CHECK(vnengine::delete_dialogues(
+      project, scene_id, {first_id, third_id}));
+  const vnengine::Scene* scene = vnengine::find_scene(project, scene_id);
+  CHECK(scene->nodes.size() == 1);
+  CHECK(scene->nodes[0].id == second_id);
   CHECK(!vnengine::validate_project(project).has_value());
 }
 
@@ -180,9 +397,18 @@ int main() {
       {"preserves scene deletion rules", preserves_scene_deletion_rules},
       {"inserts empty dialogue after selected node",
        inserts_empty_dialogue_after_selected_node},
+      {"inserts dialogue before requested node",
+       inserts_dialogue_before_requested_node},
       {"updates deletes and moves dialogue",
        updates_deletes_and_moves_dialogue},
-      {"detects invalid project invariants", detects_invalid_project_invariants},
+      {"reorders one dialogue to an arbitrary position",
+       reorders_one_dialogue_to_an_arbitrary_position},
+      {"reorders multiple dialogues atomically",
+       reorders_multiple_dialogues_atomically},
+      {"deletes multiple dialogues atomically",
+       deletes_multiple_dialogues_atomically},
+      {"detects invalid project invariants",
+       detects_invalid_project_invariants},
       {"normalizes committed dialogue content",
        normalizes_committed_dialogue_content},
   };
