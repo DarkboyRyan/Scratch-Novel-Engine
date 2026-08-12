@@ -1,12 +1,17 @@
 import { useEffect, useState } from 'react';
 
-import type { EngineMutationResult } from '../../shared/engineProtocol';
+import type {
+  AddDialogueParams,
+  DeleteDialoguesParams,
+  EngineMutationResult,
+  ReorderDialogueParams,
+  ReorderDialoguesParams,
+} from '../../shared/engineProtocol';
 import type { ProjectDocument } from '../../shared/projectTypes';
 import { EMPTY_DIALOGUE_MESSAGE } from '../editorMessages';
 
 export type AddDialogueAction = (
-  sceneId: string,
-  afterNodeId?: string | null,
+  params: AddDialogueParams,
 ) => Promise<boolean>;
 
 export type UpdateDialogueAction = (
@@ -14,6 +19,18 @@ export type UpdateDialogueAction = (
   nodeId: string,
   speaker: string,
   text: string,
+) => Promise<boolean>;
+
+export type ReorderDialogueAction = (
+  params: ReorderDialogueParams,
+) => Promise<boolean>;
+
+export type ReorderDialoguesAction = (
+  params: ReorderDialoguesParams,
+) => Promise<boolean>;
+
+export type DeleteDialoguesAction = (
+  params: DeleteDialoguesParams,
 ) => Promise<boolean>;
 
 // StrictMode 会在开发环境重复挂载。共享初始化 Promise 可以避免因此向 C++
@@ -97,11 +114,10 @@ export function useEngineProject() {
   }
 
   async function addDialogue(
-    sceneId: string,
-    afterNodeId?: string | null,
+    params: AddDialogueParams,
   ): Promise<boolean> {
     const result = await runEngineAction(() =>
-      window.vnEngine.addDialogue(sceneId, afterNodeId),
+      window.vnEngine.addDialogue(params),
     );
 
     return result !== null;
@@ -125,6 +141,36 @@ export function useEngineProject() {
     return result !== null;
   }
 
+  async function reorderDialogue(
+    params: ReorderDialogueParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.reorderDialogue(params),
+    );
+
+    return result !== null;
+  }
+
+  async function reorderDialogues(
+    params: ReorderDialoguesParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.reorderDialogues(params),
+    );
+
+    return result !== null;
+  }
+
+  async function deleteDialogues(
+    params: DeleteDialoguesParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.deleteDialogues(params),
+    );
+
+    return result !== null;
+  }
+
   return {
     project,
     isBusy,
@@ -133,6 +179,9 @@ export function useEngineProject() {
     runEngineAction,
     addDialogue,
     updateDialogue,
+    reorderDialogue,
+    reorderDialogues,
+    deleteDialogues,
   };
 }
 

@@ -51,6 +51,22 @@ export function useFormEditor({
     (node) => node.id === selectedNodeId,
   );
 
+  // 图形化编辑器可能删除表单当前选中的节点。Project 更新后清理
+  // 失效选择，避免切回表单时还显示已经删除的对白草稿。
+  useEffect(() => {
+    if (
+      !scene ||
+      selectedNodeId === null ||
+      scene.nodes.some((node) => node.id === selectedNodeId)
+    ) {
+      return;
+    }
+
+    setSelectedNodeId(null);
+    setSpeaker('');
+    setText('');
+  }, [scene, selectedNodeId]);
+
   // 如果其他编辑模式更新了当前节点，就用 C++ 最新快照刷新表单草稿。
   // 依赖具体字段值，避免无关的 Project 更新覆盖未提交草稿。
   useEffect(() => {
@@ -114,7 +130,10 @@ export function useFormEditor({
     }
 
     const result = await runEngineAction(() =>
-      window.vnEngine.addDialogue(scene.id, selectedNodeId),
+      window.vnEngine.addDialogue({
+        sceneId: scene.id,
+        afterNodeId: selectedNodeId,
+      }),
     );
 
     if (!result?.nodeId) {
@@ -167,12 +186,12 @@ export function useFormEditor({
     }
 
     const result = await runEngineAction(() =>
-      window.vnEngine.addDialogue(
-        scene.id,
-        null,
+      window.vnEngine.addDialogue({
+        sceneId: scene.id,
+        afterNodeId: null,
         speaker,
         text,
-      ),
+      }),
     );
 
     if (result) {

@@ -1,5 +1,8 @@
 import type {
   AddDialogueAction,
+  DeleteDialoguesAction,
+  ReorderDialogueAction,
+  ReorderDialoguesAction,
   UpdateDialogueAction,
 } from '../../hooks/useEngineProject';
 
@@ -9,20 +12,29 @@ import type {
 } from '../../../shared/projectTypes';
 
 import { BlocklyWorkspace } from './BlocklyWorkspace';
+import type { BlockEditorLayoutStore } from './blockEditorLayout';
 
 type BlockEditorProps = {
   project: ProjectDocument;
   scene: SceneDocument;
+  layoutStore: BlockEditorLayoutStore;
   onSceneChange: (sceneId: string) => void;
   onDialogueUpdate: UpdateDialogueAction;
   onDialogueAdd: AddDialogueAction;
+  onDialogueReorder: ReorderDialogueAction;
+  onDialoguesReorder: ReorderDialoguesAction;
+  onDialogueDelete: DeleteDialoguesAction;
 };
 
 export function BlockEditor({
   project,
   scene,
+  layoutStore,
   onSceneChange,
   onDialogueAdd,
+  onDialogueReorder,
+  onDialoguesReorder,
+  onDialogueDelete,
   onDialogueUpdate,
 }: BlockEditorProps) {
   return (
@@ -61,7 +73,7 @@ export function BlockEditor({
           </label>
 
           <span className="block-editor-sync-badge">
-            可新增和编辑对白
+            长按空白框选 · 拖动选择组 · Delete 删除
           </span>
         </div>
       </header>
@@ -72,7 +84,12 @@ export function BlockEditor({
       >
         <BlocklyWorkspace
           scene={scene}
+          layoutKey={`${project.id}:${scene.id}`}
+          layoutStore={layoutStore}
           onDialogueAdd={onDialogueAdd}
+          onDialogueReorder={onDialogueReorder}
+          onDialoguesReorder={onDialoguesReorder}
+          onDialogueDelete={onDialogueDelete}
           onDialogueUpdate={onDialogueUpdate}
         />
       </section>

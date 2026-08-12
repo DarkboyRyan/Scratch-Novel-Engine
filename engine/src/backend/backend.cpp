@@ -5,7 +5,9 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
@@ -37,6 +39,38 @@ std::string required_string(
         "params." + key + " must be a string");
   }
   return object.at(key).get<std::string>();
+}
+
+std::vector<std::string> required_unique_string_array(
+    const Json& object,
+    const std::string_view field_name) {
+  const std::string key(field_name);
+  if (!object.contains(key) || !object.at(key).is_array() ||
+      object.at(key).empty()) {
+    throw ProtocolError(
+        "invalid_params",
+        "params." + key + " must be a non-empty string array");
+  }
+
+  std::vector<std::string> values;
+  std::unordered_set<std::string> unique_values;
+  for (const Json& value : object.at(key)) {
+    if (!value.is_string()) {
+      throw ProtocolError(
+          "invalid_params",
+          "params." + key + " must contain only strings");
+    }
+
+    const std::string text = value.get<std::string>();
+    if (!unique_values.insert(text).second) {
+      throw ProtocolError(
+          "invalid_params",
+          "params." + key + " must not contain duplicates");
+    }
+    values.push_back(text);
+  }
+
+  return values;
 }
 
 Json success_response(
@@ -143,17 +177,41 @@ Json Backend::handle(const Json& request) {
         !params.at("afterNodeId").is_null()) {
       after_dialogue_id = required_string(params, "afterNodeId");
     }
+    std::optional<std::string> before_dialogue_id;
+    if (params.contains("beforeNodeId") &&
+        !params.at("beforeNodeId").is_null()) {
+      before_dialogue_id = required_string(params, "beforeNodeId");
+    }
 
-    std::string speaker = params.contains("speaker")
+    vnengine::Scene* scene = vnengine::find_scene(project, scene_id);
+    if (scene == nullptr) {
+      throw ProtocolError("scene_not_found", "scene does not exist");
+    }
+    if (after_dialogue_id.has_value() &&
+        before_dialogue_id.has_value()) {
+      throw ProtocolError(
+          "dialogue_placement_conflict",
+          "afterNodeId and beforeNodeId cannot both be provided");
+    }
+    if (before_dialogue_id.has_value() &&
+        vnengine::find_dialogue(*scene, *before_dialogue_id) == nullptr) {
+      throw ProtocolError(
+          "dialogue_not_found", "before dialogue does not exist");
+    }
+
+    const bool has_speaker = params.contains("speaker");
+    const bool has_text = params.contains("text");
+    std::string speaker = has_speaker
         ? required_string(params, "speaker")
         : std::string{};
-    std::string text = params.contains("text")
+    std::string text = has_text
         ? required_string(params, "text")
         : std::string{};
 
-    // Missing content fields mean the toolbar "+" requested an editable
-    // placeholder. Present fields mean the form requested committed content.
-    if (params.contains("speaker") || params.contains("text")) {
+    // text 存在表示表单正在提交完整对白，必须通过内容校验。
+    // 只有 speaker 而没有 text 表示尚未连接的新积木草稿：保留角色名，
+    // 但仍允许空文本，连接后用户可以继续编辑。
+    if (has_text) {
       const auto content = vnengine::normalize_dialogue_content(
           std::move(speaker), std::move(text));
       if (!content.has_value()) {
@@ -170,9 +228,11 @@ Json Backend::handle(const Json& request) {
         scene_id,
         speaker,
         text,
-        std::move(after_dialogue_id));
+        std::move(after_dialogue_id),
+        std::move(before_dialogue_id));
     if (!node_id.has_value()) {
-      throw ProtocolError("scene_not_found", "scene does not exist");
+      throw ProtocolError(
+          "dialogue_add_failed", "could not add dialogue");
     }
     return success_response(
         request_id(request), project_, scene_id, node_id);
@@ -183,22 +243,40 @@ Json Backend::handle(const Json& request) {
     if (scene == nullptr) {
       throw ProtocolError("scene_not_found", "scene does not exist");
     }
-    if (vnengine::find_dialogue(*scene, node_id) == nullptr) {
+    vnengine::Dialogue* dialogue = vnengine::find_dialogue(*scene, node_id);
+    if (dialogue == nullptr) {
       throw ProtocolError("dialogue_not_found", "dialogue does not exist");
     }
+
+    std::string speaker = required_string(params, "speaker");
+    std::string text = required_string(params, "text");
     const auto content = vnengine::normalize_dialogue_content(
-        required_string(params, "speaker"),
-        required_string(params, "text"));
+        speaker,
+        text);
     if (!content.has_value()) {
-      throw ProtocolError(
-          "dialogue_text_required", "dialogue text must not be empty");
+      // An empty node created by "+" is an editing placeholder. Persisting a
+      // speaker-first edit keeps Blockly and C++ in sync without turning the
+      // placeholder into committed dialogue. Once text has been committed,
+      // clearing it is still rejected.
+      if (!dialogue->text.empty()) {
+        throw ProtocolError(
+            "dialogue_text_required", "dialogue text must not be empty");
+      }
+
+      vnengine::update_dialogue(
+          project,
+          scene_id,
+          node_id,
+          std::move(speaker),
+          {});
+    } else {
+      vnengine::update_dialogue(
+          project,
+          scene_id,
+          node_id,
+          content->speaker,
+          content->text);
     }
-    vnengine::update_dialogue(
-        project,
-        scene_id,
-        node_id,
-        content->speaker,
-        content->text);
   } else if (method == "dialogue.delete") {
     const std::string scene_id = required_string(params, "sceneId");
     const std::string node_id = required_string(params, "nodeId");
@@ -210,6 +288,23 @@ Json Backend::handle(const Json& request) {
       throw ProtocolError("dialogue_not_found", "dialogue does not exist");
     }
     vnengine::delete_dialogue(project, scene_id, node_id);
+  } else if (method == "dialogue.deleteMany") {
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::vector<std::string> node_ids =
+        required_unique_string_array(params, "nodeIds");
+
+    vnengine::Scene* scene = vnengine::find_scene(project, scene_id);
+    if (scene == nullptr) {
+      throw ProtocolError("scene_not_found", "scene does not exist");
+    }
+
+    for (const std::string& node_id : node_ids) {
+      if (vnengine::find_dialogue(*scene, node_id) == nullptr) {
+        throw ProtocolError("dialogue_not_found", "dialogue does not exist");
+      }
+    }
+
+    vnengine::delete_dialogues(project, scene_id, node_ids);
   } else if (method == "dialogue.move") {
     const std::string scene_id = required_string(params, "sceneId");
     const std::string node_id = required_string(params, "nodeId");
@@ -231,6 +326,89 @@ Json Backend::handle(const Json& request) {
       throw ProtocolError("dialogue_not_found", "dialogue does not exist");
     }
     vnengine::move_dialogue(project, scene_id, node_id, direction);
+  } else if (method == "dialogue.reorder") {
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::string node_id = required_string(params, "nodeId");
+
+    if (!params.contains("beforeNodeId") ||
+        (!params.at("beforeNodeId").is_null() &&
+         !params.at("beforeNodeId").is_string())) {
+      throw ProtocolError(
+          "invalid_params",
+          "params.beforeNodeId must be a string or null");
+    }
+
+    std::optional<std::string> before_dialogue_id;
+    if (!params.at("beforeNodeId").is_null()) {
+      before_dialogue_id = required_string(params, "beforeNodeId");
+    }
+
+    vnengine::Scene* scene = vnengine::find_scene(project, scene_id);
+    if (scene == nullptr) {
+      throw ProtocolError("scene_not_found", "scene does not exist");
+    }
+    if (vnengine::find_dialogue(*scene, node_id) == nullptr) {
+      throw ProtocolError("dialogue_not_found", "dialogue does not exist");
+    }
+    if (before_dialogue_id.has_value() &&
+        vnengine::find_dialogue(*scene, *before_dialogue_id) == nullptr) {
+      throw ProtocolError(
+          "dialogue_not_found", "before dialogue does not exist");
+    }
+
+    // A legal no-op is still a successful command. The renderer may emit one
+    // when a block is dropped back in its original position.
+    vnengine::reorder_dialogue(
+        project,
+        scene_id,
+        node_id,
+        std::move(before_dialogue_id));
+  } else if (method == "dialogue.reorderMany") {
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::vector<std::string> node_ids =
+        required_unique_string_array(params, "nodeIds");
+
+    if (!params.contains("beforeNodeId") ||
+        (!params.at("beforeNodeId").is_null() &&
+         !params.at("beforeNodeId").is_string())) {
+      throw ProtocolError(
+          "invalid_params",
+          "params.beforeNodeId must be a string or null");
+    }
+
+    vnengine::Scene* scene = vnengine::find_scene(project, scene_id);
+    if (scene == nullptr) {
+      throw ProtocolError("scene_not_found", "scene does not exist");
+    }
+
+    const std::unordered_set<std::string> selected_ids(
+        node_ids.begin(), node_ids.end());
+    for (const std::string& node_id : node_ids) {
+      if (vnengine::find_dialogue(*scene, node_id) == nullptr) {
+        throw ProtocolError("dialogue_not_found", "dialogue does not exist");
+      }
+    }
+
+    std::optional<std::string> before_dialogue_id;
+    if (!params.at("beforeNodeId").is_null()) {
+      before_dialogue_id = required_string(params, "beforeNodeId");
+      if (selected_ids.contains(*before_dialogue_id)) {
+        throw ProtocolError(
+            "invalid_params",
+            "params.beforeNodeId must not be one of params.nodeIds");
+      }
+      if (vnengine::find_dialogue(*scene, *before_dialogue_id) == nullptr) {
+        throw ProtocolError(
+            "dialogue_not_found", "before dialogue does not exist");
+      }
+    }
+
+    // Legal no-ops still return a successful authoritative snapshot.
+    vnengine::reorder_dialogues(
+        project,
+        scene_id,
+        node_ids,
+        std::move(before_dialogue_id));
   } else {
     throw ProtocolError("method_not_found", "unknown method: " + method);
   }

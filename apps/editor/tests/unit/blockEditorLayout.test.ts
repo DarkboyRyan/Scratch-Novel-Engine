@@ -1,0 +1,159 @@
+import type * as Blockly from 'blockly';
+import { describe, expect, it, vi } from 'vitest';
+
+import {
+  captureSceneWorkspaceLayout,
+  restoreSceneWorkspaceViewport,
+  type SceneWorkspaceLayout,
+} from '../../src/renderer/features/block-editor/blockEditorLayout';
+import { DIALOGUE_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/dialogueBlock';
+import type { SceneDocument } from '../../src/shared/projectTypes';
+
+const scene: SceneDocument = {
+  schemaVersion: 1,
+  id: 'scene-1',
+  name: '场景 1',
+  nodes: [
+    {
+      id: 'node-1',
+      type: 'dialogue',
+      speaker: 'A',
+      text: '第一句',
+    },
+    {
+      id: 'node-2',
+      type: 'dialogue',
+      speaker: 'B',
+      text: '第二句',
+    },
+  ],
+};
+
+function createRootBlock(
+  id: string,
+  descendantIds: string[],
+  x: number,
+  y: number,
+): Blockly.BlockSvg {
+  const root = {
+    id,
+    type: DIALOGUE_BLOCK_TYPE,
+    getDescendants: () =>
+      descendantIds.map((descendantId) => ({ id: descendantId })),
+    getRelativeToSurfaceXY: () => ({ x, y }),
+    getRootBlock: () => root,
+  };
+
+  return root as unknown as Blockly.BlockSvg;
+}
+
+function createWorkspace(
+  roots: Blockly.BlockSvg[],
+  {
+    scale = 0.9,
+    scrollX = -40,
+    scrollY = -20,
+  } = {},
+): Blockly.WorkspaceSvg {
+  return {
+    getTopBlocks: () => roots,
+    getScale: () => scale,
+    scrollX,
+    scrollY,
+  } as unknown as Blockly.WorkspaceSvg;
+}
+
+describe('captureSceneWorkspaceLayout', () => {
+  it('captures the complete dialogue chain and current viewport', () => {
+    const root = createRootBlock(
+      'node-1',
+      ['node-1', 'node-2'],
+      240,
+      180,
+    );
+
+    expect(
+      captureSceneWorkspaceLayout(
+        scene,
+        createWorkspace([root]),
+      ),
+    ).toEqual({
+      rootPosition: { x: 240, y: 180 },
+      scale: 0.9,
+      scrollX: -40,
+      scrollY: -20,
+    });
+  });
+
+  it('does not let a temporarily split stack replace the saved root', () => {
+    const previousLayout: SceneWorkspaceLayout = {
+      rootPosition: { x: 240, y: 180 },
+      scale: 0.9,
+      scrollX: -40,
+      scrollY: -20,
+    };
+    const first = createRootBlock('node-1', ['node-1'], 600, 400);
+    const second = createRootBlock('node-2', ['node-2'], 240, 270);
+
+    expect(
+      captureSceneWorkspaceLayout(
+        scene,
+        createWorkspace([first, second], {
+          scale: 1.1,
+          scrollX: -120,
+          scrollY: -80,
+        }),
+        previousLayout,
+      ),
+    ).toEqual({
+      rootPosition: { x: 240, y: 180 },
+      scale: 1.1,
+      scrollX: -120,
+      scrollY: -80,
+    });
+  });
+
+  it('uses the actual first drop position in an empty scene', () => {
+    const emptyScene: SceneDocument = {
+      ...scene,
+      nodes: [],
+    };
+    const temporaryBlock = createRootBlock(
+      'temporary-id',
+      ['temporary-id'],
+      520,
+      310,
+    );
+
+    expect(
+      captureSceneWorkspaceLayout(
+        emptyScene,
+        createWorkspace([temporaryBlock]),
+        undefined,
+        { preferredRoot: temporaryBlock },
+      ).rootPosition,
+    ).toEqual({ x: 520, y: 310 });
+  });
+});
+
+describe('restoreSceneWorkspaceViewport', () => {
+  it('restores zoom before the clamped scroll position', () => {
+    const setScale = vi.fn();
+    const scroll = vi.fn();
+    const workspace = {
+      getScale: () => 0.9,
+      setScale,
+      scroll,
+    } as unknown as Blockly.WorkspaceSvg;
+
+    restoreSceneWorkspaceViewport(workspace, {
+      rootPosition: { x: 240, y: 180 },
+      scale: 1.2,
+      scrollX: -140,
+      scrollY: -90,
+    });
+
+    expect(setScale).toHaveBeenCalledWith(1.2);
+    expect(scroll).toHaveBeenCalledWith(-140, -90);
+  });
+});

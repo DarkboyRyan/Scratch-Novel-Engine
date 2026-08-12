@@ -4,6 +4,7 @@
 #include <random>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "vnengine/model.hpp"
 
@@ -43,7 +44,7 @@ std::string next_scene_name(const Project& project);
 
 // A committed dialogue must contain text. Whitespace is trimmed and an empty
 // speaker becomes “旁白”. Empty placeholder nodes created by the "+" command
-// deliberately bypass this function until the user saves them.
+// bypass this function while the user is still editing their draft fields.
 std::optional<DialogueContent> normalize_dialogue_content(
     std::string speaker,
     std::string text);
@@ -65,7 +66,8 @@ std::optional<std::string> add_dialogue(
     std::string_view scene_id,
     std::string speaker = {},
     std::string text = {},
-    std::optional<std::string> after_dialogue_id = std::nullopt);
+    std::optional<std::string> after_dialogue_id = std::nullopt,
+    std::optional<std::string> before_dialogue_id = std::nullopt);
 bool update_dialogue(
     Project& project,
     std::string_view scene_id,
@@ -76,11 +78,32 @@ bool delete_dialogue(
     Project& project,
     std::string_view scene_id,
     std::string_view dialogue_id);
+// Deletes all requested dialogues atomically. Validation happens before the
+// vector is changed, so one missing or duplicate ID leaves the scene intact.
+bool delete_dialogues(
+    Project& project,
+    std::string_view scene_id,
+    const std::vector<std::string>& dialogue_ids);
 bool move_dialogue(
     Project& project,
     std::string_view scene_id,
     std::string_view dialogue_id,
     int direction);
+// Moves one dialogue before another dialogue. A missing before ID means the
+// end of the scene. Unlike move_dialogue, this supports an arbitrary drop.
+bool reorder_dialogue(
+    Project& project,
+    std::string_view scene_id,
+    std::string_view dialogue_id,
+    std::optional<std::string> before_dialogue_id);
+// Moves a selection as one atomic bundle. The payload is treated as a set:
+// selected dialogues keep their current Scene order even if IDs arrive in a
+// different order. A missing before ID means the end of the scene.
+bool reorder_dialogues(
+    Project& project,
+    std::string_view scene_id,
+    const std::vector<std::string>& dialogue_ids,
+    std::optional<std::string> before_dialogue_id);
 
 // Returns a human-readable invariant violation, or nullopt when valid.
 std::optional<std::string> validate_project(const Project& project);

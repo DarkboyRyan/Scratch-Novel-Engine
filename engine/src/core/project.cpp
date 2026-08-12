@@ -4,6 +4,7 @@
 #include <array>
 #include <cstddef>
 #include <iomanip>
+#include <iterator>
 #include <sstream>
 #include <unordered_set>
 #include <utility>
@@ -206,12 +207,49 @@ std::optional<std::string> add_dialogue(
     const std::string_view scene_id,
     std::string speaker,
     std::string text,
-    std::optional<std::string> after_dialogue_id) {
+    std::optional<std::string> after_dialogue_id,
+    std::optional<std::string> before_dialogue_id) {
   Scene* scene = find_scene(project, scene_id);
+
   if (scene == nullptr) {
     return std::nullopt;
   }
 
+  // 同时指定“前面”和“后面”会产生歧义，因此拒绝。
+  if (after_dialogue_id.has_value() &&
+      before_dialogue_id.has_value()) {
+    return std::nullopt;
+  }
+
+  auto insertion_iterator = scene->nodes.end();
+
+  if (before_dialogue_id.has_value()) {
+    insertion_iterator = std::find_if(
+        scene->nodes.begin(),
+        scene->nodes.end(),
+        [&before_dialogue_id](const Dialogue& current) {
+          return current.id == *before_dialogue_id;
+        });
+
+    // before 的目标不存在时，不能猜测用户想放在哪里。
+    if (insertion_iterator == scene->nodes.end()) {
+      return std::nullopt;
+    }
+  } else if (after_dialogue_id.has_value()) {
+    const auto after_iterator = std::find_if(
+        scene->nodes.begin(),
+        scene->nodes.end(),
+        [&after_dialogue_id](const Dialogue& current) {
+          return current.id == *after_dialogue_id;
+        });
+
+    // 保留旧行为：无效的 after ID 会追加到末尾。
+    if (after_iterator != scene->nodes.end()) {
+      insertion_iterator = std::next(after_iterator);
+    }
+  }
+
+  // 位置验证成功后才生成 ID，避免失败请求浪费一个 ID。
   Dialogue dialogue{
       .id = ids.next(),
       .speaker = std::move(speaker),
@@ -219,20 +257,11 @@ std::optional<std::string> add_dialogue(
   };
   std::string created_id = dialogue.id;
 
-  const auto after_iterator = after_dialogue_id.has_value()
-      ? std::find_if(
-            scene->nodes.begin(),
-            scene->nodes.end(),
-            [&after_dialogue_id](const Dialogue& current) {
-              return current.id == *after_dialogue_id;
-            })
-      : scene->nodes.end();
-
-  if (after_iterator == scene->nodes.end()) {
-    scene->nodes.push_back(std::move(dialogue));
-  } else {
-    scene->nodes.insert(std::next(after_iterator), std::move(dialogue));
-  }
+  // vector::insert 会把元素插到 iterator 指向元素的前面。
+  // 当 iterator 是 end() 时，就相当于追加到末尾。
+  scene->nodes.insert(
+      insertion_iterator,
+      std::move(dialogue));
 
   return created_id;
 }
@@ -275,6 +304,29 @@ bool delete_dialogue(
   return scene->nodes.size() != old_size;
 }
 
+bool delete_dialogues(
+    Project& project,
+    const std::string_view scene_id,
+    const std::vector<std::string>& dialogue_ids) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr || dialogue_ids.empty()) {
+    return false;
+  }
+
+  std::unordered_set<std::string> requested_ids;
+  for (const std::string& dialogue_id : dialogue_ids) {
+    if (!requested_ids.insert(dialogue_id).second ||
+        find_dialogue(*scene, dialogue_id) == nullptr) {
+      return false;
+    }
+  }
+
+  std::erase_if(scene->nodes, [&requested_ids](const Dialogue& dialogue) {
+    return requested_ids.contains(dialogue.id);
+  });
+  return true;
+}
+
 bool move_dialogue(
     Project& project,
     const std::string_view scene_id,
@@ -311,6 +363,89 @@ bool move_dialogue(
   std::iter_swap(
       current_iterator,
       scene->nodes.begin() + target_index);
+  return true;
+}
+
+bool reorder_dialogue(
+    Project& project,
+    const std::string_view scene_id,
+    const std::string_view dialogue_id,
+    std::optional<std::string> before_dialogue_id) {
+  return reorder_dialogues(
+      project,
+      scene_id,
+      {std::string(dialogue_id)},
+      std::move(before_dialogue_id));
+}
+
+bool reorder_dialogues(
+    Project& project,
+    const std::string_view scene_id,
+    const std::vector<std::string>& dialogue_ids,
+    std::optional<std::string> before_dialogue_id) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr || dialogue_ids.empty()) {
+    return false;
+  }
+
+  std::unordered_set<std::string> selected_ids;
+  for (const std::string& dialogue_id : dialogue_ids) {
+    if (!selected_ids.insert(dialogue_id).second ||
+        find_dialogue(*scene, dialogue_id) == nullptr) {
+      return false;
+    }
+  }
+
+  if (before_dialogue_id.has_value()) {
+    if (selected_ids.contains(*before_dialogue_id) ||
+        find_dialogue(*scene, *before_dialogue_id) == nullptr) {
+      return false;
+    }
+  }
+
+  std::vector<Dialogue> moving;
+  std::vector<Dialogue> remaining;
+  moving.reserve(selected_ids.size());
+  remaining.reserve(scene->nodes.size() - selected_ids.size());
+
+  // Iterate over the authoritative Scene order instead of request order.
+  for (const Dialogue& dialogue : scene->nodes) {
+    if (selected_ids.contains(dialogue.id)) {
+      moving.push_back(dialogue);
+    } else {
+      remaining.push_back(dialogue);
+    }
+  }
+
+  auto insertion_iterator = remaining.end();
+  if (before_dialogue_id.has_value()) {
+    insertion_iterator = std::find_if(
+        remaining.begin(),
+        remaining.end(),
+        [&before_dialogue_id](const Dialogue& dialogue) {
+          return dialogue.id == *before_dialogue_id;
+        });
+  }
+
+  std::vector<Dialogue> reordered;
+  reordered.reserve(scene->nodes.size());
+  reordered.insert(
+      reordered.end(), remaining.begin(), insertion_iterator);
+  reordered.insert(reordered.end(), moving.begin(), moving.end());
+  reordered.insert(reordered.end(), insertion_iterator, remaining.end());
+
+  const bool changed = !std::equal(
+      scene->nodes.begin(),
+      scene->nodes.end(),
+      reordered.begin(),
+      [](const Dialogue& current, const Dialogue& next) {
+        return current.id == next.id;
+      });
+  if (!changed) {
+    return false;
+  }
+
+  scene->nodes.swap(reordered);
   return true;
 }
 

@@ -220,6 +220,73 @@
   inset: 0;
 }
 
+.vn-block-selection-rectangle {
+  position: absolute;
+  z-index: 20;
+  pointer-events: none;
+  background: rgb(83 117 154 / 12%);
+  border: 1px solid rgb(83 117 154 / 72%);
+  border-radius: 3px;
+}
+
+.vn-block-lasso-active {
+  cursor: crosshair;
+  user-select: none;
+}
+
+.vn-block-multi-selected > .blocklyPath {
+  stroke: #53759a !important;
+  stroke-width: 4px !important;
+}
+
+.vn-block-group-dragging .vn-block-multi-selected > .blocklyPath {
+  opacity: 0.58;
+}
+
+.vn-block-group-drag-ghost {
+  position: absolute;
+  z-index: 32;
+  display: grid;
+  min-width: 128px;
+  gap: 3px;
+  padding: 10px 12px;
+  pointer-events: none;
+  color: #33475e;
+  background: rgb(255 255 255 / 94%);
+  border: 2px solid #53759a;
+  border-radius: 9px;
+  box-shadow: 0 10px 28px rgb(35 49 66 / 20%);
+}
+
+.vn-block-group-drag-ghost strong {
+  font-size: 13px;
+}
+
+.vn-block-group-drag-ghost span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.vn-block-group-drag-ghost.is-invalid-target {
+  opacity: 0.62;
+  border-color: var(--border-strong);
+}
+
+.vn-block-group-drag-ghost.is-delete-target {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.vn-block-group-drop-indicator {
+  position: absolute;
+  z-index: 31;
+  height: 4px;
+  pointer-events: none;
+  background: #53759a;
+  border-radius: 999px;
+  box-shadow: 0 0 0 3px rgb(83 117 154 / 16%);
+}
+
 .panel {
   padding: 20px 18px;
   background: var(--panel);

@@ -5,6 +5,8 @@ import {
   DIALOGUE_BLOCK_FIELDS,
   DIALOGUE_BLOCK_TYPE,
 } from './blocks/dialogueBlock';
+import type { WorkspacePoint } from './blockEditorLayout';
+import { SingleDialogueBlockDragStrategy } from './singleDialogueBlockDragStrategy';
 
 const FIRST_BLOCK_X = 48;
 const FIRST_BLOCK_Y = 48;
@@ -14,6 +16,10 @@ const FIRST_BLOCK_Y = 48;
 export function projectSceneToWorkspace(
   scene: SceneDocument,
   workspace: Blockly.WorkspaceSvg,
+  rootPosition: WorkspacePoint = {
+    x: FIRST_BLOCK_X,
+    y: FIRST_BLOCK_Y,
+  },
 ): void {
   // 程序创建积木时不要产生“用户编辑”事件。
   Blockly.Events.disable();
@@ -23,7 +29,7 @@ export function projectSceneToWorkspace(
     // 再根据最新快照完整重建。
     workspace.clear();
 
-    let previousBlock: Blockly.BlockSvg | null = null;
+    const blocks: Blockly.BlockSvg[] = [];
 
     for (const node of scene.nodes) {
       const block = workspace.newBlock(
@@ -31,10 +37,14 @@ export function projectSceneToWorkspace(
         node.id,
       );
 
-      block.setMovable(false);
+      block.setMovable(true);
+      // Delete/垃圾桶由 backend-first 控件接管，不能让 Blockly 先删。
       block.setDeletable(false);
       block.setEditable(true);
       block.contextMenu = false;
+      block.setDragStrategy(
+        new SingleDialogueBlockDragStrategy(block),
+      );
 
       block.initSvg();
 
@@ -49,35 +59,36 @@ export function projectSceneToWorkspace(
       );
 
       block.render();
+      blocks.push(block);
+    }
 
-      if (previousBlock) {
-        const nextConnection =
-          previousBlock.nextConnection;
-        const previousConnection =
-          block.previousConnection;
+    // 从链尾向前连接：后一块先形成稳定的子链，再整体接到前一块。
+    // 这样不会在 Blockly 尚未完成父块重绘时读取过期的 next 坐标。
+    for (let index = blocks.length - 2; index >= 0; index -= 1) {
+      const currentBlock = blocks[index];
+      const nextBlock = blocks[index + 1];
+      const nextConnection = currentBlock.nextConnection;
+      const previousConnection = nextBlock.previousConnection;
 
-        if (!nextConnection || !previousConnection) {
-          throw new Error(
-            '对白积木缺少上下连接点',
-          );
-        }
-
-        const connected = nextConnection.connect(
-          previousConnection,
-        );
-
-        if (!connected) {
-          throw new Error(
-            `无法连接对白：${previousBlock.id} -> ${block.id}`,
-          );
-        }
-      } else {
-        // 只定位第一块；后面的积木通过连接自动排列。
-        block.moveBy(FIRST_BLOCK_X, FIRST_BLOCK_Y);
+      if (!nextConnection || !previousConnection) {
+        throw new Error('对白积木缺少上下连接点');
       }
 
-      previousBlock = block;
+      const connected = nextConnection.connect(previousConnection);
+
+      if (!connected) {
+        throw new Error(
+          `无法连接对白：${currentBlock.id} -> ${nextBlock.id}`,
+        );
+      }
+
+      // connect 会把子块的定位放入 Blockly 渲染队列。这里同步刷新，
+      // 避免下一次连接仍读取 (0, 0) 而让多块对白叠在一起。
+      Blockly.renderManagement.triggerQueuedRenders(workspace);
     }
+
+    // 只定位第一块；后面的积木通过连接作为一条链一起移动。
+    blocks[0]?.moveBy(rootPosition.x, rootPosition.y);
   } finally {
     Blockly.Events.enable();
 
