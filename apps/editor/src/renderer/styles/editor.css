@@ -1,49 +1,26 @@
-:root {
-  color-scheme: light;
-  font-family:
-    Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
-  color: #25282f;
-  background: #f4f5f7;
-
-  --canvas: #f4f5f7;
-  --panel: #ffffff;
-  --panel-subtle: #fafbfc;
-  --border: #e3e6ea;
-  --border-strong: #cbd1d9;
-  --text: #25282f;
-  --text-muted: #747b87;
-  --text-faint: #9ba1ab;
-  --selection: #f0f3f7;
-  --selection-border: #9aa7b8;
-  --primary: #30343b;
-  --primary-hover: #1e2127;
-  --danger: #b55a65;
-  --danger-soft: #fff0f2;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  min-width: 900px;
+.engine-startup {
+  display: grid;
   min-height: 100vh;
-  background: var(--canvas);
+  padding: 32px;
+  color: var(--text);
+  text-align: center;
+  place-content: center;
 }
 
-button,
-input,
-textarea {
-  font: inherit;
+.engine-startup p {
+  max-width: 620px;
+  margin: 12px 0 18px;
+  color: var(--text-muted);
 }
 
-button:focus-visible,
-input:focus-visible,
-textarea:focus-visible {
-  outline: 2px solid #aab4c2;
-  outline-offset: 2px;
+.engine-startup button {
+  justify-self: center;
+  padding: 9px 14px;
+  color: #ffffff;
+  cursor: pointer;
+  background: var(--primary);
+  border: 0;
+  border-radius: 7px;
 }
 
 .editor {
@@ -76,6 +53,173 @@ textarea:focus-visible {
   font-size: 13px;
 }
 
+.editor-mode-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: #f0f2f4;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.editor-mode-button {
+  padding: 6px 10px;
+  color: var(--text-muted);
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+}
+
+.editor-mode-button:hover {
+  color: var(--text);
+}
+
+.editor-mode-button[aria-pressed='true'] {
+  color: var(--text);
+  background: var(--panel);
+  box-shadow: 0 1px 3px rgb(28 34 44 / 10%);
+}
+
+.toolbar .engine-ready,
+.toolbar .engine-error {
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolbar .engine-ready {
+  color: #55705f;
+}
+
+.toolbar .engine-error {
+  color: var(--danger);
+}
+
+.error-dialog {
+  width: min(360px, calc(100vw - 40px));
+  padding: 0;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgb(28 34 44 / 22%);
+}
+
+.error-dialog::backdrop {
+  background: rgb(30 34 40 / 28%);
+  backdrop-filter: blur(2px);
+}
+
+.error-dialog-content {
+  padding: 24px;
+}
+
+.error-dialog h2 {
+  margin: 0;
+  color: var(--danger);
+  font-size: 17px;
+}
+
+.error-dialog p {
+  margin: 12px 0 22px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.error-dialog button {
+  display: block;
+  min-width: 72px;
+  margin-left: auto;
+  padding: 8px 14px;
+  color: #ffffff;
+  cursor: pointer;
+  background: var(--primary);
+  border: 0;
+  border-radius: 7px;
+}
+
+.error-dialog button:hover {
+  background: var(--primary-hover);
+}
+
+.block-editor {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 16px;
+  min-width: 0;
+  min-height: calc(100vh - 52px);
+  padding: 24px;
+}
+
+.block-editor-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.block-editor-heading {
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.block-editor-heading-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.block-editor-scene-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.block-editor-scene-select {
+  width: 180px;
+  height: 34px;
+}
+
+.block-editor-sync-badge {
+  padding: 5px 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  background: var(--panel-subtle);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.block-editor-heading h1 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.block-editor-heading p,
+.block-editor-heading > span {
+  margin: 5px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.block-editor-workspace {
+  position: relative;
+  min-width: 0;
+  min-height: 520px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.blockly-workspace {
+  position: absolute;
+  inset: 0;
+}
+
 .panel {
   padding: 20px 18px;
   background: var(--panel);
@@ -104,18 +248,20 @@ textarea:focus-visible {
   font-weight: 650;
 }
 
-.panel-heading span {
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.scene-title {
+.scene-switcher {
   display: grid;
-  gap: 4px;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 8px;
+  align-items: stretch;
 }
 
-.scene-add-dialogue-button {
-  padding: 7px 10px;
+.add-button {
+  display: inline-grid;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
   color: #4a5059;
   cursor: pointer;
   background: var(--panel);
@@ -124,10 +270,41 @@ textarea:focus-visible {
   box-shadow: 0 1px 2px rgb(30 36 46 / 4%);
 }
 
-.scene-add-dialogue-button:hover {
+.add-button span {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.add-button:hover:not(:disabled) {
   color: #20242a;
   background: #f4f5f6;
   border-color: #b8bec7;
+}
+
+.scene-select {
+  width: 100%;
+  min-width: 0;
+  padding: 0 8px;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  cursor: pointer;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgb(30 36 46 / 4%);
+}
+
+.scene-select:hover {
+  border-color: #b8bec7;
+}
+
+.scene-status {
+  display: flex;
+  justify-content: space-between;
+  margin: 8px 2px 18px;
+  color: var(--text-muted);
+  font-size: 11px;
 }
 
 .dialogue-list {
@@ -212,7 +389,7 @@ textarea:focus-visible {
   opacity: 0.78;
 }
 
-.dialogue-delete-button:hover {
+.dialogue-delete-button:hover:not(:disabled) {
   color: #93414c;
   opacity: 1;
   background: var(--danger-soft);
@@ -334,7 +511,7 @@ textarea:focus-visible {
   resize: vertical;
 }
 
-.inspector-panel button {
+.dialogue-submit-button {
   padding: 11px 16px;
   color: #ffffff;
   cursor: pointer;
@@ -344,6 +521,6 @@ textarea:focus-visible {
   box-shadow: 0 2px 5px rgb(30 34 40 / 12%);
 }
 
-.inspector-panel button:hover {
+.dialogue-submit-button:hover:not(:disabled) {
   background: var(--primary-hover);
 }

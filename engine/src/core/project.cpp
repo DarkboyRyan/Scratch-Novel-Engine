@@ -1,0 +1,360 @@
+#include "vnengine/project.hpp"
+
+#include <algorithm>
+#include <array>
+#include <cstddef>
+#include <iomanip>
+#include <sstream>
+#include <unordered_set>
+#include <utility>
+
+namespace vnengine {
+
+namespace {
+
+std::string trim_ascii_whitespace(std::string value) {
+  constexpr std::string_view whitespace = " \t\n\r\f\v";
+  const std::size_t first = value.find_first_not_of(whitespace);
+
+  if (first == std::string::npos) {
+    return {};
+  }
+
+  const std::size_t last = value.find_last_not_of(whitespace);
+  return value.substr(first, last - first + 1);
+}
+
+}  // namespace
+
+RandomIdGenerator::RandomIdGenerator() : random_engine_(std::random_device{}()) {}
+
+std::string RandomIdGenerator::next() {
+  std::array<unsigned int, 16> bytes{};
+  for (auto& byte : bytes) {
+    byte = byte_distribution_(random_engine_);
+  }
+
+  // RFC 4122 version 4 and variant bits make these IDs interoperable with the
+  // UUIDs that the TypeScript prototype previously produced.
+  bytes[6] = (bytes[6] & 0x0fU) | 0x40U;
+  bytes[8] = (bytes[8] & 0x3fU) | 0x80U;
+
+  std::ostringstream result;
+  result << std::hex << std::setfill('0');
+
+  for (std::size_t index = 0; index < bytes.size(); ++index) {
+    if (index == 4 || index == 6 || index == 8 || index == 10) {
+      result << '-';
+    }
+    result << std::setw(2) << bytes[index];
+  }
+
+  return result.str();
+}
+
+Scene create_empty_scene(IdGenerator& ids, std::string name) {
+  return Scene{
+      .schema_version = kSchemaVersion,
+      .id = ids.next(),
+      .name = std::move(name),
+      .nodes = {},
+  };
+}
+
+Project create_empty_project(IdGenerator& ids, std::string name) {
+  Scene first_scene = create_empty_scene(ids, "场景 1");
+  const std::string first_scene_id = first_scene.id;
+
+  return Project{
+      .schema_version = kSchemaVersion,
+      .id = ids.next(),
+      .name = std::move(name),
+      .entry_scene_id = first_scene_id,
+      .scenes = {std::move(first_scene)},
+  };
+}
+
+Scene* find_scene(Project& project, const std::string_view scene_id) {
+  const auto iterator = std::find_if(
+      project.scenes.begin(),
+      project.scenes.end(),
+      [scene_id](const Scene& scene) { return scene.id == scene_id; });
+  return iterator == project.scenes.end() ? nullptr : &*iterator;
+}
+
+const Scene* find_scene(
+    const Project& project,
+    const std::string_view scene_id) {
+  const auto iterator = std::find_if(
+      project.scenes.begin(),
+      project.scenes.end(),
+      [scene_id](const Scene& scene) { return scene.id == scene_id; });
+  return iterator == project.scenes.end() ? nullptr : &*iterator;
+}
+
+Dialogue* find_dialogue(Scene& scene, const std::string_view dialogue_id) {
+  const auto iterator = std::find_if(
+      scene.nodes.begin(),
+      scene.nodes.end(),
+      [dialogue_id](const Dialogue& dialogue) {
+        return dialogue.id == dialogue_id;
+      });
+  return iterator == scene.nodes.end() ? nullptr : &*iterator;
+}
+
+const Dialogue* find_dialogue(
+    const Scene& scene,
+    const std::string_view dialogue_id) {
+  const auto iterator = std::find_if(
+      scene.nodes.begin(),
+      scene.nodes.end(),
+      [dialogue_id](const Dialogue& dialogue) {
+        return dialogue.id == dialogue_id;
+      });
+  return iterator == scene.nodes.end() ? nullptr : &*iterator;
+}
+
+std::string next_scene_name(const Project& project) {
+  std::unordered_set<std::string> existing_names;
+  for (const Scene& scene : project.scenes) {
+    existing_names.insert(scene.name);
+  }
+
+  for (std::size_t number = 1;; ++number) {
+    std::string candidate = "场景 " + std::to_string(number);
+    if (!existing_names.contains(candidate)) {
+      return candidate;
+    }
+  }
+}
+
+std::optional<DialogueContent> normalize_dialogue_content(
+    std::string speaker,
+    std::string text) {
+  speaker = trim_ascii_whitespace(std::move(speaker));
+  text = trim_ascii_whitespace(std::move(text));
+
+  if (text.empty()) {
+    return std::nullopt;
+  }
+
+  if (speaker.empty()) {
+    speaker = "旁白";
+  }
+
+  return DialogueContent{
+      .speaker = std::move(speaker),
+      .text = std::move(text),
+  };
+}
+
+std::string add_scene(
+    Project& project,
+    IdGenerator& ids,
+    std::optional<std::string> name) {
+  Scene scene = create_empty_scene(
+      ids,
+      name.has_value() ? std::move(*name) : next_scene_name(project));
+  std::string created_id = scene.id;
+  project.scenes.push_back(std::move(scene));
+  return created_id;
+}
+
+bool rename_scene(
+    Project& project,
+    const std::string_view scene_id,
+    std::string name) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr || scene->name == name) {
+    return false;
+  }
+
+  scene->name = std::move(name);
+  return true;
+}
+
+bool delete_scene(Project& project, const std::string_view scene_id) {
+  const auto scene_iterator = std::find_if(
+      project.scenes.begin(),
+      project.scenes.end(),
+      [scene_id](const Scene& scene) { return scene.id == scene_id; });
+
+  if (scene_iterator == project.scenes.end() || project.scenes.size() == 1) {
+    return false;
+  }
+
+  const auto scene_index = static_cast<std::size_t>(
+      std::distance(project.scenes.begin(), scene_iterator));
+  const bool deleting_entry_scene = project.entry_scene_id == scene_id;
+
+  project.scenes.erase(scene_iterator);
+
+  if (deleting_entry_scene) {
+    // After erase, the same index is the former next scene. If it was the last
+    // scene, the final remaining index is the former previous scene.
+    const std::size_t replacement_index =
+        std::min(scene_index, project.scenes.size() - 1);
+    project.entry_scene_id = project.scenes[replacement_index].id;
+  }
+
+  return true;
+}
+
+std::optional<std::string> add_dialogue(
+    Project& project,
+    IdGenerator& ids,
+    const std::string_view scene_id,
+    std::string speaker,
+    std::string text,
+    std::optional<std::string> after_dialogue_id) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return std::nullopt;
+  }
+
+  Dialogue dialogue{
+      .id = ids.next(),
+      .speaker = std::move(speaker),
+      .text = std::move(text),
+  };
+  std::string created_id = dialogue.id;
+
+  const auto after_iterator = after_dialogue_id.has_value()
+      ? std::find_if(
+            scene->nodes.begin(),
+            scene->nodes.end(),
+            [&after_dialogue_id](const Dialogue& current) {
+              return current.id == *after_dialogue_id;
+            })
+      : scene->nodes.end();
+
+  if (after_iterator == scene->nodes.end()) {
+    scene->nodes.push_back(std::move(dialogue));
+  } else {
+    scene->nodes.insert(std::next(after_iterator), std::move(dialogue));
+  }
+
+  return created_id;
+}
+
+bool update_dialogue(
+    Project& project,
+    const std::string_view scene_id,
+    const std::string_view dialogue_id,
+    std::string speaker,
+    std::string text) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return false;
+  }
+
+  Dialogue* dialogue = find_dialogue(*scene, dialogue_id);
+  if (dialogue == nullptr ||
+      (dialogue->speaker == speaker && dialogue->text == text)) {
+    return false;
+  }
+
+  dialogue->speaker = std::move(speaker);
+  dialogue->text = std::move(text);
+  return true;
+}
+
+bool delete_dialogue(
+    Project& project,
+    const std::string_view scene_id,
+    const std::string_view dialogue_id) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return false;
+  }
+
+  const auto old_size = scene->nodes.size();
+  std::erase_if(scene->nodes, [dialogue_id](const Dialogue& dialogue) {
+    return dialogue.id == dialogue_id;
+  });
+  return scene->nodes.size() != old_size;
+}
+
+bool move_dialogue(
+    Project& project,
+    const std::string_view scene_id,
+    const std::string_view dialogue_id,
+    const int direction) {
+  if (direction != -1 && direction != 1) {
+    return false;
+  }
+
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return false;
+  }
+
+  const auto current_iterator = std::find_if(
+      scene->nodes.begin(),
+      scene->nodes.end(),
+      [dialogue_id](const Dialogue& dialogue) {
+        return dialogue.id == dialogue_id;
+      });
+  if (current_iterator == scene->nodes.end()) {
+    return false;
+  }
+
+  const auto current_index = std::distance(
+      scene->nodes.begin(),
+      current_iterator);
+  const auto target_index = current_index + direction;
+  if (target_index < 0 ||
+      target_index >= static_cast<std::ptrdiff_t>(scene->nodes.size())) {
+    return false;
+  }
+
+  std::iter_swap(
+      current_iterator,
+      scene->nodes.begin() + target_index);
+  return true;
+}
+
+std::optional<std::string> validate_project(const Project& project) {
+  if (project.schema_version != kSchemaVersion) {
+    return "project schema version is unsupported";
+  }
+  if (project.id.empty()) {
+    return "project ID must not be empty";
+  }
+  if (project.scenes.empty()) {
+    return "project must contain at least one scene";
+  }
+
+  std::unordered_set<std::string> ids;
+  bool found_entry_scene = false;
+
+  for (const Scene& scene : project.scenes) {
+    if (scene.schema_version != kSchemaVersion) {
+      return "scene schema version is unsupported";
+    }
+    if (scene.id.empty()) {
+      return "scene ID must not be empty";
+    }
+    if (!ids.insert(scene.id).second) {
+      return "entity IDs must be unique";
+    }
+    found_entry_scene = found_entry_scene || scene.id == project.entry_scene_id;
+
+    for (const Dialogue& dialogue : scene.nodes) {
+      if (dialogue.id.empty()) {
+        return "dialogue ID must not be empty";
+      }
+      if (!ids.insert(dialogue.id).second) {
+        return "entity IDs must be unique";
+      }
+    }
+  }
+
+  if (!found_entry_scene) {
+    return "entry scene ID must reference an existing scene";
+  }
+
+  return std::nullopt;
+}
+
+}  // namespace vnengine

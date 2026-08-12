@@ -1,57 +1,35 @@
 import { app, BrowserWindow } from 'electron';
-import path from 'node:path';
 import started from 'electron-squirrel-startup';
 
-// Handle creating/removing shortcuts on Windows when installing/uninstalling.
+import { BackendClient } from './main/backend/backendClient';
+import { createEditorWindow } from './main/createEditorWindow';
+import { registerEngineIpc } from './main/ipc/registerEngineIpc';
+
+const backendClient = new BackendClient();
+const trustedWebContentsIds = new Set<number>();
+
 if (started) {
   app.quit();
 }
 
-const createWindow = () => {
-  // Create the browser window.
-  const mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 1100,
-    minHeight: 700,
-    useContentSize: true,
-    center: true,
-    show: false,
-    backgroundColor: '#f4f5f7',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      zoomFactor: 1,
-    },
+function openEditorWindow(): void {
+  const editorWindow = createEditorWindow();
+  const webContentsId = editorWindow.webContents.id;
+
+  trustedWebContentsIds.add(webContentsId);
+  editorWindow.webContents.once('destroyed', () => {
+    trustedWebContentsIds.delete(webContentsId);
   });
+}
 
-  // Avoid showing a blank white window while the renderer is loading.
-  mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
-  });
+registerEngineIpc(backendClient, trustedWebContentsIds);
 
-  // Always start the editor at 100% zoom.
-  mainWindow.webContents.on('did-finish-load', () => {
-    mainWindow.webContents.setZoomFactor(1);
-  });
+app.on('ready', openEditorWindow);
 
-  // and load the index.html of the app.
-  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
-  } else {
-    mainWindow.loadFile(
-      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
-    );
-  }
-};
+app.on('before-quit', () => {
+  backendClient.shutdown();
+});
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
-app.on('ready', createWindow);
-
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
@@ -59,12 +37,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
-  // On OS X it's common to re-create a window in the app when the
-  // dock icon is clicked and there are no other windows open.
   if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
+    openEditorWindow();
   }
 });
-
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and import them here.
