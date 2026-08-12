@@ -6,6 +6,16 @@ import {
   type EngineMutationResult,
   type VnEngineApi,
 } from './shared/engineProtocol';
+import {
+  PROJECT_FILE_COMMAND_CHANNEL,
+  PROJECT_FILE_IPC_CHANNEL,
+  type CreateProjectWindowResult,
+  type ProjectFileCommand,
+  type ProjectFileInvocation,
+  type ProjectFileOperationResult,
+  type ProjectFileSessionSnapshot,
+  type VnProjectFilesApi,
+} from './shared/projectFileProtocol';
 
 function invokeEngine(
   invocation: EngineInvocation,
@@ -14,12 +24,12 @@ function invokeEngine(
 }
 
 const vnEngine: VnEngineApi = {
-  createProject: (name) =>
-    invokeEngine({ method: 'project.create', params: { name } }),
   ensureProject: () =>
     invokeEngine({ method: 'project.ensure', params: {} }),
   getProject: () =>
     invokeEngine({ method: 'project.get', params: {} }),
+  renameProject: (name) =>
+    invokeEngine({ method: 'project.rename', params: { name } }),
   addScene: (name) =>
     invokeEngine({ method: 'scene.add', params: { name } }),
   renameScene: (sceneId, name) =>
@@ -66,4 +76,46 @@ const vnEngine: VnEngineApi = {
     }),
 };
 
+type ProjectFileResultByAction = {
+  create: CreateProjectWindowResult;
+  open: ProjectFileOperationResult;
+  save: ProjectFileOperationResult;
+  'get-session': ProjectFileSessionSnapshot;
+};
+
+function invokeProjectFile<Action extends ProjectFileInvocation['action']>(
+  invocation: Extract<ProjectFileInvocation, { action: Action }>,
+): Promise<ProjectFileResultByAction[Action]> {
+  return ipcRenderer.invoke(PROJECT_FILE_IPC_CHANNEL, invocation);
+}
+
+const vnProjectFiles: VnProjectFilesApi = {
+  createProject: (name) =>
+    invokeProjectFile({ action: 'create', params: { name } }),
+  openProject: () =>
+    invokeProjectFile({ action: 'open', params: {} }),
+  saveProject: () =>
+    invokeProjectFile({ action: 'save', params: {} }),
+  getSession: () =>
+    invokeProjectFile({ action: 'get-session', params: {} }),
+  onCommand: (listener) => {
+    const handleCommand = (
+      _event: Electron.IpcRendererEvent,
+      command: ProjectFileCommand,
+    ) => {
+      listener(command);
+    };
+
+    ipcRenderer.on(PROJECT_FILE_COMMAND_CHANNEL, handleCommand);
+
+    return () => {
+      ipcRenderer.removeListener(
+        PROJECT_FILE_COMMAND_CHANNEL,
+        handleCommand,
+      );
+    };
+  },
+};
+
 contextBridge.exposeInMainWorld('vnEngine', vnEngine);
+contextBridge.exposeInMainWorld('vnProjectFiles', vnProjectFiles);

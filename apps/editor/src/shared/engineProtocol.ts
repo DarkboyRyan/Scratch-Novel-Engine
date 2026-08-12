@@ -1,8 +1,15 @@
 import type { ProjectDocument } from './projectTypes';
 
 // C++、Electron Main、Preload 和 React 共同遵守的跨进程协议。
+export type EngineSessionState = {
+  revision: number;
+  savedRevision: number | null;
+  isDirty: boolean;
+};
+
 export type EngineMutationResult = {
   project: ProjectDocument;
+  session: EngineSessionState;
   sceneId?: string;
   nodeId?: string;
 };
@@ -38,6 +45,7 @@ export const ENGINE_METHODS = [
   'project.create',
   'project.ensure',
   'project.get',
+  'project.rename',
   'scene.add',
   'scene.rename',
   'scene.delete',
@@ -58,6 +66,9 @@ export type EngineParamsByMethod = {
   };
   'project.ensure': Record<string, never>;
   'project.get': Record<string, never>;
+  'project.rename': {
+    name: string;
+  };
   'scene.add': {
     name?: string;
   };
@@ -96,8 +107,30 @@ export type EngineInvocation = {
   };
 }[EngineMethod];
 
+// `project.open` 带有本机文件路径，因此它不是 Renderer 可以直接构造的
+// EngineInvocation。只有 Electron Main 在用户完成原生文件选择后，才能创建
+// 这个后端请求。
+export type OpenProjectBackendInvocation = {
+  method: 'project.open';
+  params: {
+    filePath: string;
+  };
+};
+
+export type SaveProjectBackendInvocation = {
+  method: 'project.save';
+  params: {
+    filePath: string;
+  };
+};
+
+export type BackendInvocation =
+  | EngineInvocation
+  | OpenProjectBackendInvocation
+  | SaveProjectBackendInvocation;
+
 // Electron Main 会补充 id；C++ 使用同一个 id 返回结果。
-export type BackendRequest = EngineInvocation & {
+export type BackendRequest = BackendInvocation & {
   id: number;
 };
 
@@ -118,9 +151,9 @@ export type BackendResponse =
 
 // Renderer 只能使用业务级 API，不能接触 ipcRenderer 或任意 IPC channel。
 export type VnEngineApi = {
-  createProject(name?: string): Promise<EngineMutationResult>;
   ensureProject(): Promise<EngineMutationResult>;
   getProject(): Promise<EngineMutationResult>;
+  renameProject(name: string): Promise<EngineMutationResult>;
   addScene(name?: string): Promise<EngineMutationResult>;
   renameScene(
     sceneId: string,

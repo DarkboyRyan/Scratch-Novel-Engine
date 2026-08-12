@@ -58,7 +58,7 @@ Each stdin line is one request:
 Each stdout line is one response. Logs are written only to stderr:
 
 ```json
-{"id":1,"ok":true,"result":{"project":{"schemaVersion":1}}}
+{"id":1,"ok":true,"result":{"project":{"schemaVersion":1},"session":{"revision":0,"savedRevision":null,"isDirty":true}}}
 ```
 
 `scene.add` also returns `result.sceneId`, and `dialogue.add` returns
@@ -68,10 +68,60 @@ generating IDs itself.
 Supported methods:
 
 - `ping`（仅用于直接诊断 C++ 进程，不经过 Renderer API）
-- `project.create`, `project.ensure`, `project.get`
+- `project.create`, `project.open`, `project.ensure`, `project.get`
+- `project.rename`, `project.save`（仅 Main 可以传入文件路径）
 - `scene.add`, `scene.rename`, `scene.delete`
 - `dialogue.add`, `dialogue.update`, `dialogue.delete`, `dialogue.move`
 
 `dialogue.add` accepts an optional `afterNodeId`. If it is absent or does not
 match a node, the new dialogue is appended. Empty speaker and text fields are
 valid so the editor's `+` button can immediately create an editable node.
+
+`project.open` accepts a Main-process-only `filePath` and reads a versioned
+project envelope. Parsing and validation happen before the in-memory project
+is replaced, so a missing, malformed, or unsupported file leaves the current
+project unchanged:
+
+```json
+{
+  "format": "vn-engine-project",
+  "fileVersion": 1,
+  "project": {
+    "schemaVersion": 1,
+    "id": "project-id",
+    "name": "My Story",
+    "entrySceneId": "scene-id",
+    "scenes": [
+      {
+        "schemaVersion": 1,
+        "id": "scene-id",
+        "name": "场景 1",
+        "nodes": []
+      }
+    ]
+  },
+  "assets": []
+}
+```
+
+Asset metadata supports `image`, `video`, and `audio`. Binary assets remain in
+type-specific directories such as `assets/images/`; JSON stores only safe,
+portable relative paths.
+
+Every successful response includes `result.session`. `revision` advances only
+when project data actually changes; `savedRevision` is `null` until a new
+project is first saved; and `isDirty` is derived from those two values. Opening
+a document starts at revision 0 and is clean. A new document starts at revision
+0 with no saved revision and is dirty.
+
+`project.save` requires a Main-process-only, normalized absolute `filePath`
+whose basename is exactly `project.vn.json`. The backend writes a
+temporary sibling, flushes it, atomically replaces the destination, and flushes
+the parent directory where the platform supports it. Only a completed save
+updates `savedRevision`, so failed writes keep both the existing destination
+and the editor's dirty state.
+
+On POSIX, a rare parent-directory `fsync` error can happen after the atomic
+rename has already made the complete new file visible. It is no longer safe to
+roll that rename back, so the backend conservatively reports save failure and
+leaves `savedRevision` unchanged; retrying save is safe.

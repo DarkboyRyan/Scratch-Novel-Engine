@@ -49,6 +49,13 @@ std::optional<DialogueContent> normalize_dialogue_content(
     std::string speaker,
     std::string text);
 
+// Project names shown in the title bar are persisted data rather than a UI
+// label. Keep their normalization in the C++ model so every frontend follows
+// the same rule: surrounding ASCII whitespace is ignored and an all-whitespace
+// name is invalid.
+std::optional<std::string> normalize_project_name(std::string name);
+bool rename_project(Project& project, std::string name);
+
 // Scene names are generated as 场景 1, 场景 2, ... when name is omitted.
 // The created entity's ID is returned so the UI can select it if needed.
 std::string add_scene(

@@ -1,7 +1,32 @@
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, screen } from 'electron';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-export function createEditorWindow(): BrowserWindow {
+import { isSameEditorLocation } from './security/editorFrameTrust';
+import { cascadedEditorWindowPosition } from './window/editorWindowPlacement';
+
+export function resolveEditorEntryUrl(): string {
+  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    return MAIN_WINDOW_VITE_DEV_SERVER_URL;
+  }
+
+  return pathToFileURL(
+    path.join(
+      __dirname,
+      `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`,
+    ),
+  ).toString();
+}
+
+type CreateEditorWindowOptions = {
+  deferLoad?: boolean;
+  sourceWindow?: BrowserWindow;
+};
+
+export function createEditorWindow(
+  entryUrl: string,
+  options: CreateEditorWindowOptions = {},
+): BrowserWindow {
   const editorWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -20,6 +45,19 @@ export function createEditorWindow(): BrowserWindow {
     },
   });
 
+  const sourceWindow = options.sourceWindow;
+  if (sourceWindow && !sourceWindow.isDestroyed()) {
+    const sourceBounds = sourceWindow.getBounds();
+    const [width, height] = editorWindow.getSize();
+    const workArea = screen.getDisplayMatching(sourceBounds).workArea;
+    const position = cascadedEditorWindowPosition(
+      sourceBounds,
+      { width, height },
+      workArea,
+    );
+    editorWindow.setPosition(position.x, position.y);
+  }
+
   // 等 Renderer 完成首屏加载再显示，避免启动时闪过空白窗口。
   editorWindow.once('ready-to-show', () => {
     editorWindow.show();
@@ -29,15 +67,17 @@ export function createEditorWindow(): BrowserWindow {
     editorWindow.webContents.setZoomFactor(1);
   });
 
-  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    void editorWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
-  } else {
-    void editorWindow.loadFile(
-      path.join(
-        __dirname,
-        `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`,
-      ),
-    );
+  // Preload 拥有受限的项目 API，因此编辑器窗口不能导航到外部页面，
+  // 也不允许页面自行创建继承编辑器权限的新窗口。
+  editorWindow.webContents.on('will-navigate', (event, targetUrl) => {
+    if (!isSameEditorLocation(targetUrl, entryUrl)) {
+      event.preventDefault();
+    }
+  });
+  editorWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
+  if (!options.deferLoad) {
+    void editorWindow.loadURL(entryUrl);
   }
 
   return editorWindow;

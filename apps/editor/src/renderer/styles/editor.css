@@ -24,9 +24,12 @@
 }
 
 .editor {
+  /* 两行内容共 92px，另加 1px 底边框，避免 border-box 裁掉末行。 */
+  --toolbar-height: 93px;
+
   display: grid;
   grid-template-columns: 260px minmax(400px, 1fr) 320px;
-  grid-template-rows: 52px 1fr;
+  grid-template-rows: var(--toolbar-height) 1fr;
   min-height: 100vh;
   color: var(--text);
   background: var(--canvas);
@@ -34,13 +37,30 @@
 
 .toolbar {
   grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  padding: 0 20px;
+  display: grid;
+  grid-template-rows: 52px 40px;
+  padding: 0;
+  overflow: hidden;
   background: rgb(255 255 255 / 94%);
   border-bottom: 1px solid var(--border);
   box-shadow: 0 1px 3px rgb(28 34 44 / 4%);
+}
+
+.toolbar-main-row {
+  display: flex;
+  align-items: center;
+  gap: clamp(10px, 1.7vw, 24px);
+  min-width: 0;
+  padding: 0 20px;
+}
+
+.toolbar-mode-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 20px 6px;
+  background: #ffffff;
+  border-top: 1px solid #f1f2f4;
 }
 
 .toolbar strong {
@@ -53,6 +73,78 @@
   font-size: 13px;
 }
 
+.project-file-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.project-file-actions button {
+  min-height: 30px;
+  padding: 5px 10px;
+  color: var(--text);
+  cursor: pointer;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.project-file-actions button:hover:not(:disabled) {
+  background: var(--panel-subtle);
+  border-color: var(--border-strong);
+}
+
+.project-file-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.toolbar-project-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 240px;
+  white-space: nowrap;
+}
+
+.project-name-button {
+  max-width: 130px;
+  padding: 3px 5px;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+
+.project-name-button:hover:not(:disabled) {
+  background: var(--panel-subtle);
+  border-color: var(--border);
+}
+
+.toolbar-project-name input {
+  width: 140px;
+  padding: 4px 6px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--primary);
+  border-radius: 5px;
+}
+
+.toolbar-project-name .save-state {
+  padding: 2px 6px;
+  color: #55705f;
+  background: #edf5ef;
+  border-radius: 999px;
+}
+
+.toolbar-project-name .save-state.is-dirty {
+  color: #8a5b15;
+  background: #fff3dc;
+}
+
 .editor-mode-switch {
   display: inline-flex;
   gap: 2px;
@@ -60,6 +152,11 @@
   background: #f0f2f4;
   border: 1px solid var(--border);
   border-radius: 8px;
+}
+
+.toolbar-mode-label {
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .editor-mode-button {
@@ -84,6 +181,7 @@
 .toolbar .engine-ready,
 .toolbar .engine-error {
   margin-left: auto;
+  max-width: min(220px, 22vw);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -97,7 +195,8 @@
   color: var(--danger);
 }
 
-.error-dialog {
+.error-dialog,
+.create-project-dialog {
   width: min(360px, calc(100vw - 40px));
   padding: 0;
   color: var(--text);
@@ -107,13 +206,62 @@
   box-shadow: 0 20px 60px rgb(28 34 44 / 22%);
 }
 
-.error-dialog::backdrop {
+.error-dialog::backdrop,
+.create-project-dialog::backdrop {
   background: rgb(30 34 40 / 28%);
   backdrop-filter: blur(2px);
 }
 
 .error-dialog-content {
   padding: 24px;
+}
+
+.create-project-dialog form {
+  display: grid;
+  gap: 12px;
+  padding: 24px;
+}
+
+.create-project-dialog h2 {
+  margin: 0 0 4px;
+  color: var(--text);
+  font-size: 17px;
+}
+
+.create-project-dialog label {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.create-project-dialog input {
+  width: 100%;
+  padding: 9px 10px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+}
+
+.create-project-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.create-project-dialog-actions button {
+  padding: 8px 12px;
+  color: var(--text);
+  cursor: pointer;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.create-project-dialog-actions button[type='submit'] {
+  color: #ffffff;
+  background: var(--primary);
+  border-color: var(--primary);
 }
 
 .error-dialog h2 {
@@ -150,7 +298,7 @@
   grid-template-rows: auto minmax(0, 1fr);
   gap: 16px;
   min-width: 0;
-  min-height: calc(100vh - 52px);
+  min-height: calc(100vh - var(--toolbar-height));
   padding: 24px;
 }
 

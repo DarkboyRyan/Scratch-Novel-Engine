@@ -23,10 +23,14 @@ export function isEngineInvocation(
 
   switch (value.method) {
     case 'project.create':
-      return params.name === undefined || hasString('name');
+      // 新建项目只能经由专用文件会话 IPC；保留该方法的类型仅供
+      // Main→C++ 与 JSONL 集成测试使用。
+      return false;
     case 'project.ensure':
     case 'project.get':
       return Object.keys(params).length === 0;
+    case 'project.rename':
+      return hasString('name');
     case 'scene.add':
       return params.name === undefined || hasString('name');
     case 'scene.rename':

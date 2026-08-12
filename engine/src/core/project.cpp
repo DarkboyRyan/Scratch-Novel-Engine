@@ -149,6 +149,22 @@ std::optional<DialogueContent> normalize_dialogue_content(
   };
 }
 
+std::optional<std::string> normalize_project_name(std::string name) {
+  name = trim_ascii_whitespace(std::move(name));
+  if (name.empty()) {
+    return std::nullopt;
+  }
+  return name;
+}
+
+bool rename_project(Project& project, std::string name) {
+  if (project.name == name) {
+    return false;
+  }
+  project.name = std::move(name);
+  return true;
+}
+
 std::string add_scene(
     Project& project,
     IdGenerator& ids,
@@ -456,11 +472,21 @@ std::optional<std::string> validate_project(const Project& project) {
   if (project.id.empty()) {
     return "project ID must not be empty";
   }
+  const auto normalized_name = normalize_project_name(project.name);
+  if (!normalized_name.has_value()) {
+    return "project name must not be empty";
+  }
+  if (*normalized_name != project.name) {
+    return "project name must not have surrounding whitespace";
+  }
   if (project.scenes.empty()) {
     return "project must contain at least one scene";
   }
 
-  std::unordered_set<std::string> ids;
+  // Project, scene, dialogue, and (later) asset references share one ID
+  // namespace. Rejecting a project ID collision here prevents ambiguous
+  // references after a file is opened from disk.
+  std::unordered_set<std::string> ids{project.id};
   bool found_entry_scene = false;
 
   for (const Scene& scene : project.scenes) {

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { SceneDocument } from '../../src/shared/projectTypes';
 import { DIALOGUE_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/dialogueBlock';
 import {
+  collectDialogueFieldDrafts,
   getDialogueFieldUpdate,
   getDroppedNewDialogueBlock,
   getReorderedDialogueBlock,
@@ -180,6 +181,52 @@ describe('getDialogueFieldUpdate', () => {
         scene,
       ),
     ).toBeNull();
+  });
+});
+
+describe('collectDialogueFieldDrafts', () => {
+  function blockWithFields(
+    id: string,
+    speaker: string,
+    text: string,
+  ): Blockly.BlockSvg {
+    return {
+      ...createDialogueBlock(id, null),
+      getFieldValue: (fieldName: string) =>
+        fieldName === 'SPEAKER' ? speaker : text,
+    } as unknown as Blockly.BlockSvg;
+  }
+
+  function workspaceWithBlocks(
+    blocks: Blockly.BlockSvg[],
+  ): Blockly.WorkspaceSvg {
+    return {
+      getBlockById: (blockId: string) =>
+        blocks.find((block) => block.id === blockId) ?? null,
+    } as Blockly.WorkspaceSvg;
+  }
+
+  it('collects current Blockly values that differ from the C++ scene', () => {
+    const workspace = workspaceWithBlocks([
+      blockWithFields('node-1', 'Alice', '输入框中的新文字'),
+      blockWithFields('node-2', 'B', '第二句'),
+    ]);
+
+    expect(collectDialogueFieldDrafts(workspace, scene)).toEqual([
+      {
+        nodeId: 'node-1',
+        speaker: 'Alice',
+        text: '输入框中的新文字',
+      },
+    ]);
+  });
+
+  it('ignores unchanged or missing projected blocks', () => {
+    const workspace = workspaceWithBlocks([
+      blockWithFields('node-1', 'A', '第一句'),
+    ]);
+
+    expect(collectDialogueFieldDrafts(workspace, scene)).toEqual([]);
   });
 });
 
