@@ -36,10 +36,24 @@ void creates_project_with_one_empty_entry_scene() {
   CHECK(project.name == "未命名项目");
   CHECK(project.scenes.size() == 1);
   CHECK(project.scenes[0].name == "场景 1");
+  CHECK(!project.scenes[0].visuals.background_asset_id.has_value());
+  CHECK(project.scenes[0].visuals.characters.empty());
   CHECK(project.scenes[0].nodes.empty());
   CHECK(project.entry_scene_id == project.scenes[0].id);
   CHECK(project.id != project.scenes[0].id);
   CHECK(!vnengine::validate_project(project).has_value());
+}
+
+void creates_an_empty_project_aggregate() {
+  SequenceIdGenerator ids;
+  const vnengine::ProjectAggregate aggregate =
+      vnengine::create_empty_project_aggregate(ids, "视觉小说");
+
+  CHECK(aggregate.project.name == "视觉小说");
+  CHECK(aggregate.assets.empty());
+  CHECK(aggregate.project.scenes.size() == 1);
+  CHECK(aggregate.project.scenes[0].visuals.characters.empty());
+  CHECK(!vnengine::validate_project_aggregate(aggregate).has_value());
 }
 
 void normalizes_and_renames_a_project() {
@@ -391,6 +405,194 @@ void detects_invalid_project_invariants() {
   CHECK(vnengine::validate_project(project).has_value());
 }
 
+void validates_portable_asset_paths() {
+  CHECK(!vnengine::validate_asset_relative_path(
+             vnengine::AssetType::image,
+             "assets/images/classroom.png")
+             .has_value());
+  CHECK(!vnengine::validate_asset_relative_path(
+             vnengine::AssetType::video,
+             "assets/videos/opening.mp4")
+             .has_value());
+  CHECK(!vnengine::validate_asset_relative_path(
+             vnengine::AssetType::audio,
+             "assets/audio/bgm/theme.ogg")
+             .has_value());
+
+  CHECK(vnengine::validate_asset_relative_path(
+            vnengine::AssetType::image,
+            "assets/videos/not-an-image.mp4")
+            .has_value());
+  CHECK(vnengine::validate_asset_relative_path(
+            vnengine::AssetType::image,
+            "assets/images/../../outside.png")
+            .has_value());
+  CHECK(vnengine::validate_asset_relative_path(
+            vnengine::AssetType::image,
+            "assets/images/folder//sprite.png")
+            .has_value());
+  CHECK(vnengine::validate_asset_relative_path(
+            vnengine::AssetType::image,
+            "assets/images/")
+            .has_value());
+  CHECK(vnengine::validate_asset_relative_path(
+            vnengine::AssetType::image,
+            "assets\\images\\sprite.png")
+            .has_value());
+  CHECK(vnengine::validate_asset_relative_path(
+            static_cast<vnengine::AssetType>(99),
+            "assets/images/sprite.png")
+            .has_value());
+}
+
+vnengine::ProjectAggregate visual_aggregate() {
+  SequenceIdGenerator ids;
+  vnengine::ProjectAggregate aggregate =
+      vnengine::create_empty_project_aggregate(ids, "立绘项目");
+  aggregate.assets = {
+      {
+          .id = "asset-background",
+          .type = vnengine::AssetType::image,
+          .relative_path = "assets/images/classroom.png",
+          .display_name = "教室背景",
+      },
+      {
+          .id = "asset-alice",
+          .type = vnengine::AssetType::image,
+          .relative_path = "assets/images/alice.png",
+          .display_name = "Alice 立绘",
+      },
+      {
+          .id = "asset-bob",
+          .type = vnengine::AssetType::image,
+          .relative_path = "assets/images/bob.png",
+          .display_name = "Bob 立绘",
+      },
+      {
+          .id = "asset-music",
+          .type = vnengine::AssetType::audio,
+          .relative_path = "assets/audio/theme.ogg",
+          .display_name = "主题曲",
+      },
+  };
+
+  vnengine::SceneVisualState& visuals =
+      aggregate.project.scenes[0].visuals;
+  visuals.background_asset_id = "asset-background";
+  visuals.characters = {
+      {
+          .id = "instance-back",
+          .asset_id = "asset-alice",
+          .slot = vnengine::CharacterSlot::center,
+      },
+      {
+          .id = "instance-front",
+          .asset_id = "asset-bob",
+          .slot = vnengine::CharacterSlot::center,
+      },
+  };
+  return aggregate;
+}
+
+void validates_visual_references_and_stable_z_order() {
+  vnengine::ProjectAggregate aggregate = visual_aggregate();
+  const vnengine::SceneVisualState& visuals =
+      aggregate.project.scenes[0].visuals;
+
+  // Sharing a slot is legal. Vector order is authoritative from back to front
+  // and validation must never sort it as a side effect.
+  CHECK(visuals.characters[0].id == "instance-back");
+  CHECK(visuals.characters[1].id == "instance-front");
+  CHECK(!vnengine::validate_project_aggregate(aggregate).has_value());
+  CHECK(aggregate.project.scenes[0].visuals.characters[0].id ==
+        "instance-back");
+  CHECK(aggregate.project.scenes[0].visuals.characters[1].id ==
+        "instance-front");
+
+  vnengine::Asset* mutable_asset =
+      vnengine::find_asset(aggregate, "asset-alice");
+  CHECK(mutable_asset != nullptr);
+  CHECK(mutable_asset->display_name == "Alice 立绘");
+  const vnengine::ProjectAggregate& const_aggregate = aggregate;
+  const vnengine::Asset* const_asset =
+      vnengine::find_asset(const_aggregate, "asset-background");
+  CHECK(const_asset != nullptr);
+  CHECK(const_asset->type == vnengine::AssetType::image);
+  CHECK(vnengine::find_asset(aggregate, "missing") == nullptr);
+}
+
+void rejects_invalid_asset_manifests() {
+  const vnengine::ProjectAggregate valid = visual_aggregate();
+
+  vnengine::ProjectAggregate invalid = valid;
+  invalid.assets[0].id = invalid.project.id;
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+
+  invalid = valid;
+  invalid.assets[1].id = invalid.assets[0].id;
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+
+  // Legacy fileVersion 1 documents may contain multiple logical Assets that
+  // point at one safe file, or an empty/whitespace display name. Keep those
+  // documents readable; stricter naming belongs to the future import command.
+  invalid = valid;
+  invalid.assets[1].relative_path = invalid.assets[0].relative_path;
+  invalid.assets[0].display_name.clear();
+  invalid.assets[1].display_name = "  旧名称  ";
+  CHECK(!vnengine::validate_project_aggregate(invalid).has_value());
+
+  invalid = valid;
+  invalid.assets[0].relative_path = "assets/images/../outside.png";
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+
+  invalid = valid;
+  invalid.assets[0].type = vnengine::AssetType::video;
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+}
+
+void rejects_invalid_scene_visuals_atomically() {
+  const vnengine::ProjectAggregate valid = visual_aggregate();
+
+  vnengine::ProjectAggregate invalid = valid;
+  invalid.project.scenes[0].visuals.background_asset_id = "missing";
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+
+  invalid = valid;
+  invalid.project.scenes[0].visuals.background_asset_id = "asset-music";
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+
+  invalid = valid;
+  invalid.project.scenes[0].visuals.background_asset_id = "";
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+
+  invalid = valid;
+  invalid.project.scenes[0].visuals.characters[0].asset_id = "missing";
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+
+  invalid = valid;
+  invalid.project.scenes[0].visuals.characters[0].asset_id = "asset-music";
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+
+  invalid = valid;
+  invalid.project.scenes[0].visuals.characters[0].id.clear();
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+
+  invalid = valid;
+  invalid.project.scenes[0].visuals.characters[1].id = "instance-back";
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+
+  invalid = valid;
+  invalid.project.scenes[0].visuals.characters[0].slot =
+      static_cast<vnengine::CharacterSlot>(99);
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+
+  // Validation is observational: rejected candidates do not mutate the known
+  // good aggregate or its stable back-to-front character ordering.
+  CHECK(!vnengine::validate_project_aggregate(valid).has_value());
+  CHECK(valid.project.scenes[0].visuals.characters[0].id == "instance-back");
+  CHECK(valid.project.scenes[0].visuals.characters[1].id == "instance-front");
+}
+
 void normalizes_committed_dialogue_content() {
   const auto normalized = vnengine::normalize_dialogue_content(
       "   ", "  一段旁白  \n");
@@ -409,6 +611,8 @@ int main() {
   const std::vector<std::pair<std::string, std::function<void()>>> tests{
       {"creates project with one empty entry scene",
        creates_project_with_one_empty_entry_scene},
+      {"creates an empty project aggregate",
+       creates_an_empty_project_aggregate},
       {"normalizes and renames a project",
        normalizes_and_renames_a_project},
       {"adds and renames scenes without changing entry",
@@ -428,6 +632,12 @@ int main() {
        deletes_multiple_dialogues_atomically},
       {"detects invalid project invariants",
        detects_invalid_project_invariants},
+      {"validates portable asset paths", validates_portable_asset_paths},
+      {"validates visual references and stable z order",
+       validates_visual_references_and_stable_z_order},
+      {"rejects invalid asset manifests", rejects_invalid_asset_manifests},
+      {"rejects invalid scene visuals atomically",
+       rejects_invalid_scene_visuals_atomically},
       {"normalizes committed dialogue content",
        normalizes_committed_dialogue_content},
   };

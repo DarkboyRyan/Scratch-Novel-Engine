@@ -140,21 +140,23 @@ std::filesystem::path project_file_path(const std::string& file_path) {
 
 Json success_response(
     const Json& id,
-    const std::optional<vnengine::Project>& project,
+    const std::optional<vnengine::ProjectAggregate>& aggregate,
     const std::uint64_t revision,
     const std::optional<std::uint64_t> saved_revision,
     const std::optional<std::string>& scene_id = std::nullopt,
     const std::optional<std::string>& node_id = std::nullopt) {
   Json result{
       {"project",
-       project.has_value() ? project_to_json(*project) : Json(nullptr)},
+       aggregate.has_value()
+           ? project_to_json(aggregate->project)
+           : Json(nullptr)},
       {"session",
        {
            {"revision", revision},
            {"savedRevision",
             saved_revision.has_value() ? Json(*saved_revision) : Json(nullptr)},
            {"isDirty",
-            project.has_value() &&
+            aggregate.has_value() &&
                 (!saved_revision.has_value() ||
                  *saved_revision != revision)},
        }},
@@ -201,7 +203,7 @@ Json Backend::handle(const Json& request) {
 
   if (method == "ping") {
     return success_response(
-        request_id(request), project_, revision_, saved_revision_);
+        request_id(request), aggregate_, revision_, saved_revision_);
   }
   if (method == "project.create") {
     std::string name = params.contains("name")
@@ -214,23 +216,22 @@ Json Backend::handle(const Json& request) {
           "project_name_required", "project name must not be empty");
     }
 
-    Project candidate = vnengine::create_empty_project(ids_, *normalized_name);
-    project_ = std::move(candidate);
-    assets_.clear();
+    ProjectAggregate candidate = vnengine::create_empty_project_aggregate(
+        ids_, *normalized_name);
+    aggregate_ = std::move(candidate);
     reset_unsaved_session();
     return success_response(
         request_id(request),
-        project_,
+        aggregate_,
         revision_,
         saved_revision_,
-        project_->entry_scene_id);
+        aggregate_->project.entry_scene_id);
   }
   if (method == "project.open") {
     const std::string file_path = required_string(params, "filePath");
 
-    // All fallible work happens against local candidates. project_ and the
-    // retained asset manifest are replaced only after the complete envelope,
-    // schema, entity graph, and asset paths have passed validation.
+    // All fallible work happens against a local aggregate. The current
+    // Project and Asset manifest are replaced together only after validation.
     ProjectFileDocument candidate;
     try {
       candidate = project_file_from_json(Json::parse(
@@ -247,33 +248,31 @@ Json Backend::handle(const Json& request) {
       throw ProtocolError(code, error.what());
     }
 
-    project_ = std::move(candidate.project);
-    assets_ = std::move(candidate.assets);
+    aggregate_ = std::move(candidate);
     reset_opened_session();
     return success_response(
         request_id(request),
-        project_,
+        aggregate_,
         revision_,
         saved_revision_,
-        project_->entry_scene_id);
+        aggregate_->project.entry_scene_id);
   }
   if (method == "project.ensure") {
-    if (!project_.has_value()) {
-      project_ = vnengine::create_empty_project(ids_);
-      assets_.clear();
+    if (!aggregate_.has_value()) {
+      aggregate_ = vnengine::create_empty_project_aggregate(ids_);
       reset_unsaved_session();
     }
     return success_response(
         request_id(request),
-        project_,
+        aggregate_,
         revision_,
         saved_revision_,
-        project_->entry_scene_id);
+        aggregate_->project.entry_scene_id);
   }
   if (method == "project.get") {
     require_project();
     return success_response(
-        request_id(request), project_, revision_, saved_revision_);
+        request_id(request), aggregate_, revision_, saved_revision_);
   }
   if (method == "project.save") {
     require_project();
@@ -282,10 +281,7 @@ Json Backend::handle(const Json& request) {
 
     std::string contents;
     try {
-      contents = project_file_to_json(ProjectFileDocument{
-          .project = *project_,
-          .assets = assets_,
-      }).dump(2);
+      contents = project_file_to_json(require_aggregate()).dump(2);
       contents.push_back('\n');
       atomic_write_file(file_path, contents);
     } catch (const ProjectFileError& error) {
@@ -300,7 +296,7 @@ Json Backend::handle(const Json& request) {
 
     saved_revision_ = revision_;
     return success_response(
-        request_id(request), project_, revision_, saved_revision_);
+        request_id(request), aggregate_, revision_, saved_revision_);
   }
 
   vnengine::Project& project = require_project();
@@ -321,14 +317,15 @@ Json Backend::handle(const Json& request) {
     }
     const std::string scene_id =
         vnengine::add_scene(project, ids_, std::move(name));
-    if (const auto violation = vnengine::validate_project(project);
+    if (const auto violation =
+            vnengine::validate_project_aggregate(require_aggregate());
         violation.has_value()) {
       throw ProtocolError("internal_error", *violation);
     }
     record_mutation(true);
     return success_response(
         request_id(request),
-        project_,
+        aggregate_,
         revision_,
         saved_revision_,
         scene_id);
@@ -411,14 +408,15 @@ Json Backend::handle(const Json& request) {
       throw ProtocolError(
           "dialogue_add_failed", "could not add dialogue");
     }
-    if (const auto violation = vnengine::validate_project(project);
+    if (const auto violation =
+            vnengine::validate_project_aggregate(require_aggregate());
         violation.has_value()) {
       throw ProtocolError("internal_error", *violation);
     }
     record_mutation(true);
     return success_response(
         request_id(request),
-        project_,
+        aggregate_,
         revision_,
         saved_revision_,
         scene_id,
@@ -601,26 +599,31 @@ Json Backend::handle(const Json& request) {
     throw ProtocolError("method_not_found", "unknown method: " + method);
   }
 
-  if (const auto violation = vnengine::validate_project(project);
+  if (const auto violation =
+          vnengine::validate_project_aggregate(require_aggregate());
       violation.has_value()) {
     throw ProtocolError("internal_error", *violation);
   }
   record_mutation(changed);
   return success_response(
-      request_id(request), project_, revision_, saved_revision_);
+      request_id(request), aggregate_, revision_, saved_revision_);
 }
 
 Json Backend::request_id(const Json& request) {
   return request.contains("id") ? request.at("id") : Json(nullptr);
 }
 
-Project& Backend::require_project() {
-  if (!project_.has_value()) {
+ProjectAggregate& Backend::require_aggregate() {
+  if (!aggregate_.has_value()) {
     throw ProtocolError(
         "project_not_created",
         "call project.create before using this method");
   }
-  return *project_;
+  return *aggregate_;
+}
+
+Project& Backend::require_project() {
+  return require_aggregate().project;
 }
 
 void Backend::reset_unsaved_session() {

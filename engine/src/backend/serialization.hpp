@@ -3,7 +3,6 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <vector>
 
 #include <nlohmann/json_fwd.hpp>
 
@@ -12,14 +11,11 @@
 namespace vnengine::backend {
 
 inline constexpr std::string_view kProjectFileFormat = "vn-engine-project";
-inline constexpr int kProjectFileVersion = 1;
+inline constexpr int kProjectFileVersion = 2;
 
-struct ProjectFileDocument {
-  Project project;
-  std::vector<Asset> assets;
-
-  bool operator==(const ProjectFileDocument&) const = default;
-};
+// The persistence envelope serializes the same aggregate that Core validates.
+// Keep the legacy name as an adapter while callers migrate to ProjectAggregate.
+using ProjectFileDocument = ProjectAggregate;
 
 enum class ProjectFileErrorKind {
   invalid_document,

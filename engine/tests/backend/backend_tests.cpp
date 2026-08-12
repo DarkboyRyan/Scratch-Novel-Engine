@@ -74,6 +74,37 @@ Json valid_document() {
   };
 }
 
+Json migrated_v2_document() {
+  Json document = valid_document();
+  document["fileVersion"] = 2;
+  document["project"]["scenes"][0]["visuals"] = {
+      {"backgroundAssetId", nullptr},
+      {"characters", Json::array()},
+  };
+  return document;
+}
+
+Json valid_v2_visual_document() {
+  Json document = migrated_v2_document();
+  document["project"]["scenes"][0]["visuals"] = {
+      {"backgroundAssetId", "asset-image-1"},
+      {"characters",
+       Json::array({
+           {
+               {"id", "visual-alice-back"},
+               {"assetId", "asset-image-1"},
+               {"slot", "right"},
+           },
+           {
+               {"id", "visual-alice-front"},
+               {"assetId", "asset-image-1"},
+               {"slot", "left"},
+           },
+       })},
+  };
+  return document;
+}
+
 void expect_file_error(
     const Json& document,
     const vnengine::backend::ProjectFileErrorKind expected_kind) {
@@ -87,7 +118,7 @@ void expect_file_error(
   throw std::runtime_error("expected ProjectFileError");
 }
 
-void parses_and_round_trips_a_strict_project_document() {
+void reads_v1_and_writes_a_migrated_v2_document() {
   const Json source = valid_document();
   const vnengine::backend::ProjectFileDocument parsed =
       vnengine::backend::project_file_from_json(source);
@@ -97,10 +128,42 @@ void parses_and_round_trips_a_strict_project_document() {
   CHECK(parsed.project.scenes.size() == 1);
   CHECK(parsed.project.scenes[0].nodes.size() == 1);
   CHECK(parsed.project.scenes[0].nodes[0].text == "你好");
+  CHECK(!parsed.project.scenes[0].visuals.background_asset_id.has_value());
+  CHECK(parsed.project.scenes[0].visuals.characters.empty());
   CHECK(parsed.assets.size() == 2);
   CHECK(parsed.assets[0].type == vnengine::AssetType::image);
   CHECK(parsed.assets[1].type == vnengine::AssetType::video);
+  CHECK(
+      vnengine::backend::project_file_to_json(parsed) ==
+      migrated_v2_document());
+}
+
+void round_trips_v2_visuals_and_preserves_character_order() {
+  const Json source = valid_v2_visual_document();
+  const vnengine::backend::ProjectFileDocument parsed =
+      vnengine::backend::project_file_from_json(source);
+
+  const vnengine::SceneVisualState& visuals =
+      parsed.project.scenes[0].visuals;
+  CHECK(visuals.background_asset_id == "asset-image-1");
+  CHECK(visuals.characters.size() == 2);
+  CHECK(visuals.characters[0].id == "visual-alice-back");
+  CHECK(visuals.characters[0].slot == vnengine::CharacterSlot::right);
+  CHECK(visuals.characters[1].id == "visual-alice-front");
+  CHECK(visuals.characters[1].slot == vnengine::CharacterSlot::left);
   CHECK(vnengine::backend::project_file_to_json(parsed) == source);
+}
+
+void v1_reader_rejects_unversioned_visual_fields() {
+  Json document = valid_document();
+  document["project"]["scenes"][0]["visuals"] = {
+      {"backgroundAssetId", "asset-image-1"},
+      {"characters", Json::array()},
+  };
+
+  expect_file_error(
+      document,
+      vnengine::backend::ProjectFileErrorKind::invalid_document);
 }
 
 void rejects_unsupported_and_malformed_project_documents() {
@@ -111,8 +174,16 @@ void rejects_unsupported_and_malformed_project_documents() {
   expect_file_error(document, Kind::unsupported_format);
 
   document = valid_document();
-  document["fileVersion"] = 2;
+  document["fileVersion"] = 3;
   expect_file_error(document, Kind::unsupported_format);
+
+  document = valid_document();
+  document["fileVersion"] = 0;
+  expect_file_error(document, Kind::unsupported_format);
+
+  document = valid_document();
+  document["fileVersion"] = "2";
+  expect_file_error(document, Kind::invalid_document);
 
   document = valid_document();
   document["project"]["schemaVersion"] = 2;
@@ -146,6 +217,95 @@ void rejects_unsupported_and_malformed_project_documents() {
   document = valid_document();
   document["assets"][0]["type"] = "executable";
   expect_file_error(document, Kind::unsupported_format);
+}
+
+void rejects_malformed_v2_visual_fields_strictly() {
+  using Kind = vnengine::backend::ProjectFileErrorKind;
+
+  Json document = valid_v2_visual_document();
+  document["project"]["scenes"][0].erase("visuals");
+  expect_file_error(document, Kind::invalid_document);
+
+  document = valid_v2_visual_document();
+  document["project"]["scenes"][0]["unexpected"] = true;
+  expect_file_error(document, Kind::invalid_document);
+
+  document = valid_v2_visual_document();
+  document["project"]["scenes"][0]["visuals"].erase(
+      "backgroundAssetId");
+  expect_file_error(document, Kind::invalid_document);
+
+  document = valid_v2_visual_document();
+  document["project"]["scenes"][0]["visuals"].erase("characters");
+  expect_file_error(document, Kind::invalid_document);
+
+  document = valid_v2_visual_document();
+  document["project"]["scenes"][0]["visuals"]["unexpected"] = true;
+  expect_file_error(document, Kind::invalid_document);
+
+  document = valid_v2_visual_document();
+  document["project"]["scenes"][0]["visuals"] = nullptr;
+  expect_file_error(document, Kind::invalid_document);
+
+  document = valid_v2_visual_document();
+  document["project"]["scenes"][0]["visuals"]["backgroundAssetId"] = 7;
+  expect_file_error(document, Kind::invalid_document);
+
+  document = valid_v2_visual_document();
+  document["project"]["scenes"][0]["visuals"]["characters"] =
+      Json::object();
+  expect_file_error(document, Kind::invalid_document);
+
+  document = valid_v2_visual_document();
+  document["project"]["scenes"][0]["visuals"]["characters"][0] =
+      "not an object";
+  expect_file_error(document, Kind::invalid_document);
+
+  for (const std::string& field : {"id", "assetId", "slot"}) {
+    document = valid_v2_visual_document();
+    document["project"]["scenes"][0]["visuals"]["characters"][0].erase(
+        field);
+    expect_file_error(document, Kind::invalid_document);
+  }
+
+  document = valid_v2_visual_document();
+  document["project"]["scenes"][0]["visuals"]["characters"][0]
+          ["unexpected"] = true;
+  expect_file_error(document, Kind::invalid_document);
+
+  for (const std::string& field : {"id", "assetId", "slot"}) {
+    document = valid_v2_visual_document();
+    document["project"]["scenes"][0]["visuals"]["characters"][0][field] =
+        7;
+    expect_file_error(document, Kind::invalid_document);
+  }
+
+  document = valid_v2_visual_document();
+  document["project"]["scenes"][0]["visuals"]["characters"][0]["slot"] =
+      "foreground";
+  expect_file_error(document, Kind::invalid_document);
+
+  // Structural parsing succeeds first; aggregate validation then rejects
+  // references that cannot be resolved to an image Asset.
+  document = valid_v2_visual_document();
+  document["project"]["scenes"][0]["visuals"]["backgroundAssetId"] =
+      "missing-asset";
+  expect_file_error(document, Kind::invalid_document);
+
+  document = valid_v2_visual_document();
+  document["project"]["scenes"][0]["visuals"]["backgroundAssetId"] =
+      "asset-video-1";
+  expect_file_error(document, Kind::invalid_document);
+
+  document = valid_v2_visual_document();
+  document["project"]["scenes"][0]["visuals"]["characters"][0]["assetId"] =
+      "missing-asset";
+  expect_file_error(document, Kind::invalid_document);
+
+  document = valid_v2_visual_document();
+  document["project"]["scenes"][0]["visuals"]["characters"][0]["assetId"] =
+      "asset-video-1";
+  expect_file_error(document, Kind::invalid_document);
 }
 
 class TemporaryDirectory final {
@@ -329,7 +489,7 @@ void saves_atomically_and_round_trips_assets() {
 
   const Json on_disk = Json::parse(read_file(target));
   CHECK(on_disk.at("format") == "vn-engine-project");
-  CHECK(on_disk.at("fileVersion") == 1);
+  CHECK(on_disk.at("fileVersion") == 2);
   CHECK(on_disk.at("project").at("name") == "保存后的项目");
   CHECK(on_disk.at("assets") == valid_document().at("assets"));
 
@@ -351,6 +511,102 @@ void saves_atomically_and_round_trips_assets() {
       "project.save",
       {{"filePath", target.string()}});
   expect_session(resaved, 0, 0, false);
+}
+
+void backend_preserves_hidden_v2_visuals_across_mutation_and_save() {
+  TemporaryDirectory temporary;
+  const Json source_document = valid_v2_visual_document();
+  const std::filesystem::path source = temporary.write(
+      "visual-source.vn.json", source_document.dump(2));
+  const std::filesystem::path target =
+      temporary.path("project.vn.json");
+
+  vnengine::backend::Backend backend;
+  const Json opened = request(
+      backend, 1, "project.open", {{"filePath", source.string()}});
+  expect_session(opened, 0, 0, false);
+
+  // The current Electron/Renderer response intentionally remains unchanged.
+  // Visuals are retained only inside Backend's ProjectAggregate for now.
+  CHECK(!opened.at("result").at("project").at("scenes")[0].contains(
+      "visuals"));
+
+  const Json renamed = request(
+      backend, 2, "project.rename", {{"name", "视觉保留测试"}});
+  expect_session(renamed, 1, 0, true);
+  const Json saved = request(
+      backend, 3, "project.save", {{"filePath", target.string()}});
+  expect_session(saved, 1, 1, false);
+
+  const Json persisted = Json::parse(read_file(target));
+  CHECK(persisted.at("fileVersion") == 2);
+  CHECK(
+      persisted.at("project").at("scenes")[0].at("visuals") ==
+      source_document.at("project").at("scenes")[0].at("visuals"));
+}
+
+void failed_open_preserves_dirty_hidden_v2_aggregate() {
+  TemporaryDirectory temporary;
+  const Json source_document = valid_v2_visual_document();
+  const std::filesystem::path source = temporary.write(
+      "current-v2.vn.json", source_document.dump(2));
+
+  Json invalid_document = valid_v2_visual_document();
+  invalid_document["project"]["scenes"][0]["visuals"]
+                  ["backgroundAssetId"] = "missing-asset";
+  const std::filesystem::path invalid = temporary.write(
+      "invalid-v2.vn.json", invalid_document.dump(2));
+
+  Json future_document = valid_v2_visual_document();
+  future_document["fileVersion"] = 3;
+  const std::filesystem::path future = temporary.write(
+      "future-v3.vn.json", future_document.dump(2));
+  const std::filesystem::path target =
+      temporary.path("project.vn.json");
+
+  vnengine::backend::Backend backend;
+  const Json opened = request(
+      backend, 1, "project.open", {{"filePath", source.string()}});
+  expect_session(opened, 0, 0, false);
+
+  const Json renamed = request(
+      backend, 2, "project.rename", {{"name", "失败后仍保留"}});
+  expect_session(renamed, 1, 0, true);
+
+  const Json invalid_open = request(
+      backend, 3, "project.open", {{"filePath", invalid.string()}});
+  CHECK(invalid_open.at("ok") == false);
+  CHECK(invalid_open.at("error").at("code") == "project_file_invalid");
+
+  const Json after_invalid = request(backend, 4, "project.get");
+  expect_session(after_invalid, 1, 0, true);
+  CHECK(
+      after_invalid.at("result").at("project").at("name") ==
+      "失败后仍保留");
+
+  const Json future_open = request(
+      backend, 5, "project.open", {{"filePath", future.string()}});
+  CHECK(future_open.at("ok") == false);
+  CHECK(future_open.at("error").at("code") ==
+        "project_file_unsupported");
+
+  const Json after_future = request(backend, 6, "project.get");
+  expect_session(after_future, 1, 0, true);
+  CHECK(
+      after_future.at("result").at("project").at("name") ==
+      "失败后仍保留");
+
+  const Json saved = request(
+      backend, 7, "project.save", {{"filePath", target.string()}});
+  expect_session(saved, 1, 1, false);
+
+  const Json persisted = Json::parse(read_file(target));
+  CHECK(persisted.at("fileVersion") == 2);
+  CHECK(persisted.at("project").at("name") == "失败后仍保留");
+  CHECK(
+      persisted.at("project").at("scenes")[0].at("visuals") ==
+      source_document.at("project").at("scenes")[0].at("visuals"));
+  CHECK(persisted.at("assets") == source_document.at("assets"));
 }
 
 void failed_save_preserves_state_and_destination() {
@@ -476,14 +732,24 @@ void failed_open_does_not_create_a_project() {
 
 int main() {
   const std::vector<std::pair<std::string, std::function<void()>>> tests{
-      {"parses and round trips a strict project document",
-       parses_and_round_trips_a_strict_project_document},
+      {"reads v1 and writes a migrated v2 document",
+       reads_v1_and_writes_a_migrated_v2_document},
+      {"round trips v2 visuals and preserves character order",
+       round_trips_v2_visuals_and_preserves_character_order},
+      {"v1 reader rejects unversioned visual fields",
+       v1_reader_rejects_unversioned_visual_fields},
       {"rejects unsupported and malformed project documents",
        rejects_unsupported_and_malformed_project_documents},
+      {"rejects malformed v2 visual fields strictly",
+       rejects_malformed_v2_visual_fields_strictly},
       {"tracks real mutations and normalizes project names",
        tracks_real_mutations_and_normalizes_project_names},
       {"saves atomically and round trips assets",
        saves_atomically_and_round_trips_assets},
+      {"backend preserves hidden v2 visuals across mutation and save",
+       backend_preserves_hidden_v2_visuals_across_mutation_and_save},
+      {"failed open preserves dirty hidden v2 aggregate",
+       failed_open_preserves_dirty_hidden_v2_aggregate},
       {"failed save preserves state and destination",
        failed_save_preserves_state_and_destination},
       {"opens a file and preserves current project after failures",

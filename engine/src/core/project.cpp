@@ -25,6 +25,28 @@ std::string trim_ascii_whitespace(std::string value) {
   return value.substr(first, last - first + 1);
 }
 
+std::optional<std::string_view> asset_directory(const AssetType type) {
+  switch (type) {
+    case AssetType::image:
+      return "images";
+    case AssetType::video:
+      return "videos";
+    case AssetType::audio:
+      return "audio";
+  }
+  return std::nullopt;
+}
+
+bool is_valid_character_slot(const CharacterSlot slot) {
+  switch (slot) {
+    case CharacterSlot::left:
+    case CharacterSlot::center:
+    case CharacterSlot::right:
+      return true;
+  }
+  return false;
+}
+
 }  // namespace
 
 RandomIdGenerator::RandomIdGenerator() : random_engine_(std::random_device{}()) {}
@@ -58,6 +80,7 @@ Scene create_empty_scene(IdGenerator& ids, std::string name) {
       .schema_version = kSchemaVersion,
       .id = ids.next(),
       .name = std::move(name),
+      .visuals = {},
       .nodes = {},
   };
 }
@@ -72,6 +95,15 @@ Project create_empty_project(IdGenerator& ids, std::string name) {
       .name = std::move(name),
       .entry_scene_id = first_scene_id,
       .scenes = {std::move(first_scene)},
+  };
+}
+
+ProjectAggregate create_empty_project_aggregate(
+    IdGenerator& ids,
+    std::string name) {
+  return ProjectAggregate{
+      .project = create_empty_project(ids, std::move(name)),
+      .assets = {},
   };
 }
 
@@ -113,6 +145,26 @@ const Dialogue* find_dialogue(
         return dialogue.id == dialogue_id;
       });
   return iterator == scene.nodes.end() ? nullptr : &*iterator;
+}
+
+Asset* find_asset(
+    ProjectAggregate& aggregate,
+    const std::string_view asset_id) {
+  const auto iterator = std::find_if(
+      aggregate.assets.begin(),
+      aggregate.assets.end(),
+      [asset_id](const Asset& asset) { return asset.id == asset_id; });
+  return iterator == aggregate.assets.end() ? nullptr : &*iterator;
+}
+
+const Asset* find_asset(
+    const ProjectAggregate& aggregate,
+    const std::string_view asset_id) {
+  const auto iterator = std::find_if(
+      aggregate.assets.begin(),
+      aggregate.assets.end(),
+      [asset_id](const Asset& asset) { return asset.id == asset_id; });
+  return iterator == aggregate.assets.end() ? nullptr : &*iterator;
 }
 
 std::string next_scene_name(const Project& project) {
@@ -483,9 +535,8 @@ std::optional<std::string> validate_project(const Project& project) {
     return "project must contain at least one scene";
   }
 
-  // Project, scene, dialogue, and (later) asset references share one ID
-  // namespace. Rejecting a project ID collision here prevents ambiguous
-  // references after a file is opened from disk.
+  // Project, Scene, Dialogue, and visual-instance IDs share one namespace.
+  // Assets join the same namespace in validate_project_aggregate().
   std::unordered_set<std::string> ids{project.id};
   bool found_entry_scene = false;
 
@@ -501,6 +552,27 @@ std::optional<std::string> validate_project(const Project& project) {
     }
     found_entry_scene = found_entry_scene || scene.id == project.entry_scene_id;
 
+    if (scene.visuals.background_asset_id.has_value() &&
+        scene.visuals.background_asset_id->empty()) {
+      return "background Asset ID must not be empty";
+    }
+
+    for (const CharacterVisualInstance& character :
+         scene.visuals.characters) {
+      if (character.id.empty()) {
+        return "character visual instance ID must not be empty";
+      }
+      if (!ids.insert(character.id).second) {
+        return "entity IDs must be unique";
+      }
+      if (character.asset_id.empty()) {
+        return "character visual Asset ID must not be empty";
+      }
+      if (!is_valid_character_slot(character.slot)) {
+        return "character visual slot is invalid";
+      }
+    }
+
     for (const Dialogue& dialogue : scene.nodes) {
       if (dialogue.id.empty()) {
         return "dialogue ID must not be empty";
@@ -513,6 +585,107 @@ std::optional<std::string> validate_project(const Project& project) {
 
   if (!found_entry_scene) {
     return "entry scene ID must reference an existing scene";
+  }
+
+  return std::nullopt;
+}
+
+std::optional<std::string> validate_asset_relative_path(
+    const AssetType type,
+    const std::string_view relative_path) {
+  const std::optional<std::string_view> directory = asset_directory(type);
+  if (!directory.has_value()) {
+    return "asset type is invalid";
+  }
+
+  const std::string prefix = "assets/" + std::string(*directory) + "/";
+  if (relative_path.size() <= prefix.size() ||
+      !relative_path.starts_with(prefix) ||
+      relative_path.back() == '/' ||
+      relative_path.find('\\') != std::string_view::npos ||
+      relative_path.find('\0') != std::string_view::npos) {
+    return "asset relative path must be a safe path below " + prefix;
+  }
+
+  std::size_t component_start = 0;
+  while (component_start < relative_path.size()) {
+    const std::size_t separator =
+        relative_path.find('/', component_start);
+    const std::size_t component_end = separator == std::string_view::npos
+        ? relative_path.size()
+        : separator;
+    const std::string_view component = relative_path.substr(
+        component_start,
+        component_end - component_start);
+    if (component.empty() || component == "." || component == "..") {
+      return "asset relative path contains an unsafe component";
+    }
+    if (separator == std::string_view::npos) {
+      break;
+    }
+    component_start = separator + 1;
+  }
+
+  return std::nullopt;
+}
+
+std::optional<std::string> validate_project_aggregate(
+    const ProjectAggregate& aggregate) {
+  if (const auto violation = validate_project(aggregate.project);
+      violation.has_value()) {
+    return violation;
+  }
+
+  std::unordered_set<std::string> ids{aggregate.project.id};
+  for (const Scene& scene : aggregate.project.scenes) {
+    ids.insert(scene.id);
+    for (const CharacterVisualInstance& character :
+         scene.visuals.characters) {
+      ids.insert(character.id);
+    }
+    for (const Dialogue& dialogue : scene.nodes) {
+      ids.insert(dialogue.id);
+    }
+  }
+
+  for (const Asset& asset : aggregate.assets) {
+    if (asset.id.empty()) {
+      return "asset ID must not be empty";
+    }
+    if (!ids.insert(asset.id).second) {
+      return "entity and asset IDs must be unique";
+    }
+
+    if (const auto violation =
+            validate_asset_relative_path(asset.type, asset.relative_path);
+        violation.has_value()) {
+      return violation;
+    }
+  }
+
+  for (const Scene& scene : aggregate.project.scenes) {
+    if (scene.visuals.background_asset_id.has_value()) {
+      const Asset* background = find_asset(
+          aggregate,
+          *scene.visuals.background_asset_id);
+      if (background == nullptr) {
+        return "background must reference an existing Asset";
+      }
+      if (background->type != AssetType::image) {
+        return "background Asset must be an image";
+      }
+    }
+
+    for (const CharacterVisualInstance& character :
+         scene.visuals.characters) {
+      const Asset* sprite = find_asset(aggregate, character.asset_id);
+      if (sprite == nullptr) {
+        return "character visual must reference an existing Asset";
+      }
+      if (sprite->type != AssetType::image) {
+        return "character visual Asset must be an image";
+      }
+    }
   }
 
   return std::nullopt;

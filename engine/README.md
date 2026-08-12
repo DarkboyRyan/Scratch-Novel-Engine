@@ -77,15 +77,17 @@ Supported methods:
 match a node, the new dialogue is appended. Empty speaker and text fields are
 valid so the editor's `+` button can immediately create an editable node.
 
-`project.open` accepts a Main-process-only `filePath` and reads a versioned
-project envelope. Parsing and validation happen before the in-memory project
-is replaced, so a missing, malformed, or unsupported file leaves the current
-project unchanged:
+`project.open` accepts a Main-process-only `filePath` and reads project file
+versions 1 and 2. Parsing and aggregate validation happen before the in-memory
+project is replaced, so a missing, malformed, or unsupported file leaves the
+current project unchanged. Version 1 Scenes have no `visuals` field and are
+migrated to an empty visual state in memory. `project.save` always writes
+version 2:
 
 ```json
 {
   "format": "vn-engine-project",
-  "fileVersion": 1,
+  "fileVersion": 2,
   "project": {
     "schemaVersion": 1,
     "id": "project-id",
@@ -96,13 +98,43 @@ project unchanged:
         "schemaVersion": 1,
         "id": "scene-id",
         "name": "场景 1",
+        "visuals": {
+          "backgroundAssetId": null,
+          "characters": [
+            {
+              "id": "visual-instance-id",
+              "assetId": "sprite-asset-id",
+              "slot": "center"
+            }
+          ]
+        },
         "nodes": []
       }
     ]
   },
-  "assets": []
+  "assets": [
+    {
+      "id": "sprite-asset-id",
+      "type": "image",
+      "relativePath": "assets/images/sprite-asset-id.png",
+      "displayName": "Character sprite"
+    }
+  ]
 }
 ```
+
+Project and Scene `schemaVersion` remain 1; file version 2 extends only the
+on-disk envelope with Scene visual state. `backgroundAssetId` is an image Asset
+ID or `null`. Character `slot` is `left`, `center`, or `right`. The
+`characters` array is authoritative back-to-front draw order: the first item
+is furthest back and the last is foremost. The reader checks v1 and v2 field
+sets strictly and validates all visual Asset references as part of the same
+Project aggregate.
+
+The current Renderer-facing `project` snapshot deliberately omits `visuals`
+and `assets` until the public asset IPC and UI are introduced. The C++ Backend
+still retains and round-trips both fields, so ordinary project or dialogue
+edits cannot discard visual data loaded from a version 2 file.
 
 Asset metadata supports `image`, `video`, and `audio`. Binary assets remain in
 type-specific directories such as `assets/images/`; JSON stores only safe,
@@ -114,7 +146,8 @@ project is first saved; and `isDirty` is derived from those two values. Opening
 a document starts at revision 0 and is clean. A new document starts at revision
 0 with no saved revision and is dirty.
 
-`project.save` requires a Main-process-only, normalized absolute `filePath`
+`project.save` writes file version 2 and requires a Main-process-only,
+normalized absolute `filePath`
 whose basename is exactly `project.vn.json`. The backend writes a
 temporary sibling, flushes it, atomically replaces the destination, and flushes
 the parent directory where the platform supports it. Only a completed save

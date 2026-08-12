@@ -32,6 +32,9 @@ Scene create_empty_scene(IdGenerator& ids, std::string name = "场景 1");
 Project create_empty_project(
     IdGenerator& ids,
     std::string name = "未命名项目");
+ProjectAggregate create_empty_project_aggregate(
+    IdGenerator& ids,
+    std::string name = "未命名项目");
 
 Scene* find_scene(Project& project, std::string_view scene_id);
 const Scene* find_scene(const Project& project, std::string_view scene_id);
@@ -39,6 +42,12 @@ Dialogue* find_dialogue(Scene& scene, std::string_view dialogue_id);
 const Dialogue* find_dialogue(
     const Scene& scene,
     std::string_view dialogue_id);
+Asset* find_asset(
+    ProjectAggregate& aggregate,
+    std::string_view asset_id);
+const Asset* find_asset(
+    const ProjectAggregate& aggregate,
+    std::string_view asset_id);
 
 std::string next_scene_name(const Project& project);
 
@@ -114,5 +123,18 @@ bool reorder_dialogues(
 
 // Returns a human-readable invariant violation, or nullopt when valid.
 std::optional<std::string> validate_project(const Project& project);
+
+// Asset paths are portable project-relative paths. This helper is public so
+// persistence/import adapters can apply the same Core rule instead of growing
+// a second, subtly different path validator.
+std::optional<std::string> validate_asset_relative_path(
+    AssetType type,
+    std::string_view relative_path);
+
+// Validates Project entities, Asset metadata, and every visual Asset reference
+// as one consistency boundary. Missing binary files are intentionally outside
+// this pure model check and can be reported as recoverable diagnostics by I/O.
+std::optional<std::string> validate_project_aggregate(
+    const ProjectAggregate& aggregate);
 
 }  // namespace vnengine
