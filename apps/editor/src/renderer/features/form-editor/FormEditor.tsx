@@ -5,9 +5,15 @@ import type { FormEditorState } from './useFormEditor';
 
 type FormEditorProps = {
   editor: FormEditorState;
+  backgroundUrl: string | null;
+  backgroundName: string | null;
 };
 
-export function FormEditor({ editor }: FormEditorProps) {
+export function FormEditor({
+  editor,
+  backgroundUrl,
+  backgroundName,
+}: FormEditorProps) {
   const { project, scene } = editor;
 
   if (!project || !scene) {
@@ -31,6 +37,8 @@ export function FormEditor({ editor }: FormEditorProps) {
       <PreviewPanel
         speaker={editor.previewSpeaker}
         text={editor.previewText}
+        backgroundUrl={backgroundUrl}
+        backgroundName={backgroundName}
       />
 
       <InspectorPanel

@@ -167,6 +167,37 @@ const Asset* find_asset(
   return iterator == aggregate.assets.end() ? nullptr : &*iterator;
 }
 
+SetSceneBackgroundResult set_scene_background(
+    ProjectAggregate& aggregate,
+    const std::string_view scene_id,
+    std::optional<std::string> asset_id) {
+  Scene* scene = find_scene(aggregate.project, scene_id);
+  if (scene == nullptr) {
+    return SetSceneBackgroundResult::scene_not_found;
+  }
+
+  // Resolve and type-check the requested Asset before touching the Scene.
+  // Clearing the background uses nullopt and intentionally needs no Asset.
+  if (asset_id.has_value()) {
+    const Asset* asset = find_asset(aggregate, *asset_id);
+    if (asset == nullptr) {
+      return SetSceneBackgroundResult::asset_not_found;
+    }
+    if (asset->type != AssetType::image) {
+      return SetSceneBackgroundResult::asset_not_image;
+    }
+  }
+
+  if (scene->visuals.background_asset_id == asset_id) {
+    return SetSceneBackgroundResult::unchanged;
+  }
+
+  // std::string's move assignment is noexcept with the default allocator, so
+  // no fallible work remains after the authoritative value starts changing.
+  scene->visuals.background_asset_id = std::move(asset_id);
+  return SetSceneBackgroundResult::changed;
+}
+
 std::string next_scene_name(const Project& project) {
   std::unordered_set<std::string> existing_names;
   for (const Scene& scene : project.scenes) {

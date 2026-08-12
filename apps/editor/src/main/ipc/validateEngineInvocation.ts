@@ -37,6 +37,11 @@ export function isEngineInvocation(
       return hasString('sceneId') && hasString('name');
     case 'scene.delete':
       return hasString('sceneId');
+    case 'scene.setBackground':
+      return (
+        hasString('sceneId') &&
+        (params.assetId === null || hasString('assetId'))
+      );
     case 'dialogue.add': {
       const hasAfterNodeId = hasString('afterNodeId');
       const hasBeforeNodeId = hasString('beforeNodeId');

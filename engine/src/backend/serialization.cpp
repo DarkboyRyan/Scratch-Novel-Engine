@@ -132,6 +132,10 @@ Json scene_to_renderer_json(const Scene& scene) {
       {"schemaVersion", scene.schema_version},
       {"id", scene.id},
       {"name", scene.name},
+      {"backgroundAssetId",
+       scene.visuals.background_asset_id.has_value()
+           ? Json(*scene.visuals.background_asset_id)
+           : Json(nullptr)},
       {"nodes", std::move(nodes)},
   };
 }
@@ -417,6 +421,18 @@ Json project_to_json(const Project& project) {
       {"entrySceneId", project.entry_scene_id},
       {"scenes", std::move(scenes)},
   };
+}
+
+Json assets_to_renderer_json(const std::vector<Asset>& assets) {
+  Json result = Json::array();
+  for (const Asset& asset : assets) {
+    result.push_back({
+        {"id", asset.id},
+        {"type", asset_type_to_string(asset.type)},
+        {"displayName", asset.display_name},
+    });
+  }
+  return result;
 }
 
 Json project_file_to_json(const ProjectFileDocument& document) {

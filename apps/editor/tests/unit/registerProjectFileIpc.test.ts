@@ -4,6 +4,10 @@ import type { BackendClient } from '../../src/main/backend/backendClient';
 import { registerProjectFileIpc } from '../../src/main/ipc/registerProjectFileIpc';
 import { ProjectFileSession } from '../../src/main/project/ProjectFileSession';
 import type { EditorWindowContexts } from '../../src/main/window/EditorWindowContext';
+import {
+  FILE_OPERATION_BUSY_MESSAGE,
+  FileOperationCoordinator,
+} from '../../src/main/window/FileOperationCoordinator';
 import type { EngineMutationResult } from '../../src/shared/engineProtocol';
 import { PROJECT_FILE_IPC_CHANNEL } from '../../src/shared/projectFileProtocol';
 
@@ -37,10 +41,12 @@ const projectResult: EngineMutationResult = {
         schemaVersion: 1,
         id: 'scene-1',
         name: 'Scene 1',
+        backgroundAssetId: null,
         nodes: [],
       },
     ],
   },
+  assets: [],
   session: {
     revision: 2,
     savedRevision: 2,
@@ -56,13 +62,25 @@ function registerWithBackend(request = vi.fn()) {
     setDocumentEdited: vi.fn(),
     setRepresentedFilename: vi.fn(),
   };
+  const preparedPreview = {
+    projectFilePath: '/projects/My story/project.vn.json',
+    projectRootPath: '/projects/My story',
+    projectId: 'project-1',
+    assets: new Map(),
+  };
+  const assetPreviewService = {
+    prepareProjectFile: vi.fn().mockResolvedValue(preparedPreview),
+    activateProjectFile: vi.fn().mockResolvedValue(true),
+  };
   const contexts = new Map([
     [
       7,
       {
         editorWindow,
         backendClient: { request } as unknown as BackendClient,
+        assetPreviewService,
         projectFileSession,
+        fileOperationCoordinator: new FileOperationCoordinator(),
       },
     ],
   ]) as unknown as EditorWindowContexts;
@@ -82,6 +100,7 @@ function registerWithBackend(request = vi.fn()) {
   return {
     request,
     editorWindow,
+    assetPreviewService,
     projectFileSession,
     openNewProjectWindow,
     handler: electronMocks.handle.mock.calls[0][1] as RegisteredHandler,
@@ -163,6 +182,36 @@ describe('project file IPC', () => {
     });
   });
 
+  it('keeps an opened project coherent when optional preview activation fails', async () => {
+    const filePath = '/projects/My story/project.vn.json';
+    electronMocks.showOpenDialog.mockResolvedValue({
+      canceled: false,
+      filePaths: [filePath],
+    });
+    const backendRequest = vi.fn().mockResolvedValue(projectResult);
+    const { handler, assetPreviewService, projectFileSession } =
+      registerWithBackend(backendRequest);
+    assetPreviewService.activateProjectFile.mockResolvedValue(false);
+
+    await expect(
+      handler(trustedEvent(), { action: 'open', params: {} }),
+    ).resolves.toMatchObject({
+      cancelled: false,
+      result: projectResult,
+      session: { filePath },
+    });
+    expect(projectFileSession.snapshot()).toEqual({
+      filePath,
+      ...projectResult.session,
+    });
+    expect(assetPreviewService.activateProjectFile).toHaveBeenCalledWith(
+      filePath,
+      projectResult,
+      expect.any(Object),
+      true,
+    );
+  });
+
   it('saves an unsaved project to a native-dialog path', async () => {
     electronMocks.showSaveDialog.mockResolvedValue({
       canceled: false,
@@ -229,6 +278,33 @@ describe('project file IPC', () => {
       savedRevision: 3,
       isDirty: true,
     });
+  });
+
+  it('serializes open and save while a native dialog is pending', async () => {
+    let finishDialog: (
+      selection: { canceled: boolean; filePaths: string[] },
+    ) => void = () => {};
+    electronMocks.showOpenDialog.mockReturnValue(
+      new Promise((resolve) => {
+        finishDialog = resolve;
+      }),
+    );
+    const { handler, request } = registerWithBackend();
+
+    const opening = handler(trustedEvent(), {
+      action: 'open',
+      params: {},
+    });
+    await vi.waitFor(() => {
+      expect(electronMocks.showOpenDialog).toHaveBeenCalledOnce();
+    });
+
+    await expect(
+      handler(trustedEvent(), { action: 'save', params: {} }),
+    ).rejects.toThrow(FILE_OPERATION_BUSY_MESSAGE);
+    finishDialog({ canceled: true, filePaths: [] });
+    await expect(opening).resolves.toMatchObject({ cancelled: true });
+    expect(request).not.toHaveBeenCalled();
   });
 
   it('rejects Renderer paths and non-project JSON files', async () => {

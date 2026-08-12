@@ -29,8 +29,8 @@ class Backend final {
 
   RandomIdGenerator ids_;
   // Project data and Asset metadata are one consistency boundary because
-  // Scene visuals reference Assets by ID. The renderer response still exposes
-  // only aggregate_.project until the public asset protocol is introduced.
+  // Scene visuals reference Assets by ID. Renderer responses expose only the
+  // Project plus path-free Asset metadata; storage paths remain private here.
   std::optional<ProjectAggregate> aggregate_;
   // Revisions describe the current in-memory document, not a filesystem path.
   // Electron Main remains the sole owner of the active path.

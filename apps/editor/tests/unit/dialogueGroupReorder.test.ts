@@ -12,6 +12,7 @@ function createScene(nodeIds: string[]): SceneDocument {
     schemaVersion: 1,
     id: 'scene-1',
     name: 'Scene 1',
+    backgroundAssetId: null,
     nodes: nodeIds.map((id) => ({
       id,
       type: 'dialogue',

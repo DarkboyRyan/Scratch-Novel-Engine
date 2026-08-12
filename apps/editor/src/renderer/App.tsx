@@ -8,6 +8,8 @@ import {
   type BlockEditorHandle,
 } from './features/block-editor/BlockEditor';
 import type { BlockEditorLayoutStore } from './features/block-editor/blockEditorLayout';
+import { ResourcePanel } from './features/assets/ResourcePanel';
+import { useAssetPreviewUrls } from './features/assets/useAssetPreviewUrls';
 import { FormEditor } from './features/form-editor/FormEditor';
 import { useFormEditor } from './features/form-editor/useFormEditor';
 import { useEngineProject } from './hooks/useEngineProject';
@@ -22,6 +24,11 @@ export default function App() {
   const engine = useEngineProject();
   const editor = useFormEditor(engine);
   const { project, scene } = editor;
+  const assetPreviewUrls = useAssetPreviewUrls(
+    project?.id ?? null,
+    engine.projectGeneration,
+    engine.assets,
+  );
   const [isRenamingProject, setIsRenamingProject] = useState(false);
   const [projectNameDraft, setProjectNameDraft] = useState('');
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
@@ -116,25 +123,58 @@ export default function App() {
     }
   };
 
-  const handleSaveProject = async () => {
+  const prepareCurrentEdits = async (): Promise<boolean> => {
     // 先提交当前正在编辑的视图，再提交项目名，最后才写文件。
     // Blockly 必须第一个 flush：项目重命名返回的 C++ 快照会重绘
     // workspace，如果先重命名，可能把仍在输入框中的最新文字覆盖。
-    await engine.saveProject(async () => {
-      const prepared = await prepareProjectSave({
-        editorMode,
-        flushBlockDraft: () =>
-          blockEditorRef.current?.flushPendingDraft() ??
-          Promise.resolve(true),
-        commitProjectName,
-        commitFormDraft: editor.commitPendingDraft,
-      });
-
-      if (prepared && editorMode === 'blocks') {
-        setBlockDraftDirty(false);
-      }
-      return prepared;
+    const prepared = await prepareProjectSave({
+      editorMode,
+      flushBlockDraft: () =>
+        blockEditorRef.current?.flushPendingDraft() ??
+        Promise.resolve(true),
+      commitProjectName,
+      commitFormDraft: editor.commitPendingDraft,
     });
+
+    if (prepared && editorMode === 'blocks') {
+      setBlockDraftDirty(false);
+    }
+    return prepared;
+  };
+
+  const handleSaveProject = async () => {
+    await engine.saveProject(prepareCurrentEdits);
+  };
+
+  const handleImportImage = async (): Promise<void> => {
+    // 资源必须放进项目目录。首次导入时先让用户保存项目，以获得一个
+    // 受 Main 进程控制的项目根目录；取消保存就不会打开图片选择框。
+    if (!engine.projectFilePath) {
+      const saved = await engine.saveProject(prepareCurrentEdits);
+      if (!saved) {
+        return;
+      }
+    } else if (!(await prepareCurrentEdits())) {
+      return;
+    }
+
+    await engine.importImage();
+  };
+
+  const handleSelectBackground = async (
+    assetId: string | null,
+  ): Promise<void> => {
+    if (!scene || scene.backgroundAssetId === assetId) {
+      return;
+    }
+
+    // 背景命令也会返回完整 C++ 快照。先提交当前编辑器草稿，避免
+    // 快照重绘 Blockly 或表单时覆盖尚未写入 C++ 的文字。
+    if (!(await prepareCurrentEdits())) {
+      return;
+    }
+
+    await engine.setSceneBackground(scene.id, assetId);
   };
 
   const handleEditorModeChange = async (
@@ -218,6 +258,15 @@ export default function App() {
     );
   }
 
+  const backgroundAsset = scene.backgroundAssetId
+    ? engine.assets.find(
+        (asset) => asset.id === scene.backgroundAssetId,
+      ) ?? null
+    : null;
+  const backgroundUrl = backgroundAsset
+    ? assetPreviewUrls[backgroundAsset.id] ?? null
+    : null;
+
   return (
     <div className="editor">
       <Toolbar
@@ -248,8 +297,21 @@ export default function App() {
         }}
       />
 
+      <ResourcePanel
+        assets={engine.assets}
+        backgroundAssetId={scene.backgroundAssetId}
+        previewUrls={assetPreviewUrls}
+        isBusy={engine.isBusy}
+        onImportImage={handleImportImage}
+        onSelectBackground={handleSelectBackground}
+      />
+
       {editorMode === 'form' ? (
-        <FormEditor editor={editor} />
+        <FormEditor
+          editor={editor}
+          backgroundUrl={backgroundUrl}
+          backgroundName={backgroundAsset?.displayName ?? null}
+        />
       ) : (
         <BlockEditor
           ref={blockEditorRef}

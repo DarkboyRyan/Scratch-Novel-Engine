@@ -13,6 +13,7 @@ const scene: SceneDocument = {
   schemaVersion: 1,
   id: 'scene-1',
   name: '场景 1',
+  backgroundAssetId: null,
   nodes: [
     {
       id: 'node-1',

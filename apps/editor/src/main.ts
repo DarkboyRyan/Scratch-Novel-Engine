@@ -1,20 +1,43 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, protocol } from 'electron';
 import started from 'electron-squirrel-startup';
 
+import {
+  ASSET_PREVIEW_SCHEME,
+  AssetPreviewService,
+} from './main/assets/AssetPreviewService';
 import { BackendClient } from './main/backend/backendClient';
 import {
   createEditorWindow,
   resolveEditorEntryUrl,
 } from './main/createEditorWindow';
+import { registerAssetIpc } from './main/ipc/registerAssetIpc';
 import { registerEngineIpc } from './main/ipc/registerEngineIpc';
 import { registerProjectFileIpc } from './main/ipc/registerProjectFileIpc';
 import { installApplicationMenu } from './main/menu/installApplicationMenu';
 import { ProjectFileSession } from './main/project/ProjectFileSession';
 import type { EditorWindowContexts } from './main/window/EditorWindowContext';
+import { FileOperationCoordinator } from './main/window/FileOperationCoordinator';
 import { updateWindowDocumentPresentation } from './main/window/updateWindowDocumentPresentation';
 
 const trustedEditorLocations = new Map<number, string>();
 const editorWindowContexts: EditorWindowContexts = new Map();
+
+// This declaration must run before app.ready. The scheme remains subject to
+// CSP and deliberately does not support fetch/CORS or bypass CSP.
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: ASSET_PREVIEW_SCHEME,
+    privileges: {
+      standard: true,
+      secure: true,
+      stream: true,
+      bypassCSP: false,
+      allowServiceWorkers: false,
+      supportFetchAPI: false,
+      corsEnabled: false,
+    },
+  },
+]);
 
 if (started) {
   app.quit();
@@ -38,18 +61,25 @@ async function openEditorWindow(
   });
   const webContentsId = editorWindow.webContents.id;
   const backendClient = new BackendClient();
+  const assetPreviewService = new AssetPreviewService(
+    editorWindow.webContents.session.protocol,
+  );
   const projectFileSession = new ProjectFileSession();
+  const fileOperationCoordinator = new FileOperationCoordinator();
 
   trustedEditorLocations.set(webContentsId, entryUrl);
   editorWindowContexts.set(webContentsId, {
     editorWindow,
     backendClient,
+    assetPreviewService,
     projectFileSession,
+    fileOperationCoordinator,
   });
 
   editorWindow.webContents.once('destroyed', () => {
     trustedEditorLocations.delete(webContentsId);
     editorWindowContexts.delete(webContentsId);
+    assetPreviewService.dispose();
     backendClient.shutdown();
   });
 
@@ -84,6 +114,7 @@ async function openEditorWindow(
 }
 
 registerEngineIpc(editorWindowContexts, trustedEditorLocations);
+registerAssetIpc(editorWindowContexts, trustedEditorLocations);
 registerProjectFileIpc(
   editorWindowContexts,
   trustedEditorLocations,

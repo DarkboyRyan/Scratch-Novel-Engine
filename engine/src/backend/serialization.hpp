@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <nlohmann/json_fwd.hpp>
 
@@ -35,6 +36,10 @@ class ProjectFileError final : public std::runtime_error {
 // project_to_json is the renderer-facing Project snapshot and deliberately
 // excludes the persistence envelope and asset manifest.
 nlohmann::json project_to_json(const Project& project);
+
+// Public Asset snapshots deliberately omit relativePath. Storage locations
+// stay inside trusted C++/Main persistence code and the on-disk manifest.
+nlohmann::json assets_to_renderer_json(const std::vector<Asset>& assets);
 
 // The file representation is versioned independently from the in-memory
 // model. project_file_from_json performs strict structural and invariant

@@ -69,11 +69,35 @@ async function openProject(
     throw new Error(`请选择名为 ${PROJECT_FILE_NAME} 的项目文件`);
   }
 
+  // Read the private Asset manifest before C++ opens the project, but do not
+  // activate it yet. This keeps the old project's preview capability alive
+  // when the selected file is invalid.
+  let preparedPreview;
+  try {
+    preparedPreview =
+      await context.assetPreviewService.prepareProjectFile(filePath);
+  } catch (error) {
+    console.error('[asset-preview] project manifest preparation failed', error);
+    throw new Error('项目资源清单无法安全读取');
+  }
+
   // project.open 在 C++ 中先解析和校验临时对象；失败时不会替换当前项目。
   const result = await context.backendClient.request({
     method: 'project.open',
     params: { filePath },
   });
+  if (!(await context.assetPreviewService.activateProjectFile(
+    filePath,
+    result,
+    preparedPreview,
+    true,
+  ))) {
+    // C++ has already committed the newly opened project at this point.
+    // Keep that state coherent and fail only the optional preview capability.
+    console.error(
+      '[asset-preview] opened project manifest did not match backend state',
+    );
+  }
   const session = context.projectFileSession.markOpened(
     filePath,
     result.session,
@@ -137,6 +161,18 @@ async function saveProject(
     filePath,
     result.session,
   );
+  if (
+    !(await context.assetPreviewService.activateProjectFile(
+      filePath,
+      result,
+    ))
+  ) {
+    // Saving the project succeeded. Preview activation fails closed without
+    // pretending the durable save failed or exposing a native path.
+    console.error(
+      '[asset-preview] saved project manifest could not be activated',
+    );
+  }
   updateWindowDocumentPresentation(
     context.editorWindow,
     result.project.name,
@@ -161,9 +197,13 @@ async function handleProjectFileInvocation(
       );
       return { opened: true };
     case 'open':
-      return openProject(context);
+      return context.fileOperationCoordinator.runExclusive(() =>
+        openProject(context),
+      );
     case 'save':
-      return saveProject(context);
+      return context.fileOperationCoordinator.runExclusive(() =>
+        saveProject(context),
+      );
   }
 }
 

@@ -32,6 +32,7 @@ target_compile_features(vn_engine_core PUBLIC cxx_std_20)
 add_executable(vn_engine_backend
   src/backend/atomic_file.cpp
   src/backend/backend.cpp
+  src/backend/image_asset_import.cpp
   src/backend/main.cpp
   src/backend/serialization.cpp
 )
@@ -75,6 +76,7 @@ if(BUILD_TESTING)
     tests/backend/backend_tests.cpp
     src/backend/atomic_file.cpp
     src/backend/backend.cpp
+    src/backend/image_asset_import.cpp
     src/backend/serialization.cpp
   )
 
@@ -119,5 +121,28 @@ if(BUILD_TESTING)
   add_test(
     NAME vn_engine_atomic_file_tests
     COMMAND vn_engine_atomic_file_tests
+  )
+
+  add_executable(vn_engine_image_asset_import_tests
+    tests/backend/image_asset_import_tests.cpp
+    src/backend/image_asset_import.cpp
+  )
+
+  target_include_directories(vn_engine_image_asset_import_tests
+    PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/backend
+  )
+
+  if(CMAKE_CXX_COMPILER_ID MATCHES "AppleClang|Clang|GNU")
+    target_compile_options(
+      vn_engine_image_asset_import_tests PRIVATE -Wall -Wextra -Wpedantic)
+  elseif(MSVC)
+    target_compile_options(
+      vn_engine_image_asset_import_tests PRIVATE /W4 /permissive-)
+  endif()
+
+  add_test(
+    NAME vn_engine_image_asset_import_tests
+    COMMAND vn_engine_image_asset_import_tests
   )
 endif()

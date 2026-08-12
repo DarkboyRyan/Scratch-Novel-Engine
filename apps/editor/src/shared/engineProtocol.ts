@@ -1,4 +1,4 @@
-import type { ProjectDocument } from './projectTypes';
+import type { AssetDocument, ProjectDocument } from './projectTypes';
 
 // C++、Electron Main、Preload 和 React 共同遵守的跨进程协议。
 export type EngineSessionState = {
@@ -9,9 +9,11 @@ export type EngineSessionState = {
 
 export type EngineMutationResult = {
   project: ProjectDocument;
+  assets: AssetDocument[];
   session: EngineSessionState;
   sceneId?: string;
   nodeId?: string;
+  assetId?: string;
 };
 
 export type AddDialogueParams = {
@@ -49,6 +51,7 @@ export const ENGINE_METHODS = [
   'scene.add',
   'scene.rename',
   'scene.delete',
+  'scene.setBackground',
   'dialogue.add',
   'dialogue.update',
   'dialogue.delete',
@@ -78,6 +81,10 @@ export type EngineParamsByMethod = {
   };
   'scene.delete': {
     sceneId: string;
+  };
+  'scene.setBackground': {
+    sceneId: string;
+    assetId: string | null;
   };
   'dialogue.add': AddDialogueParams;
   'dialogue.update': {
@@ -124,10 +131,21 @@ export type SaveProjectBackendInvocation = {
   };
 };
 
+// Asset import paths are created only by Electron Main after a native file
+// selection. This invocation must never be added to ENGINE_METHODS.
+export type ImportImageBackendInvocation = {
+  method: 'asset.import';
+  params: {
+    sourceFilePath: string;
+    projectFilePath: string;
+  };
+};
+
 export type BackendInvocation =
   | EngineInvocation
   | OpenProjectBackendInvocation
-  | SaveProjectBackendInvocation;
+  | SaveProjectBackendInvocation
+  | ImportImageBackendInvocation;
 
 // Electron Main 会补充 id；C++ 使用同一个 id 返回结果。
 export type BackendRequest = BackendInvocation & {
@@ -160,6 +178,10 @@ export type VnEngineApi = {
     name: string,
   ): Promise<EngineMutationResult>;
   deleteScene(sceneId: string): Promise<EngineMutationResult>;
+  setSceneBackground(
+    sceneId: string,
+    assetId: string | null,
+  ): Promise<EngineMutationResult>;
   addDialogue(
     params: AddDialogueParams,
   ): Promise<EngineMutationResult>;

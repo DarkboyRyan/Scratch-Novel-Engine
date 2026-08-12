@@ -521,6 +521,45 @@ void validates_visual_references_and_stable_z_order() {
   CHECK(vnengine::find_asset(aggregate, "missing") == nullptr);
 }
 
+void changes_scene_background_only_after_validation() {
+  using Result = vnengine::SetSceneBackgroundResult;
+
+  vnengine::ProjectAggregate aggregate = visual_aggregate();
+  const std::string scene_id = aggregate.project.entry_scene_id;
+
+  CHECK(vnengine::set_scene_background(
+            aggregate, scene_id, "asset-background") ==
+        Result::unchanged);
+  CHECK(vnengine::set_scene_background(
+            aggregate, scene_id, "asset-alice") == Result::changed);
+  CHECK(
+      aggregate.project.scenes[0].visuals.background_asset_id ==
+      "asset-alice");
+
+  const vnengine::ProjectAggregate after_change = aggregate;
+  CHECK(vnengine::set_scene_background(
+            aggregate, "missing-scene", "asset-background") ==
+        Result::scene_not_found);
+  CHECK(aggregate == after_change);
+
+  CHECK(vnengine::set_scene_background(
+            aggregate, scene_id, "missing-asset") ==
+        Result::asset_not_found);
+  CHECK(aggregate == after_change);
+
+  CHECK(vnengine::set_scene_background(
+            aggregate, scene_id, "asset-music") ==
+        Result::asset_not_image);
+  CHECK(aggregate == after_change);
+
+  CHECK(vnengine::set_scene_background(
+            aggregate, scene_id, std::nullopt) == Result::changed);
+  CHECK(!aggregate.project.scenes[0]
+             .visuals.background_asset_id.has_value());
+  CHECK(vnengine::set_scene_background(
+            aggregate, scene_id, std::nullopt) == Result::unchanged);
+}
+
 void rejects_invalid_asset_manifests() {
   const vnengine::ProjectAggregate valid = visual_aggregate();
 
@@ -635,6 +674,8 @@ int main() {
       {"validates portable asset paths", validates_portable_asset_paths},
       {"validates visual references and stable z order",
        validates_visual_references_and_stable_z_order},
+      {"changes scene background only after validation",
+       changes_scene_background_only_after_validation},
       {"rejects invalid asset manifests", rejects_invalid_asset_manifests},
       {"rejects invalid scene visuals atomically",
        rejects_invalid_scene_visuals_atomically},

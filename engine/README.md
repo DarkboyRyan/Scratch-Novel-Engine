@@ -58,7 +58,7 @@ Each stdin line is one request:
 Each stdout line is one response. Logs are written only to stderr:
 
 ```json
-{"id":1,"ok":true,"result":{"project":{"schemaVersion":1},"session":{"revision":0,"savedRevision":null,"isDirty":true}}}
+{"id":1,"ok":true,"result":{"project":{"schemaVersion":1},"assets":[],"session":{"revision":0,"savedRevision":null,"isDirty":true}}}
 ```
 
 `scene.add` also returns `result.sceneId`, and `dialogue.add` returns
@@ -70,7 +70,8 @@ Supported methods:
 - `ping`（仅用于直接诊断 C++ 进程，不经过 Renderer API）
 - `project.create`, `project.open`, `project.ensure`, `project.get`
 - `project.rename`, `project.save`（仅 Main 可以传入文件路径）
-- `scene.add`, `scene.rename`, `scene.delete`
+- `asset.import`（仅 Main 可以传入源图片和项目文件路径）
+- `scene.add`, `scene.rename`, `scene.delete`, `scene.setBackground`
 - `dialogue.add`, `dialogue.update`, `dialogue.delete`, `dialogue.move`
 
 `dialogue.add` accepts an optional `afterNodeId`. If it is absent or does not
@@ -131,14 +132,46 @@ is furthest back and the last is foremost. The reader checks v1 and v2 field
 sets strictly and validates all visual Asset references as part of the same
 Project aggregate.
 
-The current Renderer-facing `project` snapshot deliberately omits `visuals`
-and `assets` until the public asset IPC and UI are introduced. The C++ Backend
-still retains and round-trips both fields, so ordinary project or dialogue
-edits cannot discard visual data loaded from a version 2 file.
+The Renderer-facing Scene projection exposes `backgroundAssetId` directly,
+but continues to hide the rest of the persisted `visuals` object until those
+editing features are implemented. Every successful response separately
+returns a path-free `assets` array whose items contain only `id`, `type`, and
+`displayName`. Storage paths remain private to C++/Electron Main and the
+project manifest. The C++ Backend retains and round-trips the full aggregate,
+so ordinary project or dialogue edits cannot discard visual data loaded from
+a version 2 file.
+
+`scene.setBackground` accepts a Scene ID and either an image Asset ID or
+`null` to clear the background:
+
+```json
+{
+  "id": 2,
+  "method": "scene.setBackground",
+  "params": {"sceneId": "scene-id", "assetId": "image-asset-id"}
+}
+```
+
+The command resolves both IDs and checks the Asset type before changing the
+Scene. A missing Scene, missing Asset, or non-image Asset fails without
+changing state. Reassigning the current value succeeds without advancing the
+revision. The next ordinary `project.save` persists the selection in the v2
+`visuals.backgroundAssetId` field.
 
 Asset metadata supports `image`, `video`, and `audio`. Binary assets remain in
 type-specific directories such as `assets/images/`; JSON stores only safe,
 portable relative paths.
+
+`asset.import` currently accepts PNG, JPEG, and WebP. Electron Main supplies a
+normalized absolute `sourceFilePath` selected by the native dialog and the
+active normalized `projectFilePath`. C++ opens the source without following its
+final symlink/reparse point, verifies a regular file, a 128 MiB size limit, and
+matching extension and magic bytes on the same handle. It streams the source to
+a flushed temporary file below `assets/images/` and publishes without replacing
+an existing destination. The original source is never changed. A successful
+import returns `assetId`, appends the in-memory manifest, advances `revision`,
+and makes the document dirty; the ordinary save command later writes that
+manifest to `project.vn.json`.
 
 Every successful response includes `result.session`. `revision` advances only
 when project data actually changes; `savedRevision` is `null` until a new

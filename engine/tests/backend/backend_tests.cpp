@@ -1,3 +1,4 @@
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -14,6 +15,7 @@
 #include <nlohmann/json.hpp>
 
 #include "backend.hpp"
+#include "image_asset_import.hpp"
 #include "serialization.hpp"
 
 namespace {
@@ -27,6 +29,36 @@ void check(const bool condition, const std::string& expression) {
 }
 
 #define CHECK(expression) check((expression), #expression)
+
+std::string png_image_bytes() {
+  constexpr std::array<unsigned char, 16> bytes{
+      0x89U,
+      0x50U,
+      0x4eU,
+      0x47U,
+      0x0dU,
+      0x0aU,
+      0x1aU,
+      0x0aU,
+      0x00U,
+      0x00U,
+      0x00U,
+      0x00U,
+      0x49U,
+      0x45U,
+      0x4eU,
+      0x44U,
+  };
+  return std::string(
+      reinterpret_cast<const char*>(bytes.data()), bytes.size());
+}
+
+std::string jpeg_image_bytes() {
+  constexpr std::array<unsigned char, 8> bytes{
+      0xffU, 0xd8U, 0xffU, 0xe0U, 0x00U, 0x02U, 0xffU, 0xd9U};
+  return std::string(
+      reinterpret_cast<const char*>(bytes.data()), bytes.size());
+}
 
 Json valid_document() {
   return {
@@ -379,7 +411,26 @@ void expect_session(
     const std::optional<std::uint64_t> saved_revision,
     const bool is_dirty) {
   CHECK(response.at("ok") == true);
-  const Json& session = response.at("result").at("session");
+  const Json& result = response.at("result");
+  CHECK(result.contains("assets"));
+  CHECK(result.at("assets").is_array());
+  for (const Json& asset : result.at("assets")) {
+    CHECK(asset.is_object());
+    CHECK(asset.size() == 3);
+    CHECK(asset.contains("id"));
+    CHECK(asset.contains("type"));
+    CHECK(asset.contains("displayName"));
+    CHECK(!asset.contains("relativePath"));
+  }
+  if (!result.at("project").is_null()) {
+    for (const Json& scene : result.at("project").at("scenes")) {
+      CHECK(scene.contains("backgroundAssetId"));
+      CHECK(scene.at("backgroundAssetId").is_null() ||
+            scene.at("backgroundAssetId").is_string());
+    }
+  }
+
+  const Json& session = result.at("session");
   CHECK(session.at("revision") == revision);
   if (saved_revision.has_value()) {
     CHECK(session.at("savedRevision") == *saved_revision);
@@ -387,6 +438,297 @@ void expect_session(
     CHECK(session.at("savedRevision").is_null());
   }
   CHECK(session.at("isDirty") == is_dirty);
+}
+
+void imports_an_image_without_exposing_paths_or_autosaving_manifest() {
+  TemporaryDirectory temporary;
+  const std::filesystem::path project_file =
+      temporary.path("project.vn.json");
+  const std::filesystem::path source = temporary.write(
+      "Alice Portrait.PNG", png_image_bytes());
+  const std::string original_source = read_file(source);
+
+  vnengine::backend::Backend backend;
+  const Json created = request(
+      backend, 1, "project.create", {{"name", "图片导入"}});
+  expect_session(created, 0, std::nullopt, true);
+  CHECK(created.at("result").at("assets").empty());
+
+  const Json initially_saved = request(
+      backend,
+      2,
+      "project.save",
+      {{"filePath", project_file.string()}});
+  expect_session(initially_saved, 0, 0, false);
+  CHECK(Json::parse(read_file(project_file)).at("assets").empty());
+
+  const Json imported = request(
+      backend,
+      3,
+      "asset.import",
+      {
+          {"sourceFilePath", source.string()},
+          {"projectFilePath", project_file.string()},
+      });
+  expect_session(imported, 1, 0, true);
+  const Json& result = imported.at("result");
+  CHECK(result.contains("assetId"));
+  const std::string asset_id = result.at("assetId").get<std::string>();
+  CHECK(!asset_id.empty());
+  CHECK(result.at("assets").size() == 1);
+  CHECK(result.at("assets")[0] == Json({
+      {"id", asset_id},
+      {"type", "image"},
+      {"displayName", "Alice Portrait"},
+  }));
+  CHECK(imported.dump().find(source.string()) == std::string::npos);
+  CHECK(imported.dump().find(project_file.string()) == std::string::npos);
+
+  const std::filesystem::path imported_file = temporary.root() /
+      "assets" / "images" / (asset_id + ".png");
+  CHECK(std::filesystem::is_regular_file(imported_file));
+  CHECK(read_file(imported_file) == original_source);
+  CHECK(read_file(source) == original_source);
+
+  // Import only copies the binary and mutates the in-memory manifest. The
+  // existing project file remains unchanged until the ordinary save command.
+  CHECK(Json::parse(read_file(project_file)).at("assets").empty());
+
+  const Json saved = request(
+      backend,
+      4,
+      "project.save",
+      {{"filePath", project_file.string()}});
+  expect_session(saved, 1, 1, false);
+  const Json persisted = Json::parse(read_file(project_file));
+  CHECK(persisted.at("assets").size() == 1);
+  CHECK(persisted.at("assets")[0] == Json({
+      {"id", asset_id},
+      {"type", "image"},
+      {"relativePath", "assets/images/" + asset_id + ".png"},
+      {"displayName", "Alice Portrait"},
+  }));
+}
+
+void rejects_unsafe_image_sources_without_mutating_document() {
+  TemporaryDirectory temporary;
+  const std::filesystem::path project_file =
+      temporary.path("project.vn.json");
+  const std::filesystem::path valid_source = temporary.write(
+      "valid.png", png_image_bytes());
+  const std::filesystem::path mismatched = temporary.write(
+      "mismatch.png", jpeg_image_bytes());
+  const std::filesystem::path unsupported = temporary.write(
+      "unsupported.gif", png_image_bytes());
+  const std::filesystem::path empty = temporary.write("empty.webp", "");
+  const std::filesystem::path directory = temporary.path("directory.png");
+  CHECK(std::filesystem::create_directory(directory));
+  const std::filesystem::path oversized = temporary.write(
+      "oversized.png", png_image_bytes());
+  std::filesystem::resize_file(
+      oversized,
+      vnengine::backend::kMaximumImportedImageBytes + 1U);
+
+  std::optional<std::filesystem::path> symlink;
+  const std::filesystem::path symlink_path = temporary.path("linked.png");
+  std::error_code symlink_error;
+  std::filesystem::create_symlink(
+      valid_source, symlink_path, symlink_error);
+  if (!symlink_error) {
+    symlink = symlink_path;
+  }
+
+  vnengine::backend::Backend no_project;
+  const Json missing_project = request(
+      no_project,
+      1,
+      "asset.import",
+      {
+          {"sourceFilePath", valid_source.string()},
+          {"projectFilePath", project_file.string()},
+      });
+  CHECK(missing_project.at("ok") == false);
+  CHECK(missing_project.at("error").at("code") == "project_not_created");
+
+  vnengine::backend::Backend backend;
+  static_cast<void>(request(
+      backend, 1, "project.create", {{"name", "失败保持"}}));
+  const Json clean = request(
+      backend,
+      2,
+      "project.save",
+      {{"filePath", project_file.string()}});
+  expect_session(clean, 0, 0, false);
+
+  std::vector<std::filesystem::path> invalid_sources{
+      mismatched, unsupported, empty, directory, oversized};
+  if (symlink.has_value()) {
+    invalid_sources.push_back(*symlink);
+  }
+
+  int request_id = 3;
+  for (const std::filesystem::path& invalid_source : invalid_sources) {
+    const Json failed = request(
+        backend,
+        request_id++,
+        "asset.import",
+        {
+            {"sourceFilePath", invalid_source.string()},
+            {"projectFilePath", project_file.string()},
+        });
+    CHECK(failed.at("ok") == false);
+    CHECK(failed.at("error").at("code") == "asset_import_failed");
+
+    const Json current = request(backend, request_id++, "project.get");
+    expect_session(current, 0, 0, false);
+    CHECK(current.at("result").at("assets").empty());
+  }
+
+  const Json invalid_project_path = request(
+      backend,
+      request_id++,
+      "asset.import",
+      {
+          {"sourceFilePath", valid_source.string()},
+          {"projectFilePath", "project.vn.json"},
+      });
+  CHECK(invalid_project_path.at("ok") == false);
+  CHECK(invalid_project_path.at("error").at("code") == "invalid_params");
+
+  const Json final_state = request(backend, request_id, "project.get");
+  expect_session(final_state, 0, 0, false);
+  CHECK(final_state.at("result").at("assets").empty());
+  CHECK(Json::parse(read_file(project_file)).at("assets").empty());
+
+  const std::filesystem::path assets = temporary.root() / "assets";
+  if (std::filesystem::exists(assets)) {
+    for (const auto& entry :
+         std::filesystem::recursive_directory_iterator(assets)) {
+      CHECK(entry.path().filename().string().find(".tmp-") ==
+            std::string::npos);
+      CHECK(!entry.is_regular_file());
+    }
+  }
+}
+
+void sets_clears_and_persists_scene_backgrounds_atomically() {
+  TemporaryDirectory temporary;
+  const std::filesystem::path source = temporary.write(
+      "background-source.vn.json", valid_document().dump(2));
+  const std::filesystem::path target =
+      temporary.path("project.vn.json");
+
+  vnengine::backend::Backend backend;
+  const Json opened = request(
+      backend, 1, "project.open", {{"filePath", source.string()}});
+  expect_session(opened, 0, 0, false);
+  const Json& opened_scene =
+      opened.at("result").at("project").at("scenes")[0];
+  CHECK(opened_scene.at("backgroundAssetId").is_null());
+
+  // project.get uses the same public projection as every mutation response.
+  const Json initial_snapshot = request(backend, 2, "project.get");
+  expect_session(initial_snapshot, 0, 0, false);
+  CHECK(initial_snapshot.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("backgroundAssetId")
+            .is_null());
+
+  const Json assigned = request(
+      backend,
+      3,
+      "scene.setBackground",
+      {{"sceneId", "scene-1"}, {"assetId", "asset-image-1"}});
+  expect_session(assigned, 1, 0, true);
+  CHECK(assigned.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("backgroundAssetId") == "asset-image-1");
+
+  // Assigning the authoritative value again is a successful no-op.
+  const Json same_assignment = request(
+      backend,
+      4,
+      "scene.setBackground",
+      {{"sceneId", "scene-1"}, {"assetId", "asset-image-1"}});
+  expect_session(same_assignment, 1, 0, true);
+
+  int request_id = 5;
+  const std::vector<std::pair<Json, std::string>> invalid_changes{
+      {{{"sceneId", "missing-scene"}, {"assetId", "asset-image-1"}},
+       "scene_not_found"},
+      {{{"sceneId", "scene-1"}, {"assetId", "missing-asset"}},
+       "asset_not_found"},
+      {{{"sceneId", "scene-1"}, {"assetId", "asset-video-1"}},
+       "asset_not_image"},
+      {{{"sceneId", "scene-1"}}, "invalid_params"},
+      {{{"sceneId", "scene-1"}, {"assetId", 7}}, "invalid_params"},
+  };
+  for (const auto& [params, expected_code] : invalid_changes) {
+    const Json failed = request(
+        backend, request_id++, "scene.setBackground", params);
+    CHECK(failed.at("ok") == false);
+    CHECK(failed.at("error").at("code") == expected_code);
+
+    const Json unchanged = request(backend, request_id++, "project.get");
+    expect_session(unchanged, 1, 0, true);
+    CHECK(unchanged.at("result")
+              .at("project")
+              .at("scenes")[0]
+              .at("backgroundAssetId") == "asset-image-1");
+  }
+
+  const Json cleared = request(
+      backend,
+      request_id++,
+      "scene.setBackground",
+      {{"sceneId", "scene-1"}, {"assetId", nullptr}});
+  expect_session(cleared, 2, 0, true);
+  CHECK(cleared.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("backgroundAssetId")
+            .is_null());
+
+  const Json same_clear = request(
+      backend,
+      request_id++,
+      "scene.setBackground",
+      {{"sceneId", "scene-1"}, {"assetId", nullptr}});
+  expect_session(same_clear, 2, 0, true);
+
+  const Json reassigned = request(
+      backend,
+      request_id++,
+      "scene.setBackground",
+      {{"sceneId", "scene-1"}, {"assetId", "asset-image-1"}});
+  expect_session(reassigned, 3, 0, true);
+
+  const Json saved = request(
+      backend,
+      request_id++,
+      "project.save",
+      {{"filePath", target.string()}});
+  expect_session(saved, 3, 3, false);
+  const Json persisted = Json::parse(read_file(target));
+  CHECK(persisted.at("fileVersion") == 2);
+  CHECK(persisted.at("project")
+            .at("scenes")[0]
+            .at("visuals")
+            .at("backgroundAssetId") == "asset-image-1");
+
+  vnengine::backend::Backend reopened_backend;
+  const Json reopened = request(
+      reopened_backend,
+      1,
+      "project.open",
+      {{"filePath", target.string()}});
+  expect_session(reopened, 0, 0, false);
+  CHECK(reopened.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("backgroundAssetId") == "asset-image-1");
 }
 
 void tracks_real_mutations_and_normalizes_project_names() {
@@ -526,8 +868,12 @@ void backend_preserves_hidden_v2_visuals_across_mutation_and_save() {
       backend, 1, "project.open", {{"filePath", source.string()}});
   expect_session(opened, 0, 0, false);
 
-  // The current Electron/Renderer response intentionally remains unchanged.
-  // Visuals are retained only inside Backend's ProjectAggregate for now.
+  // Renderer gets the safe background Asset ID needed for selection/preview,
+  // while future character-instance details remain private for now.
+  CHECK(opened.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("backgroundAssetId") == "asset-image-1");
   CHECK(!opened.at("result").at("project").at("scenes")[0].contains(
       "visuals"));
 
@@ -744,6 +1090,12 @@ int main() {
        rejects_malformed_v2_visual_fields_strictly},
       {"tracks real mutations and normalizes project names",
        tracks_real_mutations_and_normalizes_project_names},
+      {"imports an image without exposing paths or autosaving manifest",
+       imports_an_image_without_exposing_paths_or_autosaving_manifest},
+      {"rejects unsafe image sources without mutating document",
+       rejects_unsafe_image_sources_without_mutating_document},
+      {"sets clears and persists scene backgrounds atomically",
+       sets_clears_and_persists_scene_backgrounds_atomically},
       {"saves atomically and round trips assets",
        saves_atomically_and_round_trips_assets},
       {"backend preserves hidden v2 visuals across mutation and save",

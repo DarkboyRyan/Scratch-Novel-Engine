@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 import {
+  ASSET_IPC_CHANNEL,
+  type AssetInvocation,
+  type ImportImageResult,
+  type VnAssetsApi,
+} from './shared/assetProtocol';
+import {
   ENGINE_IPC_CHANNEL,
   type EngineInvocation,
   type EngineMutationResult,
@@ -23,6 +29,27 @@ function invokeEngine(
   return ipcRenderer.invoke(ENGINE_IPC_CHANNEL, invocation);
 }
 
+function invokeAsset(
+  invocation: AssetInvocation,
+): Promise<ImportImageResult | string | null> {
+  return ipcRenderer.invoke(ASSET_IPC_CHANNEL, invocation) as Promise<
+    ImportImageResult | string | null
+  >;
+}
+
+const vnAssets: VnAssetsApi = {
+  importImage: () =>
+    invokeAsset({
+      action: 'import-image',
+      params: {},
+    }) as Promise<ImportImageResult>,
+  getPreviewUrl: (assetId) =>
+    invokeAsset({
+      action: 'get-preview-url',
+      params: { assetId },
+    }) as Promise<string | null>,
+};
+
 const vnEngine: VnEngineApi = {
   ensureProject: () =>
     invokeEngine({ method: 'project.ensure', params: {} }),
@@ -39,6 +66,11 @@ const vnEngine: VnEngineApi = {
     }),
   deleteScene: (sceneId) =>
     invokeEngine({ method: 'scene.delete', params: { sceneId } }),
+  setSceneBackground: (sceneId, assetId) =>
+    invokeEngine({
+      method: 'scene.setBackground',
+      params: { sceneId, assetId },
+    }),
   addDialogue: (params) =>
     invokeEngine({
       method: 'dialogue.add',
@@ -117,5 +149,6 @@ const vnProjectFiles: VnProjectFilesApi = {
   },
 };
 
+contextBridge.exposeInMainWorld('vnAssets', vnAssets);
 contextBridge.exposeInMainWorld('vnEngine', vnEngine);
 contextBridge.exposeInMainWorld('vnProjectFiles', vnProjectFiles);

@@ -27,6 +27,27 @@ describe('reorderMany IPC validation', () => {
     ).toBe(false);
   });
 
+  it('accepts setting or clearing a scene background by Asset ID', () => {
+    expect(
+      isEngineInvocation({
+        method: 'scene.setBackground',
+        params: { sceneId: 'scene-1', assetId: 'asset-1' },
+      }),
+    ).toBe(true);
+    expect(
+      isEngineInvocation({
+        method: 'scene.setBackground',
+        params: { sceneId: 'scene-1', assetId: null },
+      }),
+    ).toBe(true);
+    expect(
+      isEngineInvocation({
+        method: 'scene.setBackground',
+        params: { sceneId: 'scene-1', assetId: 3 },
+      }),
+    ).toBe(false);
+  });
+
   it('accepts a unique, non-empty selection and a nullable anchor', () => {
     expect(
       isEngineInvocation({

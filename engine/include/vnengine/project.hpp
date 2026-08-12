@@ -49,6 +49,23 @@ const Asset* find_asset(
     const ProjectAggregate& aggregate,
     std::string_view asset_id);
 
+// Background changes are aggregate operations because a Scene may only
+// reference an existing image Asset. Expected validation failures are
+// reported without changing the aggregate; assigning the current value is a
+// successful no-op so callers can keep document revisions precise.
+enum class SetSceneBackgroundResult {
+  changed,
+  unchanged,
+  scene_not_found,
+  asset_not_found,
+  asset_not_image,
+};
+
+SetSceneBackgroundResult set_scene_background(
+    ProjectAggregate& aggregate,
+    std::string_view scene_id,
+    std::optional<std::string> asset_id);
+
 std::string next_scene_name(const Project& project);
 
 // A committed dialogue must contain text. Whitespace is trimmed and an empty

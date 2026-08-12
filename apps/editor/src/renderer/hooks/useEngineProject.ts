@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
+import type { ImportImageResult } from '../../shared/assetProtocol';
 import type {
   AddDialogueParams,
   DeleteDialoguesParams,
@@ -7,7 +8,10 @@ import type {
   ReorderDialogueParams,
   ReorderDialoguesParams,
 } from '../../shared/engineProtocol';
-import type { ProjectDocument } from '../../shared/projectTypes';
+import type {
+  AssetDocument,
+  ProjectDocument,
+} from '../../shared/projectTypes';
 import type { ProjectFileSessionSnapshot } from '../../shared/projectFileProtocol';
 import { EMPTY_DIALOGUE_MESSAGE } from '../editorMessages';
 
@@ -37,6 +41,10 @@ export type DeleteDialoguesAction = (
 export type OpenProjectStatus =
   | 'opened'
   | 'cancelled'
+  | 'failed';
+
+export type ImportImageStatus =
+  | ImportImageResult['status']
   | 'failed';
 
 function requestInitialProject(): Promise<EngineMutationResult> {
@@ -76,6 +84,10 @@ function readableError(error: unknown): string {
 export function useEngineProject() {
   const [project, setProject] =
     useState<ProjectDocument | null>(null);
+  const [assets, setAssets] = useState<AssetDocument[]>([]);
+  // 即使重新打开的是同一个 project.id，Main 也会轮换图片预览能力令牌。
+  // 这个计数让 Renderer 丢弃旧 URL，并按新项目会话重新申请。
+  const [projectGeneration, setProjectGeneration] = useState(0);
   const [isInitializing, setIsInitializing] = useState(true);
   const [pendingEngineActions, setPendingEngineActions] = useState(0);
   const [isFileOperating, setIsFileOperating] = useState(false);
@@ -97,6 +109,28 @@ export function useEngineProject() {
     isFileOperating ||
     isSaving;
 
+  function applyResult(
+    result: EngineMutationResult,
+    fileSession?: ProjectFileSessionSnapshot,
+  ): void {
+    setProject(result.project);
+    setAssets(result.assets);
+
+    if (fileSession) {
+      setProjectFilePath(fileSession.filePath);
+      setSession({
+        ...fileSession,
+        ...result.session,
+      });
+      return;
+    }
+
+    setSession((current) => ({
+      ...current,
+      ...result.session,
+    }));
+  }
+
   useEffect(() => {
     let isActive = true;
 
@@ -106,9 +140,7 @@ export function useEngineProject() {
     ])
       .then(([result, session]) => {
         if (isActive) {
-          setProject(result.project);
-          setProjectFilePath(session.filePath);
-          setSession({
+          applyResult(result, {
             ...session,
             revision: result.session.revision,
             savedRevision: result.session.savedRevision,
@@ -152,11 +184,7 @@ export function useEngineProject() {
 
       try {
         const result = await action();
-        setProject(result.project);
-        setSession((current) => ({
-          ...current,
-          ...result.session,
-        }));
+        applyResult(result);
         resolveQueuedResult(result);
       } catch (error: unknown) {
         setEngineMessage(readableError(error));
@@ -270,9 +298,8 @@ export function useEngineProject() {
       }
 
       // Main 只会在 C++ 已完整解析并校验项目后返回成功。
-      setProject(outcome.result.project);
-      setProjectFilePath(outcome.session.filePath);
-      setSession(outcome.session);
+      applyResult(outcome.result, outcome.session);
+      setProjectGeneration((current) => current + 1);
       return 'opened';
     } catch (error: unknown) {
       // 失败时不调用 setProject，因此当前编辑内容会原样保留。
@@ -301,14 +328,18 @@ export function useEngineProject() {
       }
       await waitForEngineActions();
       const outcome = await window.vnProjectFiles.saveProject();
-      setSession(outcome.session);
-      setProjectFilePath(outcome.session.filePath);
 
       if (outcome.cancelled) {
+        setSession(outcome.session);
+        setProjectFilePath(outcome.session.filePath);
         return false;
       }
 
-      setProject(outcome.result.project);
+      applyResult(outcome.result, outcome.session);
+      // Main 会在每次成功保存后刷新私有资源清单。即使 project/assets
+      // 业务数据没变，也重新申请一次预览 URL，以便从先前的安全降级
+      // （例如临时读取失败）中恢复。
+      setProjectGeneration((current) => current + 1);
       return true;
     } catch (error: unknown) {
       setEngineMessage(readableError(error));
@@ -326,8 +357,53 @@ export function useEngineProject() {
     return result !== null;
   }
 
+  async function setSceneBackground(
+    sceneId: string,
+    assetId: string | null,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.setSceneBackground(sceneId, assetId),
+    );
+    return result !== null;
+  }
+
+  async function importImage(): Promise<ImportImageStatus> {
+    if (fileOperationInProgress.current) {
+      return 'failed';
+    }
+
+    fileOperationInProgress.current = true;
+    setIsFileOperating(true);
+    setEngineMessage('');
+
+    try {
+      await waitForEngineActions();
+      const outcome = await window.vnAssets.importImage();
+
+      if (outcome.status === 'project-not-saved') {
+        setEngineMessage('请先保存项目，再导入图片');
+        return outcome.status;
+      }
+
+      if (outcome.status === 'cancelled') {
+        return outcome.status;
+      }
+
+      applyResult(outcome.result);
+      return outcome.status;
+    } catch (error: unknown) {
+      setEngineMessage(readableError(error));
+      return 'failed';
+    } finally {
+      fileOperationInProgress.current = false;
+      setIsFileOperating(false);
+    }
+  }
+
   return {
     project,
+    assets,
+    projectGeneration,
     projectFilePath,
     session,
     isSaving,
@@ -343,7 +419,9 @@ export function useEngineProject() {
     createProject,
     openProject,
     saveProject,
+    importImage,
     renameProject,
+    setSceneBackground,
     waitForEngineActions,
   };
 }

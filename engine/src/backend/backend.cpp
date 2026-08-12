@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -16,6 +17,7 @@
 #include <nlohmann/json.hpp>
 
 #include "atomic_file.hpp"
+#include "image_asset_import.hpp"
 #include "serialization.hpp"
 
 namespace vnengine::backend {
@@ -144,12 +146,17 @@ Json success_response(
     const std::uint64_t revision,
     const std::optional<std::uint64_t> saved_revision,
     const std::optional<std::string>& scene_id = std::nullopt,
-    const std::optional<std::string>& node_id = std::nullopt) {
+    const std::optional<std::string>& node_id = std::nullopt,
+    const std::optional<std::string>& asset_id = std::nullopt) {
   Json result{
       {"project",
        aggregate.has_value()
            ? project_to_json(aggregate->project)
            : Json(nullptr)},
+      {"assets",
+       aggregate.has_value()
+           ? assets_to_renderer_json(aggregate->assets)
+           : Json::array()},
       {"session",
        {
            {"revision", revision},
@@ -166,6 +173,9 @@ Json success_response(
   }
   if (node_id.has_value()) {
     result["nodeId"] = *node_id;
+  }
+  if (asset_id.has_value()) {
+    result["assetId"] = *asset_id;
   }
 
   return {
@@ -298,6 +308,75 @@ Json Backend::handle(const Json& request) {
     return success_response(
         request_id(request), aggregate_, revision_, saved_revision_);
   }
+  if (method == "asset.import") {
+    ProjectAggregate& current = require_aggregate();
+    const std::string source_file_path =
+        required_string(params, "sourceFilePath");
+    const std::filesystem::path project_path = project_file_path(
+        required_string(params, "projectFilePath"));
+
+    std::string asset_id;
+    for (int attempt = 0; attempt < 32; ++attempt) {
+      std::string candidate_id = ids_.next();
+      if (vnengine::find_asset(current, candidate_id) == nullptr) {
+        asset_id = std::move(candidate_id);
+        break;
+      }
+    }
+    if (asset_id.empty()) {
+      throw ProtocolError(
+          "internal_error", "could not generate a unique image Asset ID");
+    }
+
+    ImageAssetImportPlan plan;
+    try {
+      plan = plan_image_asset_import(source_file_path, asset_id);
+    } catch (const ImageAssetImportError& error) {
+      throw ProtocolError("asset_import_failed", error.what());
+    }
+
+    // Validate a complete aggregate before touching the project directory.
+    // Once the no-clobber file publication succeeds, move assignment commits
+    // this already-validated candidate without allocating or copying.
+    ProjectAggregate candidate = current;
+    candidate.assets.push_back(Asset{
+        .id = asset_id,
+        .type = AssetType::image,
+        .relative_path = plan.relative_path,
+        .display_name = plan.display_name,
+    });
+    if (const auto violation =
+            vnengine::validate_project_aggregate(candidate);
+        violation.has_value()) {
+      throw ProtocolError("internal_error", *violation);
+    }
+
+    try {
+      copy_image_asset_no_clobber(
+          std::filesystem::path(source_file_path),
+          project_path.parent_path(),
+          plan);
+    } catch (const ImageAssetImportError& error) {
+      throw ProtocolError("asset_import_failed", error.what());
+    } catch (const std::exception&) {
+      throw ProtocolError(
+          "asset_import_failed", "image Asset could not be imported safely");
+    }
+
+    static_assert(
+        std::is_nothrow_move_assignable_v<ProjectAggregate>,
+        "filesystem publication requires a no-throw aggregate commit");
+    current = std::move(candidate);
+    record_mutation(true);
+    return success_response(
+        request_id(request),
+        aggregate_,
+        revision_,
+        saved_revision_,
+        std::nullopt,
+        std::nullopt,
+        asset_id);
+  }
 
   vnengine::Project& project = require_project();
   bool changed = false;
@@ -338,6 +417,36 @@ Json Backend::handle(const Json& request) {
         project,
         scene_id,
         required_string(params, "name"));
+  } else if (method == "scene.setBackground") {
+    const std::string scene_id = required_string(params, "sceneId");
+    if (!params.contains("assetId") ||
+        (!params.at("assetId").is_null() &&
+         !params.at("assetId").is_string())) {
+      throw ProtocolError(
+          "invalid_params", "params.assetId must be a string or null");
+    }
+
+    std::optional<std::string> asset_id;
+    if (!params.at("assetId").is_null()) {
+      asset_id = params.at("assetId").get<std::string>();
+    }
+
+    switch (vnengine::set_scene_background(
+        require_aggregate(), scene_id, std::move(asset_id))) {
+      case vnengine::SetSceneBackgroundResult::changed:
+        changed = true;
+        break;
+      case vnengine::SetSceneBackgroundResult::unchanged:
+        changed = false;
+        break;
+      case vnengine::SetSceneBackgroundResult::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case vnengine::SetSceneBackgroundResult::asset_not_found:
+        throw ProtocolError("asset_not_found", "asset does not exist");
+      case vnengine::SetSceneBackgroundResult::asset_not_image:
+        throw ProtocolError(
+            "asset_not_image", "scene background asset must be an image");
+    }
   } else if (method == "scene.delete") {
     const std::string scene_id = required_string(params, "sceneId");
     if (vnengine::find_scene(project, scene_id) == nullptr) {
