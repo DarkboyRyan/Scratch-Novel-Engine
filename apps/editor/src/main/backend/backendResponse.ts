@@ -24,9 +24,20 @@ export function parseBackendResponse(line: string): BackendResponse {
   if (value.ok) {
     if (
       !isObject(value.result) ||
-      !isObject(value.result.project)
+      !isObject(value.result.project) ||
+      !isObject(value.result.session) ||
+      !Number.isInteger(value.result.session.revision) ||
+      (value.result.session.revision as number) < 0 ||
+      !(
+        value.result.session.savedRevision === null ||
+        (Number.isInteger(value.result.session.savedRevision) &&
+          (value.result.session.savedRevision as number) >= 0)
+      ) ||
+      typeof value.result.session.isDirty !== 'boolean'
     ) {
-      throw new Error(`C++ 后端响应缺少 project：${line}`);
+      throw new Error(
+        `C++ 后端响应缺少有效的 project 或 session：${line}`,
+      );
     }
   } else if (
     !isObject(value.error) ||

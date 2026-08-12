@@ -1,0 +1,26 @@
+{
+  "format": "vn-engine-project",
+  "fileVersion": 1,
+  "project": {
+    "schemaVersion": 1,
+    "id": "example-project-hello",
+    "name": "示例项目：你好",
+    "entrySceneId": "example-scene-opening",
+    "scenes": [
+      {
+        "schemaVersion": 1,
+        "id": "example-scene-opening",
+        "name": "开场",
+        "nodes": [
+          {
+            "id": "example-dialogue-hello",
+            "type": "dialogue",
+            "speaker": "旁白",
+            "text": "这是从 project.vn.json 读取的第一句对白。"
+          }
+        ]
+      }
+    ]
+  },
+  "assets": []
+}

@@ -42,6 +42,17 @@ void creates_project_with_one_empty_entry_scene() {
   CHECK(!vnengine::validate_project(project).has_value());
 }
 
+void normalizes_and_renames_a_project() {
+  SequenceIdGenerator ids;
+  vnengine::Project project = vnengine::create_empty_project(ids, "旧名字");
+
+  CHECK(vnengine::normalize_project_name("  新名字\t") == "新名字");
+  CHECK(!vnengine::normalize_project_name(" \n\t ").has_value());
+  CHECK(vnengine::rename_project(project, "新名字"));
+  CHECK(project.name == "新名字");
+  CHECK(!vnengine::rename_project(project, "新名字"));
+}
+
 void adds_and_renames_scenes_without_changing_entry() {
   SequenceIdGenerator ids;
   vnengine::Project project = vnengine::create_empty_project(ids);
@@ -366,6 +377,12 @@ void detects_invalid_project_invariants() {
   SequenceIdGenerator ids;
   vnengine::Project project = vnengine::create_empty_project(ids);
 
+  const std::string original_scene_id = project.scenes[0].id;
+  project.scenes[0].id = project.id;
+  project.entry_scene_id = project.id;
+  CHECK(vnengine::validate_project(project).has_value());
+
+  project.scenes[0].id = original_scene_id;
   project.entry_scene_id = "missing";
   CHECK(vnengine::validate_project(project).has_value());
 
@@ -392,6 +409,8 @@ int main() {
   const std::vector<std::pair<std::string, std::function<void()>>> tests{
       {"creates project with one empty entry scene",
        creates_project_with_one_empty_entry_scene},
+      {"normalizes and renames a project",
+       normalizes_and_renames_a_project},
       {"adds and renames scenes without changing entry",
        adds_and_renames_scenes_without_changing_entry},
       {"preserves scene deletion rules", preserves_scene_deletion_rules},

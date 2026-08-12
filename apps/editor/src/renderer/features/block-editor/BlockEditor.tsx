@@ -1,3 +1,5 @@
+import { forwardRef } from 'react';
+
 import type {
   AddDialogueAction,
   DeleteDialoguesAction,
@@ -11,32 +13,47 @@ import type {
   SceneDocument,
 } from '../../../shared/projectTypes';
 
-import { BlocklyWorkspace } from './BlocklyWorkspace';
+import {
+  BlocklyWorkspace,
+  type BlocklyWorkspaceHandle,
+} from './BlocklyWorkspace';
 import type { BlockEditorLayoutStore } from './blockEditorLayout';
 
 type BlockEditorProps = {
   project: ProjectDocument;
   scene: SceneDocument;
   layoutStore: BlockEditorLayoutStore;
+  isBusy: boolean;
   onSceneChange: (sceneId: string) => void;
   onDialogueUpdate: UpdateDialogueAction;
   onDialogueAdd: AddDialogueAction;
   onDialogueReorder: ReorderDialogueAction;
   onDialoguesReorder: ReorderDialoguesAction;
   onDialogueDelete: DeleteDialoguesAction;
+  onDraftDirtyChange: (isDirty: boolean) => void;
 };
 
-export function BlockEditor({
-  project,
-  scene,
-  layoutStore,
-  onSceneChange,
-  onDialogueAdd,
-  onDialogueReorder,
-  onDialoguesReorder,
-  onDialogueDelete,
-  onDialogueUpdate,
-}: BlockEditorProps) {
+export type BlockEditorHandle = BlocklyWorkspaceHandle;
+
+export const BlockEditor = forwardRef<
+  BlockEditorHandle,
+  BlockEditorProps
+>(function BlockEditor(
+  {
+    project,
+    scene,
+    layoutStore,
+    isBusy,
+    onSceneChange,
+    onDialogueAdd,
+    onDialogueReorder,
+    onDialoguesReorder,
+    onDialogueDelete,
+    onDialogueUpdate,
+    onDraftDirtyChange,
+  },
+  ref,
+) {
   return (
     <main
       className="block-editor"
@@ -57,6 +74,7 @@ export function BlockEditor({
             <select
               className="scene-select block-editor-scene-select"
               value={scene.id}
+              disabled={isBusy}
               onChange={(event) =>
                 onSceneChange(event.target.value)
               }
@@ -83,16 +101,19 @@ export function BlockEditor({
         aria-label="图形化积木工作区"
       >
         <BlocklyWorkspace
+          ref={ref}
           scene={scene}
           layoutKey={`${project.id}:${scene.id}`}
           layoutStore={layoutStore}
+          isBusy={isBusy}
           onDialogueAdd={onDialogueAdd}
           onDialogueReorder={onDialogueReorder}
           onDialoguesReorder={onDialoguesReorder}
           onDialogueDelete={onDialogueDelete}
           onDialogueUpdate={onDialogueUpdate}
+          onDraftDirtyChange={onDraftDirtyChange}
         />
       </section>
     </main>
   );
-}
+});

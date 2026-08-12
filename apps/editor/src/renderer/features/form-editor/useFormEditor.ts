@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { DialogueNode } from '../../../shared/projectTypes';
 import { EMPTY_DIALOGUE_MESSAGE } from '../../editorMessages';
@@ -88,6 +88,77 @@ export function useFormEditor({
     setText('');
   }
 
+  function resetEditorState() {
+    setSelectedSceneId(null);
+    startNewDialogue();
+  }
+
+  const draftDirty = selectedNode
+    ? speaker !== selectedNode.speaker || text !== selectedNode.text
+    : speaker.length > 0 || text.length > 0;
+  const commitInProgressRef = useRef<Promise<boolean> | null>(null);
+
+  async function commitPendingDraft(): Promise<boolean> {
+    if (commitInProgressRef.current) {
+      return commitInProgressRef.current;
+    }
+
+    const commit = async (): Promise<boolean> => {
+      if (!draftDirty) {
+        return true;
+      }
+
+      if (!text.trim()) {
+        setEngineMessage(EMPTY_DIALOGUE_MESSAGE);
+        return false;
+      }
+
+      if (!scene) {
+        return false;
+      }
+
+      if (selectedNode) {
+        const result = await runEngineAction(() =>
+          window.vnEngine.updateDialogue(
+            scene.id,
+            selectedNode.id,
+            speaker,
+            text,
+          ),
+        );
+
+        const savedNode = result?.project.scenes
+          .find((projectScene) => projectScene.id === scene.id)
+          ?.nodes.find((node) => node.id === selectedNode.id);
+        if (savedNode) {
+          selectNode(savedNode);
+        }
+        return result !== null;
+      }
+
+      const result = await runEngineAction(() =>
+        window.vnEngine.addDialogue({
+          sceneId: scene.id,
+          afterNodeId: null,
+          speaker,
+          text,
+        }),
+      );
+      if (result) {
+        startNewDialogue();
+      }
+      return result !== null;
+    };
+
+    const pendingCommit = commit();
+    commitInProgressRef.current = pendingCommit;
+    try {
+      return await pendingCommit;
+    } finally {
+      commitInProgressRef.current = null;
+    }
+  }
+
   function selectNode(node: DialogueNode) {
     setSelectedNodeId(node.id);
     setSpeaker(node.speaker);
@@ -163,41 +234,10 @@ export function useFormEditor({
       return;
     }
 
-    if (selectedNode) {
-      const result = await runEngineAction(() =>
-        window.vnEngine.updateDialogue(
-          scene.id,
-          selectedNode.id,
-          speaker,
-          text,
-        ),
-      );
-
-      const savedNode = result?.project.scenes
-        .find((projectScene) => projectScene.id === scene.id)
-        ?.nodes.find((node) => node.id === selectedNode.id);
-
-      if (savedNode) {
-        // 使用 C++ 规范化后的值，例如空角色名会变成“旁白”。
-        selectNode(savedNode);
-      }
-
-      return;
-    }
-
-    const result = await runEngineAction(() =>
-      window.vnEngine.addDialogue({
-        sceneId: scene.id,
-        afterNodeId: null,
-        speaker,
-        text,
-      }),
-    );
-
-    if (result) {
-      // 保持原有连续录入体验：加入后回到空的新建表单。
-      startNewDialogue();
-    }
+    // 点击提交和 Cmd/Ctrl+S 保存前提交共用同一个
+    // single-flight Promise。否则“加入剧情”尚未返回时立刻保存，
+    // 两条路径可能各自向 C++ 新增一次相同对白。
+    await commitPendingDraft();
   }
 
   async function deleteDialogue(nodeId: string) {
@@ -283,6 +323,7 @@ export function useFormEditor({
     previewText: text,
     isBusy,
     engineMessage,
+    draftDirty,
     setSpeaker,
     setText,
     addScene,
@@ -292,6 +333,8 @@ export function useFormEditor({
     submitDialogue,
     deleteDialogue,
     moveDialogue,
+    resetEditorState,
+    commitPendingDraft,
   };
 }
 

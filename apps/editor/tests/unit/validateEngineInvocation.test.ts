@@ -3,6 +3,30 @@ import { describe, expect, it } from 'vitest';
 import { isEngineInvocation } from '../../src/main/ipc/validateEngineInvocation';
 
 describe('reorderMany IPC validation', () => {
+  it('keeps project.create off the general Renderer engine channel', () => {
+    expect(
+      isEngineInvocation({
+        method: 'project.create',
+        params: { name: '绕过文件会话' },
+      }),
+    ).toBe(false);
+  });
+
+  it('accepts project.rename only with a string name', () => {
+    expect(
+      isEngineInvocation({
+        method: 'project.rename',
+        params: { name: 'New name' },
+      }),
+    ).toBe(true);
+    expect(
+      isEngineInvocation({
+        method: 'project.rename',
+        params: { name: 7 },
+      }),
+    ).toBe(false);
+  });
+
   it('accepts a unique, non-empty selection and a nullable anchor', () => {
     expect(
       isEngineInvocation({

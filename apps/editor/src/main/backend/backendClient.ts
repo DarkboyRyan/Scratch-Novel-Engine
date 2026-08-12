@@ -3,9 +3,9 @@ import path from 'node:path';
 import { createInterface, type Interface } from 'node:readline';
 
 import type {
+  BackendInvocation,
   BackendRequest,
   BackendResponse,
-  EngineInvocation,
   EngineMutationResult,
 } from '../../shared/engineProtocol';
 import {
@@ -34,7 +34,7 @@ export class BackendClient {
   private disposed = false;
 
   async request(
-    invocation: EngineInvocation,
+    invocation: BackendInvocation,
   ): Promise<EngineMutationResult> {
     const child = await this.ensureProcess();
     const id = this.nextRequestId;

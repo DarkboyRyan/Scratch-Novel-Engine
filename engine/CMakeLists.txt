@@ -30,6 +30,7 @@ target_include_directories(vn_engine_core
 target_compile_features(vn_engine_core PUBLIC cxx_std_20)
 
 add_executable(vn_engine_backend
+  src/backend/atomic_file.cpp
   src/backend/backend.cpp
   src/backend/main.cpp
   src/backend/serialization.cpp
@@ -69,4 +70,54 @@ if(BUILD_TESTING)
   endif()
 
   add_test(NAME vn_engine_core_tests COMMAND vn_engine_core_tests)
+
+  add_executable(vn_engine_backend_tests
+    tests/backend/backend_tests.cpp
+    src/backend/atomic_file.cpp
+    src/backend/backend.cpp
+    src/backend/serialization.cpp
+  )
+
+  target_include_directories(vn_engine_backend_tests
+    PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/backend
+  )
+
+  target_link_libraries(vn_engine_backend_tests
+    PRIVATE
+      vn_engine_core
+      nlohmann_json::nlohmann_json
+  )
+
+  if(CMAKE_CXX_COMPILER_ID MATCHES "AppleClang|Clang|GNU")
+    target_compile_options(
+      vn_engine_backend_tests PRIVATE -Wall -Wextra -Wpedantic)
+  elseif(MSVC)
+    target_compile_options(vn_engine_backend_tests PRIVATE /W4 /permissive-)
+  endif()
+
+  add_test(NAME vn_engine_backend_tests COMMAND vn_engine_backend_tests)
+
+  add_executable(vn_engine_atomic_file_tests
+    tests/backend/atomic_file_tests.cpp
+    src/backend/atomic_file.cpp
+  )
+
+  target_include_directories(vn_engine_atomic_file_tests
+    PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/backend
+  )
+
+  if(CMAKE_CXX_COMPILER_ID MATCHES "AppleClang|Clang|GNU")
+    target_compile_options(
+      vn_engine_atomic_file_tests PRIVATE -Wall -Wextra -Wpedantic)
+  elseif(MSVC)
+    target_compile_options(
+      vn_engine_atomic_file_tests PRIVATE /W4 /permissive-)
+  endif()
+
+  add_test(
+    NAME vn_engine_atomic_file_tests
+    COMMAND vn_engine_atomic_file_tests
+  )
 endif()

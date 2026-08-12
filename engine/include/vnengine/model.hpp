@@ -41,4 +41,22 @@ struct Project {
   bool operator==(const Project&) const = default;
 };
 
+// Assets live beside the Project in the on-disk file envelope. Keeping their
+// metadata separate means the editor can add images, video, and audio later
+// without embedding large binary files into project.vn.json.
+enum class AssetType {
+  image,
+  video,
+  audio,
+};
+
+struct Asset {
+  std::string id;
+  AssetType type;
+  std::string relative_path;
+  std::string display_name;
+
+  bool operator==(const Asset&) const = default;
+};
+
 }  // namespace vnengine

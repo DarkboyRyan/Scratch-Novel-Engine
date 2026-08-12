@@ -13,6 +13,8 @@ export type DialogueFieldUpdate = {
   text: string;
 };
 
+export type DialogueFieldDraft = DialogueFieldUpdate;
+
 export type NewDialogueDrop = {
   block: Blockly.BlockSvg;
   beforeNodeId: string | null;
@@ -77,6 +79,36 @@ export function getDialogueFieldUpdate(
       ) ?? '',
     ),
   };
+}
+
+// 保存项目时不等待 Blockly 的最终 BLOCK_CHANGE 事件。FieldInput
+// 每次输入都会同步更新 block 的字段值，因此直接与 C++ 快照
+// 比较，能收集到仍然聚焦在输入框中的最新文字。
+export function collectDialogueFieldDrafts(
+  workspace: Blockly.WorkspaceSvg,
+  scene: SceneDocument,
+): DialogueFieldDraft[] {
+  const drafts: DialogueFieldDraft[] = [];
+
+  for (const node of scene.nodes) {
+    const block = workspace.getBlockById(node.id);
+    if (!block || block.type !== DIALOGUE_BLOCK_TYPE) {
+      continue;
+    }
+
+    const speaker = String(
+      block.getFieldValue(DIALOGUE_BLOCK_FIELDS.speaker) ?? '',
+    );
+    const text = String(
+      block.getFieldValue(DIALOGUE_BLOCK_FIELDS.text) ?? '',
+    );
+
+    if (speaker !== node.speaker || text !== node.text) {
+      drafts.push({ nodeId: node.id, speaker, text });
+    }
+  }
+
+  return drafts;
 }
 
 function getSceneNodeBelow(
