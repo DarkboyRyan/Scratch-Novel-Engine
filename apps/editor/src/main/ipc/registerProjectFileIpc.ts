@@ -4,7 +4,6 @@ import path from 'node:path';
 import {
   PROJECT_FILE_IPC_CHANNEL,
   PROJECT_FILE_NAME,
-  PROJECT_FILE_SUFFIX,
   type ProjectFileCompletedResult,
   type ProjectFileInvocation,
   type ProjectFileOperationResult,
@@ -15,8 +14,10 @@ import {
   type TrustedEditorLocations,
 } from '../security/editorFrameTrust';
 import {
-  canonicalizeProjectFilePath,
-  validateProjectFilePath,
+  createProjectRootInParent,
+  projectManifestPath,
+  removeProjectRootIfEmpty,
+  resolveProjectManifestPath,
 } from '../project/ProjectStorageSession';
 import type {
   EditorWindowContext,
@@ -56,24 +57,19 @@ async function openProject(
   const selection = await dialog.showOpenDialog(context.editorWindow, {
     title: '打开 VN Engine 项目',
     buttonLabel: '打开项目',
-    properties: ['openFile'],
-    filters: [
-      {
-        name: 'VN Engine 项目',
-        extensions: ['json'],
-      },
-    ],
+    properties: ['openDirectory', 'noResolveAliases'],
   });
 
   if (selection.canceled || selection.filePaths.length === 0) {
     return cancelledResult(context);
   }
 
-  const selectedFilePath = path.resolve(selection.filePaths[0]);
-  validateProjectFilePath(selectedFilePath);
+  const selectedRootPath = path.resolve(selection.filePaths[0]);
+  let projectRootPath: string;
   let filePath: string;
   try {
-    filePath = await canonicalizeProjectFilePath(selectedFilePath);
+    ({ projectRootPath, projectFilePath: filePath } =
+      await resolveProjectManifestPath(selectedRootPath));
   } catch (error) {
     console.error('[project-storage] selected project path failed', error);
     throw new Error('所选项目文件无法安全读取');
@@ -91,10 +87,11 @@ async function openProject(
     throw new Error('项目资源清单无法安全读取');
   }
 
-  // project.open 在 C++ 中先解析和校验临时对象；失败时不会替换当前项目。
+  // Main has already read a stable manifest snapshot. C++ parses these exact
+  // bytes so Project and private Asset metadata cannot come from two reads.
   const result = await context.backendClient.request({
     method: 'project.open',
-    params: { filePath },
+    params: { contents: preparedPreview.manifestContents },
   });
   if (!(await context.assetPreviewService.activateProjectFile(
     filePath,
@@ -109,7 +106,7 @@ async function openProject(
     );
   }
   const session = context.projectFileSession.markOpened(
-    filePath,
+    projectRootPath,
     result.session,
   );
   updateWindowDocumentPresentation(
@@ -128,43 +125,37 @@ async function openProject(
 
 async function chooseProjectSavePath(
   context: EditorWindowContext,
+  projectName: string,
 ): Promise<string | null> {
-  if (context.projectFileSession.snapshot().filePath) {
-    return context.projectFileSession.snapshot().filePath;
+  const currentProjectRootPath =
+    context.projectFileSession.getProjectRootPath();
+  if (currentProjectRootPath) {
+    return currentProjectRootPath;
   }
 
-  // 用户可以修改基名，但固定的 .vn.json 后缀让打开对话框和文件关联
-  // 保持明确。Main 不会静默改写路径，以免绕过原生覆盖确认。
-  const selection = await dialog.showSaveDialog(context.editorWindow, {
-    title: '保存 VN Engine 项目',
-    buttonLabel: '保存项目',
-    message: `可以修改项目前面的名称，请保留 ${PROJECT_FILE_SUFFIX} 后缀`,
-    nameFieldLabel: '项目文件名',
-    defaultPath: PROJECT_FILE_NAME,
-    filters: [
-      {
-        name: 'VN Engine 项目',
-        extensions: ['json'],
-      },
+  // 用户选择父目录，Main 再用可编辑的项目名创建同名项目文件夹。
+  // 这样原生对话框不会退化为“选择一个 JSON 文件”。
+  const selection = await dialog.showOpenDialog(context.editorWindow, {
+    title: '选择项目保存位置',
+    buttonLabel: '创建项目文件夹',
+    message: `将在所选位置创建“${projectName}”项目文件夹，内部清单固定为 ${PROJECT_FILE_NAME}`,
+    properties: [
+      'openDirectory',
+      'createDirectory',
+      'noResolveAliases',
     ],
   });
 
-  if (selection.canceled || !selection.filePath) {
+  if (selection.canceled || selection.filePaths.length === 0) {
     return null;
   }
 
-  const selectedFilePath = path.resolve(selection.filePath);
-  if (
-    !path.basename(selectedFilePath).toLowerCase().endsWith(
-      PROJECT_FILE_SUFFIX,
-    )
-  ) {
-    throw new Error(
-      `项目名称可以自定义，但必须保留 ${PROJECT_FILE_SUFFIX} 后缀`,
-    );
-  }
+  const selectedParentPath = path.resolve(selection.filePaths[0]);
   try {
-    return await canonicalizeProjectFilePath(selectedFilePath);
+    return await createProjectRootInParent(
+      selectedParentPath,
+      projectName,
+    );
   } catch (error) {
     console.error('[project-storage] selected save path failed', error);
     throw new Error('所选位置无法安全保存项目');
@@ -174,41 +165,85 @@ async function chooseProjectSavePath(
 async function saveProject(
   context: EditorWindowContext,
 ): Promise<ProjectFileOperationResult> {
-  const filePath = await chooseProjectSavePath(context);
-  if (!filePath) {
+  const isFirstSave =
+    context.projectFileSession.getProjectRootPath() === null;
+  let projectName = '';
+  if (isFirstSave) {
+    const currentProject = await context.backendClient.request({
+      method: 'project.get',
+      params: {},
+    });
+    projectName = currentProject.project.name;
+  }
+  const projectRootPath = await chooseProjectSavePath(
+    context,
+    projectName,
+  );
+  if (!projectRootPath) {
     return cancelledResult(context);
   }
+
+  const cleanFailedFirstSave = async (): Promise<void> => {
+    if (!isFirstSave) {
+      return;
+    }
+    await removeProjectRootIfEmpty(projectRootPath).catch(
+      (error: unknown) => {
+        // Never recursively delete a target directory. A non-empty directory
+        // is preserved for inspection and a later retry.
+        console.error(
+          '[project-storage] failed first-save directory cleanup skipped',
+          error,
+        );
+      },
+    );
+  };
 
   let backendFilePath: string;
   try {
     backendFilePath =
-      await context.projectStorageSession.backendSavePath(filePath);
+      await context.projectStorageSession.backendSavePath(
+        projectRootPath,
+      );
   } catch (error) {
     console.error('[project-storage] working path preparation failed', error);
+    await cleanFailedFirstSave();
     throw new Error('无法准备安全的项目保存位置');
   }
 
   // C++ 只写固定名 project.vn.json。自定义文件名由 Main 在所有临时
   // Assets 安全到位后作为最后的提交标记发布。
-  const result = await context.backendClient.request({
-    method: 'project.save',
-    params: { filePath: backendFilePath },
-  });
+  let result;
+  try {
+    result = await context.backendClient.request({
+      method: 'project.save',
+      params: { filePath: backendFilePath },
+    });
+  } catch (error) {
+    await cleanFailedFirstSave();
+    throw error;
+  }
   try {
     await context.projectStorageSession.publishSavedProject(
       backendFilePath,
-      filePath,
+      projectRootPath,
+      (manifestContents, targetRootPath) =>
+        context.assetPreviewService.validateProjectSnapshotAtRoot(
+          manifestContents,
+          targetRootPath,
+        ),
     );
   } catch (error) {
     console.error('[project-storage] project publication failed', error);
     // The C++ working save may have succeeded, but the logical file session is
     // intentionally left dirty until the user-visible manifest commits.
+    await cleanFailedFirstSave();
     throw new Error('项目未能安全保存，原项目和临时资源均已保留');
   }
 
   if (
     !(await context.assetPreviewService.activateProjectFile(
-      filePath,
+      projectManifestPath(projectRootPath),
       result,
     ))
   ) {
@@ -219,7 +254,7 @@ async function saveProject(
     );
   }
   const session = context.projectFileSession.markSaved(
-    filePath,
+    projectRootPath,
     result.session,
   );
   const publicResult = {

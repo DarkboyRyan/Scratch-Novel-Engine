@@ -51,6 +51,24 @@ const importedResult: EngineMutationResult = {
   assetId: 'asset-1',
 };
 
+const importedVideoResult: EngineMutationResult = {
+  ...importedResult,
+  assets: [
+    ...importedResult.assets,
+    {
+      id: 'video-1',
+      type: 'video',
+      displayName: 'opening.mp4',
+    },
+  ],
+  session: {
+    revision: 4,
+    savedRevision: 2,
+    isDirty: true,
+  },
+  assetId: 'video-1',
+};
+
 const backgroundResult: EngineMutationResult = {
   ...initialResult,
   project: {
@@ -92,6 +110,7 @@ describe('useEngineProject asset state', () => {
   let root: Root;
   let current: EngineProjectState | null;
   let importImage: ReturnType<typeof vi.fn>;
+  let importVideo: ReturnType<typeof vi.fn>;
   let addBackground: ReturnType<typeof vi.fn>;
   let updateBackground: ReturnType<typeof vi.fn>;
   let deleteBackground: ReturnType<typeof vi.fn>;
@@ -119,6 +138,10 @@ describe('useEngineProject asset state', () => {
       status: 'imported',
       result: importedResult,
     });
+    importVideo = vi.fn().mockResolvedValue({
+      status: 'imported',
+      result: importedVideoResult,
+    });
     addBackground = vi.fn().mockResolvedValue(backgroundResult);
     updateBackground = vi.fn().mockResolvedValue(backgroundResult);
     deleteBackground = vi.fn().mockResolvedValue(backgroundResult);
@@ -144,14 +167,15 @@ describe('useEngineProject asset state', () => {
       'vnProjectFiles',
       {
         getSession: vi.fn().mockResolvedValue({
-          filePath: '/projects/story/project.vn.json',
+          hasStorage: true,
+          projectFolderName: 'story',
           ...initialResult.session,
         }),
       } as unknown as Window['vnProjectFiles'],
     );
     exposeWindowApi(
       'vnAssets',
-      { importImage } as unknown as Window['vnAssets'],
+      { importImage, importVideo } as unknown as Window['vnAssets'],
     );
   });
 
@@ -172,7 +196,8 @@ describe('useEngineProject asset state', () => {
     expect(current?.project?.name).toBe('Initial story');
     expect(current?.assets).toEqual([]);
     expect(current?.session).toEqual({
-      filePath: '/projects/story/project.vn.json',
+      hasStorage: true,
+      projectFolderName: 'story',
       ...initialResult.session,
     });
 
@@ -185,8 +210,26 @@ describe('useEngineProject asset state', () => {
     expect(importImage).toHaveBeenCalledWith();
     expect(current?.assets).toEqual(importedResult.assets);
     expect(current?.session).toEqual({
-      filePath: '/projects/story/project.vn.json',
+      hasStorage: true,
+      projectFolderName: 'story',
       ...importedResult.session,
+    });
+  });
+
+  it('applies an imported video to the public resource list', async () => {
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(await current!.importVideo()).toBe('imported');
+    });
+
+    expect(importVideo).toHaveBeenCalledWith();
+    expect(current?.assets).toEqual(importedVideoResult.assets);
+    expect(current?.assets.at(-1)).toMatchObject({
+      type: 'video',
+      displayName: 'opening.mp4',
     });
   });
 

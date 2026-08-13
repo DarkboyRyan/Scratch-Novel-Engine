@@ -99,6 +99,20 @@ std::string webp_bytes() {
       'W', 'E', 'B', 'P', 'D', 'A', 'T', 'A'});
 }
 
+std::string mp4_bytes() {
+  return bytes({
+      0x00U, 0x00U, 0x00U, 0x18U, 'f', 't', 'y', 'p',
+      'i', 's', 'o', 'm', 0x00U, 0x00U, 0x02U, 0x00U,
+      'i', 's', 'o', 'm', 'm', 'p', '4', '2'});
+}
+
+std::string webm_bytes() {
+  return bytes({
+      0x1aU, 0x45U, 0xdfU, 0xa3U, 0x8bU,
+      0x42U, 0x86U, 0x81U, 0x01U,
+      0x42U, 0x82U, 0x84U, 'w', 'e', 'b', 'm'});
+}
+
 std::string read_file(const std::filesystem::path& path) {
   std::ifstream input(path, std::ios::binary);
   return std::string(
@@ -145,6 +159,166 @@ void plans_canonical_metadata_without_filesystem_mutation() {
     static_cast<void>(vnengine::backend::plan_image_asset_import(
         "/images/file.png", "../outside"));
   });
+}
+
+void plans_and_streams_supported_videos() {
+  TemporaryDirectory temporary;
+  const std::filesystem::path project =
+      temporary.make_directory("video-project");
+
+  struct Fixture {
+    std::string filename;
+    std::string id;
+    std::string expected_extension;
+    std::string contents;
+  };
+  const std::vector<Fixture> fixtures{
+      {"Opening.MP4", "asset-mp4", ".mp4", mp4_bytes()},
+      {"Chapter 1.WebM", "asset-webm", ".webm", webm_bytes()},
+  };
+
+  for (const Fixture& fixture : fixtures) {
+    const std::filesystem::path source = temporary.write(
+        fixture.filename, fixture.contents);
+    const auto plan = vnengine::backend::plan_video_asset_import(
+        source.string(), fixture.id);
+    CHECK(plan.relative_path ==
+        "assets/videos/" + fixture.id + fixture.expected_extension);
+    vnengine::backend::copy_video_asset_no_clobber(
+        source, project, plan);
+
+    const std::filesystem::path target = project / "assets" / "videos" /
+        (fixture.id + fixture.expected_extension);
+    CHECK(std::filesystem::is_regular_file(target));
+    CHECK(read_file(target) == fixture.contents);
+    CHECK(read_file(source) == fixture.contents);
+  }
+  check_no_temporary_files(project);
+}
+
+void rejects_mismatched_and_unsafe_video_sources() {
+  TemporaryDirectory temporary;
+  const std::filesystem::path project =
+      temporary.make_directory("video-project");
+  const std::filesystem::path mismatched = temporary.write(
+      "mismatch.mp4", webm_bytes());
+  const std::filesystem::path unsupported = temporary.write(
+      "movie.mov", mp4_bytes());
+  const std::filesystem::path fake_mp4 = temporary.write(
+      "fake.mp4",
+      bytes({
+          0x00U, 0x00U, 0x00U, 0x0cU, 'f', 't', 'y', 'p',
+          'h', 'e', 'i', 'c'}));
+  const std::filesystem::path fake_webm = temporary.write(
+      "fake.webm",
+      bytes({
+          0x1aU, 0x45U, 0xdfU, 0xa3U, 0x8bU,
+          0x42U, 0x86U, 0x81U, 0x01U,
+          0x42U, 0x87U, 0x84U, 'w', 'e', 'b', 'm'}));
+  const std::filesystem::path malformed_mp4_tail = temporary.write(
+      "malformed-tail.mp4",
+      bytes({
+          0x00U, 0x00U, 0x00U, 0x11U, 'f', 't', 'y', 'p',
+          'i', 's', 'o', 'm', 0x00U, 0x00U, 0x00U, 0x00U,
+          0xffU}));
+  const std::filesystem::path malformed_webm_tail = temporary.write(
+      "malformed-tail.webm",
+      bytes({
+          0x1aU, 0x45U, 0xdfU, 0xa3U, 0x94U,
+          0x42U, 0x82U, 0x84U, 'w', 'e', 'b', 'm',
+          0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+          0x00U, 0x00U, 0x00U, 0x00U, 0x00U}));
+
+  expect_import_error([&] {
+    static_cast<void>(vnengine::backend::plan_video_asset_import(
+        unsupported.string(), "unsupported"));
+  });
+  expect_import_error([&] {
+    static_cast<void>(vnengine::backend::plan_video_asset_import(
+        (temporary.root() / "still.png").string(), "wrong-kind"));
+  });
+
+  const auto mismatch_plan = vnengine::backend::plan_video_asset_import(
+      mismatched.string(), "mismatch");
+  expect_import_error([&] {
+    vnengine::backend::copy_video_asset_no_clobber(
+        mismatched, project, mismatch_plan);
+  });
+  for (const auto& [source, id] : std::vector<
+           std::pair<std::filesystem::path, std::string>>{
+           {fake_mp4, "fake-mp4"}, {fake_webm, "fake-webm"},
+           {malformed_mp4_tail, "malformed-mp4-tail"},
+           {malformed_webm_tail, "malformed-webm-tail"}}) {
+    const auto plan = vnengine::backend::plan_video_asset_import(
+        source.string(), id);
+    expect_import_error([&] {
+      vnengine::backend::copy_video_asset_no_clobber(
+          source, project, plan);
+    });
+  }
+
+  std::error_code error;
+  const std::filesystem::path valid = temporary.write("valid.mp4", mp4_bytes());
+  const std::filesystem::path oversized = temporary.write(
+      "oversized.mp4", mp4_bytes());
+  std::filesystem::resize_file(
+      oversized,
+      vnengine::backend::kMaximumImportedVideoBytes + 1U);
+  const auto oversized_plan = vnengine::backend::plan_video_asset_import(
+      oversized.string(), "oversized");
+  expect_import_error([&] {
+    vnengine::backend::copy_video_asset_no_clobber(
+        oversized, project, oversized_plan);
+  });
+
+  const std::filesystem::path source_link = temporary.root() / "linked.mp4";
+  std::filesystem::create_symlink(valid, source_link, error);
+  if (!error) {
+    const auto link_plan = vnengine::backend::plan_video_asset_import(
+        source_link.string(), "linked");
+    expect_import_error([&] {
+      vnengine::backend::copy_video_asset_no_clobber(
+          source_link, project, link_plan);
+    });
+  }
+
+  error.clear();
+  const std::filesystem::path linked_project =
+      temporary.make_directory("video-link-project");
+  CHECK(std::filesystem::create_directory(linked_project / "assets"));
+  const std::filesystem::path outside =
+      temporary.make_directory("outside-videos");
+  std::filesystem::create_directory_symlink(
+      outside, linked_project / "assets" / "videos", error);
+  if (!error) {
+    const auto plan = vnengine::backend::plan_video_asset_import(
+        valid.string(), "destination-link");
+    expect_import_error([&] {
+      vnengine::backend::copy_video_asset_no_clobber(
+          valid, linked_project, plan);
+    });
+    CHECK(std::filesystem::is_empty(outside));
+  }
+
+  CHECK(std::filesystem::create_directories(
+      project / "assets" / "videos"));
+  const std::filesystem::path existing =
+      project / "assets" / "videos" / "collision.mp4";
+  const std::string sentinel = mp4_bytes() + "existing";
+  {
+    std::ofstream output(existing, std::ios::binary);
+    output.write(sentinel.data(), static_cast<std::streamsize>(sentinel.size()));
+  }
+  const auto collision_plan = vnengine::backend::plan_video_asset_import(
+      valid.string(), "collision");
+  expect_import_error([&] {
+    vnengine::backend::copy_video_asset_no_clobber(
+        valid, project, collision_plan);
+  });
+  CHECK(read_file(existing) == sentinel);
+  CHECK(!std::filesystem::exists(
+      project / "assets" / "videos" / "mismatch.mp4"));
+  check_no_temporary_files(project);
 }
 
 void streams_supported_images_and_preserves_sources() {
@@ -346,6 +520,10 @@ int main() {
        plans_canonical_metadata_without_filesystem_mutation},
       {"streams supported images and preserves sources",
        streams_supported_images_and_preserves_sources},
+      {"plans and streams supported videos",
+       plans_and_streams_supported_videos},
+      {"rejects mismatched and unsafe video sources",
+       rejects_mismatched_and_unsafe_video_sources},
       {"rejects malformed nonregular and oversized sources",
        rejects_malformed_nonregular_and_oversized_sources},
       {"rejects source and destination links",

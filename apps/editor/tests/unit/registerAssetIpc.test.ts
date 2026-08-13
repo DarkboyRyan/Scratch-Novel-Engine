@@ -72,15 +72,15 @@ function registerWithBackend(request = vi.fn()) {
         : null,
     ),
     activateTemporaryProject: vi.fn().mockResolvedValue(true),
-    registerImportedImage: vi.fn(() => true),
+    registerImportedAsset: vi.fn(() => true),
   };
   const projectStorageSession = {
     assetImportLocation: vi.fn(
-      async (filePath: string | null) =>
-        filePath
+      async (projectRootPath: string | null) =>
+        projectRootPath
           ? {
-              backendProjectFilePath: filePath,
-              previewProjectFilePath: filePath,
+              backendProjectFilePath: `${projectRootPath}/project.vn.json`,
+              previewProjectFilePath: `${projectRootPath}/project.vn.json`,
               isTemporary: false,
             }
           : {
@@ -218,12 +218,14 @@ describe('asset IPC', () => {
     expect(backendRequest).toHaveBeenLastCalledWith({
       method: 'asset.import',
       params: {
+        kind: 'image',
         sourceFilePath,
         projectFilePath: temporaryProjectFilePath,
       },
     });
     expect(projectFileSession.snapshot()).toMatchObject({
-      filePath: null,
+      hasStorage: false,
+      projectFolderName: null,
       savedRevision: null,
       isDirty: true,
     });
@@ -257,7 +259,7 @@ describe('asset IPC', () => {
     const backendRequest = vi.fn().mockResolvedValue(projectResult);
     const { handler, projectFileSession } =
       registerWithBackend(backendRequest);
-    projectFileSession.markOpened('/projects/story/project.vn.json', {
+    projectFileSession.markOpened('/projects/story', {
       revision: 2,
       savedRevision: 2,
       isDirty: false,
@@ -277,7 +279,8 @@ describe('asset IPC', () => {
   });
 
   it('keeps native paths in Main and imports into the captured project', async () => {
-    const projectFilePath = '/projects/story/project.vn.json';
+    const projectRootPath = '/projects/story';
+    const projectFilePath = `${projectRootPath}/project.vn.json`;
     const sourceFilePath = '/Users/example/Pictures/portrait.png';
     electronMocks.showOpenDialog.mockResolvedValue({
       canceled: false,
@@ -286,7 +289,7 @@ describe('asset IPC', () => {
     const backendRequest = vi.fn().mockResolvedValue(projectResult);
     const { handler, projectFileSession } =
       registerWithBackend(backendRequest);
-    projectFileSession.markOpened(projectFilePath, {
+    projectFileSession.markOpened(projectRootPath, {
       revision: 2,
       savedRevision: 2,
       isDirty: false,
@@ -318,19 +321,72 @@ describe('asset IPC', () => {
       [
         {
           method: 'asset.import',
-          params: { sourceFilePath, projectFilePath },
+          params: { kind: 'image', sourceFilePath, projectFilePath },
         },
       ],
     ]);
     expect(projectFileSession.snapshot()).toEqual({
-      filePath: projectFilePath,
+      hasStorage: true,
+      projectFolderName: 'story',
       ...projectResult.session,
     });
   });
 
+  it('selects and imports MP4/WebM video without exposing native paths', async () => {
+    const projectRootPath = '/projects/story';
+    const projectFilePath = `${projectRootPath}/project.vn.json`;
+    const sourceFilePath = '/Users/example/Movies/opening.mp4';
+    const videoResult: EngineMutationResult = {
+      ...projectResult,
+      assets: [
+        {
+          id: 'video-1',
+          type: 'video',
+          displayName: 'opening.mp4',
+        },
+      ],
+      assetId: 'video-1',
+    };
+    electronMocks.showOpenDialog.mockResolvedValue({
+      canceled: false,
+      filePaths: [sourceFilePath],
+    });
+    const backendRequest = vi.fn().mockResolvedValue(videoResult);
+    const { handler, projectFileSession, assetPreviewService } =
+      registerWithBackend(backendRequest);
+    projectFileSession.markOpened(projectRootPath, projectResult.session);
+
+    const response = await handler(trustedEvent(), {
+      action: 'import-video',
+      params: {},
+    });
+
+    expect(response).toEqual({ status: 'imported', result: videoResult });
+    expect(JSON.stringify(response)).not.toContain(sourceFilePath);
+    expect(JSON.stringify(response)).not.toContain(projectFilePath);
+    expect(electronMocks.showOpenDialog).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        title: '导入视频资源',
+        buttonLabel: '导入视频',
+        properties: ['openFile'],
+        filters: [{ name: '视频', extensions: ['mp4', 'webm'] }],
+      }),
+    );
+    expect(backendRequest).toHaveBeenLastCalledWith({
+      method: 'asset.import',
+      params: { kind: 'video', sourceFilePath, projectFilePath },
+    });
+    expect(assetPreviewService.registerImportedAsset).toHaveBeenCalledWith(
+      projectFilePath,
+      sourceFilePath,
+      expect.objectContaining({ assetId: 'video-1' }),
+    );
+  });
+
   it('imports beside a custom manifest through C++ fixed-name path without exposing it', async () => {
-    const logicalProjectFilePath =
-      '/projects/story/custom-name.vn.json';
+    const logicalProjectRootPath = '/projects/story';
+    const logicalProjectFilePath = '/projects/story/project.vn.json';
     const backendProjectFilePath =
       '/projects/story/project.vn.json';
     const sourceFilePath = '/Users/example/Pictures/portrait.png';
@@ -345,7 +401,7 @@ describe('asset IPC', () => {
       projectStorageSession,
       assetPreviewService,
     } = registerWithBackend(backendRequest);
-    projectFileSession.markOpened(logicalProjectFilePath, {
+    projectFileSession.markOpened(logicalProjectRootPath, {
       revision: 2,
       savedRevision: 2,
       isDirty: false,
@@ -366,10 +422,14 @@ describe('asset IPC', () => {
     );
     expect(backendRequest).toHaveBeenLastCalledWith({
       method: 'asset.import',
-      params: { sourceFilePath, projectFilePath: backendProjectFilePath },
+      params: {
+        kind: 'image',
+        sourceFilePath,
+        projectFilePath: backendProjectFilePath,
+      },
     });
     expect(
-      assetPreviewService.registerImportedImage,
+      assetPreviewService.registerImportedAsset,
     ).toHaveBeenCalledWith(
       logicalProjectFilePath,
       sourceFilePath,
@@ -413,7 +473,7 @@ describe('asset IPC', () => {
     const backendRequest = vi.fn().mockResolvedValue(projectResult);
     const { handler, projectFileSession, fileOperationCoordinator } =
       registerWithBackend(backendRequest);
-    projectFileSession.markOpened('/projects/story/project.vn.json', {
+    projectFileSession.markOpened('/projects/story', {
       revision: 2,
       savedRevision: 2,
       isDirty: false,
@@ -435,7 +495,7 @@ describe('asset IPC', () => {
   });
 
   it('aborts if the project path changes while the dialog is open', async () => {
-    const projectFilePath = '/projects/story/project.vn.json';
+    const projectRootPath = '/projects/story';
     electronMocks.showOpenDialog.mockImplementation(
       async () => ({
         canceled: false,
@@ -445,10 +505,10 @@ describe('asset IPC', () => {
     const backendRequest = vi.fn().mockResolvedValue(projectResult);
     const { handler, projectFileSession } =
       registerWithBackend(backendRequest);
-    projectFileSession.markOpened(projectFilePath, projectResult.session);
+    projectFileSession.markOpened(projectRootPath, projectResult.session);
     electronMocks.showOpenDialog.mockImplementationOnce(async () => {
       projectFileSession.markOpened(
-        '/projects/other/project.vn.json',
+        '/projects/other',
         projectResult.session,
       );
       return {
@@ -482,7 +542,7 @@ describe('asset IPC', () => {
     const { handler, projectFileSession } =
       registerWithBackend(backendRequest);
     projectFileSession.markOpened(
-      '/projects/story/project.vn.json',
+      '/projects/story',
       projectResult.session,
     );
 

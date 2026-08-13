@@ -13,9 +13,12 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
-  canonicalizeProjectFilePath,
+  canonicalizeProjectRootPath,
+  createProjectRootInParent,
+  projectManifestPath,
   ProjectStorageSession,
-  validateProjectFilePath,
+  resolveProjectManifestPath,
+  validateProjectRootPath,
 } from '../../src/main/project/ProjectStorageSession';
 
 const temporaryDirectories: string[] = [];
@@ -62,40 +65,36 @@ describe('ProjectStorageSession', () => {
     );
   });
 
-  it('keeps a custom saved path public while C++ imports by its fixed sibling name', async () => {
+  it('uses the fixed manifest inside a saved project directory', async () => {
     const root = await makeDirectory();
     const canonicalRoot = await realpath(root);
-    const customPath = path.join(canonicalRoot, '我的故事.vn.json');
     const session = makeSession();
 
     await expect(
-      session.assetImportLocation(customPath),
+      session.assetImportLocation(canonicalRoot),
     ).resolves.toEqual({
-      backendProjectFilePath: path.join(
-        canonicalRoot,
-        'project.vn.json',
-      ),
-      previewProjectFilePath: customPath,
+      backendProjectFilePath: path.join(canonicalRoot, 'project.vn.json'),
+      previewProjectFilePath: path.join(canonicalRoot, 'project.vn.json'),
       isTemporary: false,
     });
-    await expect(session.backendSavePath(customPath)).resolves.toMatch(
+    await expect(session.backendSavePath(canonicalRoot)).resolves.toMatch(
       /vn-engine-project-.*\/project\.vn\.json$/,
     );
   });
 
-  it('saves an existing fixed-name project directly when no workspace is pending', async () => {
+  it('saves an existing project through a private manifest', async () => {
     const root = await realpath(await makeDirectory());
     const fixedPath = path.join(root, 'project.vn.json');
     const session = makeSession();
 
-    await expect(session.backendSavePath(fixedPath)).resolves.toBe(
+    await expect(session.backendSavePath(root)).resolves.not.toBe(
       fixedPath,
     );
   });
 
-  it('publishes temporary assets before an arbitrary .vn.json manifest', async () => {
+  it('publishes temporary assets before the fixed project manifest', async () => {
     const targetRoot = await makeDirectory();
-    const targetFilePath = path.join(targetRoot, 'first-draft.vn.json');
+    const targetFilePath = path.join(targetRoot, 'project.vn.json');
     const session = makeSession();
     const location = await session.assetImportLocation(null);
     const workspaceRoot = path.dirname(location.backendProjectFilePath);
@@ -113,7 +112,7 @@ describe('ProjectStorageSession', () => {
 
     await session.publishSavedProject(
       location.backendProjectFilePath,
-      targetFilePath,
+      targetRoot,
     );
 
     await expect(readFile(targetFilePath, 'utf8')).resolves.toBe(
@@ -124,6 +123,12 @@ describe('ProjectStorageSession', () => {
         path.join(targetRoot, 'assets', 'images', 'asset-1.png'),
       ),
     ).resolves.toEqual(Buffer.from('image bytes'));
+    await expect(
+      access(path.join(targetRoot, 'assets', 'videos')),
+    ).resolves.toBeUndefined();
+    await expect(
+      access(path.join(targetRoot, 'assets', 'audio')),
+    ).resolves.toBeUndefined();
 
     await session.completeSuccessfulSave(location.backendProjectFilePath);
     await expect(access(workspaceRoot)).rejects.toMatchObject({
@@ -140,12 +145,12 @@ describe('ProjectStorageSession', () => {
 
     await expect(
       session.backendSavePath(
-        path.join(workspaceRoot, 'chosen-name.vn.json'),
+        workspaceRoot,
       ),
     ).rejects.toThrow('临时工作区');
     await expect(
       session.backendSavePath(
-        path.join(nestedDirectory, 'chosen-name.vn.json'),
+        nestedDirectory,
       ),
     ).rejects.toThrow('临时工作区');
 
@@ -153,7 +158,7 @@ describe('ProjectStorageSession', () => {
     await expect(
       session.publishSavedProject(
         location.backendProjectFilePath,
-        path.join(workspaceRoot, 'bypass.vn.json'),
+        workspaceRoot,
       ),
     ).rejects.toThrow('临时工作区');
 
@@ -161,7 +166,7 @@ describe('ProjectStorageSession', () => {
     temporaryDirectories.push(prefixSibling);
     await expect(
       session.backendSavePath(
-        path.join(prefixSibling, 'allowed.vn.json'),
+        prefixSibling,
       ),
     ).resolves.toBe(location.backendProjectFilePath);
   });
@@ -205,7 +210,7 @@ describe('ProjectStorageSession', () => {
 
   it('does not overwrite a colliding asset or publish a manifest on failure', async () => {
     const targetRoot = await makeDirectory();
-    const targetFilePath = path.join(targetRoot, 'story.vn.json');
+    const targetFilePath = path.join(targetRoot, 'project.vn.json');
     const destinationAsset = path.join(
       targetRoot,
       'assets',
@@ -230,7 +235,7 @@ describe('ProjectStorageSession', () => {
     await expect(
       session.publishSavedProject(
         location.backendProjectFilePath,
-        targetFilePath,
+        targetRoot,
       ),
     ).rejects.toThrow('内容不同');
     await expect(readFile(destinationAsset)).resolves.toEqual(
@@ -244,27 +249,60 @@ describe('ProjectStorageSession', () => {
     );
   });
 
-  it('accepts only a custom basename that preserves the .vn.json suffix', async () => {
-    const root = await makeDirectory();
-    expect(() =>
-      validateProjectFilePath(path.join(root, 'story.vn.json')),
-    ).not.toThrow();
-    expect(() =>
-      validateProjectFilePath(path.join(root, 'story.json')),
-    ).toThrow('名称.vn.json');
-    expect(() =>
-      validateProjectFilePath(path.join(root, '.vn.json')),
-    ).toThrow('名称.vn.json');
+  it('validates final target resources before replacing the old manifest', async () => {
+    const targetRoot = await makeDirectory();
+    const targetFilePath = path.join(targetRoot, 'project.vn.json');
+    const oldManifest = '{"version":"old"}\n';
+    await writeFile(targetFilePath, oldManifest);
+
+    const session = makeSession();
+    const backendPath = await session.backendSavePath(targetRoot);
+    await writeFile(backendPath, '{"version":"new"}\n');
+    const validate = async () => {
+      throw new Error('referenced Asset is missing');
+    };
 
     await expect(
-      canonicalizeProjectFilePath(
-        path.join(root, '中文项目.vn.json'),
-      ),
-    ).resolves.toBe(
-      path.join(
-        await realpath(root),
-        '中文项目.vn.json',
-      ),
+      session.publishSavedProject(backendPath, targetRoot, validate),
+    ).rejects.toThrow('referenced Asset is missing');
+    await expect(readFile(targetFilePath, 'utf8')).resolves.toBe(
+      oldManifest,
     );
+  });
+
+  it('validates a project root and resolves only its fixed manifest', async () => {
+    const root = await makeDirectory();
+    expect(() =>
+      validateProjectRootPath(root),
+    ).not.toThrow();
+    expect(() =>
+      validateProjectRootPath('relative/project'),
+    ).toThrow('绝对文件夹路径');
+
+    await expect(
+      canonicalizeProjectRootPath(root),
+    ).resolves.toBe(await realpath(root));
+    await expect(resolveProjectManifestPath(root)).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+    await writeFile(projectManifestPath(root), '{}\n');
+    await expect(resolveProjectManifestPath(root)).resolves.toEqual({
+      projectRootPath: await realpath(root),
+      projectFilePath: path.join(await realpath(root), 'project.vn.json'),
+    });
+  });
+
+  it('creates a named project directory and rejects collisions', async () => {
+    const parent = await makeDirectory();
+
+    const root = await createProjectRootInParent(
+      parent,
+      '  My / Story  ',
+    );
+
+    expect(root).toBe(path.join(await realpath(parent), 'My - Story'));
+    await expect(
+      createProjectRootInParent(parent, 'My / Story'),
+    ).rejects.toThrow('同名文件夹');
   });
 });

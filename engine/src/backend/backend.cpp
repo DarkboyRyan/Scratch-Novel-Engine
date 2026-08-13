@@ -2,9 +2,7 @@
 
 #include <cstdint>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
-#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -111,48 +109,6 @@ int required_character_layer(const Json& object) {
   }
   throw ProtocolError(
       "invalid_params", "params.layer must be an integer between 1 and 10");
-}
-
-std::string read_project_file(const std::string& file_path) {
-  if (file_path.empty() || file_path.find('\0') != std::string::npos) {
-    throw ProtocolError(
-        "invalid_params", "params.filePath must not be empty");
-  }
-
-  const std::filesystem::path path(file_path);
-  std::error_code error;
-  if (!std::filesystem::is_regular_file(path, error) || error) {
-    throw ProtocolError(
-        "project_file_read_failed", "project file could not be read");
-  }
-
-  const std::uintmax_t file_size = std::filesystem::file_size(path, error);
-  if (error || file_size > kMaximumProjectFileBytes ||
-      file_size > static_cast<std::uintmax_t>(
-          std::numeric_limits<std::streamsize>::max())) {
-    throw ProtocolError(
-        "project_file_read_failed",
-        "project file is unavailable or exceeds the size limit");
-  }
-
-  std::ifstream input(path, std::ios::binary);
-  if (!input) {
-    throw ProtocolError(
-        "project_file_read_failed", "project file could not be opened");
-  }
-
-  std::string contents(static_cast<std::size_t>(file_size), '\0');
-  if (file_size > 0) {
-    input.read(
-        contents.data(),
-        static_cast<std::streamsize>(file_size));
-  }
-  if (!input || input.gcount() != static_cast<std::streamsize>(file_size) ||
-      input.peek() != std::char_traits<char>::eof()) {
-    throw ProtocolError(
-        "project_file_read_failed", "project file changed while being read");
-  }
-  return contents;
 }
 
 std::filesystem::path project_file_path(const std::string& file_path) {
@@ -269,14 +225,18 @@ Json Backend::handle(const Json& request) {
         aggregate_->project.entry_scene_id);
   }
   if (method == "project.open") {
-    const std::string file_path = required_string(params, "filePath");
+    const std::string contents = required_string(params, "contents");
+    if (contents.size() > kMaximumProjectFileBytes) {
+      throw ProtocolError(
+          "project_file_read_failed",
+          "project file exceeds the size limit");
+    }
 
     // All fallible work happens against a local aggregate. The current
     // Project and Asset manifest are replaced together only after validation.
     ProjectFileDocument candidate;
     try {
-      candidate = project_file_from_json(Json::parse(
-          read_project_file(file_path)));
+      candidate = project_file_from_json(Json::parse(contents));
     } catch (const Json::parse_error& error) {
       throw ProtocolError(
           "project_file_invalid",
@@ -345,6 +305,16 @@ Json Backend::handle(const Json& request) {
         required_string(params, "sourceFilePath");
     const std::filesystem::path project_path = project_file_path(
         required_string(params, "projectFilePath"));
+    const std::string kind = required_string(params, "kind");
+    AssetImportKind import_kind;
+    if (kind == "image") {
+      import_kind = AssetImportKind::image;
+    } else if (kind == "video") {
+      import_kind = AssetImportKind::video;
+    } else {
+      throw ProtocolError(
+          "invalid_params", "params.kind must be image or video");
+    }
 
     std::string asset_id;
     for (int attempt = 0; attempt < 32; ++attempt) {
@@ -356,12 +326,12 @@ Json Backend::handle(const Json& request) {
     }
     if (asset_id.empty()) {
       throw ProtocolError(
-          "internal_error", "could not generate a unique image Asset ID");
+          "internal_error", "could not generate a unique Asset ID");
     }
 
-    ImageAssetImportPlan plan;
+    AssetImportPlan plan;
     try {
-      plan = plan_image_asset_import(source_file_path, asset_id);
+      plan = plan_asset_import(source_file_path, asset_id, import_kind);
     } catch (const ImageAssetImportError& error) {
       throw ProtocolError("asset_import_failed", error.what());
     }
@@ -372,7 +342,9 @@ Json Backend::handle(const Json& request) {
     ProjectAggregate candidate = current;
     candidate.assets.push_back(Asset{
         .id = asset_id,
-        .type = AssetType::image,
+        .type = import_kind == AssetImportKind::image
+            ? AssetType::image
+            : AssetType::video,
         .relative_path = plan.relative_path,
         .display_name = plan.display_name,
     });
@@ -383,15 +355,16 @@ Json Backend::handle(const Json& request) {
     }
 
     try {
-      copy_image_asset_no_clobber(
+      copy_asset_no_clobber(
           std::filesystem::path(source_file_path),
           project_path.parent_path(),
-          plan);
+          plan,
+          import_kind);
     } catch (const ImageAssetImportError& error) {
       throw ProtocolError("asset_import_failed", error.what());
     } catch (const std::exception&) {
       throw ProtocolError(
-          "asset_import_failed", "image Asset could not be imported safely");
+          "asset_import_failed", "Asset could not be imported safely");
     }
 
     static_assert(

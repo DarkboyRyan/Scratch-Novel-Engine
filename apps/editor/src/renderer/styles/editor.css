@@ -243,6 +243,16 @@
   background: var(--primary-hover);
 }
 
+.resource-import-video-button {
+  color: var(--primary);
+  background: var(--panel);
+  border: 1px solid var(--primary);
+}
+
+.resource-import-video-button:hover:not(:disabled) {
+  color: #ffffff;
+}
+
 .resource-clear-background {
   flex: 0 0 auto;
   min-height: 32px;
@@ -296,6 +306,15 @@
 .resource-item:hover:not(:disabled) {
   color: var(--text);
   border-color: var(--border-strong);
+}
+
+.resource-video-item {
+  cursor: default;
+}
+
+.resource-video-icon {
+  color: #ffffff;
+  background: #596b80;
 }
 
 .resource-item[draggable='true'] {

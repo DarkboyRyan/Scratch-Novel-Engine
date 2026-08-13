@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <random>
 #include <string>
 #include <string_view>
@@ -30,17 +31,178 @@
 namespace vnengine::backend {
 namespace {
 
-constexpr std::size_t kMagicBytes = 12;
+constexpr std::size_t kMagicBytes = 64;
 constexpr std::size_t kCopyBufferBytes = 64U * 1024U;
 
 enum class ImageKind {
   png,
   jpeg,
   webp,
+  mp4,
+  webm,
 };
 
+std::uint32_t read_big_endian_u32(
+    const std::array<unsigned char, kMagicBytes>& bytes,
+    const std::size_t offset) {
+  return (static_cast<std::uint32_t>(bytes[offset]) << 24U) |
+      (static_cast<std::uint32_t>(bytes[offset + 1]) << 16U) |
+      (static_cast<std::uint32_t>(bytes[offset + 2]) << 8U) |
+      static_cast<std::uint32_t>(bytes[offset + 3]);
+}
+
+std::uint64_t read_big_endian_u64(
+    const std::array<unsigned char, kMagicBytes>& bytes,
+    const std::size_t offset) {
+  std::uint64_t value = 0;
+  for (std::size_t index = 0; index < 8; ++index) {
+    value = (value << 8U) | bytes[offset + index];
+  }
+  return value;
+}
+
+bool is_mp4_video_brand(
+    const std::array<unsigned char, kMagicBytes>& bytes,
+    const std::size_t offset) {
+  constexpr std::array<std::array<unsigned char, 4>, 14> brands{{
+      {{'i', 's', 'o', 'm'}}, {{'i', 's', 'o', '2'}},
+      {{'i', 's', 'o', '3'}}, {{'i', 's', 'o', '4'}},
+      {{'i', 's', 'o', '5'}}, {{'i', 's', 'o', '6'}},
+      {{'m', 'p', '4', '1'}}, {{'m', 'p', '4', '2'}},
+      {{'a', 'v', 'c', '1'}}, {{'a', 'v', 'c', '2'}},
+      {{'d', 'a', 's', 'h'}}, {{'M', '4', 'V', ' '}},
+      {{'M', 'S', 'N', 'V'}}, {{'3', 'g', 'p', '4'}},
+  }};
+  return std::any_of(brands.begin(), brands.end(), [&](const auto& brand) {
+    return std::equal(brand.begin(), brand.end(), bytes.begin() + offset);
+  });
+}
+
+bool valid_mp4_header(
+    const std::array<unsigned char, kMagicBytes>& bytes,
+    const std::size_t header_size,
+    const std::uintmax_t file_size) {
+  if (header_size < 16 || bytes[4] != 'f' || bytes[5] != 't' ||
+      bytes[6] != 'y' || bytes[7] != 'p') {
+    return false;
+  }
+  const std::uint32_t short_box_size = read_big_endian_u32(bytes, 0);
+  std::uint64_t box_size = short_box_size;
+  std::size_t brand_offset = 8;
+  if (short_box_size == 1) {
+    if (header_size < 24) {
+      return false;
+    }
+    box_size = read_big_endian_u64(bytes, 8);
+    brand_offset = 16;
+  }
+  if (box_size < brand_offset + 8 || box_size > file_size) {
+    return false;
+  }
+  const std::uint64_t compatible_bytes = box_size - (brand_offset + 8);
+  if (compatible_bytes % 4 != 0) {
+    return false;
+  }
+  bool found_video_brand = is_mp4_video_brand(bytes, brand_offset);
+  const std::size_t compatible_begin = brand_offset + 8;
+  const std::size_t inspected_end = static_cast<std::size_t>(
+      std::min<std::uint64_t>(box_size, header_size));
+  for (std::size_t offset = compatible_begin;
+       offset + 4 <= inspected_end;
+       offset += 4) {
+    if (is_mp4_video_brand(bytes, offset)) {
+      found_video_brand = true;
+    }
+  }
+  return found_video_brand;
+}
+
+std::optional<std::pair<std::uint64_t, std::size_t>> read_ebml_vint(
+    const std::array<unsigned char, kMagicBytes>& bytes,
+    const std::size_t offset,
+    const std::size_t limit,
+    const bool keep_marker) {
+  if (offset >= limit || bytes[offset] == 0) {
+    return std::nullopt;
+  }
+  std::size_t length = 1;
+  unsigned char marker = 0x80U;
+  while (length <= 8 && (bytes[offset] & marker) == 0) {
+    marker >>= 1U;
+    ++length;
+  }
+  if (length > 8 || offset + length > limit) {
+    return std::nullopt;
+  }
+  std::uint64_t value = keep_marker
+      ? bytes[offset]
+      : static_cast<unsigned char>(bytes[offset] & (marker - 1U));
+  for (std::size_t index = 1; index < length; ++index) {
+    value = (value << 8U) | bytes[offset + index];
+  }
+  if (!keep_marker) {
+    const std::uint64_t unknown = length == 8
+        ? (std::uint64_t{1} << 56U) - 1U
+        : (std::uint64_t{1} << (7U * length)) - 1U;
+    if (value == unknown) {
+      return std::nullopt;
+    }
+  }
+  return std::pair{value, length};
+}
+
+bool valid_webm_header(
+    const std::array<unsigned char, kMagicBytes>& bytes,
+    const std::size_t header_size,
+    const std::uintmax_t file_size) {
+  if (header_size < 8 || bytes[0] != 0x1aU || bytes[1] != 0x45U ||
+      bytes[2] != 0xdfU || bytes[3] != 0xa3U) {
+    return false;
+  }
+  const auto header_length = read_ebml_vint(bytes, 4, header_size, false);
+  if (!header_length.has_value()) {
+    return false;
+  }
+  const std::size_t payload_begin = 4 + header_length->second;
+  const std::uint64_t header_end_u64 =
+      static_cast<std::uint64_t>(payload_begin) + header_length->first;
+  if (header_end_u64 > header_size || header_end_u64 > file_size) {
+    return false;
+  }
+  const std::size_t header_end = static_cast<std::size_t>(header_end_u64);
+  std::size_t offset = payload_begin;
+  bool found_webm_doctype = false;
+  while (offset < header_end) {
+    const auto id = read_ebml_vint(bytes, offset, header_end, true);
+    if (!id.has_value()) {
+      return false;
+    }
+    offset += id->second;
+    const auto element_size = read_ebml_vint(
+        bytes, offset, header_end, false);
+    if (!element_size.has_value()) {
+      return false;
+    }
+    offset += element_size->second;
+    if (element_size->first > header_end - offset) {
+      return false;
+    }
+    if (id->first == 0x4282U) {
+      constexpr std::array<unsigned char, 4> webm{{'w', 'e', 'b', 'm'}};
+      if (found_webm_doctype || element_size->first != webm.size() ||
+          !std::equal(
+              webm.begin(), webm.end(), bytes.begin() + offset)) {
+        return false;
+      }
+      found_webm_doctype = true;
+    }
+    offset += static_cast<std::size_t>(element_size->first);
+  }
+  return found_webm_doctype && offset == header_end;
+}
+
 [[noreturn]] void fail(std::string message) {
-  throw ImageAssetImportError(std::move(message));
+  throw AssetImportError(std::move(message));
 }
 
 bool is_safe_asset_id(const std::string_view id) {
@@ -72,7 +234,7 @@ std::string source_extension(const std::string_view source_file_path) {
       : separator + 1;
   const std::size_t dot = source_file_path.find_last_of('.');
   if (dot == std::string_view::npos || dot < filename_start) {
-    fail("image source must use a PNG, JPEG, or WebP extension");
+    fail("Asset source must use a supported extension");
   }
   return lowercase_ascii(std::string(source_file_path.substr(dot)));
 }
@@ -87,7 +249,13 @@ ImageKind kind_for_extension(const std::string_view extension) {
   if (extension == ".webp") {
     return ImageKind::webp;
   }
-  fail("image source must use a PNG, JPEG, or WebP extension");
+  if (extension == ".mp4") {
+    return ImageKind::mp4;
+  }
+  if (extension == ".webm") {
+    return ImageKind::webm;
+  }
+  fail("Asset source must use a supported extension");
 }
 
 std::string canonical_extension(const ImageKind kind) {
@@ -98,8 +266,12 @@ std::string canonical_extension(const ImageKind kind) {
       return ".jpg";
     case ImageKind::webp:
       return ".webp";
+    case ImageKind::mp4:
+      return ".mp4";
+    case ImageKind::webm:
+      return ".webm";
   }
-  fail("image type is unsupported");
+  fail("Asset type is unsupported");
 }
 
 std::string source_display_name(
@@ -111,7 +283,7 @@ std::string source_display_name(
       : separator + 1;
   const std::string filename(source_file_path.substr(filename_start));
   if (filename.empty()) {
-    fail("image source filename is invalid");
+    fail("Asset source filename is invalid");
   }
 
   if (filename.size() > extension.size()) {
@@ -123,7 +295,8 @@ std::string source_display_name(
 bool magic_matches(
     const ImageKind kind,
     const std::array<unsigned char, kMagicBytes>& bytes,
-    const std::size_t size) {
+    const std::size_t size,
+    const std::uintmax_t file_size) {
   switch (kind) {
     case ImageKind::png: {
       constexpr std::array<unsigned char, 8> signature{
@@ -138,20 +311,28 @@ bool magic_matches(
       return size >= 12 && bytes[0] == 'R' && bytes[1] == 'I' &&
           bytes[2] == 'F' && bytes[3] == 'F' && bytes[8] == 'W' &&
           bytes[9] == 'E' && bytes[10] == 'B' && bytes[11] == 'P';
+    case ImageKind::mp4:
+      return valid_mp4_header(bytes, size, file_size);
+    case ImageKind::webm:
+      return valid_webm_header(bytes, size, file_size);
   }
   return false;
 }
 
-std::string destination_filename(const ImageAssetImportPlan& plan) {
-  constexpr std::string_view prefix = "assets/images/";
+std::string destination_filename(
+    const AssetImportPlan& plan,
+    const AssetImportKind import_kind) {
+  const std::string_view prefix = import_kind == AssetImportKind::image
+      ? std::string_view("assets/images/")
+      : std::string_view("assets/videos/");
   if (!std::string_view(plan.relative_path).starts_with(prefix)) {
-    fail("image destination is invalid");
+    fail("Asset destination is invalid");
   }
 
   const std::string filename = plan.relative_path.substr(prefix.size());
   if (filename.empty() || filename.find('/') != std::string::npos ||
       filename.find('\\') != std::string::npos) {
-    fail("image destination is invalid");
+    fail("Asset destination is invalid");
   }
   return filename;
 }
@@ -161,7 +342,7 @@ void validate_paths(
     const std::filesystem::path& project_directory) {
   if (source.empty() || !source.is_absolute() ||
       source.lexically_normal() != source) {
-    fail("image source path is invalid");
+    fail("Asset source path is invalid");
   }
   if (project_directory.empty() || !project_directory.is_absolute() ||
       project_directory.lexically_normal() != project_directory) {
@@ -211,7 +392,7 @@ class WindowsHandle final {
     if (handle_ != INVALID_HANDLE_VALUE) {
       const HANDLE handle = std::exchange(handle_, INVALID_HANDLE_VALUE);
       if (!CloseHandle(handle)) {
-        fail("could not close imported image temporary file");
+        fail("could not close imported Asset temporary file");
       }
     }
   }
@@ -230,7 +411,7 @@ WindowsHandle open_safe_directory(const std::filesystem::path& path) {
       FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
       nullptr);
   if (handle == INVALID_HANDLE_VALUE) {
-    fail("could not open project image directory safely");
+    fail("could not open project Asset directory safely");
   }
 
   WindowsHandle directory(handle);
@@ -238,7 +419,7 @@ WindowsHandle open_safe_directory(const std::filesystem::path& path) {
   if (!GetFileInformationByHandle(directory.get(), &information) ||
       (information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ||
       (information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
-    fail("project image directory must not be a link or reparse point");
+    fail("project Asset directory must not be a link or reparse point");
   }
   return directory;
 }
@@ -246,7 +427,7 @@ WindowsHandle open_safe_directory(const std::filesystem::path& path) {
 WindowsHandle ensure_safe_directory(const std::filesystem::path& path) {
   if (!CreateDirectoryW(path.c_str(), nullptr) &&
       GetLastError() != ERROR_ALREADY_EXISTS) {
-    fail("could not create project image directory");
+    fail("could not create project Asset directory");
   }
   return open_safe_directory(path);
 }
@@ -282,7 +463,8 @@ bool equal_file_time(const FILETIME& left, const FILETIME& right) {
 WindowsHandle open_safe_source(
     const std::filesystem::path& source,
     std::uintmax_t& size,
-    WindowsSourceSnapshot& snapshot) {
+    WindowsSourceSnapshot& snapshot,
+    const std::uintmax_t maximum_bytes) {
   const HANDLE handle = CreateFileW(
       source.c_str(),
       GENERIC_READ,
@@ -293,7 +475,7 @@ WindowsHandle open_safe_source(
           FILE_FLAG_SEQUENTIAL_SCAN,
       nullptr);
   if (handle == INVALID_HANDLE_VALUE) {
-    fail("image source could not be opened safely");
+    fail("Asset source could not be opened safely");
   }
 
   WindowsHandle file(handle);
@@ -302,15 +484,15 @@ WindowsHandle open_safe_source(
       GetFileType(file.get()) != FILE_TYPE_DISK ||
       (information.dwFileAttributes &
        (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) != 0) {
-    fail("image source must be a regular non-link file");
+    fail("Asset source must be a regular non-link file");
   }
 
   ULARGE_INTEGER length{};
   length.HighPart = information.nFileSizeHigh;
   length.LowPart = information.nFileSizeLow;
   size = static_cast<std::uintmax_t>(length.QuadPart);
-  if (size == 0 || size > kMaximumImportedImageBytes) {
-    fail("image source is empty or exceeds the import size limit");
+  if (size == 0 || size > maximum_bytes) {
+    fail("Asset source is empty or exceeds the import size limit");
   }
   snapshot = source_snapshot(information);
   return file;
@@ -337,7 +519,7 @@ std::size_t read_header(
     std::array<unsigned char, kMagicBytes>& header) {
   LARGE_INTEGER beginning{};
   if (!SetFilePointerEx(source.get(), beginning, nullptr, FILE_BEGIN)) {
-    fail("could not inspect image source");
+    fail("could not inspect Asset source");
   }
 
   DWORD read = 0;
@@ -347,10 +529,10 @@ std::size_t read_header(
           static_cast<DWORD>(header.size()),
           &read,
           nullptr)) {
-    fail("could not inspect image source");
+    fail("could not inspect Asset source");
   }
   if (!SetFilePointerEx(source.get(), beginning, nullptr, FILE_BEGIN)) {
-    fail("could not rewind image source");
+    fail("could not rewind Asset source");
   }
   return static_cast<std::size_t>(read);
 }
@@ -378,10 +560,10 @@ std::filesystem::path create_temporary_file(
       return candidate;
     }
     if (GetLastError() != ERROR_FILE_EXISTS) {
-      fail("could not create imported image temporary file");
+      fail("could not create imported Asset temporary file");
     }
   }
-  fail("could not create a unique imported image temporary file");
+  fail("could not create a unique imported Asset temporary file");
 }
 
 void copy_source(
@@ -401,7 +583,7 @@ void copy_source(
     DWORD read = 0;
     if (!ReadFile(source.get(), buffer.data(), chunk, &read, nullptr) ||
         read == 0) {
-      fail("image source changed while it was being imported");
+      fail("Asset source changed while it was being imported");
     }
 
     const std::size_t header_bytes = std::min<std::size_t>(
@@ -422,7 +604,7 @@ void copy_source(
               &written,
               nullptr) ||
           written == 0) {
-        fail("could not write imported image temporary file");
+        fail("could not write imported Asset temporary file");
       }
       offset += written;
     }
@@ -437,7 +619,7 @@ void copy_source(
           expected_header.begin(),
           expected_header.begin() + expected_header_size,
           copied_header.begin())) {
-    fail("image source changed while it was being imported");
+    fail("Asset source changed while it was being imported");
   }
 }
 
@@ -477,7 +659,7 @@ class PosixFile final {
       // A close interrupted by a signal leaves descriptor ownership
       // platform-dependent. Retrying could close an unrelated reused fd.
       if (::close(descriptor) != 0 && errno != EINTR) {
-        fail("could not close imported image temporary file");
+        fail("could not close imported Asset temporary file");
       }
     }
   }
@@ -488,21 +670,21 @@ class PosixFile final {
 
 PosixFile open_safe_source(
     const std::filesystem::path& source,
-    struct stat& status) {
+    struct stat& status,
+    const std::uintmax_t maximum_bytes) {
   const int descriptor = ::open(
       source.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
   if (descriptor < 0) {
-    fail("image source could not be opened safely");
+    fail("Asset source could not be opened safely");
   }
 
   PosixFile file(descriptor);
   if (::fstat(file.get(), &status) != 0 || !S_ISREG(status.st_mode)) {
-    fail("image source must be a regular non-link file");
+    fail("Asset source must be a regular non-link file");
   }
   if (status.st_size <= 0 ||
-      static_cast<std::uintmax_t>(status.st_size) >
-          kMaximumImportedImageBytes) {
-    fail("image source is empty or exceeds the import size limit");
+      static_cast<std::uintmax_t>(status.st_size) > maximum_bytes) {
+    fail("Asset source is empty or exceeds the import size limit");
   }
   return file;
 }
@@ -521,7 +703,7 @@ std::size_t read_header(
       continue;
     }
     if (read < 0) {
-      fail("could not inspect image source");
+      fail("could not inspect Asset source");
     }
     if (read == 0) {
       break;
@@ -529,7 +711,7 @@ std::size_t read_header(
     offset += static_cast<std::size_t>(read);
   }
   if (::lseek(source.get(), 0, SEEK_SET) < 0) {
-    fail("could not rewind image source");
+    fail("could not rewind Asset source");
   }
   return offset;
 }
@@ -538,7 +720,7 @@ PosixFile open_safe_directory(const std::filesystem::path& path) {
   const int descriptor =
       ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_DIRECTORY | O_NOFOLLOW);
   if (descriptor < 0) {
-    fail("could not open project image directory safely");
+    fail("could not open project Asset directory safely");
   }
   return PosixFile(descriptor);
 }
@@ -547,14 +729,14 @@ PosixFile ensure_safe_child_directory(
     const PosixFile& parent,
     const char* name) {
   if (::mkdirat(parent.get(), name, 0755) != 0 && errno != EEXIST) {
-    fail("could not create project image directory");
+    fail("could not create project Asset directory");
   }
   const int descriptor = ::openat(
       parent.get(),
       name,
       O_RDONLY | O_CLOEXEC | O_DIRECTORY | O_NOFOLLOW);
   if (descriptor < 0) {
-    fail("project image directory must not be a link");
+    fail("project Asset directory must not be a link");
   }
   return PosixFile(descriptor);
 }
@@ -577,10 +759,10 @@ std::pair<std::string, PosixFile> create_temporary_file(
       return {candidate, PosixFile(descriptor)};
     }
     if (errno != EEXIST) {
-      fail("could not create imported image temporary file");
+      fail("could not create imported Asset temporary file");
     }
   }
-  fail("could not create a unique imported image temporary file");
+  fail("could not create a unique imported Asset temporary file");
 }
 
 void write_all(
@@ -595,7 +777,7 @@ void write_all(
       continue;
     }
     if (written <= 0) {
-      fail("could not write imported image temporary file");
+      fail("could not write imported Asset temporary file");
     }
     offset += static_cast<std::size_t>(written);
   }
@@ -620,7 +802,7 @@ void copy_source(
       continue;
     }
     if (read <= 0) {
-      fail("image source changed while it was being imported");
+      fail("Asset source changed while it was being imported");
     }
 
     const std::size_t read_size = static_cast<std::size_t>(read);
@@ -645,7 +827,7 @@ void copy_source(
           expected_header.begin(),
           expected_header.begin() + expected_header_size,
           copied_header.begin())) {
-    fail("image source changed while it was being imported");
+    fail("Asset source changed while it was being imported");
   }
 }
 
@@ -672,9 +854,9 @@ void publish_no_clobber(
           destination.c_str(),
           RENAME_EXCL) != 0) {
     if (errno == EEXIST) {
-      fail("image Asset destination already exists");
+      fail("Asset destination already exists");
     }
-    fail("could not publish imported image safely");
+    fail("could not publish imported Asset safely");
   }
 #else
 #if defined(__linux__) && defined(SYS_renameat2)
@@ -688,10 +870,10 @@ void publish_no_clobber(
     return;
   }
   if (errno == EEXIST) {
-    fail("image Asset destination already exists");
+    fail("Asset destination already exists");
   }
   if (errno != ENOSYS && errno != EINVAL) {
-    fail("could not publish imported image safely");
+    fail("could not publish imported Asset safely");
   }
 #endif
   if (::linkat(
@@ -701,9 +883,9 @@ void publish_no_clobber(
           destination.c_str(),
           0) != 0) {
     if (errno == EEXIST) {
-      fail("image Asset destination already exists");
+      fail("Asset destination already exists");
     }
-    fail("could not publish imported image safely");
+    fail("could not publish imported Asset safely");
   }
   // The destination name is now the committed inode. Temporary-name cleanup
   // is best-effort and must not turn a successful publication into failure.
@@ -714,7 +896,7 @@ void publish_no_clobber(
 void flush_file(const PosixFile& file) {
   while (::fsync(file.get()) != 0) {
     if (errno != EINTR) {
-      fail("could not flush imported image temporary file");
+      fail("could not flush imported Asset temporary file");
     }
   }
 }
@@ -725,7 +907,7 @@ void flush_directory(const PosixFile& directory) {
       return;
     }
     if (errno != EINTR) {
-      fail("could not flush project image directory");
+      fail("could not flush project Asset directory");
     }
   }
 }
@@ -734,49 +916,90 @@ void flush_directory(const PosixFile& directory) {
 
 }  // namespace
 
-ImageAssetImportError::ImageAssetImportError(std::string message)
+AssetImportError::AssetImportError(std::string message)
     : std::runtime_error(std::move(message)) {}
 
-ImageAssetImportPlan plan_image_asset_import(
+AssetImportPlan plan_asset_import(
     const std::string_view source_file_path,
-    const std::string_view asset_id) {
+    const std::string_view asset_id,
+    const AssetImportKind import_kind) {
   if (source_file_path.empty() ||
       source_file_path.find('\0') != std::string_view::npos) {
-    fail("image source path is invalid");
+    fail("Asset source path is invalid");
   }
   if (!is_safe_asset_id(asset_id)) {
-    fail("generated image Asset ID is invalid");
+    fail("generated Asset ID is invalid");
   }
 
   const std::string original_extension =
       source_extension(source_file_path);
   const ImageKind kind = kind_for_extension(original_extension);
-  return ImageAssetImportPlan{
-      .relative_path = "assets/images/" + std::string(asset_id) +
+  const bool is_image = kind == ImageKind::png || kind == ImageKind::jpeg ||
+      kind == ImageKind::webp;
+  if ((import_kind == AssetImportKind::image) != is_image) {
+    fail(import_kind == AssetImportKind::image
+        ? "image source must use a PNG, JPEG, or WebP extension"
+        : "video source must use an MP4 or WebM extension");
+  }
+  const std::string_view directory = import_kind == AssetImportKind::image
+      ? std::string_view("assets/images/")
+      : std::string_view("assets/videos/");
+  return AssetImportPlan{
+      .relative_path = std::string(directory) + std::string(asset_id) +
           canonical_extension(kind),
       .display_name =
           source_display_name(source_file_path, original_extension),
   };
 }
 
-void copy_image_asset_no_clobber(
+ImageAssetImportPlan plan_image_asset_import(
+    const std::string_view source_file_path,
+    const std::string_view asset_id) {
+  return plan_asset_import(
+      source_file_path, asset_id, AssetImportKind::image);
+}
+
+VideoAssetImportPlan plan_video_asset_import(
+    const std::string_view source_file_path,
+    const std::string_view asset_id) {
+  return plan_asset_import(
+      source_file_path, asset_id, AssetImportKind::video);
+}
+
+void copy_asset_no_clobber(
     const std::filesystem::path& source,
     const std::filesystem::path& project_directory,
-    const ImageAssetImportPlan& plan,
+    const AssetImportPlan& plan,
+    const AssetImportKind import_kind,
     const ImageImportBeforePublishHook before_publish) {
   validate_paths(source, project_directory);
 
-  const std::string destination = destination_filename(plan);
+  const std::string destination = destination_filename(plan, import_kind);
   const std::string destination_extension =
       lowercase_ascii(std::filesystem::path(destination).extension().string());
   const ImageKind expected_kind = kind_for_extension(destination_extension);
+  const bool is_image = expected_kind == ImageKind::png ||
+      expected_kind == ImageKind::jpeg || expected_kind == ImageKind::webp;
+  if ((import_kind == AssetImportKind::image) != is_image) {
+    fail("Asset destination type is invalid");
+  }
+  const std::string_view relative_directory =
+      import_kind == AssetImportKind::image
+      ? std::string_view("assets/images/")
+      : std::string_view("assets/videos/");
+  const char* directory_name =
+      import_kind == AssetImportKind::image ? "images" : "videos";
+  const std::uintmax_t maximum_bytes =
+      import_kind == AssetImportKind::image
+      ? kMaximumImportedImageBytes
+      : kMaximumImportedVideoBytes;
   const std::string expected_relative_path =
-      "assets/images/" +
+      std::string(relative_directory) +
       std::filesystem::path(destination).stem().string() +
       canonical_extension(expected_kind);
   if (plan.relative_path != expected_relative_path ||
       !is_safe_asset_id(std::filesystem::path(destination).stem().string())) {
-    fail("image destination is invalid");
+    fail("Asset destination is invalid");
   }
 
   std::uintmax_t source_size = 0;
@@ -785,25 +1008,26 @@ void copy_image_asset_no_clobber(
 #ifdef _WIN32
   WindowsSourceSnapshot source_status;
   WindowsHandle source_file =
-      open_safe_source(source, source_size, source_status);
+      open_safe_source(source, source_size, source_status, maximum_bytes);
   const std::size_t header_size = read_header(source_file, header);
-  if (!magic_matches(expected_kind, header, header_size)) {
-    fail("image contents do not match the selected file extension");
+  if (!magic_matches(
+          expected_kind, header, header_size, source_size)) {
+    fail("Asset contents do not match the selected file extension");
   }
 
   WindowsHandle root = open_safe_directory(project_directory);
   const std::filesystem::path assets_path = project_directory / "assets";
   WindowsHandle assets = ensure_safe_directory(assets_path);
-  const std::filesystem::path images_path = assets_path / "images";
-  WindowsHandle images = ensure_safe_directory(images_path);
+  const std::filesystem::path media_path = assets_path / directory_name;
+  WindowsHandle media = ensure_safe_directory(media_path);
   static_cast<void>(root);
   static_cast<void>(assets);
-  static_cast<void>(images);
+  static_cast<void>(media);
 
   WindowsHandle temporary_file;
   const std::filesystem::path temporary =
-      create_temporary_file(images_path, destination, temporary_file);
-  const std::filesystem::path target = images_path / destination;
+      create_temporary_file(media_path, destination, temporary_file);
+  const std::filesystem::path target = media_path / destination;
   try {
     copy_source(
         source_file,
@@ -812,10 +1036,10 @@ void copy_image_asset_no_clobber(
         header,
         header_size);
     if (!same_source_snapshot(source_file, source_status)) {
-      fail("image source changed while it was being imported");
+      fail("Asset source changed while it was being imported");
     }
     if (!FlushFileBuffers(temporary_file.get())) {
-      fail("could not flush imported image temporary file");
+      fail("could not flush imported Asset temporary file");
     }
     temporary_file.close();
 
@@ -826,9 +1050,9 @@ void copy_image_asset_no_clobber(
             temporary.c_str(), target.c_str(), MOVEFILE_WRITE_THROUGH)) {
       if (GetLastError() == ERROR_ALREADY_EXISTS ||
           GetLastError() == ERROR_FILE_EXISTS) {
-        fail("image Asset destination already exists");
+        fail("Asset destination already exists");
       }
-      fail("could not publish imported image safely");
+      fail("could not publish imported Asset safely");
     }
   } catch (...) {
     // The temp was opened with no delete sharing. Close it without throwing
@@ -839,22 +1063,24 @@ void copy_image_asset_no_clobber(
   }
 #else
   struct stat source_status {};
-  PosixFile source_file = open_safe_source(source, source_status);
+  PosixFile source_file =
+      open_safe_source(source, source_status, maximum_bytes);
   source_size = static_cast<std::uintmax_t>(source_status.st_size);
   const std::size_t header_size = read_header(source_file, header);
-  if (!magic_matches(expected_kind, header, header_size)) {
-    fail("image contents do not match the selected file extension");
+  if (!magic_matches(
+          expected_kind, header, header_size, source_size)) {
+    fail("Asset contents do not match the selected file extension");
   }
 
   PosixFile root = open_safe_directory(project_directory);
   PosixFile assets = ensure_safe_child_directory(root, "assets");
-  PosixFile images = ensure_safe_child_directory(assets, "images");
+  PosixFile media = ensure_safe_child_directory(assets, directory_name);
   // Persist newly-created directory entries before publishing the file within
   // them. Unsupported directory fsync is tolerated by flush_directory().
   flush_directory(root);
   flush_directory(assets);
   auto [temporary, temporary_file] =
-      create_temporary_file(images, destination);
+      create_temporary_file(media, destination);
   try {
     copy_source(
         source_file,
@@ -863,7 +1089,7 @@ void copy_image_asset_no_clobber(
         header,
         header_size);
     if (!same_source_snapshot(source_file, source_status)) {
-      fail("image source changed while it was being imported");
+      fail("Asset source changed while it was being imported");
     }
     flush_file(temporary_file);
     temporary_file.close();
@@ -873,18 +1099,44 @@ void copy_image_asset_no_clobber(
     }
     // This is the final fallible pre-commit operation. Once it succeeds the
     // caller may safely commit its already-prepared in-memory aggregate.
-    publish_no_clobber(images, temporary, destination);
+    publish_no_clobber(media, temporary, destination);
     // Durability sync after publication is best-effort: reporting an error now
     // would leave a file on disk while preventing the manifest commit.
     try {
-      flush_directory(images);
+      flush_directory(media);
     } catch (...) {
     }
   } catch (...) {
-    ::unlinkat(images.get(), temporary.c_str(), 0);
+    ::unlinkat(media.get(), temporary.c_str(), 0);
     throw;
   }
 #endif
+}
+
+void copy_image_asset_no_clobber(
+    const std::filesystem::path& source,
+    const std::filesystem::path& project_directory,
+    const ImageAssetImportPlan& plan,
+    const ImageImportBeforePublishHook before_publish) {
+  copy_asset_no_clobber(
+      source,
+      project_directory,
+      plan,
+      AssetImportKind::image,
+      before_publish);
+}
+
+void copy_video_asset_no_clobber(
+    const std::filesystem::path& source,
+    const std::filesystem::path& project_directory,
+    const VideoAssetImportPlan& plan,
+    const ImageImportBeforePublishHook before_publish) {
+  copy_asset_no_clobber(
+      source,
+      project_directory,
+      plan,
+      AssetImportKind::video,
+      before_publish);
 }
 
 }  // namespace vnengine::backend

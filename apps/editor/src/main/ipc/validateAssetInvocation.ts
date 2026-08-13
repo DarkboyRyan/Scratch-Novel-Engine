@@ -15,7 +15,10 @@ export function isAssetInvocation(
     return false;
   }
 
-  if (value.action === 'import-image') {
+  if (
+    value.action === 'import-image' ||
+    value.action === 'import-video'
+  ) {
     return Object.keys(value.params).length === 0;
   }
 

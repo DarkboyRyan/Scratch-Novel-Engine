@@ -1,10 +1,10 @@
 export function projectWindowTitle(
   projectName: string,
-  filePath: string | null,
+  hasStorage: boolean,
   isDirty: boolean,
 ): string {
   const dirtyMark = isDirty ? '● ' : '';
-  const unsavedLabel = filePath ? '' : ' [未保存]';
+  const unsavedLabel = hasStorage ? '' : ' [未保存]';
   return `${dirtyMark}${projectName}${unsavedLabel} — VN Engine Editor`;
 }
 

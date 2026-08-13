@@ -95,7 +95,7 @@ describe('C++ JSONL backend', () => {
 
   function requestBackendOnly(
     method: 'project.open',
-    params: { filePath: string },
+    params: { contents: string },
   ): Promise<BackendResponse> {
     const id = nextRequestId;
     nextRequestId += 1;
@@ -663,44 +663,41 @@ describe('C++ JSONL backend', () => {
     );
     const fixturePath = path.join(directory, 'project.vn.json');
     const imageAssetId = 'image-1';
-    await writeFile(
-      fixturePath,
-      JSON.stringify({
-        format: 'vn-engine-project',
-        fileVersion: 4,
-        project: {
-          schemaVersion: 1,
-          id: 'timeline-project',
-          name: '混合时间线协议测试',
-          entrySceneId: 'scene-1',
-          scenes: [
-            {
-              schemaVersion: 1,
-              id: 'scene-1',
-              name: '场景 1',
-              visuals: {
-                backgroundAssetId: null,
-                characters: [],
-              },
-              nodes: [],
-            },
-          ],
-        },
-        assets: [
+    const manifestContents = JSON.stringify({
+      format: 'vn-engine-project',
+      fileVersion: 4,
+      project: {
+        schemaVersion: 1,
+        id: 'timeline-project',
+        name: '混合时间线协议测试',
+        entrySceneId: 'scene-1',
+        scenes: [
           {
-            id: imageAssetId,
-            type: 'image',
-            relativePath: 'assets/images/image-1.png',
-            displayName: '测试背景',
+            schemaVersion: 1,
+            id: 'scene-1',
+            name: '场景 1',
+            visuals: {
+              backgroundAssetId: null,
+              characters: [],
+            },
+            nodes: [],
           },
         ],
-      }),
-      'utf8',
-    );
+      },
+      assets: [
+        {
+          id: imageAssetId,
+          type: 'image',
+          relativePath: 'assets/images/image-1.png',
+          displayName: '测试背景',
+        },
+      ],
+    });
+    await writeFile(fixturePath, manifestContents, 'utf8');
 
     try {
       const opened = await requestBackendOnly('project.open', {
-        filePath: fixturePath,
+        contents: manifestContents,
       });
 
       if (!opened.ok) {

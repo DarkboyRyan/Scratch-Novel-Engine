@@ -83,8 +83,9 @@ Anchors may be any timeline node, so dialogues and background changes can be
 interleaved. Empty speaker and text fields are valid so the editor's `+`
 button can immediately create an editable node.
 
-`project.open` accepts a Main-process-only `filePath` and reads project file
-versions 1 through 6. Parsing and aggregate validation happen before the in-memory
+`project.open` accepts Main-process-only `contents` that Electron has already
+read as one stable manifest snapshot. C++ does not reopen a mutable path. It
+reads project file versions 1 through 6. Parsing and aggregate validation happen before the in-memory
 project is replaced, so a missing, malformed, or unsupported file leaves the
 current project unchanged. Version 1 Scenes have no `visuals` field and are
 migrated to an empty visual state in memory. Versions 1 and 2 contain only
@@ -231,19 +232,22 @@ Asset metadata supports `image`, `video`, and `audio`. Binary assets remain in
 type-specific directories such as `assets/images/`; JSON stores only safe,
 portable relative paths.
 
-`asset.import` currently accepts PNG, JPEG, and WebP. Electron Main supplies a
-normalized absolute `sourceFilePath` selected by the native dialog and the
-active normalized `projectFilePath`. C++ opens the source without following its
-final symlink/reparse point, verifies a regular file, a 128 MiB size limit, and
-matching extension and magic bytes on the same handle. It streams the source to
-a flushed temporary file below `assets/images/` and publishes without replacing
-an existing destination. The original source is never changed. A successful
+`asset.import` requires an explicit `kind` and currently accepts PNG, JPEG,
+WebP, MP4, and WebM. Electron Main supplies a normalized absolute
+`sourceFilePath` selected by the native dialog and the active normalized
+`projectFilePath`. C++ opens the source without following its final
+symlink/reparse point, verifies a regular file, the media-specific size limit,
+and matching extension and container signature on the same handle. It streams
+the source to a flushed temporary file below `assets/images/` or
+`assets/videos/` and publishes without replacing an existing destination. The
+original source is never changed. A successful
 import returns `assetId`, appends the in-memory manifest, advances `revision`,
 and makes the document dirty. Electron Main also supports imports before the
 project has a user-selected location by creating a private per-window working
-directory. The ordinary save command later publishes its assets and manifest
-under a user-selected `name.vn.json`; the C++ backend still sees only its
-private fixed working name `project.vn.json`.
+directory. The ordinary save command later creates a project-named folder
+inside the user-selected parent directory and publishes its assets plus the
+fixed `project.vn.json` manifest. The C++ backend still sees only its private
+fixed working name `project.vn.json`.
 
 Every successful response includes `result.session`. `revision` advances only
 when project data actually changes; `savedRevision` is `null` until a new

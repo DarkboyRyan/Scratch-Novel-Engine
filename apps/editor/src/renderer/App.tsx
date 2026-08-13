@@ -174,6 +174,14 @@ export default function App() {
     await engine.importImage();
   };
 
+  const handleImportVideo = async (): Promise<void> => {
+    if (!(await prepareCurrentEdits())) {
+      return;
+    }
+
+    await engine.importVideo();
+  };
+
   const handleSelectBackground = async (
     assetId: string | null,
   ): Promise<void> => {
@@ -256,10 +264,10 @@ export default function App() {
     }
     document.title = projectWindowTitle(
       project.name,
-      engine.projectFilePath,
+      engine.session.hasStorage,
       isDirty,
     );
-  }, [engine.projectFilePath, isDirty, project]);
+  }, [engine.session.hasStorage, isDirty, project]);
 
   if (!project || !scene) {
     return (
@@ -313,7 +321,7 @@ export default function App() {
         isDirty={isDirty}
         isSaving={engine.isSaving}
         engineMessage={editor.engineMessage}
-        projectFilePath={engine.projectFilePath}
+        projectFolderName={engine.projectFolderName}
         onCreateProject={() => void handleCreateProject()}
         onOpenProject={() => void handleOpenProject()}
         onSaveProject={() => void handleSaveProject()}
@@ -338,6 +346,7 @@ export default function App() {
         previewUrls={assetPreviewUrls}
         isBusy={engine.isBusy}
         onImportImage={handleImportImage}
+        onImportVideo={handleImportVideo}
         onSelectBackground={handleSelectBackground}
       />
 

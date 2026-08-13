@@ -17,7 +17,6 @@ import path from 'node:path';
 
 import {
   PROJECT_FILE_NAME,
-  PROJECT_FILE_SUFFIX,
 } from '../../shared/projectFileProtocol';
 
 const MAX_PROJECT_FILE_BYTES = 64 * 1024 * 1024;
@@ -61,36 +60,116 @@ function sameSnapshot(left: Stats, right: Stats): boolean {
   );
 }
 
-function isCustomProjectFileName(fileName: string): boolean {
-  return (
-    fileName.length > PROJECT_FILE_SUFFIX.length &&
-    fileName.toLowerCase().endsWith(PROJECT_FILE_SUFFIX)
-  );
-}
-
-export function validateProjectFilePath(filePath: string): void {
+export function validateProjectRootPath(projectRootPath: string): void {
   if (
-    !path.isAbsolute(filePath) ||
-    path.normalize(filePath) !== filePath ||
-    !isCustomProjectFileName(path.basename(filePath))
+    !path.isAbsolute(projectRootPath) ||
+    path.normalize(projectRootPath) !== projectRootPath ||
+    path.basename(projectRootPath).trim().length === 0
   ) {
-    throw new Error(
-      `项目文件必须使用“名称${PROJECT_FILE_SUFFIX}”格式`,
-    );
+    throw new Error('项目必须保存到一个有效的绝对文件夹路径');
   }
 }
 
-export async function canonicalizeProjectFilePath(
-  filePath: string,
+export async function canonicalizeProjectRootPath(
+  projectRootPath: string,
 ): Promise<string> {
-  const absolutePath = path.resolve(filePath);
-  validateProjectFilePath(absolutePath);
-  const directory = await realpath(path.dirname(absolutePath));
-  const status = await lstat(directory);
-  if (status.isSymbolicLink() || !status.isDirectory()) {
-    throw new Error('项目保存目录不是可安全使用的文件夹');
+  const absolutePath = path.resolve(projectRootPath);
+  validateProjectRootPath(absolutePath);
+  const selectedStatus = await lstat(absolutePath);
+  if (selectedStatus.isSymbolicLink() || !selectedStatus.isDirectory()) {
+    throw new Error('所选项目路径不是可安全使用的文件夹');
   }
-  return path.join(directory, path.basename(absolutePath));
+  return realpath(absolutePath);
+}
+
+export function projectManifestPath(projectRootPath: string): string {
+  return path.join(projectRootPath, PROJECT_FILE_NAME);
+}
+
+export async function resolveProjectManifestPath(
+  projectRootPath: string,
+): Promise<{ projectRootPath: string; projectFilePath: string }> {
+  const canonicalRootPath = await canonicalizeProjectRootPath(
+    projectRootPath,
+  );
+  const projectFilePath = projectManifestPath(canonicalRootPath);
+  const status = await lstat(projectFilePath);
+  if (
+    status.isSymbolicLink() ||
+    !status.isFile() ||
+    status.nlink !== 1
+  ) {
+    throw new Error(`项目文件夹中缺少安全的 ${PROJECT_FILE_NAME}`);
+  }
+  return { projectRootPath: canonicalRootPath, projectFilePath };
+}
+
+export async function canonicalizeNewProjectRootPath(
+  projectRootPath: string,
+): Promise<string> {
+  const canonicalRootPath = await canonicalizeProjectRootPath(
+    projectRootPath,
+  );
+  if ((await readdir(canonicalRootPath)).length !== 0) {
+    throw new Error('首次保存请选择或创建一个空文件夹');
+  }
+  return canonicalRootPath;
+}
+
+function safeProjectFolderName(projectName: string): string {
+  const withoutControlCharacters = [...projectName]
+    .map((character) =>
+      character.charCodeAt(0) < 32 ? '-' : character,
+    )
+    .join('');
+  const normalized = withoutControlCharacters
+    .normalize('NFC')
+    .trim()
+    .replace(/[<>:"/\\|?*]/g, '-')
+    .replace(/[. ]+$/g, '')
+    .slice(0, 100)
+    .trim();
+  return normalized.length === 0 ? '未命名项目' : normalized;
+}
+
+export async function createProjectRootInParent(
+  parentDirectoryPath: string,
+  projectName: string,
+): Promise<string> {
+  const parentPath = await canonicalizeProjectRootPath(
+    parentDirectoryPath,
+  );
+  const projectRootPath = path.join(
+    parentPath,
+    safeProjectFolderName(projectName),
+  );
+  try {
+    await mkdir(projectRootPath, { mode: 0o700 });
+  } catch (error) {
+    if (errnoCode(error) === 'EEXIST') {
+      throw new Error('保存位置已经存在同名文件夹，请修改项目名或选择其他位置');
+    }
+    throw error;
+  }
+  try {
+    return await canonicalizeNewProjectRootPath(projectRootPath);
+  } catch (error) {
+    // Only remove the directory we just created, and only when it is still
+    // empty. If another process added anything, rmdir fails closed.
+    await rmdir(projectRootPath).catch(() => undefined);
+    throw error;
+  }
+}
+
+export async function removeProjectRootIfEmpty(
+  projectRootPath: string,
+): Promise<void> {
+  const canonicalRootPath = await canonicalizeProjectRootPath(
+    projectRootPath,
+  );
+  if ((await readdir(canonicalRootPath)).length === 0) {
+    await rmdir(canonicalRootPath);
+  }
 }
 
 async function ensureSafeDirectory(
@@ -340,14 +419,13 @@ async function rollbackPublishedAssets(
 }
 
 async function atomicPublishManifest(
-  sourcePath: string,
+  contents: Buffer,
   destinationPath: string,
 ): Promise<void> {
   const noFollow = constants.O_NOFOLLOW ?? 0;
-  const sourceFile = await open(
-    sourcePath,
-    constants.O_RDONLY | noFollow,
-  );
+  if (contents.byteLength > MAX_PROJECT_FILE_BYTES) {
+    throw new Error('后端项目文件超过大小上限');
+  }
   const temporaryPath = path.join(
     path.dirname(destinationPath),
     `.${path.basename(destinationPath)}.${randomUUID()}.tmp`,
@@ -355,15 +433,6 @@ async function atomicPublishManifest(
   let temporaryFile: Awaited<ReturnType<typeof open>> | null = null;
 
   try {
-    const sourceStatus = await sourceFile.stat();
-    if (
-      !sourceStatus.isFile() ||
-      sourceStatus.nlink !== 1 ||
-      sourceStatus.size > MAX_PROJECT_FILE_BYTES
-    ) {
-      throw new Error('后端项目文件不可安全发布');
-    }
-
     temporaryFile = await open(
       temporaryPath,
       constants.O_WRONLY |
@@ -372,25 +441,15 @@ async function atomicPublishManifest(
         noFollow,
       0o600,
     );
-    const buffer = Buffer.alloc(COPY_BUFFER_BYTES);
     let position = 0;
-    while (position < sourceStatus.size) {
+    while (position < contents.byteLength) {
       const length = Math.min(
         COPY_BUFFER_BYTES,
-        sourceStatus.size - position,
+        contents.byteLength - position,
       );
-      const { bytesRead } = await sourceFile.read(
-        buffer,
-        0,
-        length,
-        position,
-      );
-      if (bytesRead !== length) {
-        throw new Error('后端项目文件在发布时发生了变化');
-      }
       const { bytesWritten } = await temporaryFile.write(
-        buffer,
-        0,
+        contents,
+        position,
         length,
         position,
       );
@@ -398,10 +457,6 @@ async function atomicPublishManifest(
         throw new Error('项目文件未能完整写入');
       }
       position += length;
-    }
-
-    if (!sameSnapshot(sourceStatus, await sourceFile.stat())) {
-      throw new Error('后端项目文件在发布时发生了变化');
     }
     await temporaryFile.sync();
     await temporaryFile.close();
@@ -432,8 +487,6 @@ async function atomicPublishManifest(
     await temporaryFile?.close().catch(() => undefined);
     await unlink(temporaryPath).catch(() => undefined);
     throw error;
-  } finally {
-    await sourceFile.close();
   }
 }
 
@@ -462,9 +515,9 @@ export class ProjectStorageSession {
   }
 
   async assetImportLocation(
-    savedProjectFilePath: string | null,
+    savedProjectRootPath: string | null,
   ): Promise<AssetImportLocation> {
-    if (savedProjectFilePath === null) {
+    if (savedProjectRootPath === null) {
       const temporaryProjectFilePath =
         await this.ensureTemporaryProjectFilePath();
       return {
@@ -474,44 +527,42 @@ export class ProjectStorageSession {
       };
     }
 
-    const logicalPath = await canonicalizeProjectFilePath(
-      savedProjectFilePath,
+    const logicalRootPath = await canonicalizeProjectRootPath(
+      savedProjectRootPath,
     );
+    const logicalPath = projectManifestPath(logicalRootPath);
     return {
-      // asset.import validates this fixed basename but only uses its parent
-      // directory; it never reads or writes this synthetic manifest path.
-      backendProjectFilePath:
-        path.basename(logicalPath) === PROJECT_FILE_NAME
-          ? logicalPath
-          : path.join(path.dirname(logicalPath), PROJECT_FILE_NAME),
+      backendProjectFilePath: logicalPath,
       previewProjectFilePath: logicalPath,
       isTemporary: false,
     };
   }
 
-  async backendSavePath(targetProjectFilePath: string): Promise<string> {
-    const targetPath = await canonicalizeProjectFilePath(
-      targetProjectFilePath,
+  async backendSavePath(targetProjectRootPath: string): Promise<string> {
+    const targetRootPath = await canonicalizeProjectRootPath(
+      targetProjectRootPath,
     );
-    this.assertTargetOutsideTemporaryWorkspace(targetPath);
-    if (
-      path.basename(targetPath) === PROJECT_FILE_NAME &&
-      this.temporaryRootPath === null
-    ) {
-      return targetPath;
-    }
+    this.assertTargetOutsideTemporaryWorkspace(targetRootPath);
+    // C++ always writes to a Main-private manifest. Even later saves to an
+    // existing project must cross atomicPublishManifest rather than writing
+    // directly over the user's only committed manifest.
     return this.ensureTemporaryProjectFilePath();
   }
 
   async publishSavedProject(
     backendProjectFilePath: string,
-    targetProjectFilePath: string,
+    targetProjectRootPath: string,
+    validateBeforeCommit?: (
+      manifestContents: string,
+      targetProjectRootPath: string,
+    ) => Promise<void>,
   ): Promise<void> {
     const backendPath = path.resolve(backendProjectFilePath);
-    const targetPath = await canonicalizeProjectFilePath(
-      targetProjectFilePath,
+    const targetRootPath = await canonicalizeProjectRootPath(
+      targetProjectRootPath,
     );
-    this.assertTargetOutsideTemporaryWorkspace(targetPath);
+    this.assertTargetOutsideTemporaryWorkspace(targetRootPath);
+    const targetPath = projectManifestPath(targetRootPath);
     if (backendPath === targetPath) {
       return;
     }
@@ -522,6 +573,18 @@ export class ProjectStorageSession {
       touchedDirectories: new Set(),
     };
     try {
+      // Every committed project has the same predictable media structure,
+      // even before its first import. These directories participate in the
+      // same rollback as copied assets when manifest publication fails.
+      const targetAssets = path.join(targetRootPath, 'assets');
+      await ensureSafeDirectory(targetAssets, rollback);
+      for (const directoryName of [...ASSET_DIRECTORIES].sort()) {
+        await ensureSafeDirectory(
+          path.join(targetAssets, directoryName),
+          rollback,
+        );
+      }
+
       const sourceAssets = path.join(path.dirname(backendPath), 'assets');
       let sourceAssetsExist = true;
       try {
@@ -536,7 +599,7 @@ export class ProjectStorageSession {
       if (sourceAssetsExist) {
         await copyAssetDirectory(
           sourceAssets,
-          path.join(path.dirname(targetPath), 'assets'),
+          targetAssets,
           rollback,
           true,
         );
@@ -548,10 +611,42 @@ export class ProjectStorageSession {
         await syncDirectoryBeforeCommit(directoryPath);
       }
 
+      // Validate the exact manifest snapshot against the final target root
+      // before replacing the old commit marker. This catches an Asset that
+      // was deleted or swapped after import but before Save.
+      const noFollow = constants.O_NOFOLLOW ?? 0;
+      const backendManifest = await open(
+        backendPath,
+        constants.O_RDONLY | noFollow,
+      );
+      let manifestBytes: Buffer;
+      try {
+        const before = await backendManifest.stat();
+        if (
+          !before.isFile() ||
+          before.nlink !== 1 ||
+          before.size > MAX_PROJECT_FILE_BYTES
+        ) {
+          throw new Error('后端项目文件不可安全校验');
+        }
+        manifestBytes = await backendManifest.readFile();
+        if (!sameSnapshot(before, await backendManifest.stat())) {
+          throw new Error('后端项目文件在校验时发生了变化');
+        }
+      } finally {
+        await backendManifest.close();
+      }
+      if (validateBeforeCommit) {
+        await validateBeforeCommit(
+          manifestBytes.toString('utf8'),
+          targetRootPath,
+        );
+      }
+
       // Manifest is the commit marker: publish it only after every referenced
       // binary is durable at the target. A failed manifest publish removes
       // only files created by this attempt and leaves the workspace intact.
-      await atomicPublishManifest(backendPath, targetPath);
+      await atomicPublishManifest(manifestBytes, targetPath);
     } catch (error) {
       await rollbackPublishedAssets(rollback);
       throw error;

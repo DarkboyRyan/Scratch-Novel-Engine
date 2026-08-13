@@ -3,7 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import {
   ASSET_IPC_CHANNEL,
   type AssetInvocation,
-  type ImportImageResult,
+  type ImportAssetResult,
   type VnAssetsApi,
 } from './shared/assetProtocol';
 import {
@@ -31,9 +31,9 @@ function invokeEngine(
 
 function invokeAsset(
   invocation: AssetInvocation,
-): Promise<ImportImageResult | string | null> {
+): Promise<ImportAssetResult | string | null> {
   return ipcRenderer.invoke(ASSET_IPC_CHANNEL, invocation) as Promise<
-    ImportImageResult | string | null
+    ImportAssetResult | string | null
   >;
 }
 
@@ -42,7 +42,12 @@ const vnAssets: VnAssetsApi = {
     invokeAsset({
       action: 'import-image',
       params: {},
-    }) as Promise<ImportImageResult>,
+    }) as Promise<ImportAssetResult>,
+  importVideo: () =>
+    invokeAsset({
+      action: 'import-video',
+      params: {},
+    }) as Promise<ImportAssetResult>,
   getPreviewUrl: (assetId) =>
     invokeAsset({
       action: 'get-preview-url',

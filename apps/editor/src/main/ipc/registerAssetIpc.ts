@@ -3,7 +3,7 @@ import { dialog, ipcMain } from 'electron';
 import {
   ASSET_IPC_CHANNEL,
   type AssetResponse,
-  type ImportImageResult,
+  type ImportAssetResult,
 } from '../../shared/assetProtocol';
 import type { EngineMutationResult } from '../../shared/engineProtocol';
 import {
@@ -40,10 +40,14 @@ export function registerAssetIpc(
         );
       }
 
+      const kind =
+        invocation.action === 'import-video' ? 'video' : 'image';
+      const noun = kind === 'video' ? '视频' : '图片';
+
       return context.fileOperationCoordinator.runExclusive(
-        async (): Promise<ImportImageResult> => {
-          const logicalProjectFilePath =
-            context.projectFileSession.snapshot().filePath;
+        async (): Promise<ImportAssetResult> => {
+          const logicalProjectRootPath =
+            context.projectFileSession.getProjectRootPath();
 
           // Capture both identities before yielding to the native dialog. The
           // shared coordinator prevents file operations; the explicit checks
@@ -57,14 +61,16 @@ export function registerAssetIpc(
           const selection = await dialog.showOpenDialog(
             context.editorWindow,
             {
-              title: '导入图片资源',
-              buttonLabel: '导入图片',
+              title: `导入${noun}资源`,
+              buttonLabel: `导入${noun}`,
               properties: ['openFile'],
               filters: [
-                {
-                  name: '图片',
-                  extensions: ['png', 'jpg', 'jpeg', 'webp'],
-                },
+                kind === 'video'
+                  ? { name: '视频', extensions: ['mp4', 'webm'] }
+                  : {
+                      name: '图片',
+                      extensions: ['png', 'jpg', 'jpeg', 'webp'],
+                    },
               ],
             },
           );
@@ -74,11 +80,11 @@ export function registerAssetIpc(
           }
 
           if (
-            context.projectFileSession.snapshot().filePath !==
-            logicalProjectFilePath
+            context.projectFileSession.getProjectRootPath() !==
+            logicalProjectRootPath
           ) {
             throw new Error(
-              '导入期间项目文件已变更，请重新选择图片',
+              `导入期间项目文件已变更，请重新选择${noun}`,
             );
           }
 
@@ -88,7 +94,7 @@ export function registerAssetIpc(
           });
           if (projectAfterDialog.project.id !== projectId) {
             throw new Error(
-              '导入期间当前项目已变更，请重新选择图片',
+              `导入期间当前项目已变更，请重新选择${noun}`,
             );
           }
 
@@ -96,7 +102,7 @@ export function registerAssetIpc(
           try {
             storageLocation =
               await context.projectStorageSession.assetImportLocation(
-                logicalProjectFilePath,
+                logicalProjectRootPath,
               );
             if (
               storageLocation.isTemporary &&
@@ -122,6 +128,7 @@ export function registerAssetIpc(
             result = await context.backendClient.request({
               method: 'asset.import',
               params: {
+                kind,
                 sourceFilePath: selection.filePaths[0],
                 projectFilePath:
                   storageLocation.backendProjectFilePath,
@@ -132,7 +139,7 @@ export function registerAssetIpc(
             // filesystem details. Renderer receives only a stable user error.
             console.error('[asset-import] backend import failed', error);
             throw new Error(
-              '图片导入失败，请确认文件有效且项目目录可写',
+              `${noun}导入失败，请确认文件有效且项目目录可写`,
             );
           }
           const session = context.projectFileSession.updateEngineSession(
@@ -153,7 +160,7 @@ export function registerAssetIpc(
           );
 
           if (
-            !context.assetPreviewService.registerImportedImage(
+            !context.assetPreviewService.registerImportedAsset(
               storageLocation.previewProjectFilePath,
               selection.filePaths[0],
               publicResult,
@@ -163,7 +170,7 @@ export function registerAssetIpc(
             // only that this image has no preview URL until the project is
             // reopened; no filesystem detail crosses into Renderer.
             console.error(
-              '[asset-preview] imported image was not added to the private preview manifest',
+              '[asset-preview] imported asset was not added to the private preview manifest',
             );
           }
 

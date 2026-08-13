@@ -2,6 +2,7 @@ import {
   appendFile,
   mkdtemp,
   mkdir,
+  realpath,
   rm,
   symlink,
   writeFile,
@@ -19,6 +20,15 @@ const temporaryDirectories: string[] = [];
 const PNG = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
   0x00, 0x00, 0x00, 0x00,
+]);
+
+const MP4 = Buffer.from([
+  0x00, 0x00, 0x00, 0x18,
+  0x66, 0x74, 0x79, 0x70,
+  0x69, 0x73, 0x6f, 0x6d,
+  0x00, 0x00, 0x02, 0x00,
+  0x69, 0x73, 0x6f, 0x6d,
+  0x6d, 0x70, 0x34, 0x32,
 ]);
 
 function resultFor(assetId = 'asset-1'): EngineMutationResult {
@@ -301,7 +311,7 @@ describe('AssetPreviewService', () => {
     });
 
     expect(
-      service.registerImportedImage(
+      service.registerImportedAsset(
         projectFilePath,
         '/native/source/photo.jpeg',
         importedResult,
@@ -312,6 +322,48 @@ describe('AssetPreviewService', () => {
     await expect(request(url as string)).resolves.toMatchObject({
       status: 200,
     });
+  });
+
+  it('tracks a newly imported video in the private temporary manifest', async () => {
+    const { projectFilePath } = await makeProject();
+    await writeFile(
+      projectFilePath,
+      JSON.stringify({
+        format: 'vn-engine-project',
+        fileVersion: 2,
+        project: { id: 'project-1' },
+        assets: [],
+      }),
+    );
+    const importedResult = resultFor();
+    importedResult.assets = [
+      {
+        id: 'video-new',
+        type: 'video',
+        displayName: 'opening.mp4',
+      },
+    ];
+    importedResult.assetId = 'video-new';
+    const { service } = makeService();
+    await service.activateProjectFile(projectFilePath, {
+      ...importedResult,
+      assets: [],
+    });
+
+    expect(
+      service.registerImportedAsset(
+        projectFilePath,
+        '/native/source/opening.MP4',
+        importedResult,
+      ),
+    ).toBe(true);
+    expect(service.getPreviewUrl('video-new')).toBeNull();
+
+    // A following unsaved import can verify the private manifest still agrees
+    // with C++ even though video playback is deliberately not exposed yet.
+    await expect(
+      service.activateTemporaryProject(projectFilePath, importedResult),
+    ).resolves.toBe(true);
   });
 
   it('refuses a symlink anywhere in the asset path', async () => {
@@ -339,13 +391,114 @@ describe('AssetPreviewService', () => {
         ],
       }),
     );
-    const { service, request } = makeService();
-    await service.activateProjectFile(projectFilePath, resultFor());
+    const { service } = makeService();
+    await expect(
+      service.prepareProjectFile(projectFilePath),
+    ).rejects.toThrow('符号链接');
+    await expect(
+      service.activateProjectFile(projectFilePath, resultFor()),
+    ).resolves.toBe(false);
+    expect(service.getPreviewUrl('asset-1')).toBeNull();
+  });
 
-    const response = await request(
-      service.getPreviewUrl('asset-1') as string,
+  it('validates every persisted video before opening the project', async () => {
+    const { root, projectFilePath, assetFilePath } = await makeProject(
+      'assets/videos/video-1.mp4',
     );
-    expect(response.status).toBe(404);
+    const manifest = JSON.stringify({
+      format: 'vn-engine-project',
+      fileVersion: 3,
+      project: { id: 'project-1' },
+      assets: [
+        {
+          id: 'video-1',
+          type: 'video',
+          relativePath: 'assets/videos/video-1.mp4',
+          displayName: 'Opening',
+        },
+      ],
+    });
+    await writeFile(assetFilePath, MP4);
+    await writeFile(projectFilePath, manifest);
+    const { service } = makeService();
+
+    const prepared = await service.prepareProjectFile(projectFilePath);
+    expect(prepared).toMatchObject({
+      projectId: 'project-1',
+      manifestContents: manifest,
+    });
+    expect(await realpath(root)).toBe(prepared.projectRootPath);
+
+    // `ftyp` plus a HEIF brand is not an MP4 video.
+    await writeFile(
+      assetFilePath,
+      Buffer.from([
+        0x00, 0x00, 0x00, 0x10,
+        0x66, 0x74, 0x79, 0x70,
+        0x68, 0x65, 0x69, 0x63,
+        0x00, 0x00, 0x00, 0x00,
+      ]),
+    );
+    await expect(
+      service.prepareProjectFile(projectFilePath),
+    ).rejects.toThrow('类型与文件内容不一致');
+
+    // A recognized major brand does not excuse a malformed, non-aligned
+    // compatible-brand tail.
+    await writeFile(
+      assetFilePath,
+      Buffer.from([
+        0x00, 0x00, 0x00, 0x11,
+        0x66, 0x74, 0x79, 0x70,
+        0x69, 0x73, 0x6f, 0x6d,
+        0x00, 0x00, 0x00, 0x00,
+        0xff,
+      ]),
+    );
+    await expect(
+      service.prepareProjectFile(projectFilePath),
+    ).rejects.toThrow('类型与文件内容不一致');
+
+    const webmManifest = JSON.stringify({
+      format: 'vn-engine-project',
+      fileVersion: 3,
+      project: { id: 'project-1' },
+      assets: [
+        {
+          id: 'video-1',
+          type: 'video',
+          relativePath: 'assets/videos/video-1.webm',
+          displayName: 'Opening',
+        },
+      ],
+    });
+    const webmPath = path.join(root, 'assets', 'videos', 'video-1.webm');
+    await writeFile(projectFilePath, webmManifest);
+    await rm(assetFilePath);
+    // A valid DocType followed by malformed bytes inside the declared EBML
+    // header must not be accepted early.
+    await writeFile(
+      webmPath,
+      Buffer.from([
+        0x1a, 0x45, 0xdf, 0xa3, 0x94,
+        0x42, 0x82, 0x84, 0x77, 0x65, 0x62, 0x6d,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00,
+      ]),
+    );
+    await expect(
+      service.prepareProjectFile(projectFilePath),
+    ).rejects.toThrow('类型与文件内容不一致');
+  });
+
+  it('rejects a project when a manifest resource is missing', async () => {
+    const { projectFilePath, assetFilePath } = await makeProject();
+    await rm(assetFilePath);
+    const { service } = makeService();
+
+    await expect(
+      service.prepareProjectFile(projectFilePath),
+    ).rejects.toThrow();
   });
 
   it('supports metadata-only HEAD requests and revokes all URLs on dispose', async () => {

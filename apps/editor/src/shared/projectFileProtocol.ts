@@ -4,9 +4,8 @@ import type { EngineMutationResult } from './engineProtocol';
 // 对话框产生，并且永远不会作为 IPC 参数从 Renderer 传入。
 export const PROJECT_FILE_IPC_CHANNEL = 'vn-project-files:request';
 export const PROJECT_FILE_COMMAND_CHANNEL = 'vn-project-files:command';
-export const PROJECT_FILE_SUFFIX = '.vn.json';
-// C++ uses this fixed private working filename. Electron Main may publish the
-// same manifest under any user-selected basename ending in PROJECT_FILE_SUFFIX.
+// A project directory is the only user-visible persistence unit. The manifest
+// always has this fixed private name inside that directory.
 export const PROJECT_FILE_NAME = 'project.vn.json';
 
 export type ProjectFileInvocation =
@@ -29,9 +28,11 @@ export type ProjectFileInvocation =
       params: Record<string, never>;
     };
 
-// C++ 管理 revision；Electron Main 为当前窗口补上磁盘路径。
+// C++ 管理 revision；Electron Main 只公开“是否已有持久化目录”，不会把
+// 用户本机的绝对路径跨过 IPC 暴露给 Renderer。
 export type ProjectFileSessionSnapshot = {
-  filePath: string | null;
+  hasStorage: boolean;
+  projectFolderName: string | null;
   revision: number;
   savedRevision: number | null;
   isDirty: boolean;

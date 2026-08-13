@@ -13,7 +13,9 @@ export const ASSET_PREVIEW_SCHEME = 'vn-asset';
 
 const MAX_PROJECT_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_PREVIEW_IMAGE_BYTES = 128 * 1024 * 1024;
+const MAX_PROJECT_VIDEO_BYTES = 2 * 1024 * 1024 * 1024;
 const MAGIC_BYTE_COUNT = 12;
+const MEDIA_MAGIC_BYTE_COUNT = 64;
 
 type PrivateAssetRecord = AssetDocument & {
   relativePath: string;
@@ -24,6 +26,10 @@ export type PreparedAssetPreviewProject = {
   projectRootPath: string;
   projectId: string;
   assets: Map<string, PrivateAssetRecord>;
+  // Main passes these exact, already-stabilized bytes to C++. This prevents
+  // the preview manifest and authoritative Project from coming from two
+  // different reads of a file that changed between operations.
+  manifestContents: string;
 };
 
 type ActiveAssetPreviewProject = PreparedAssetPreviewProject & {
@@ -140,6 +146,7 @@ function parsePrivateManifest(
     projectRootPath,
     projectId: document.project.id,
     assets,
+    manifestContents: contents,
   };
 }
 
@@ -153,7 +160,8 @@ function sameFileSnapshot(
     left.size === right.size &&
     left.mtimeMs === right.mtimeMs &&
     left.ctimeMs === right.ctimeMs &&
-    left.mode === right.mode
+    left.mode === right.mode &&
+    left.nlink === right.nlink
   );
 }
 
@@ -162,6 +170,7 @@ async function readStableProjectFile(filePath: string): Promise<string> {
   if (
     before.isSymbolicLink() ||
     !before.isFile() ||
+    before.nlink !== 1 ||
     before.size > MAX_PROJECT_FILE_BYTES
   ) {
     throw new Error('项目文件不是可安全读取的常规文件');
@@ -171,7 +180,8 @@ async function readStableProjectFile(filePath: string): Promise<string> {
   const file = await open(filePath, constants.O_RDONLY | noFollow);
   try {
     const opened = await file.stat();
-    if (!sameFileSnapshot(before, opened)) {
+    if (!opened.isFile() || opened.nlink !== 1 ||
+        !sameFileSnapshot(before, opened)) {
       throw new Error('项目文件在读取前发生了变化');
     }
 
@@ -206,18 +216,30 @@ function manifestMatchesResult(
   });
 }
 
-function canonicalImageExtension(sourceFilePath: string): string | null {
-  switch (path.extname(sourceFilePath).toLowerCase()) {
-    case '.png':
-      return '.png';
-    case '.jpg':
-    case '.jpeg':
-      return '.jpg';
-    case '.webp':
-      return '.webp';
-    default:
-      return null;
+function canonicalAssetExtension(
+  type: AssetDocument['type'],
+  sourceFilePath: string,
+): string | null {
+  const extension = path.extname(sourceFilePath).toLowerCase();
+  if (type === 'image') {
+    switch (extension) {
+      case '.png':
+        return '.png';
+      case '.jpg':
+      case '.jpeg':
+        return '.jpg';
+      case '.webp':
+        return '.webp';
+      default:
+        return null;
+    }
   }
+
+  if (type === 'video' && (extension === '.mp4' || extension === '.webm')) {
+    return extension;
+  }
+
+  return null;
 }
 
 function imageMimeForPath(relativePath: string): ImageMime | null {
@@ -267,6 +289,188 @@ function magicMatches(mime: ImageMime, bytes: Uint8Array): boolean {
         bytes[10] === 0x42 &&
         bytes[11] === 0x50
       );
+  }
+}
+
+const MP4_VIDEO_BRANDS = new Set([
+  'isom',
+  'iso2',
+  'iso3',
+  'iso4',
+  'iso5',
+  'iso6',
+  'mp41',
+  'mp42',
+  'avc1',
+  'avc2',
+  'dash',
+  'M4V ',
+  'MSNV',
+  '3gp4',
+]);
+
+function mp4MagicMatches(bytes: Buffer, fileSize: number): boolean {
+  if (bytes.length < 16 || bytes.toString('ascii', 4, 8) !== 'ftyp') {
+    return false;
+  }
+  const shortBoxSize = bytes.readUInt32BE(0);
+  let boxSize = shortBoxSize;
+  let brandOffset = 8;
+  if (shortBoxSize === 1) {
+    if (bytes.length < 24) {
+      return false;
+    }
+    const extended = bytes.readBigUInt64BE(8);
+    if (extended > BigInt(Number.MAX_SAFE_INTEGER)) {
+      return false;
+    }
+    boxSize = Number(extended);
+    brandOffset = 16;
+  }
+  if (boxSize < brandOffset + 8 || boxSize > fileSize) {
+    return false;
+  }
+  const compatibleBytes = boxSize - (brandOffset + 8);
+  if (compatibleBytes % 4 !== 0) {
+    return false;
+  }
+  let foundVideoBrand = MP4_VIDEO_BRANDS.has(
+    bytes.toString('ascii', brandOffset, brandOffset + 4),
+  );
+  const end = Math.min(boxSize, bytes.length);
+  for (let offset = brandOffset + 8; offset + 4 <= end; offset += 4) {
+    if (
+      MP4_VIDEO_BRANDS.has(
+        bytes.toString('ascii', offset, offset + 4),
+      )
+    ) {
+      foundVideoBrand = true;
+    }
+  }
+  return foundVideoBrand;
+}
+
+function readEbmlVint(
+  bytes: Buffer,
+  offset: number,
+  limit: number,
+  keepMarker: boolean,
+): { value: number; length: number } | null {
+  if (offset >= limit || bytes[offset] === 0) {
+    return null;
+  }
+  let length = 1;
+  let marker = 0x80;
+  while (length <= 8 && (bytes[offset] & marker) === 0) {
+    marker >>= 1;
+    length += 1;
+  }
+  if (length > 6 || offset + length > limit) {
+    // Project headers never need integers wider than JS's exact range.
+    return null;
+  }
+  let value = keepMarker ? bytes[offset] : bytes[offset] & (marker - 1);
+  for (let index = 1; index < length; index += 1) {
+    value = value * 256 + bytes[offset + index];
+  }
+  const unknown = 2 ** (7 * length) - 1;
+  return !keepMarker && value === unknown ? null : { value, length };
+}
+
+function webmMagicMatches(bytes: Buffer, fileSize: number): boolean {
+  if (
+    bytes.length < 8 ||
+    bytes[0] !== 0x1a || bytes[1] !== 0x45 ||
+    bytes[2] !== 0xdf || bytes[3] !== 0xa3
+  ) {
+    return false;
+  }
+  const headerLength = readEbmlVint(bytes, 4, bytes.length, false);
+  if (!headerLength) {
+    return false;
+  }
+  const payloadBegin = 4 + headerLength.length;
+  const headerEnd = payloadBegin + headerLength.value;
+  if (headerEnd > bytes.length || headerEnd > fileSize) {
+    return false;
+  }
+  let offset = payloadBegin;
+  let foundWebmDocType = false;
+  while (offset < headerEnd) {
+    const id = readEbmlVint(bytes, offset, headerEnd, true);
+    if (!id) {
+      return false;
+    }
+    offset += id.length;
+    const elementSize = readEbmlVint(bytes, offset, headerEnd, false);
+    if (!elementSize) {
+      return false;
+    }
+    offset += elementSize.length;
+    if (elementSize.value > headerEnd - offset) {
+      return false;
+    }
+    if (id.value === 0x4282) {
+      if (
+        foundWebmDocType ||
+        elementSize.value !== 4 ||
+        bytes.toString('ascii', offset, offset + 4) !== 'webm'
+      ) {
+        return false;
+      }
+      foundWebmDocType = true;
+    }
+    offset += elementSize.value;
+  }
+  return foundWebmDocType && offset === headerEnd;
+}
+
+async function validatePreparedAssetFile(
+  projectRootPath: string,
+  asset: PrivateAssetRecord,
+): Promise<void> {
+  const safeAsset = await assertSafeAssetFile(
+    projectRootPath,
+    asset.relativePath,
+  );
+  const noFollow = constants.O_NOFOLLOW ?? 0;
+  const file = await open(safeAsset.filePath, constants.O_RDONLY | noFollow);
+  try {
+    const status = await file.stat();
+    const maximumBytes = asset.type === 'video'
+      ? MAX_PROJECT_VIDEO_BYTES
+      : MAX_PREVIEW_IMAGE_BYTES;
+    if (
+      !sameFileSnapshot(safeAsset.snapshot, status) ||
+      !status.isFile() || status.nlink !== 1 ||
+      status.size <= 0 || status.size > maximumBytes
+    ) {
+      throw new Error('项目资源不是有效的常规文件');
+    }
+    const header = Buffer.alloc(MEDIA_MAGIC_BYTE_COUNT);
+    const { bytesRead } = await file.read(
+      header, 0, MEDIA_MAGIC_BYTE_COUNT, 0,
+    );
+    const bytes = header.subarray(0, bytesRead);
+    const extension = path.posix.extname(asset.relativePath).toLowerCase();
+    let valid = false;
+    if (asset.type === 'image') {
+      const mime = imageMimeForPath(asset.relativePath);
+      valid = mime !== null && magicMatches(mime, bytes);
+    } else if (asset.type === 'video') {
+      valid = extension === '.mp4'
+        ? mp4MagicMatches(bytes, status.size)
+        : extension === '.webm' && webmMagicMatches(bytes, status.size);
+    } else {
+      // Audio import is not exposed yet, but a manifest entry must still point
+      // to a safe, non-empty file before the project can be opened.
+      valid = extension.length > 1;
+    }
+    if (!valid || !sameFileSnapshot(status, await file.stat())) {
+      throw new Error('项目资源类型与文件内容不一致');
+    }
+  } finally {
+    await file.close();
   }
 }
 
@@ -345,11 +549,32 @@ export class AssetPreviewService {
       path.dirname(absoluteProjectFilePath),
     );
     const contents = await readStableProjectFile(absoluteProjectFilePath);
-    return parsePrivateManifest(
+    const prepared = parsePrivateManifest(
       contents,
       absoluteProjectFilePath,
       projectRootPath,
     );
+    // Validate sequentially so a large manifest cannot exhaust the process's
+    // file descriptor limit by opening every Asset at once.
+    for (const asset of prepared.assets.values()) {
+      await validatePreparedAssetFile(projectRootPath, asset);
+    }
+    return prepared;
+  }
+
+  async validateProjectSnapshotAtRoot(
+    manifestContents: string,
+    projectRootPath: string,
+  ): Promise<void> {
+    const canonicalRootPath = await realpath(projectRootPath);
+    const prepared = parsePrivateManifest(
+      manifestContents,
+      path.join(canonicalRootPath, 'project.vn.json'),
+      canonicalRootPath,
+    );
+    for (const asset of prepared.assets.values()) {
+      await validatePreparedAssetFile(canonicalRootPath, asset);
+    }
   }
 
   async activateProjectFile(
@@ -445,6 +670,7 @@ export class AssetPreviewService {
       projectRootPath,
       projectId: result.project.id,
       assets: new Map(),
+      manifestContents: '',
       generationToken: freshGenerationToken(),
       previewTokensByAssetId: new Map(),
       assetIdsByPreviewToken: new Map(),
@@ -452,17 +678,19 @@ export class AssetPreviewService {
     return true;
   }
 
-  registerImportedImage(
+  registerImportedAsset(
     projectFilePath: string,
     sourceFilePath: string,
     result: EngineMutationResult,
   ): boolean {
     const assetId = result.assetId;
     const active = this.activeProject;
-    const extension = canonicalImageExtension(sourceFilePath);
     const publicAsset = result.assets.find(
       (asset) => asset.id === assetId,
     );
+    const extension = publicAsset
+      ? canonicalAssetExtension(publicAsset.type, sourceFilePath)
+      : null;
 
     if (
       active === null ||
@@ -470,14 +698,16 @@ export class AssetPreviewService {
       typeof assetId !== 'string' ||
       !isSafeImportedAssetId(assetId) ||
       extension === null ||
-      publicAsset?.type !== 'image'
+      publicAsset === undefined
     ) {
       return false;
     }
 
     active.assets.set(assetId, {
       ...publicAsset,
-      relativePath: `assets/images/${assetId}${extension}`,
+      relativePath: `assets/${expectedAssetDirectory(
+        publicAsset.type,
+      )}/${assetId}${extension}`,
     });
     return true;
   }

@@ -7,13 +7,13 @@ import {
 
 describe('project session presentation', () => {
   it('distinguishes unsaved, modified, and saved window titles', () => {
-    expect(projectWindowTitle('故事', null, true)).toBe(
+    expect(projectWindowTitle('故事', false, true)).toBe(
       '● 故事 [未保存] — VN Engine Editor',
     );
-    expect(projectWindowTitle('故事', '/tmp/project.vn.json', true)).toBe(
+    expect(projectWindowTitle('故事', true, true)).toBe(
       '● 故事 — VN Engine Editor',
     );
-    expect(projectWindowTitle('故事', '/tmp/project.vn.json', false)).toBe(
+    expect(projectWindowTitle('故事', true, false)).toBe(
       '故事 — VN Engine Editor',
     );
   });

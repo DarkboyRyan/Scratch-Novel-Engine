@@ -8,6 +8,7 @@ describe('backend request timeout', () => {
       backendRequestTimeoutMs({
         method: 'asset.import',
         params: {
+          kind: 'image',
           sourceFilePath: '/source/portrait.png',
           projectFilePath: '/project/project.vn.json',
         },
@@ -15,17 +16,23 @@ describe('backend request timeout', () => {
     ).toBeNull();
   });
 
-  it.each(['project.open', 'project.save'] as const)(
-    'does not abandon %s after it may still commit',
-    (method) => {
-      expect(
-        backendRequestTimeoutMs({
-          method,
-          params: { filePath: '/project/project.vn.json' },
-        }),
-      ).toBeNull();
-    },
-  );
+  it('does not abandon project.open after it may still commit', () => {
+    expect(
+      backendRequestTimeoutMs({
+        method: 'project.open',
+        params: { contents: '{"format":"vn-engine-project"}' },
+      }),
+    ).toBeNull();
+  });
+
+  it('does not abandon project.save after it may still commit', () => {
+    expect(
+      backendRequestTimeoutMs({
+        method: 'project.save',
+        params: { filePath: '/project/project.vn.json' },
+      }),
+    ).toBeNull();
+  });
 
   it('keeps ordinary JSON commands responsive', () => {
     expect(

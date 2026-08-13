@@ -210,13 +210,13 @@ export type EngineInvocation = {
   };
 }[EngineMethod];
 
-// `project.open` 带有本机文件路径，因此它不是 Renderer 可以直接构造的
-// EngineInvocation。只有 Electron Main 在用户完成原生文件选择后，才能创建
-// 这个后端请求。
+// `project.open` carries manifest bytes read and stabilized by Electron Main,
+// so it is not an EngineInvocation that Renderer may construct. C++ parses
+// exactly this snapshot instead of reopening a mutable native path.
 export type OpenProjectBackendInvocation = {
   method: 'project.open';
   params: {
-    filePath: string;
+    contents: string;
   };
 };
 
@@ -229,9 +229,10 @@ export type SaveProjectBackendInvocation = {
 
 // Asset import paths are created only by Electron Main after a native file
 // selection. This invocation must never be added to ENGINE_METHODS.
-export type ImportImageBackendInvocation = {
+export type ImportAssetBackendInvocation = {
   method: 'asset.import';
   params: {
+    kind: 'image' | 'video';
     sourceFilePath: string;
     projectFilePath: string;
   };
@@ -241,7 +242,7 @@ export type BackendInvocation =
   | EngineInvocation
   | OpenProjectBackendInvocation
   | SaveProjectBackendInvocation
-  | ImportImageBackendInvocation;
+  | ImportAssetBackendInvocation;
 
 // Electron Main 会补充 id；C++ 使用同一个 id 返回结果。
 export type BackendRequest = BackendInvocation & {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-import type { ImportImageResult } from '../../shared/assetProtocol';
+import type { ImportAssetResult } from '../../shared/assetProtocol';
 import type {
   AddBackgroundParams,
   AddCharacterParams,
@@ -98,9 +98,8 @@ export type OpenProjectStatus =
   | 'cancelled'
   | 'failed';
 
-export type ImportImageStatus =
-  | ImportImageResult['status']
-  | 'failed';
+export type ImportAssetStatus = ImportAssetResult['status'] | 'failed';
+export type ImportImageStatus = ImportAssetStatus;
 
 function requestInitialProject(): Promise<EngineMutationResult> {
   // 每个 BrowserWindow 都拥有独立后端；不可使用模块级 Promise，否则开发
@@ -156,10 +155,9 @@ export function useEngineProject() {
   const [pendingEngineActions, setPendingEngineActions] = useState(0);
   const [isFileOperating, setIsFileOperating] = useState(false);
   const [engineMessage, setEngineMessage] = useState('');
-  const [projectFilePath, setProjectFilePath] =
-    useState<string | null>(null);
   const [session, setSession] = useState<ProjectFileSessionSnapshot>({
-    filePath: null,
+    hasStorage: false,
+    projectFolderName: null,
     revision: 0,
     savedRevision: null,
     isDirty: true,
@@ -181,7 +179,6 @@ export function useEngineProject() {
     setAssets(result.assets);
 
     if (fileSession) {
-      setProjectFilePath(fileSession.filePath);
       setSession({
         ...fileSession,
         ...result.session,
@@ -516,7 +513,6 @@ export function useEngineProject() {
 
       if (outcome.cancelled) {
         setSession(outcome.session);
-        setProjectFilePath(outcome.session.filePath);
         return false;
       }
 
@@ -580,11 +576,39 @@ export function useEngineProject() {
     }
   }
 
+  async function importVideo(): Promise<ImportAssetStatus> {
+    if (fileOperationInProgress.current) {
+      return 'failed';
+    }
+
+    fileOperationInProgress.current = true;
+    setIsFileOperating(true);
+    setEngineMessage('');
+
+    try {
+      await waitForEngineActions();
+      const outcome = await window.vnAssets.importVideo();
+
+      if (outcome.status === 'cancelled') {
+        return outcome.status;
+      }
+
+      applyResult(outcome.result);
+      return outcome.status;
+    } catch (error: unknown) {
+      setEngineMessage(readableError(error));
+      return 'failed';
+    } finally {
+      fileOperationInProgress.current = false;
+      setIsFileOperating(false);
+    }
+  }
+
   return {
     project,
     assets,
     projectGeneration,
-    projectFilePath,
+    projectFolderName: session.projectFolderName,
     session,
     isSaving,
     isBusy,
@@ -611,6 +635,7 @@ export function useEngineProject() {
     openProject,
     saveProject,
     importImage,
+    importVideo,
     renameProject,
     setSceneBackground,
     waitForEngineActions,

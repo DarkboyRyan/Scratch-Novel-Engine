@@ -60,6 +60,15 @@ std::string jpeg_image_bytes() {
       reinterpret_cast<const char*>(bytes.data()), bytes.size());
 }
 
+std::string mp4_video_bytes() {
+  constexpr std::array<unsigned char, 24> bytes{
+      0x00U, 0x00U, 0x00U, 0x18U, 'f', 't', 'y', 'p',
+      'i', 's', 'o', 'm', 0x00U, 0x00U, 0x02U, 0x00U,
+      'i', 's', 'o', 'm', 'm', 'p', '4', '2'};
+  return std::string(
+      reinterpret_cast<const char*>(bytes.data()), bytes.size());
+}
+
 Json valid_document() {
   return {
       {"format", "vn-engine-project"},
@@ -522,6 +531,10 @@ std::string read_file(const std::filesystem::path& path) {
       std::istreambuf_iterator<char>());
 }
 
+Json open_params(const std::filesystem::path& path) {
+  return {{"contents", read_file(path)}};
+}
+
 void expect_session(
     const Json& response,
     const std::uint64_t revision,
@@ -584,6 +597,7 @@ void imports_an_image_without_exposing_paths_or_autosaving_manifest() {
       3,
       "asset.import",
       {
+          {"kind", "image"},
           {"sourceFilePath", source.string()},
           {"projectFilePath", project_file.string()},
       });
@@ -627,6 +641,72 @@ void imports_an_image_without_exposing_paths_or_autosaving_manifest() {
   }));
 }
 
+void imports_a_video_transactionally_without_exposing_paths() {
+  TemporaryDirectory temporary;
+  const std::filesystem::path project_file =
+      temporary.path("project.vn.json");
+  const std::filesystem::path source = temporary.write(
+      "Opening Movie.MP4", mp4_video_bytes());
+
+  vnengine::backend::Backend backend;
+  static_cast<void>(request(
+      backend, 1, "project.create", {{"name", "视频导入"}}));
+  const Json initially_saved = request(
+      backend, 2, "project.save", {{"filePath", project_file.string()}});
+  expect_session(initially_saved, 0, 0, false);
+
+  const Json imported = request(
+      backend,
+      3,
+      "asset.import",
+      {
+          {"sourceFilePath", source.string()},
+          {"projectFilePath", project_file.string()},
+          {"kind", "video"},
+      });
+  expect_session(imported, 1, 0, true);
+  const Json& result = imported.at("result");
+  const std::string asset_id = result.at("assetId").get<std::string>();
+  CHECK(result.at("assets").size() == 1);
+  CHECK(result.at("assets")[0] == Json({
+      {"id", asset_id},
+      {"type", "video"},
+      {"displayName", "Opening Movie"},
+  }));
+  CHECK(imported.dump().find(source.string()) == std::string::npos);
+  CHECK(imported.dump().find(project_file.string()) == std::string::npos);
+
+  const std::filesystem::path imported_file = temporary.root() /
+      "assets" / "videos" / (asset_id + ".mp4");
+  CHECK(std::filesystem::is_regular_file(imported_file));
+  CHECK(read_file(imported_file) == mp4_video_bytes());
+  CHECK(Json::parse(read_file(project_file)).at("assets").empty());
+
+  const Json saved = request(
+      backend, 4, "project.save", {{"filePath", project_file.string()}});
+  expect_session(saved, 1, 1, false);
+  CHECK(Json::parse(read_file(project_file)).at("assets")[0] == Json({
+      {"id", asset_id},
+      {"type", "video"},
+      {"relativePath", "assets/videos/" + asset_id + ".mp4"},
+      {"displayName", "Opening Movie"},
+  }));
+
+  const Json invalid_kind = request(
+      backend,
+      5,
+      "asset.import",
+      {
+          {"sourceFilePath", source.string()},
+          {"projectFilePath", project_file.string()},
+          {"kind", "executable"},
+      });
+  CHECK(invalid_kind.at("ok") == false);
+  CHECK(invalid_kind.at("error").at("code") == "invalid_params");
+  const Json unchanged = request(backend, 6, "project.get");
+  expect_session(unchanged, 1, 1, false);
+}
+
 void rejects_unsafe_image_sources_without_mutating_document() {
   TemporaryDirectory temporary;
   const std::filesystem::path project_file =
@@ -661,6 +741,7 @@ void rejects_unsafe_image_sources_without_mutating_document() {
       1,
       "asset.import",
       {
+          {"kind", "image"},
           {"sourceFilePath", valid_source.string()},
           {"projectFilePath", project_file.string()},
       });
@@ -690,6 +771,7 @@ void rejects_unsafe_image_sources_without_mutating_document() {
         request_id++,
         "asset.import",
         {
+            {"kind", "image"},
             {"sourceFilePath", invalid_source.string()},
             {"projectFilePath", project_file.string()},
         });
@@ -706,6 +788,7 @@ void rejects_unsafe_image_sources_without_mutating_document() {
       request_id++,
       "asset.import",
       {
+          {"kind", "image"},
           {"sourceFilePath", valid_source.string()},
           {"projectFilePath", "project.vn.json"},
       });
@@ -736,8 +819,7 @@ void sets_clears_and_persists_scene_backgrounds_atomically() {
       temporary.path("project.vn.json");
 
   vnengine::backend::Backend backend;
-  const Json opened = request(
-      backend, 1, "project.open", {{"filePath", source.string()}});
+  const Json opened = request(backend, 1, "project.open", open_params(source));
   expect_session(opened, 0, 0, false);
   const Json& opened_scene =
       opened.at("result").at("project").at("scenes")[0];
@@ -840,7 +922,7 @@ void sets_clears_and_persists_scene_backgrounds_atomically() {
       reopened_backend,
       1,
       "project.open",
-      {{"filePath", target.string()}});
+      open_params(target));
   expect_session(reopened, 0, 0, false);
   CHECK(reopened.at("result")
             .at("project")
@@ -855,8 +937,7 @@ void mutates_and_persists_mixed_background_timeline() {
   const std::filesystem::path target = temporary.path("project.vn.json");
 
   vnengine::backend::Backend backend;
-  const Json opened = request(
-      backend, 1, "project.open", {{"filePath", source.string()}});
+  const Json opened = request(backend, 1, "project.open", open_params(source));
   expect_session(opened, 0, 0, false);
 
   const Json added = request(
@@ -989,7 +1070,7 @@ void mutates_and_persists_mixed_background_timeline() {
 
   vnengine::backend::Backend reopened_backend;
   const Json reopened = request(
-      reopened_backend, 1, "project.open", {{"filePath", target.string()}});
+      reopened_backend, 1, "project.open", open_params(target));
   expect_session(reopened, 0, 0, false);
   CHECK(reopened.at("result").at("project").at("scenes")[0].at("nodes") ==
         moved_nodes);
@@ -1096,8 +1177,7 @@ void saves_atomically_and_round_trips_assets() {
       "project.vn.json", "old bytes that must be replaced");
 
   vnengine::backend::Backend backend;
-  const Json opened = request(
-      backend, 1, "project.open", {{"filePath", source.string()}});
+  const Json opened = request(backend, 1, "project.open", open_params(source));
   expect_session(opened, 0, 0, false);
 
   const Json renamed = request(
@@ -1119,7 +1199,7 @@ void saves_atomically_and_round_trips_assets() {
       reopened_backend,
       1,
       "project.open",
-      {{"filePath", target.string()}});
+      open_params(target));
   expect_session(reopened, 0, 0, false);
   CHECK(reopened.at("result").at("project") ==
         saved.at("result").at("project"));
@@ -1143,8 +1223,7 @@ void backend_preserves_hidden_v2_visuals_across_mutation_and_save() {
       temporary.path("project.vn.json");
 
   vnengine::backend::Backend backend;
-  const Json opened = request(
-      backend, 1, "project.open", {{"filePath", source.string()}});
+  const Json opened = request(backend, 1, "project.open", open_params(source));
   expect_session(opened, 0, 0, false);
 
   // Renderer gets the safe background Asset ID needed for selection/preview,
@@ -1196,8 +1275,7 @@ void failed_open_preserves_dirty_hidden_v2_aggregate() {
       temporary.path("project.vn.json");
 
   vnengine::backend::Backend backend;
-  const Json opened = request(
-      backend, 1, "project.open", {{"filePath", source.string()}});
+  const Json opened = request(backend, 1, "project.open", open_params(source));
   expect_session(opened, 0, 0, false);
 
   const Json renamed = request(
@@ -1205,7 +1283,7 @@ void failed_open_preserves_dirty_hidden_v2_aggregate() {
   expect_session(renamed, 1, 0, true);
 
   const Json invalid_open = request(
-      backend, 3, "project.open", {{"filePath", invalid.string()}});
+      backend, 3, "project.open", open_params(invalid));
   CHECK(invalid_open.at("ok") == false);
   CHECK(invalid_open.at("error").at("code") == "project_file_invalid");
 
@@ -1219,7 +1297,7 @@ void failed_open_preserves_dirty_hidden_v2_aggregate() {
       backend,
       5,
       "project.open",
-      {{"filePath", invalid_timeline.string()}});
+      open_params(invalid_timeline));
   CHECK(invalid_timeline_open.at("ok") == false);
   CHECK(invalid_timeline_open.at("error").at("code") ==
         "project_file_invalid");
@@ -1230,7 +1308,7 @@ void failed_open_preserves_dirty_hidden_v2_aggregate() {
         "失败后仍保留");
 
   const Json future_open = request(
-      backend, 7, "project.open", {{"filePath", future.string()}});
+      backend, 7, "project.open", open_params(future));
   CHECK(future_open.at("ok") == false);
   CHECK(future_open.at("error").at("code") ==
         "project_file_unsupported");
@@ -1323,26 +1401,25 @@ void opens_a_file_and_preserves_current_project_after_failures() {
       backend,
       2,
       "project.open",
-      {{"filePath", valid_path.string()}});
+      open_params(valid_path));
   CHECK(opened.at("ok") == true);
   CHECK(opened.at("result").at("sceneId") == "scene-1");
   CHECK(opened.at("result").at("project").at("name") == "读取的项目");
   const Json authoritative_project = opened.at("result").at("project");
 
-  const std::vector<std::pair<std::filesystem::path, std::string>> failures{
-      {malformed_path, "project_file_invalid"},
-      {invalid_path, "project_file_invalid"},
-      {unsupported_path, "project_file_unsupported"},
-      {temporary.path("missing.vn.json"), "project_file_read_failed"},
+  const std::vector<std::pair<std::string, std::string>> failures{
+      {read_file(malformed_path), "project_file_invalid"},
+      {read_file(invalid_path), "project_file_invalid"},
+      {read_file(unsupported_path), "project_file_unsupported"},
   };
 
   int request_id = 3;
-  for (const auto& [path, expected_code] : failures) {
+  for (const auto& [contents, expected_code] : failures) {
     const Json failed = request(
         backend,
         request_id++,
         "project.open",
-        {{"filePath", path.string()}});
+        {{"contents", contents}});
     CHECK(failed.at("ok") == false);
     CHECK(failed.at("error").at("code") == expected_code);
 
@@ -1351,22 +1428,39 @@ void opens_a_file_and_preserves_current_project_after_failures() {
     CHECK(current.at("result").at("project") == authoritative_project);
   }
 
-  const Json empty_path = request(
-      backend, request_id, "project.open", {{"filePath", ""}});
-  CHECK(empty_path.at("ok") == false);
-  CHECK(empty_path.at("error").at("code") == "invalid_params");
+  const Json missing_contents = request(
+      backend, request_id, "project.open", Json::object());
+  CHECK(missing_contents.at("ok") == false);
+  CHECK(missing_contents.at("error").at("code") == "invalid_params");
 }
 
 void failed_open_does_not_create_a_project() {
-  TemporaryDirectory temporary;
   vnengine::backend::Backend backend;
 
   const Json failed = request(
       backend,
       1,
       "project.open",
-      {{"filePath", temporary.path("missing.vn.json").string()}});
+      {{"contents", "{not json"}});
   CHECK(failed.at("ok") == false);
+
+  const Json current = request(backend, 2, "project.get");
+  CHECK(current.at("ok") == false);
+  CHECK(current.at("error").at("code") == "project_not_created");
+}
+
+void rejects_project_contents_over_size_limit() {
+  vnengine::backend::Backend backend;
+  const std::string oversized_contents(
+      64U * 1024U * 1024U + 1U, ' ');
+
+  const Json failed = request(
+      backend,
+      1,
+      "project.open",
+      {{"contents", oversized_contents}});
+  CHECK(failed.at("ok") == false);
+  CHECK(failed.at("error").at("code") == "project_file_read_failed");
 
   const Json current = request(backend, 2, "project.get");
   CHECK(current.at("ok") == false);
@@ -1380,7 +1474,7 @@ void mutates_and_persists_character_timeline() {
   const std::filesystem::path target = temporary.path("project.vn.json");
   vnengine::backend::Backend backend;
   CHECK(request(
-            backend, 1, "project.open", {{"filePath", source.string()}})
+            backend, 1, "project.open", open_params(source))
             .at("ok") == true);
 
   const Json added = request(
@@ -1453,7 +1547,7 @@ void mutates_and_persists_character_timeline() {
       reopened_backend,
       1,
       "project.open",
-      {{"filePath", target.string()}});
+      open_params(target));
   CHECK(reopened.at("result")
             .at("project")
             .at("scenes")[0]
@@ -1484,7 +1578,7 @@ void mutates_and_persists_scene_jump_timeline() {
 
   vnengine::backend::Backend backend;
   CHECK(request(
-            backend, 1, "project.open", {{"filePath", source.string()}})
+            backend, 1, "project.open", open_params(source))
             .at("ok") == true);
 
   const Json added = request(
@@ -1542,7 +1636,7 @@ void mutates_and_persists_scene_jump_timeline() {
       reopened_backend,
       1,
       "project.open",
-      {{"filePath", target.string()}});
+      open_params(target));
   CHECK(reopened.at("ok") == true);
   CHECK(reopened.at("result")
             .at("project")
@@ -1571,6 +1665,8 @@ int main() {
        tracks_real_mutations_and_normalizes_project_names},
       {"imports an image without exposing paths or autosaving manifest",
        imports_an_image_without_exposing_paths_or_autosaving_manifest},
+      {"imports a video transactionally without exposing paths",
+       imports_a_video_transactionally_without_exposing_paths},
       {"rejects unsafe image sources without mutating document",
        rejects_unsafe_image_sources_without_mutating_document},
       {"sets clears and persists scene backgrounds atomically",
@@ -1585,10 +1681,12 @@ int main() {
        failed_open_preserves_dirty_hidden_v2_aggregate},
       {"failed save preserves state and destination",
        failed_save_preserves_state_and_destination},
-      {"opens a file and preserves current project after failures",
+      {"opens manifest contents and preserves current project after failures",
        opens_a_file_and_preserves_current_project_after_failures},
       {"failed open does not create a project",
        failed_open_does_not_create_a_project},
+      {"rejects project contents over size limit",
+       rejects_project_contents_over_size_limit},
       {"mutates and persists character timeline",
        mutates_and_persists_character_timeline},
       {"mutates and persists scene jump timeline",

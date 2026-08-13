@@ -13,7 +13,7 @@ type ToolbarProps = {
   isDirty: boolean;
   isSaving: boolean;
   engineMessage: string;
-  projectFilePath: string | null;
+  projectFolderName: string | null;
   onCreateProject: () => void;
   onOpenProject: () => void;
   onSaveProject: () => void;
@@ -33,7 +33,7 @@ export function Toolbar({
   isDirty,
   isSaving,
   engineMessage,
-  projectFilePath,
+  projectFolderName,
   onCreateProject,
   onOpenProject,
   onSaveProject,
@@ -99,7 +99,11 @@ export function Toolbar({
 
         <div
           className="toolbar-project-name"
-          title={projectFilePath ?? '尚未保存到磁盘'}
+          title={
+            projectFolderName
+              ? `项目文件夹：${projectFolderName}`
+              : '尚未保存到磁盘'
+          }
         >
           <span>项目：</span>
           {isRenamingProject ? (

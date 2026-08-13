@@ -18,7 +18,8 @@ describe('ProjectFileSession logical save boundary', () => {
     });
 
     expect(session.snapshot()).toEqual({
-      filePath: null,
+      hasStorage: false,
+      projectFolderName: null,
       revision: 2,
       savedRevision: null,
       isDirty: true,
@@ -33,17 +34,33 @@ describe('ProjectFileSession logical save boundary', () => {
       isDirty: true,
     });
 
-    session.markSaved('/projects/story/custom.vn.json', {
+    session.markSaved('/projects/我的故事', {
       revision: 2,
       savedRevision: 2,
       isDirty: false,
     });
 
     expect(session.snapshot()).toEqual({
-      filePath: '/projects/story/custom.vn.json',
+      hasStorage: true,
+      projectFolderName: '我的故事',
       revision: 2,
       savedRevision: 2,
       isDirty: false,
     });
+  });
+
+  it('keeps native paths in Main-only accessors', () => {
+    const session = new ProjectFileSession();
+    session.markOpened('/projects/story', {
+      revision: 1,
+      savedRevision: 1,
+      isDirty: false,
+    });
+
+    expect(session.getProjectRootPath()).toBe('/projects/story');
+    expect(session.getManifestPath()).toBe(
+      '/projects/story/project.vn.json',
+    );
+    expect(session.snapshot()).not.toHaveProperty('filePath');
   });
 });

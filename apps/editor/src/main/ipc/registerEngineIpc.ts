@@ -29,25 +29,29 @@ export function registerEngineIpc(
         throw new Error('找不到当前编辑器窗口对应的项目会话');
       }
 
-      const result = await context.backendClient.request(invocation);
-      const session = context.projectFileSession.updateEngineSession(
-        result.session,
-      );
-      updateWindowDocumentPresentation(
-        context.editorWindow,
-        result.project.name,
-        session,
-      );
+      // Engine mutations and project open/save/import share the same
+      // per-window transaction boundary. Main enforces this even if a stale
+      // Renderer tries to mutate between backend save and manifest publish.
+      return context.fileOperationCoordinator.runExclusive(async () => {
+        const result = await context.backendClient.request(invocation);
+        const session = context.projectFileSession.updateEngineSession(
+          result.session,
+        );
+        updateWindowDocumentPresentation(
+          context.editorWindow,
+          result.project.name,
+          session,
+        );
 
-      const publicResult = {
-        ...result,
-        session: {
-          revision: session.revision,
-          savedRevision: session.savedRevision,
-          isDirty: session.isDirty,
-        },
-      };
-      return publicResult;
+        return {
+          ...result,
+          session: {
+            revision: session.revision,
+            savedRevision: session.savedRevision,
+            isDirty: session.isDirty,
+          },
+        };
+      });
     },
   );
 }

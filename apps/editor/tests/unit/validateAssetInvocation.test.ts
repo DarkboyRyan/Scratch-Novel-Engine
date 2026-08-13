@@ -7,6 +7,9 @@ describe('asset IPC invocation validation', () => {
     expect(
       isAssetInvocation({ action: 'import-image', params: {} }),
     ).toBe(true);
+    expect(
+      isAssetInvocation({ action: 'import-video', params: {} }),
+    ).toBe(true);
   });
 
   it('treats every non-empty asset ID as opaque data for preview lookup', () => {
@@ -47,7 +50,7 @@ describe('asset IPC invocation validation', () => {
       action: 'import-image',
       params: { projectFilePath: '/tmp/project.vn.json' },
     },
-    { action: 'import-video', params: {} },
+    { action: 'import-video', params: { sourceFilePath: '/tmp/a.mp4' } },
     { action: 'import-image', params: {}, extra: true },
   ])('rejects malformed or path-bearing requests: %j', (value) => {
     expect(isAssetInvocation(value)).toBe(false);
