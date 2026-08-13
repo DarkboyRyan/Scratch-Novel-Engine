@@ -5,6 +5,7 @@ import type {
   AddBackgroundParams,
   AddCharacterParams,
   AddDialogueParams,
+  AddSceneJumpParams,
   DeleteBackgroundParams,
   DeleteDialoguesParams,
   EngineMutationResult,
@@ -16,6 +17,7 @@ import type {
   TimelineReorderParams,
   UpdateBackgroundParams,
   UpdateCharacterParams,
+  UpdateSceneJumpParams,
 } from '../../shared/engineProtocol';
 import type {
   AssetDocument,
@@ -63,6 +65,14 @@ export type UpdateCharacterAction = (
   params: UpdateCharacterParams,
 ) => Promise<boolean>;
 
+export type AddSceneJumpAction = (
+  params: AddSceneJumpParams,
+) => Promise<boolean>;
+
+export type UpdateSceneJumpAction = (
+  params: UpdateSceneJumpParams,
+) => Promise<boolean>;
+
 export type DeleteBackgroundAction = (
   params: DeleteBackgroundParams,
 ) => Promise<boolean>;
@@ -99,6 +109,15 @@ function requestInitialProject(): Promise<EngineMutationResult> {
 }
 
 function readableError(error: unknown): string {
+  if (
+    error instanceof Error &&
+    (error.message.includes('addSceneJump is not a function') ||
+      error.message.includes('updateSceneJump is not a function') ||
+      error.message.includes('unknown method: sceneJump'))
+  ) {
+    return '场景跳转模块尚未加载，请完全退出并重新启动编辑器';
+  }
+
   if (
     error instanceof Error &&
     error.message.includes('dialogue text must not be empty')
@@ -246,6 +265,11 @@ export function useEngineProject() {
     await engineActionQueue.current;
   }
 
+  async function getProjectSnapshot(): Promise<ProjectDocument | null> {
+    const result = await runEngineAction(() => window.vnEngine.getProject());
+    return result?.project ?? null;
+  }
+
   async function addDialogue(
     params: AddDialogueParams,
   ): Promise<boolean> {
@@ -361,6 +385,32 @@ export function useEngineProject() {
       window.vnEngine.updateCharacter(params),
     );
 
+    return result !== null;
+  }
+
+  async function addSceneJump(
+    params: AddSceneJumpParams,
+  ): Promise<boolean> {
+    if (typeof window.vnEngine.addSceneJump !== 'function') {
+      setEngineMessage('场景跳转模块尚未加载，请完全退出并重新启动编辑器');
+      return false;
+    }
+    const result = await runEngineAction(() =>
+      window.vnEngine.addSceneJump(params),
+    );
+    return result !== null;
+  }
+
+  async function updateSceneJump(
+    params: UpdateSceneJumpParams,
+  ): Promise<boolean> {
+    if (typeof window.vnEngine.updateSceneJump !== 'function') {
+      setEngineMessage('场景跳转模块尚未加载，请完全退出并重新启动编辑器');
+      return false;
+    }
+    const result = await runEngineAction(() =>
+      window.vnEngine.updateSceneJump(params),
+    );
     return result !== null;
   }
 
@@ -552,6 +602,8 @@ export function useEngineProject() {
     reorderBackground,
     addCharacter,
     updateCharacter,
+    addSceneJump,
+    updateSceneJump,
     deleteTimelineNodes,
     reorderTimelineNode,
     reorderTimelineNodes,
@@ -562,6 +614,7 @@ export function useEngineProject() {
     renameProject,
     setSceneBackground,
     waitForEngineActions,
+    getProjectSnapshot,
   };
 }
 

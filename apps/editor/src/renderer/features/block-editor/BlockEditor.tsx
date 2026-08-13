@@ -9,12 +9,14 @@ import type {
   AddBackgroundAction,
   AddDialogueAction,
   AddCharacterAction,
+  AddSceneJumpAction,
   DeleteTimelineNodesAction,
   ReorderTimelineNodeAction,
   ReorderTimelineNodesAction,
   UpdateBackgroundAction,
   UpdateDialogueAction,
   UpdateCharacterAction,
+  UpdateSceneJumpAction,
 } from '../../hooks/useEngineProject';
 
 import type {
@@ -42,6 +44,8 @@ type BlockEditorProps = {
   onBackgroundUpdate: UpdateBackgroundAction;
   onCharacterAdd: AddCharacterAction;
   onCharacterUpdate: UpdateCharacterAction;
+  onSceneJumpAdd: AddSceneJumpAction;
+  onSceneJumpUpdate: UpdateSceneJumpAction;
   onTimelineReorder: ReorderTimelineNodeAction;
   onTimelineNodesReorder: ReorderTimelineNodesAction;
   onTimelineNodesDelete: DeleteTimelineNodesAction;
@@ -66,6 +70,8 @@ export const BlockEditor = forwardRef<
     onBackgroundUpdate,
     onCharacterAdd,
     onCharacterUpdate,
+    onSceneJumpAdd,
+    onSceneJumpUpdate,
     onTimelineReorder,
     onTimelineNodesReorder,
     onTimelineNodesDelete,
@@ -143,6 +149,7 @@ export const BlockEditor = forwardRef<
         <BlocklyWorkspace
           ref={workspaceRef}
           scene={scene}
+          scenes={project.scenes}
           assets={assets}
           layoutKey={`${project.id}:${scene.id}`}
           layoutStore={layoutStore}
@@ -152,6 +159,8 @@ export const BlockEditor = forwardRef<
           onBackgroundUpdate={onBackgroundUpdate}
           onCharacterAdd={onCharacterAdd}
           onCharacterUpdate={onCharacterUpdate}
+          onSceneJumpAdd={onSceneJumpAdd}
+          onSceneJumpUpdate={onSceneJumpUpdate}
           onTimelineReorder={onTimelineReorder}
           onTimelineNodesReorder={onTimelineNodesReorder}
           onTimelineNodesDelete={onTimelineNodesDelete}

@@ -4,10 +4,13 @@ import type {
   AssetDocument,
   CharacterSlot,
   SceneNode,
+  SceneDocument,
 } from '../../../shared/projectTypes';
 
 type InspectorPanelProps = {
   selectedNode?: SceneNode;
+  scenes: SceneDocument[];
+  currentSceneId: string;
   assets: AssetDocument[];
   speaker: string;
   text: string;
@@ -20,6 +23,7 @@ type InspectorPanelProps = {
     slot: CharacterSlot;
     layer: number;
   }) => Promise<void>;
+  onSceneJumpChange: (targetSceneId: string) => Promise<void>;
   onInsertDialogue: () => Promise<void>;
   onInsertCharacter: () => Promise<void>;
   onSubmit: () => Promise<void>;
@@ -27,6 +31,8 @@ type InspectorPanelProps = {
 
 export function InspectorPanel({
   selectedNode,
+  scenes,
+  currentSceneId,
   assets,
   speaker,
   text,
@@ -35,6 +41,7 @@ export function InspectorPanel({
   onTextChange,
   onBackgroundChange,
   onCharacterChange,
+  onSceneJumpChange,
   onInsertDialogue,
   onInsertCharacter,
   onSubmit,
@@ -167,6 +174,45 @@ export function InspectorPanel({
 
         <p className="character-node-help">
           后出现的同层立绘会替换之前的立绘；层级越大越靠前。
+        </p>
+      </aside>
+    );
+  }
+
+  if (selectedNode?.type === 'sceneJump') {
+    return (
+      <aside className="panel inspector-panel scene-jump-inspector">
+        <div className="panel-heading">
+          <h2>跳转场景</h2>
+          <TimelineInsertActions
+            isBusy={isBusy}
+            onInsertCharacter={onInsertCharacter}
+            onInsertDialogue={onInsertDialogue}
+          />
+        </div>
+        <label>
+          目标场景
+          <select
+            value={selectedNode.targetSceneId}
+            disabled={isBusy}
+            onChange={(event) =>
+              void onSceneJumpChange(event.target.value)
+            }
+          >
+            {scenes.map((scene, index) =>
+              scene.id === currentSceneId ? null : (
+                <option key={scene.id} value={scene.id}>
+                  场景 {index + 1}
+                  {scene.name !== `场景 ${index + 1}`
+                    ? ` · ${scene.name}`
+                    : ''}
+                </option>
+              ),
+            )}
+          </select>
+        </label>
+        <p className="scene-jump-node-help">
+          正式预览执行到这里时进入目标场景；没有跳转节点时，本场景结束即停止。
         </p>
       </aside>
     );

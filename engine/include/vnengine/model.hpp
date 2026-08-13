@@ -54,7 +54,18 @@ struct CharacterNode {
   bool operator==(const CharacterNode&) const = default;
 };
 
-using SceneNode = std::variant<Dialogue, BackgroundNode, CharacterNode>;
+// A SceneJumpNode is the only way playback leaves the current Scene. Reaching
+// the end of a Scene without one stops playback instead of implicitly using
+// Project.scenes order.
+struct SceneJumpNode {
+  std::string id;
+  std::string target_scene_id;
+
+  bool operator==(const SceneJumpNode&) const = default;
+};
+
+using SceneNode =
+    std::variant<Dialogue, BackgroundNode, CharacterNode, SceneJumpNode>;
 
 // Character slots are authoring presets rather than z-order. Multiple
 // characters may intentionally share a slot; their order in SceneVisualState

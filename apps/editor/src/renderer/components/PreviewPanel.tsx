@@ -1,4 +1,7 @@
-import { useEffect, useState } from 'react';
+import {
+  VisualStage,
+  type PreviewCharacter,
+} from './VisualStage';
 
 type PreviewPanelProps = {
   speaker: string;
@@ -7,37 +10,11 @@ type PreviewPanelProps = {
   backgroundName: string | null;
   showDialogue?: boolean;
   characters?: PreviewCharacter[];
+  isStartDisabled?: boolean;
+  onStartPreview?: () => void;
 };
 
-export type PreviewCharacter = {
-  id: string;
-  url: string | null;
-  name: string;
-  slot: 'left' | 'center' | 'right';
-  layer: number;
-};
-
-function CharacterPortrait({ character }: { character: PreviewCharacter }) {
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    setFailed(false);
-  }, [character.url]);
-
-  if (!character.url || failed) {
-    return null;
-  }
-
-  return (
-    <img
-      className={`preview-character preview-character-${character.slot}`}
-      style={{ zIndex: 10 + character.layer }}
-      src={character.url}
-      alt={character.name}
-      onError={() => setFailed(true)}
-    />
-  );
-}
+export type { PreviewCharacter } from './VisualStage';
 
 export function PreviewPanel({
   speaker,
@@ -46,46 +23,34 @@ export function PreviewPanel({
   backgroundName,
   showDialogue = true,
   characters = [],
+  isStartDisabled = false,
+  onStartPreview,
 }: PreviewPanelProps) {
-  const [backgroundFailed, setBackgroundFailed] = useState(false);
-
-  useEffect(() => {
-    setBackgroundFailed(false);
-  }, [backgroundUrl]);
-
-  const showBackground = Boolean(backgroundUrl) && !backgroundFailed;
-
   return (
     <main className="preview-panel">
-      <div className="preview-stage">
-        {showBackground && backgroundUrl ? (
-          <img
-            className="preview-background"
-            src={backgroundUrl}
-            alt=""
-            onError={() => setBackgroundFailed(true)}
-          />
-        ) : (
-          <p className="preview-placeholder">
-            {backgroundUrl && backgroundFailed
-              ? `无法读取背景：${backgroundName ?? '未知图片'}`
-              : '预览界面'}
-          </p>
-        )}
-
-        <div className="preview-character-layer" aria-hidden="true">
-          {characters.map((character) => (
-            <CharacterPortrait key={character.id} character={character} />
-          ))}
+      {onStartPreview ? (
+        <div className="preview-toolbar" aria-label="游戏预览控制">
+          <button
+            type="button"
+            className="preview-play-button"
+            aria-label="开始游戏预览"
+            title="开始游戏预览"
+            disabled={isStartDisabled}
+            onClick={onStartPreview}
+          >
+            <span aria-hidden="true">▶</span>
+          </button>
         </div>
+      ) : null}
 
-        {showDialogue ? (
-          <div className="dialogue-box">
-            <strong>{speaker}</strong>
-            <p>{text}</p>
-          </div>
-        ) : null}
-      </div>
+      <VisualStage
+        speaker={speaker}
+        text={text}
+        backgroundUrl={backgroundUrl}
+        backgroundName={backgroundName}
+        showDialogue={showDialogue}
+        characters={characters}
+      />
     </main>
   );
 }

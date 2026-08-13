@@ -57,6 +57,10 @@ CharacterNode* find_character_node(Scene& scene, std::string_view node_id);
 const CharacterNode* find_character_node(
     const Scene& scene,
     std::string_view node_id);
+SceneJumpNode* find_scene_jump_node(Scene& scene, std::string_view node_id);
+const SceneJumpNode* find_scene_jump_node(
+    const Scene& scene,
+    std::string_view node_id);
 Asset* find_asset(
     ProjectAggregate& aggregate,
     std::string_view asset_id);
@@ -183,6 +187,43 @@ UpdateCharacterNodeResult update_character_node(
     std::optional<std::string> asset_id,
     CharacterSlot slot,
     int layer);
+
+enum class AddSceneJumpNodeStatus {
+  added,
+  scene_not_found,
+  target_scene_not_found,
+  self_target,
+  placement_conflict,
+  anchor_not_found,
+};
+
+struct AddSceneJumpNodeResult {
+  AddSceneJumpNodeStatus status;
+  std::optional<std::string> node_id;
+};
+
+AddSceneJumpNodeResult add_scene_jump_node(
+    Project& project,
+    IdGenerator& ids,
+    std::string_view scene_id,
+    std::string target_scene_id,
+    std::optional<std::string> after_node_id = std::nullopt,
+    std::optional<std::string> before_node_id = std::nullopt);
+
+enum class UpdateSceneJumpNodeResult {
+  changed,
+  unchanged,
+  scene_not_found,
+  node_not_found,
+  target_scene_not_found,
+  self_target,
+};
+
+UpdateSceneJumpNodeResult update_scene_jump_node(
+    Project& project,
+    std::string_view scene_id,
+    std::string_view node_id,
+    std::string target_scene_id);
 
 // Generic timeline ordering supports mixed Dialogue/BackgroundNode sequences.
 // A null before ID means the end of the Scene.

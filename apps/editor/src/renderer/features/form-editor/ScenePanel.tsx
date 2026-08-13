@@ -17,6 +17,7 @@ type ScenePanelProps = {
   onSelectScene: (sceneId: string) => Promise<void>;
   onSelectNode: (node: SceneNode) => Promise<void>;
   onInsertBackground: () => Promise<void>;
+  onInsertSceneJump: () => Promise<void>;
   onMoveNode: (
     nodeId: string,
     direction: -1 | 1,
@@ -34,6 +35,7 @@ export function ScenePanel({
   onSelectScene,
   onSelectNode,
   onInsertBackground,
+  onInsertSceneJump,
   onMoveNode,
   onDeleteNode,
 }: ScenePanelProps) {
@@ -75,16 +77,6 @@ export function ScenePanel({
   return (
     <aside className="panel scene-panel">
       <div className="scene-switcher">
-        <button
-          type="button"
-          className="add-button"
-          aria-label="新建场景"
-          title="新建空场景"
-          disabled={isBusy}
-          onClick={() => void onAddScene()}
-        >
-          <span aria-hidden="true">+</span>
-        </button>
         <div className="scene-menu" ref={sceneMenuRef}>
           <button
             type="button"
@@ -131,6 +123,31 @@ export function ScenePanel({
             </div>
           ) : null}
         </div>
+
+        <button
+          type="button"
+          className="scene-inline-action"
+          aria-label="新建场景"
+          title="新建空场景"
+          disabled={isBusy}
+          onClick={() => void onAddScene()}
+        >
+          <span aria-hidden="true">+</span> 场景
+        </button>
+        <button
+          type="button"
+          className="scene-inline-action scene-jump-inline-action"
+          aria-label="在当前节点后插入场景跳转"
+          disabled={isBusy || project.scenes.length < 2}
+          title={
+            project.scenes.length < 2
+              ? '至少需要两个场景'
+              : '在当前节点后插入场景跳转'
+          }
+          onClick={() => void onInsertSceneJump()}
+        >
+          <span aria-hidden="true">+</span> 跳转
+        </button>
       </div>
 
       <div className="scene-status">
@@ -158,7 +175,9 @@ export function ScenePanel({
                 ? ' is-background-node'
                 : node.type === 'character'
                   ? ' is-character-node'
-                  : ''
+                  : node.type === 'sceneJump'
+                    ? ' is-scene-jump-node'
+                    : ''
             }`}
           >
             <button
@@ -181,7 +200,7 @@ export function ScenePanel({
                     <strong>背景切换</strong>
                     <p>{assetName(node.assetId)}</p>
                   </>
-                ) : (
+                ) : node.type === 'character' ? (
                   <>
                     <strong>
                       人物立绘 · 第 {node.layer} 层
@@ -194,6 +213,21 @@ export function ScenePanel({
                         : node.slot === 'center'
                           ? '中间'
                           : '右侧'}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <strong>跳转场景</strong>
+                    <p>
+                      {(() => {
+                        const targetIndex = project.scenes.findIndex(
+                          (projectScene) =>
+                            projectScene.id === node.targetSceneId,
+                        );
+                        return targetIndex >= 0
+                          ? `场景 ${targetIndex + 1}`
+                          : '目标场景缺失';
+                      })()}
                     </p>
                   </>
                 )}

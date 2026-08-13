@@ -31,7 +31,8 @@ function isSceneNode(value: unknown): boolean {
     typeof value.id !== 'string' ||
     value.type !== 'dialogue' &&
     value.type !== 'background' &&
-    value.type !== 'character'
+    value.type !== 'character' &&
+    value.type !== 'sceneJump'
   ) {
     return false;
   }
@@ -53,6 +54,10 @@ function isSceneNode(value: unknown): boolean {
       (value.layer as number) >= 1 &&
       (value.layer as number) <= 10
     );
+  }
+
+  if (value.type === 'sceneJump') {
+    return typeof value.targetSceneId === 'string';
   }
 
   return value.assetId === null || typeof value.assetId === 'string';
@@ -111,6 +116,14 @@ function toPublicSceneNode(
       assetId: value.assetId as string | null,
       slot: value.slot as CharacterSlot,
       layer: value.layer as number,
+    };
+  }
+
+  if (value.type === 'sceneJump') {
+    return {
+      id: value.id as string,
+      type: 'sceneJump',
+      targetSceneId: value.targetSceneId as string,
     };
   }
 

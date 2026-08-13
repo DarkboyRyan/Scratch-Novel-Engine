@@ -46,6 +46,12 @@ const vnengine::CharacterNode& character_at(
   return std::get<vnengine::CharacterNode>(scene.nodes.at(index));
 }
 
+const vnengine::SceneJumpNode& scene_jump_at(
+    const vnengine::Scene& scene,
+    const std::size_t index) {
+  return std::get<vnengine::SceneJumpNode>(scene.nodes.at(index));
+}
+
 std::vector<std::string> timeline_ids(const vnengine::Scene& scene) {
   std::vector<std::string> result;
   result.reserve(scene.nodes.size());
@@ -979,6 +985,69 @@ void manages_character_timeline_nodes_atomically() {
   CHECK(!vnengine::validate_project_aggregate(aggregate).has_value());
 }
 
+void manages_scene_jump_nodes_and_protects_targets() {
+  SequenceIdGenerator ids;
+  vnengine::ProjectAggregate aggregate =
+      vnengine::create_empty_project_aggregate(ids);
+  const std::string first_scene_id = aggregate.project.entry_scene_id;
+  const std::string second_scene_id =
+      vnengine::add_scene(aggregate.project, ids, "第二幕");
+  const std::string third_scene_id =
+      vnengine::add_scene(aggregate.project, ids, "第三幕");
+
+  const vnengine::AddSceneJumpNodeResult added =
+      vnengine::add_scene_jump_node(
+          aggregate.project, ids, first_scene_id, second_scene_id);
+  CHECK(added.status == vnengine::AddSceneJumpNodeStatus::added);
+  CHECK(added.node_id.has_value());
+  const vnengine::Scene& first_scene =
+      *vnengine::find_scene(aggregate.project, first_scene_id);
+  CHECK(first_scene.nodes.size() == 1);
+  CHECK(scene_jump_at(first_scene, 0).target_scene_id == second_scene_id);
+  CHECK(!vnengine::validate_project_aggregate(aggregate).has_value());
+
+  CHECK(vnengine::update_scene_jump_node(
+            aggregate.project,
+            first_scene_id,
+            *added.node_id,
+            third_scene_id) == vnengine::UpdateSceneJumpNodeResult::changed);
+  CHECK(vnengine::update_scene_jump_node(
+            aggregate.project,
+            first_scene_id,
+            *added.node_id,
+            third_scene_id) == vnengine::UpdateSceneJumpNodeResult::unchanged);
+  CHECK(!vnengine::delete_scene(aggregate.project, third_scene_id));
+
+  const vnengine::ProjectAggregate before_failures = aggregate;
+  CHECK(vnengine::add_scene_jump_node(
+            aggregate.project,
+            ids,
+            first_scene_id,
+            first_scene_id).status ==
+        vnengine::AddSceneJumpNodeStatus::self_target);
+  CHECK(vnengine::add_scene_jump_node(
+            aggregate.project,
+            ids,
+            first_scene_id,
+            "missing").status ==
+        vnengine::AddSceneJumpNodeStatus::target_scene_not_found);
+  CHECK(vnengine::update_scene_jump_node(
+            aggregate.project,
+            first_scene_id,
+            *added.node_id,
+            "missing") ==
+        vnengine::UpdateSceneJumpNodeResult::target_scene_not_found);
+  CHECK(aggregate == before_failures);
+
+  vnengine::ProjectAggregate dangling = aggregate;
+  scene_jump_at(
+      *vnengine::find_scene(dangling.project, first_scene_id), 0);
+  std::get<vnengine::SceneJumpNode>(
+      vnengine::find_scene(dangling.project, first_scene_id)->nodes[0])
+      .target_scene_id = "missing";
+  CHECK(vnengine::validate_project_aggregate(dangling).has_value());
+}
+
 }  // namespace
 
 int main() {
@@ -1022,6 +1091,8 @@ int main() {
        normalizes_committed_dialogue_content},
       {"manages character timeline nodes atomically",
        manages_character_timeline_nodes_atomically},
+      {"manages scene jump nodes and protects targets",
+       manages_scene_jump_nodes_and_protects_targets},
   };
 
   int failures = 0;

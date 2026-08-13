@@ -12,6 +12,8 @@ type FormEditorProps = {
   backgroundName: string | null;
   showDialogue: boolean;
   characters: PreviewCharacter[];
+  isStartPreviewDisabled: boolean;
+  onStartPreview: () => void;
 };
 
 export function FormEditor({
@@ -21,6 +23,8 @@ export function FormEditor({
   backgroundName,
   showDialogue,
   characters,
+  isStartPreviewDisabled,
+  onStartPreview,
 }: FormEditorProps) {
   const { project, scene } = editor;
 
@@ -40,6 +44,7 @@ export function FormEditor({
         onSelectScene={editor.selectScene}
         onSelectNode={editor.selectNode}
         onInsertBackground={editor.insertBackground}
+        onInsertSceneJump={editor.insertSceneJump}
         onMoveNode={editor.moveNode}
         onDeleteNode={editor.deleteNode}
       />
@@ -51,10 +56,14 @@ export function FormEditor({
         backgroundName={backgroundName}
         showDialogue={showDialogue}
         characters={characters}
+        isStartDisabled={isStartPreviewDisabled}
+        onStartPreview={onStartPreview}
       />
 
       <InspectorPanel
         selectedNode={editor.selectedNode}
+        scenes={project.scenes}
+        currentSceneId={scene.id}
         assets={assets}
         speaker={editor.speaker}
         text={editor.text}
@@ -72,6 +81,14 @@ export function FormEditor({
         onCharacterChange={(next) =>
           editor.selectedCharacter
             ? editor.updateCharacterNode(editor.selectedCharacter, next)
+            : Promise.resolve()
+        }
+        onSceneJumpChange={(targetSceneId) =>
+          editor.selectedSceneJump
+            ? editor.updateSceneJumpNode(
+                editor.selectedSceneJump,
+                targetSceneId,
+              )
             : Promise.resolve()
         }
         onInsertDialogue={editor.insertEmptyDialogue}

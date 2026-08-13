@@ -13,6 +13,8 @@ import { useAssetPreviewUrls } from './features/assets/useAssetPreviewUrls';
 import { FormEditor } from './features/form-editor/FormEditor';
 import { useFormEditor } from './features/form-editor/useFormEditor';
 import { deriveTimelinePreview } from './features/form-editor/timelinePreview';
+import { GamePreview } from './features/game-preview/GamePreview';
+import { useGamePreview } from './features/game-preview/useGamePreview';
 import { useEngineProject } from './hooks/useEngineProject';
 import { prepareProjectSave } from './projectSavePreparation';
 import { projectWindowTitle } from './projectSessionPresentation';
@@ -24,6 +26,7 @@ export default function App() {
   const blockEditorRef = useRef<BlockEditorHandle>(null);
   const engine = useEngineProject();
   const editor = useFormEditor(engine);
+  const gamePreview = useGamePreview();
   const { project, scene } = editor;
   const assetPreviewUrls = useAssetPreviewUrls(
     project?.id ?? null,
@@ -147,6 +150,20 @@ export default function App() {
     await engine.saveProject(prepareCurrentEdits);
   };
 
+  const handleStartPreview = async (): Promise<void> => {
+    if (engine.isBusy || gamePreview.session) {
+      return;
+    }
+    if (!(await prepareCurrentEdits())) {
+      return;
+    }
+
+    const latestProject = await engine.getProjectSnapshot();
+    if (!latestProject || !gamePreview.start(latestProject)) {
+      engine.setEngineMessage('项目入口场景不存在，无法开始预览');
+    }
+  };
+
   const handleImportImage = async (): Promise<void> => {
     // 未保存项目也能导入：Main 会为当前窗口建立私有临时工作区，
     // 首次保存时再安全发布 manifest 与 assets。Renderer 始终不接触路径。
@@ -192,11 +209,17 @@ export default function App() {
     }
   };
 
-  latestActionsRef.current = {
-    create: handleCreateProject,
-    open: handleOpenProject,
-    save: handleSaveProject,
-  };
+  latestActionsRef.current = gamePreview.session
+    ? {
+        create: async () => {},
+        open: async () => {},
+        save: async () => {},
+      }
+    : {
+        create: handleCreateProject,
+        open: handleOpenProject,
+        save: handleSaveProject,
+      };
 
   useEffect(() => {
     return window.vnProjectFiles.onCommand((command) => {
@@ -326,6 +349,8 @@ export default function App() {
           backgroundName={backgroundAsset?.displayName ?? null}
           showDialogue={timelinePreview.showDialogue}
           characters={previewCharacters}
+          isStartPreviewDisabled={engine.isBusy}
+          onStartPreview={() => void handleStartPreview()}
         />
       ) : (
         <BlockEditor
@@ -342,6 +367,8 @@ export default function App() {
           onBackgroundUpdate={engine.updateBackground}
           onCharacterAdd={engine.addCharacter}
           onCharacterUpdate={engine.updateCharacter}
+          onSceneJumpAdd={engine.addSceneJump}
+          onSceneJumpUpdate={engine.updateSceneJump}
           onTimelineReorder={engine.reorderTimelineNode}
           onTimelineNodesReorder={engine.reorderTimelineNodes}
           onTimelineNodesDelete={engine.deleteTimelineNodes}
@@ -364,6 +391,16 @@ export default function App() {
         onCancel={() => setIsCreateProjectOpen(false)}
         onConfirm={() => void confirmCreateProject()}
       />
+
+      {gamePreview.session ? (
+        <GamePreview
+          session={gamePreview.session}
+          assets={engine.assets}
+          previewUrls={assetPreviewUrls}
+          onAdvance={gamePreview.advance}
+          onExit={gamePreview.exit}
+        />
+      ) : null}
     </div>
   );
 }

@@ -195,6 +195,20 @@ const CharacterNode* find_character_node(
   return node == nullptr ? nullptr : std::get_if<CharacterNode>(node);
 }
 
+SceneJumpNode* find_scene_jump_node(
+    Scene& scene,
+    const std::string_view node_id) {
+  SceneNode* node = find_scene_node(scene, node_id);
+  return node == nullptr ? nullptr : std::get_if<SceneJumpNode>(node);
+}
+
+const SceneJumpNode* find_scene_jump_node(
+    const Scene& scene,
+    const std::string_view node_id) {
+  const SceneNode* node = find_scene_node(scene, node_id);
+  return node == nullptr ? nullptr : std::get_if<SceneJumpNode>(node);
+}
+
 Asset* find_asset(
     ProjectAggregate& aggregate,
     const std::string_view asset_id) {
@@ -329,6 +343,15 @@ bool delete_scene(Project& project, const std::string_view scene_id) {
 
   if (scene_iterator == project.scenes.end() || project.scenes.size() == 1) {
     return false;
+  }
+
+  for (const Scene& scene : project.scenes) {
+    for (const SceneNode& node : scene.nodes) {
+      const auto* jump = std::get_if<SceneJumpNode>(&node);
+      if (jump != nullptr && jump->target_scene_id == scene_id) {
+        return false;
+      }
+    }
   }
 
   const auto scene_index = static_cast<std::size_t>(
@@ -529,6 +552,87 @@ UpdateCharacterNodeResult update_character_node(
   character->slot = slot;
   character->layer = layer;
   return UpdateCharacterNodeResult::changed;
+}
+
+AddSceneJumpNodeResult add_scene_jump_node(
+    Project& project,
+    IdGenerator& ids,
+    const std::string_view scene_id,
+    std::string target_scene_id,
+    std::optional<std::string> after_node_id,
+    std::optional<std::string> before_node_id) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return {AddSceneJumpNodeStatus::scene_not_found, std::nullopt};
+  }
+  if (find_scene(project, target_scene_id) == nullptr) {
+    return {AddSceneJumpNodeStatus::target_scene_not_found, std::nullopt};
+  }
+  if (scene_id == target_scene_id) {
+    return {AddSceneJumpNodeStatus::self_target, std::nullopt};
+  }
+  if (after_node_id.has_value() && before_node_id.has_value()) {
+    return {AddSceneJumpNodeStatus::placement_conflict, std::nullopt};
+  }
+
+  auto insertion_iterator = scene->nodes.end();
+  if (before_node_id.has_value()) {
+    insertion_iterator = std::find_if(
+        scene->nodes.begin(),
+        scene->nodes.end(),
+        [&before_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *before_node_id;
+        });
+    if (insertion_iterator == scene->nodes.end()) {
+      return {AddSceneJumpNodeStatus::anchor_not_found, std::nullopt};
+    }
+  } else if (after_node_id.has_value()) {
+    const auto anchor = std::find_if(
+        scene->nodes.begin(),
+        scene->nodes.end(),
+        [&after_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *after_node_id;
+        });
+    if (anchor == scene->nodes.end()) {
+      return {AddSceneJumpNodeStatus::anchor_not_found, std::nullopt};
+    }
+    insertion_iterator = std::next(anchor);
+  }
+
+  SceneJumpNode jump{
+      .id = ids.next(),
+      .target_scene_id = std::move(target_scene_id),
+  };
+  std::string created_id = jump.id;
+  scene->nodes.insert(insertion_iterator, std::move(jump));
+  return {AddSceneJumpNodeStatus::added, std::move(created_id)};
+}
+
+UpdateSceneJumpNodeResult update_scene_jump_node(
+    Project& project,
+    const std::string_view scene_id,
+    const std::string_view node_id,
+    std::string target_scene_id) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return UpdateSceneJumpNodeResult::scene_not_found;
+  }
+  SceneJumpNode* jump = find_scene_jump_node(*scene, node_id);
+  if (jump == nullptr) {
+    return UpdateSceneJumpNodeResult::node_not_found;
+  }
+  if (find_scene(project, target_scene_id) == nullptr) {
+    return UpdateSceneJumpNodeResult::target_scene_not_found;
+  }
+  if (scene_id == target_scene_id) {
+    return UpdateSceneJumpNodeResult::self_target;
+  }
+  if (jump->target_scene_id == target_scene_id) {
+    return UpdateSceneJumpNodeResult::unchanged;
+  }
+
+  jump->target_scene_id = std::move(target_scene_id);
+  return UpdateSceneJumpNodeResult::changed;
 }
 
 bool reorder_scene_node(
@@ -964,6 +1068,10 @@ std::optional<std::string> validate_project(const Project& project) {
           return "character node layer must be between 1 and 10";
         }
       }
+      if (const auto* jump = std::get_if<SceneJumpNode>(&node);
+          jump != nullptr && jump->target_scene_id.empty()) {
+        return "scene jump target Scene ID must not be empty";
+      }
     }
   }
 
@@ -1090,6 +1198,15 @@ std::optional<std::string> validate_project_aggregate(
         }
         if (asset->type != AssetType::image) {
           return "character node Asset must be an image";
+        }
+      }
+      if (const auto* jump = std::get_if<SceneJumpNode>(&node);
+          jump != nullptr) {
+        if (jump->target_scene_id == scene.id) {
+          return "scene jump must not target its containing Scene";
+        }
+        if (find_scene(aggregate.project, jump->target_scene_id) == nullptr) {
+          return "scene jump must reference an existing Scene";
         }
       }
     }

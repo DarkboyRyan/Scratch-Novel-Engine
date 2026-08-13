@@ -136,6 +136,16 @@ const vnEngine: VnEngineApi = {
       method: 'character.update',
       params,
     }),
+  addSceneJump: (params) =>
+    invokeEngine({
+      method: 'sceneJump.add',
+      params,
+    }),
+  updateSceneJump: (params) =>
+    invokeEngine({
+      method: 'sceneJump.update',
+      params,
+    }),
   deleteTimelineNodes: (params) =>
     invokeEngine({
       method: 'timeline.deleteMany',

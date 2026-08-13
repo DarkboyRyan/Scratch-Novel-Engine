@@ -28,9 +28,19 @@ export type CharacterNode = {
   layer: number;
 };
 
+export type SceneJumpNode = {
+  id: string;
+  type: 'sceneJump';
+  targetSceneId: string;
+};
+
 // type 是跨 C++ / Electron / Renderer 的判别字段。使用联合类型后，消费方
 // 必须先检查 node.type，避免把背景节点误当成可编辑对白。
-export type SceneNode = DialogueNode | BackgroundNode | CharacterNode;
+export type SceneNode =
+  | DialogueNode
+  | BackgroundNode
+  | CharacterNode
+  | SceneJumpNode;
 
 export type SceneDocument = {
   schemaVersion: 1;

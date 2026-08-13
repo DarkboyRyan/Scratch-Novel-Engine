@@ -234,6 +234,38 @@ describe('engine IPC validation', () => {
     }
   });
 
+  it('validates scene jump creation and target updates', () => {
+    expect(isEngineInvocation({
+      method: 'sceneJump.add',
+      params: {
+        sceneId: 'scene-1',
+        targetSceneId: 'scene-2',
+        afterNodeId: 'node-1',
+      },
+    })).toBe(true);
+    expect(isEngineInvocation({
+      method: 'sceneJump.update',
+      params: {
+        sceneId: 'scene-1',
+        nodeId: 'jump-1',
+        targetSceneId: 'scene-2',
+      },
+    })).toBe(true);
+    expect(isEngineInvocation({
+      method: 'sceneJump.add',
+      params: { sceneId: 'scene-1' },
+    })).toBe(false);
+    expect(isEngineInvocation({
+      method: 'sceneJump.add',
+      params: {
+        sceneId: 'scene-1',
+        targetSceneId: 'scene-2',
+        afterNodeId: 'a',
+        beforeNodeId: 'b',
+      },
+    })).toBe(false);
+  });
+
   it('requires a nullable or string anchor when reordering a background', () => {
     for (const beforeNodeId of [null, 'node-3']) {
       expect(

@@ -8,6 +8,7 @@ import {
 } from './blocks/dialogueBlock';
 import { BACKGROUND_BLOCK_TYPE } from './blocks/backgroundBlock';
 import { CHARACTER_BLOCK_TYPE } from './blocks/characterBlock';
+import { SCENE_JUMP_BLOCK_TYPE } from './blocks/sceneJumpBlock';
 
 export type DialogueFieldUpdate = {
   nodeId: string;
@@ -223,7 +224,8 @@ export function getReorderedDialogueBlock(
     !block ||
     (block.type !== DIALOGUE_BLOCK_TYPE &&
       block.type !== BACKGROUND_BLOCK_TYPE &&
-      block.type !== CHARACTER_BLOCK_TYPE)
+      block.type !== CHARACTER_BLOCK_TYPE &&
+      block.type !== SCENE_JUMP_BLOCK_TYPE)
   ) {
     return null;
   }

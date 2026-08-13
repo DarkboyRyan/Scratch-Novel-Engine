@@ -5,6 +5,7 @@ import type { SceneDocument } from '../../src/shared/projectTypes';
 import { DIALOGUE_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/dialogueBlock';
 import { BACKGROUND_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/backgroundBlock';
 import { CHARACTER_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/characterBlock';
+import { SCENE_JUMP_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/sceneJumpBlock';
 import {
   collectDialogueFieldDrafts,
   getDialogueFieldUpdate,
@@ -173,6 +174,18 @@ describe('getDroppedNewDialogueBlock', () => {
         scene,
       ),
     ).toBeNull();
+  });
+
+  it('does not mistake a new scene jump block for a dialogue', () => {
+    const block = {
+      ...createDialogueBlock('temporary-scene-jump', 'node-2'),
+      type: SCENE_JUMP_BLOCK_TYPE,
+    } as Blockly.BlockSvg;
+    expect(getDroppedNewDialogueBlock(
+      createMoveEvent(block.id),
+      createWorkspace(block),
+      scene,
+    )).toBeNull();
   });
 });
 

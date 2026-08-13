@@ -54,6 +54,19 @@ export type UpdateCharacterParams = {
   layer: number;
 };
 
+export type AddSceneJumpParams = {
+  sceneId: string;
+  targetSceneId: string;
+  afterNodeId?: string | null;
+  beforeNodeId?: string | null;
+};
+
+export type UpdateSceneJumpParams = {
+  sceneId: string;
+  nodeId: string;
+  targetSceneId: string;
+};
+
 export type DeleteBackgroundParams = {
   sceneId: string;
   nodeId: string;
@@ -126,6 +139,8 @@ export const ENGINE_METHODS = [
   'background.reorder',
   'character.add',
   'character.update',
+  'sceneJump.add',
+  'sceneJump.update',
   'timeline.deleteMany',
   'timeline.reorder',
   'timeline.reorderMany',
@@ -181,6 +196,8 @@ export type EngineParamsByMethod = {
   'background.reorder': ReorderBackgroundParams;
   'character.add': AddCharacterParams;
   'character.update': UpdateCharacterParams;
+  'sceneJump.add': AddSceneJumpParams;
+  'sceneJump.update': UpdateSceneJumpParams;
   'timeline.deleteMany': TimelineDeleteManyParams;
   'timeline.reorder': TimelineReorderParams;
   'timeline.reorderMany': TimelineReorderManyParams;
@@ -305,6 +322,12 @@ export type VnEngineApi = {
   ): Promise<EngineMutationResult>;
   updateCharacter(
     params: UpdateCharacterParams,
+  ): Promise<EngineMutationResult>;
+  addSceneJump(
+    params: AddSceneJumpParams,
+  ): Promise<EngineMutationResult>;
+  updateSceneJump(
+    params: UpdateSceneJumpParams,
   ): Promise<EngineMutationResult>;
   deleteTimelineNodes(
     params: TimelineDeleteManyParams,

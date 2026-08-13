@@ -14,6 +14,10 @@ import {
   setCharacterBlockAsset,
 } from './blocks/characterBlock';
 import {
+  SCENE_JUMP_BLOCK_FIELDS,
+  SCENE_JUMP_BLOCK_TYPE,
+} from './blocks/sceneJumpBlock';
+import {
   DIALOGUE_BLOCK_FIELDS,
   DIALOGUE_BLOCK_TYPE,
 } from './blocks/dialogueBlock';
@@ -50,7 +54,9 @@ export function projectSceneToWorkspace(
           ? DIALOGUE_BLOCK_TYPE
           : node.type === 'background'
             ? BACKGROUND_BLOCK_TYPE
-            : CHARACTER_BLOCK_TYPE,
+            : node.type === 'character'
+              ? CHARACTER_BLOCK_TYPE
+              : SCENE_JUMP_BLOCK_TYPE,
         node.id,
       );
 
@@ -81,7 +87,7 @@ export function projectSceneToWorkspace(
             : assets.find((asset) => asset.id === node.assetId)
                 ?.displayName ?? '缺失图片';
         setBackgroundBlockAsset(block, node.assetId, name);
-      } else {
+      } else if (node.type === 'character') {
         const name =
           node.assetId === null
             ? ''
@@ -90,6 +96,11 @@ export function projectSceneToWorkspace(
         setCharacterBlockAsset(block, node.assetId, name);
         block.setFieldValue(node.slot, CHARACTER_BLOCK_FIELDS.slot);
         block.setFieldValue(String(node.layer), CHARACTER_BLOCK_FIELDS.layer);
+      } else {
+        block.setFieldValue(
+          node.targetSceneId,
+          SCENE_JUMP_BLOCK_FIELDS.targetScene,
+        );
       }
 
       block.render();

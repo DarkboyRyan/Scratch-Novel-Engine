@@ -150,6 +150,14 @@ Json character_node_to_json(const CharacterNode& character) {
   };
 }
 
+Json scene_jump_node_to_json(const SceneJumpNode& jump) {
+  return {
+      {"id", jump.id},
+      {"type", "sceneJump"},
+      {"targetSceneId", jump.target_scene_id},
+  };
+}
+
 Json scene_node_to_json(const SceneNode& node) {
   return std::visit(
       [](const auto& value) -> Json {
@@ -158,8 +166,10 @@ Json scene_node_to_json(const SceneNode& node) {
           return dialogue_to_json(value);
         } else if constexpr (std::is_same_v<Value, BackgroundNode>) {
           return background_node_to_json(value);
-        } else {
+        } else if constexpr (std::is_same_v<Value, CharacterNode>) {
           return character_node_to_json(value);
+        } else {
+          return scene_jump_node_to_json(value);
         }
       },
       node);
@@ -232,6 +242,19 @@ SceneNode scene_node_from_json(
         .asset_id = std::move(asset_id),
         .slot = character_slot_from_json(value, context),
         .layer = layer,
+    };
+  }
+  if (type == "sceneJump") {
+    if (file_version < 6) {
+      unsupported(context + ".type is not supported before file version 6");
+    }
+    require_exact_fields(
+        value,
+        {"id", "type", "targetSceneId"},
+        context);
+    return SceneJumpNode{
+        .id = require_string(value, "id", context),
+        .target_scene_id = require_string(value, "targetSceneId", context),
     };
   }
   unsupported(context + ".type is not supported");

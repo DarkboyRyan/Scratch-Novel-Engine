@@ -673,9 +673,33 @@
 
 .scene-switcher {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 8px;
   align-items: stretch;
+}
+
+.scene-inline-action {
+  height: 34px;
+  padding: 0 8px;
+  color: #4a5059;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+}
+
+.scene-inline-action:hover:not(:disabled) {
+  color: #20242a;
+  background: #f4f5f6;
+  border-color: #b8bec7;
+}
+
+.scene-jump-inline-action {
+  color: #315f7b;
+  background: #edf6fb;
+  border-color: #a9c9db;
 }
 
 .add-button {
@@ -898,6 +922,17 @@
   box-shadow: inset 3px 0 0 #806296;
 }
 
+.dialogue-list li.is-scene-jump-node {
+  background: #f0f7fb;
+  border-color: #bfd7e5;
+}
+
+.dialogue-list li.is-scene-jump-node.selected {
+  background: #e2f0f7;
+  border-color: #82aec6;
+  box-shadow: inset 3px 0 0 #3f7f9f;
+}
+
 .dialogue-list-item {
   display: flex;
   flex: 1;
@@ -976,9 +1011,20 @@
 .preview-panel {
   grid-row: 3;
   display: grid;
-  place-items: center;
-  padding: 34px;
+  grid-template-rows: 52px minmax(0, 1fr);
+  align-items: center;
+  justify-items: center;
+  padding: 0 34px 34px;
   background: #f0f1f3;
+}
+
+.preview-toolbar {
+  display: flex;
+  align-self: stretch;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  border-bottom: 1px solid #dde1e6;
 }
 
 .preview-stage {
@@ -993,6 +1039,109 @@
   border: 1px solid #d9dde3;
   border-radius: 12px;
   box-shadow: 0 16px 42px rgb(35 42 52 / 10%);
+}
+
+.preview-play-button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  color: #ffffff;
+  cursor: pointer;
+  background: #3f4650;
+  border: 1px solid #343a43;
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgb(20 25 34 / 16%);
+  transition:
+    transform 140ms ease,
+    background 140ms ease,
+    box-shadow 140ms ease;
+  place-items: center;
+}
+
+.preview-play-button span {
+  margin-left: 2px;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.preview-play-button:hover:not(:disabled) {
+  background: #2f353d;
+  box-shadow: 0 4px 10px rgb(20 25 34 / 22%);
+  transform: scale(1.04);
+}
+
+.preview-play-button:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+.game-preview-overlay {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  padding: 28px;
+  cursor: pointer;
+  background: #0e1117;
+  outline: none;
+  place-items: center;
+}
+
+.game-preview-stage {
+  width: min(calc(100vw - 56px), 1600px);
+  max-height: calc(100vh - 56px);
+  border-color: rgb(255 255 255 / 16%);
+  border-radius: 4px;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 45%);
+}
+
+.game-preview-exit {
+  position: fixed;
+  z-index: 1040;
+  top: 22px;
+  right: 24px;
+  display: grid;
+  width: 42px;
+  height: 42px;
+  padding: 0 0 3px;
+  color: #ffffff;
+  font-size: 30px;
+  cursor: pointer;
+  background: rgb(15 18 24 / 68%);
+  border: 1px solid rgb(255 255 255 / 30%);
+  border-radius: 50%;
+  place-items: center;
+  backdrop-filter: blur(8px);
+}
+
+.game-preview-exit:hover {
+  background: rgb(15 18 24 / 90%);
+}
+
+.game-preview-finished {
+  position: absolute;
+  z-index: 35;
+  inset: 0;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 10px;
+  color: #ffffff;
+  text-align: center;
+  background: rgb(11 14 20 / 48%);
+  backdrop-filter: blur(5px);
+}
+
+.game-preview-finished strong {
+  font-size: clamp(26px, 4vw, 52px);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.game-preview-finished span {
+  color: rgb(255 255 255 / 74%);
+  font-size: 13px;
 }
 
 .preview-placeholder {
@@ -1097,7 +1246,14 @@
   gap: 16px;
 }
 
-.character-inspector select {
+.scene-jump-inspector {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+
+.character-inspector select,
+.scene-jump-inspector select {
   width: 100%;
   min-height: 38px;
   padding: 0 9px;

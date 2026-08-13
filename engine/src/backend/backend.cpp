@@ -483,6 +483,15 @@ Json Backend::handle(const Json& request) {
     if (vnengine::find_scene(project, scene_id) == nullptr) {
       throw ProtocolError("scene_not_found", "scene does not exist");
     }
+    for (const vnengine::Scene& owner : project.scenes) {
+      for (const vnengine::SceneNode& node : owner.nodes) {
+        const auto* jump = std::get_if<vnengine::SceneJumpNode>(&node);
+        if (jump != nullptr && jump->target_scene_id == scene_id) {
+          throw ProtocolError(
+              "scene_in_use", "scene is referenced by a scene jump node");
+        }
+      }
+    }
     changed = vnengine::delete_scene(project, scene_id);
   } else if (method == "background.add") {
     const std::string scene_id = required_string(params, "sceneId");
@@ -706,6 +715,86 @@ Json Backend::handle(const Json& request) {
       case vnengine::UpdateCharacterNodeResult::invalid_slot:
       case vnengine::UpdateCharacterNodeResult::invalid_layer:
         throw ProtocolError("invalid_params", "character node fields are invalid");
+    }
+  } else if (method == "sceneJump.add") {
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::string target_scene_id =
+        required_string(params, "targetSceneId");
+    std::optional<std::string> after_node_id;
+    if (params.contains("afterNodeId") &&
+        !params.at("afterNodeId").is_null()) {
+      after_node_id = required_string(params, "afterNodeId");
+    }
+    std::optional<std::string> before_node_id;
+    if (params.contains("beforeNodeId") &&
+        !params.at("beforeNodeId").is_null()) {
+      before_node_id = required_string(params, "beforeNodeId");
+    }
+
+    ProjectAggregate candidate = require_aggregate();
+    const vnengine::AddSceneJumpNodeResult result =
+        vnengine::add_scene_jump_node(
+            candidate.project,
+            ids_,
+            scene_id,
+            target_scene_id,
+            std::move(after_node_id),
+            std::move(before_node_id));
+    switch (result.status) {
+      case vnengine::AddSceneJumpNodeStatus::added:
+        break;
+      case vnengine::AddSceneJumpNodeStatus::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case vnengine::AddSceneJumpNodeStatus::target_scene_not_found:
+        throw ProtocolError(
+            "target_scene_not_found", "target scene does not exist");
+      case vnengine::AddSceneJumpNodeStatus::self_target:
+        throw ProtocolError(
+            "scene_jump_self_target", "scene jump cannot target its own scene");
+      case vnengine::AddSceneJumpNodeStatus::placement_conflict:
+        throw ProtocolError(
+            "scene_jump_placement_conflict",
+            "afterNodeId and beforeNodeId cannot both be provided");
+      case vnengine::AddSceneJumpNodeStatus::anchor_not_found:
+        throw ProtocolError("node_not_found", "timeline anchor does not exist");
+    }
+    if (const auto violation = vnengine::validate_project_aggregate(candidate);
+        violation.has_value()) {
+      throw ProtocolError("internal_error", *violation);
+    }
+    require_aggregate() = std::move(candidate);
+    record_mutation(true);
+    return success_response(
+        request_id(request),
+        aggregate_,
+        revision_,
+        saved_revision_,
+        scene_id,
+        result.node_id);
+  } else if (method == "sceneJump.update") {
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::string node_id = required_string(params, "nodeId");
+    const std::string target_scene_id =
+        required_string(params, "targetSceneId");
+    switch (vnengine::update_scene_jump_node(
+        project, scene_id, node_id, target_scene_id)) {
+      case vnengine::UpdateSceneJumpNodeResult::changed:
+        changed = true;
+        break;
+      case vnengine::UpdateSceneJumpNodeResult::unchanged:
+        changed = false;
+        break;
+      case vnengine::UpdateSceneJumpNodeResult::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case vnengine::UpdateSceneJumpNodeResult::node_not_found:
+        throw ProtocolError(
+            "scene_jump_node_not_found", "scene jump node does not exist");
+      case vnengine::UpdateSceneJumpNodeResult::target_scene_not_found:
+        throw ProtocolError(
+            "target_scene_not_found", "target scene does not exist");
+      case vnengine::UpdateSceneJumpNodeResult::self_target:
+        throw ProtocolError(
+            "scene_jump_self_target", "scene jump cannot target its own scene");
     }
   } else if (method == "timeline.deleteMany") {
     const std::string scene_id = required_string(params, "sceneId");

@@ -4,6 +4,7 @@ import type {
   BackgroundNode,
   CharacterNode,
   CharacterSlot,
+  SceneJumpNode,
   SceneNode,
 } from '../../../shared/projectTypes';
 import { EMPTY_DIALOGUE_MESSAGE } from '../../editorMessages';
@@ -61,6 +62,8 @@ export function useFormEditor({
     selectedNode?.type === 'background' ? selectedNode : undefined;
   const selectedCharacter =
     selectedNode?.type === 'character' ? selectedNode : undefined;
+  const selectedSceneJump =
+    selectedNode?.type === 'sceneJump' ? selectedNode : undefined;
 
   // 图形化编辑器可能删除表单当前选中的节点。Project 更新后清理
   // 失效选择，避免切回表单时还显示已经删除的对白草稿。
@@ -318,6 +321,30 @@ export function useFormEditor({
     }
   }
 
+  async function insertSceneJump() {
+    const anchorNodeId = selectedNodeId;
+    const targetScene = project?.scenes.find(
+      (projectScene) => projectScene.id !== scene?.id,
+    );
+    if (!scene || !targetScene || !(await commitPendingDraft())) {
+      return;
+    }
+
+    const result = await runEngineAction(() =>
+      window.vnEngine.addSceneJump({
+        sceneId: scene.id,
+        targetSceneId: targetScene.id,
+        afterNodeId: anchorNodeId,
+      }),
+    );
+    const createdNode = result?.project.scenes
+      .find((projectScene) => projectScene.id === scene.id)
+      ?.nodes.find((node) => node.id === result.nodeId);
+    if (createdNode?.type === 'sceneJump') {
+      applyNodeSelection(createdNode);
+    }
+  }
+
   async function updateBackgroundNode(
     node: BackgroundNode,
     assetId: string | null,
@@ -361,6 +388,22 @@ export function useFormEditor({
     );
   }
 
+  async function updateSceneJumpNode(
+    node: SceneJumpNode,
+    targetSceneId: string,
+  ) {
+    if (!scene || node.targetSceneId === targetSceneId) {
+      return;
+    }
+    await runEngineAction(() =>
+      window.vnEngine.updateSceneJump({
+        sceneId: scene.id,
+        nodeId: node.id,
+        targetSceneId,
+      }),
+    );
+  }
+
   async function submitDialogue() {
     if (!scene) {
       return;
@@ -396,7 +439,9 @@ export function useFormEditor({
         ? `${nodeToDelete.speaker || '未命名角色'} 的这条对白`
         : nodeToDelete.type === 'background'
           ? '这个背景切换'
-          : '这个人物立绘节点';
+          : nodeToDelete.type === 'character'
+            ? '这个人物立绘节点'
+            : '这个场景跳转节点';
     const shouldDelete = window.confirm(
       `确定删除${nodeLabel}吗？`,
     );
@@ -504,6 +549,7 @@ export function useFormEditor({
     selectedDialogue,
     selectedBackground,
     selectedCharacter,
+    selectedSceneJump,
     selectedNodeId,
     speaker,
     text,
@@ -519,8 +565,10 @@ export function useFormEditor({
     insertEmptyDialogue,
     insertBackground,
     insertCharacter,
+    insertSceneJump,
     updateBackgroundNode,
     updateCharacterNode,
+    updateSceneJumpNode,
     selectNode,
     submitDialogue,
     deleteNode,

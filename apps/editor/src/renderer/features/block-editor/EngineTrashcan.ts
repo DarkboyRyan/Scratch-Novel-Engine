@@ -3,6 +3,7 @@ import * as Blockly from 'blockly';
 import { DIALOGUE_BLOCK_TYPE } from './blocks/dialogueBlock';
 import { BACKGROUND_BLOCK_TYPE } from './blocks/backgroundBlock';
 import { CHARACTER_BLOCK_TYPE } from './blocks/characterBlock';
+import { SCENE_JUMP_BLOCK_TYPE } from './blocks/sceneJumpBlock';
 
 type DeleteRequest = (draggedNodeId: string | null) => void;
 type PersistedNodeCheck = (nodeId: string) => boolean;
@@ -74,7 +75,8 @@ export class EngineTrashcan extends Blockly.Trashcan {
       draggable instanceof Blockly.BlockSvg &&
       (draggable.type === DIALOGUE_BLOCK_TYPE ||
         draggable.type === BACKGROUND_BLOCK_TYPE ||
-        draggable.type === CHARACTER_BLOCK_TYPE)
+        draggable.type === CHARACTER_BLOCK_TYPE ||
+        draggable.type === SCENE_JUMP_BLOCK_TYPE)
     );
   }
 

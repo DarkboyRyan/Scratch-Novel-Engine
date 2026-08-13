@@ -134,6 +134,12 @@ Json migrated_v5_document() {
   return document;
 }
 
+Json migrated_v6_document() {
+  Json document = migrated_v5_document();
+  document["fileVersion"] = 6;
+  return document;
+}
+
 Json valid_v2_visual_document() {
   Json document = migrated_v2_document();
   document["project"]["scenes"][0]["visuals"] = {
@@ -194,7 +200,7 @@ void expect_file_error(
   throw std::runtime_error("expected ProjectFileError");
 }
 
-void reads_v1_and_writes_a_migrated_v5_document() {
+void reads_v1_and_writes_a_migrated_v6_document() {
   const Json source = valid_document();
   const vnengine::backend::ProjectFileDocument parsed =
       vnengine::backend::project_file_from_json(source);
@@ -212,7 +218,7 @@ void reads_v1_and_writes_a_migrated_v5_document() {
   CHECK(parsed.assets[1].type == vnengine::AssetType::video);
   CHECK(
       vnengine::backend::project_file_to_json(parsed) ==
-      migrated_v5_document());
+      migrated_v6_document());
 }
 
 void round_trips_v2_visuals_and_preserves_character_order() {
@@ -229,7 +235,7 @@ void round_trips_v2_visuals_and_preserves_character_order() {
   CHECK(visuals.characters[1].id == "visual-alice-front");
   CHECK(visuals.characters[1].slot == vnengine::CharacterSlot::left);
   Json expected = source;
-  expected["fileVersion"] = 5;
+  expected["fileVersion"] = 6;
   CHECK(vnengine::backend::project_file_to_json(parsed) == expected);
 }
 
@@ -253,7 +259,7 @@ void rejects_unsupported_and_malformed_project_documents() {
   expect_file_error(document, Kind::unsupported_format);
 
   document = valid_document();
-  document["fileVersion"] = 6;
+  document["fileVersion"] = 7;
   expect_file_error(document, Kind::unsupported_format);
 
   document = valid_document();
@@ -402,11 +408,11 @@ void round_trips_v3_mixed_timeline_strictly() {
         "asset-image-1");
   CHECK(std::holds_alternative<vnengine::Dialogue>(scene.nodes[2]));
   Json migrated_source = source;
-  migrated_source["fileVersion"] = 5;
+  migrated_source["fileVersion"] = 6;
   CHECK(vnengine::backend::project_file_to_json(parsed) == migrated_source);
 
   Json no_background_source = source;
-  no_background_source["fileVersion"] = 5;
+  no_background_source["fileVersion"] = 6;
   no_background_source["project"]["scenes"][0]["nodes"][1]["assetId"] =
       nullptr;
   const auto no_background =
@@ -823,7 +829,7 @@ void sets_clears_and_persists_scene_backgrounds_atomically() {
       {{"filePath", target.string()}});
   expect_session(saved, 3, 3, false);
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 5);
+  CHECK(persisted.at("fileVersion") == 6);
   CHECK(persisted.at("project")
             .at("scenes")[0]
             .at("visuals")
@@ -977,7 +983,7 @@ void mutates_and_persists_mixed_background_timeline() {
       {{"filePath", target.string()}});
   expect_session(saved, 4, 4, false);
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 5);
+  CHECK(persisted.at("fileVersion") == 6);
   CHECK(persisted.at("project").at("scenes")[0].at("nodes") ==
         moved_nodes);
 
@@ -1104,7 +1110,7 @@ void saves_atomically_and_round_trips_assets() {
 
   const Json on_disk = Json::parse(read_file(target));
   CHECK(on_disk.at("format") == "vn-engine-project");
-  CHECK(on_disk.at("fileVersion") == 5);
+  CHECK(on_disk.at("fileVersion") == 6);
   CHECK(on_disk.at("project").at("name") == "保存后的项目");
   CHECK(on_disk.at("assets") == valid_document().at("assets"));
 
@@ -1158,7 +1164,7 @@ void backend_preserves_hidden_v2_visuals_across_mutation_and_save() {
   expect_session(saved, 1, 1, false);
 
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 5);
+  CHECK(persisted.at("fileVersion") == 6);
   CHECK(
       persisted.at("project").at("scenes")[0].at("visuals") ==
       source_document.at("project").at("scenes")[0].at("visuals"));
@@ -1183,9 +1189,9 @@ void failed_open_preserves_dirty_hidden_v2_aggregate() {
       "invalid-v3-timeline.vn.json", invalid_timeline_document.dump(2));
 
   Json future_document = valid_v2_visual_document();
-  future_document["fileVersion"] = 6;
+  future_document["fileVersion"] = 7;
   const std::filesystem::path future = temporary.write(
-      "future-v6.vn.json", future_document.dump(2));
+      "future-v7.vn.json", future_document.dump(2));
   const std::filesystem::path target =
       temporary.path("project.vn.json");
 
@@ -1240,7 +1246,7 @@ void failed_open_preserves_dirty_hidden_v2_aggregate() {
   expect_session(saved, 1, 1, false);
 
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 5);
+  CHECK(persisted.at("fileVersion") == 6);
   CHECK(persisted.at("project").at("name") == "失败后仍保留");
   CHECK(
       persisted.at("project").at("scenes")[0].at("visuals") ==
@@ -1436,7 +1442,7 @@ void mutates_and_persists_character_timeline() {
       {{"filePath", target.string()}});
   expect_session(saved, 2, 2, false);
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 5);
+  CHECK(persisted.at("fileVersion") == 6);
   CHECK(persisted.at("project")
             .at("scenes")[0]
             .at("nodes")[1]
@@ -1455,12 +1461,102 @@ void mutates_and_persists_character_timeline() {
             .at("layer") == 3);
 }
 
+void mutates_and_persists_scene_jump_timeline() {
+  TemporaryDirectory temporary;
+  Json source_document = migrated_v6_document();
+  source_document["project"]["scenes"].push_back({
+      {"schemaVersion", 1},
+      {"id", "scene-2"},
+      {"name", "第二幕"},
+      {"visuals",
+       {{"backgroundAssetId", nullptr}, {"characters", Json::array()}}},
+      {"nodes",
+       Json::array({
+           {{"id", "dialogue-2"},
+            {"type", "dialogue"},
+            {"speaker", "Bob"},
+            {"text", "第二幕"}},
+       })},
+  });
+  const std::filesystem::path source = temporary.write(
+      "scene-jump-source.vn.json", source_document.dump(2));
+  const std::filesystem::path target = temporary.path("project.vn.json");
+
+  vnengine::backend::Backend backend;
+  CHECK(request(
+            backend, 1, "project.open", {{"filePath", source.string()}})
+            .at("ok") == true);
+
+  const Json added = request(
+      backend,
+      2,
+      "sceneJump.add",
+      {
+          {"sceneId", "scene-1"},
+          {"targetSceneId", "scene-2"},
+          {"afterNodeId", "dialogue-1"},
+      });
+  CHECK(added.at("ok") == true);
+  expect_session(added, 1, 0, true);
+  const std::string jump_id =
+      added.at("result").at("nodeId").get<std::string>();
+  CHECK(added.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[1] == Json({
+                {"id", jump_id},
+                {"type", "sceneJump"},
+                {"targetSceneId", "scene-2"},
+            }));
+
+  const Json self_target = request(
+      backend,
+      3,
+      "sceneJump.update",
+      {
+          {"sceneId", "scene-1"},
+          {"nodeId", jump_id},
+          {"targetSceneId", "scene-1"},
+      });
+  CHECK(self_target.at("ok") == false);
+  CHECK(self_target.at("error").at("code") == "scene_jump_self_target");
+
+  const Json delete_target = request(
+      backend, 4, "scene.delete", {{"sceneId", "scene-2"}});
+  CHECK(delete_target.at("ok") == false);
+  CHECK(delete_target.at("error").at("code") == "scene_in_use");
+
+  const Json saved = request(
+      backend, 5, "project.save", {{"filePath", target.string()}});
+  CHECK(saved.at("ok") == true);
+  expect_session(saved, 1, 1, false);
+  const Json persisted = Json::parse(read_file(target));
+  CHECK(persisted.at("fileVersion") == 6);
+  CHECK(persisted.at("project")
+            .at("scenes")[0]
+            .at("nodes")[1]
+            .at("targetSceneId") == "scene-2");
+
+  vnengine::backend::Backend reopened_backend;
+  const Json reopened = request(
+      reopened_backend,
+      1,
+      "project.open",
+      {{"filePath", target.string()}});
+  CHECK(reopened.at("ok") == true);
+  CHECK(reopened.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[1]
+            .at("type") == "sceneJump");
+}
+
 }  // namespace
 
 int main() {
   const std::vector<std::pair<std::string, std::function<void()>>> tests{
-      {"reads v1 and writes a migrated v5 document",
-       reads_v1_and_writes_a_migrated_v5_document},
+      {"reads v1 and writes a migrated v6 document",
+       reads_v1_and_writes_a_migrated_v6_document},
       {"round trips v2 visuals and preserves character order",
        round_trips_v2_visuals_and_preserves_character_order},
       {"v1 reader rejects unversioned visual fields",
@@ -1495,6 +1591,8 @@ int main() {
        failed_open_does_not_create_a_project},
       {"mutates and persists character timeline",
        mutates_and_persists_character_timeline},
+      {"mutates and persists scene jump timeline",
+       mutates_and_persists_scene_jump_timeline},
   };
 
   int failures = 0;

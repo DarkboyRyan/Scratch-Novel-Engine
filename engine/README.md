@@ -84,17 +84,17 @@ interleaved. Empty speaker and text fields are valid so the editor's `+`
 button can immediately create an editable node.
 
 `project.open` accepts a Main-process-only `filePath` and reads project file
-versions 1, 2, 3, 4, and 5. Parsing and aggregate validation happen before the in-memory
+versions 1 through 6. Parsing and aggregate validation happen before the in-memory
 project is replaced, so a missing, malformed, or unsupported file leaves the
 current project unchanged. Version 1 Scenes have no `visuals` field and are
 migrated to an empty visual state in memory. Versions 1 and 2 contain only
 Dialogue nodes; they migrate to the unified in-memory timeline. `project.save`
-always writes version 5:
+always writes version 6:
 
 ```json
 {
   "format": "vn-engine-project",
-  "fileVersion": 5,
+  "fileVersion": 6,
   "project": {
     "schemaVersion": 1,
     "id": "project-id",
@@ -133,8 +133,23 @@ always writes version 5:
             "assetId": "sprite-asset-id",
             "slot": "center",
             "layer": 1
+          },
+          {
+            "id": "scene-jump-node-id",
+            "type": "sceneJump",
+            "targetSceneId": "another-scene-id"
           }
         ]
+      },
+      {
+        "schemaVersion": 1,
+        "id": "another-scene-id",
+        "name": "场景 2",
+        "visuals": {
+          "backgroundAssetId": null,
+          "characters": []
+        },
+        "nodes": []
       }
     ]
   },
@@ -154,7 +169,7 @@ state; file version 3 added discriminated background nodes to the ordered Scene
 timeline; file version 4 allows a background node's `assetId` to be `null`,
 which explicitly clears the active background. File version 5 adds character
 timeline nodes with nullable Asset IDs, position slots, and layers 1 through
-10. `visuals.backgroundAssetId`
+10. File version 6 adds explicit Scene jump nodes. `visuals.backgroundAssetId`
 remains the initial background before the first background node. Reaching a
 background node changes or clears the active image until the next background
 node. Character `slot` is `left`, `center`, or `right`. The
@@ -165,13 +180,20 @@ Project aggregate. The v3 reader checks every background node reference
 resolves to an image Asset. Version 4 applies the same check to non-null
 background references and preserves array order exactly.
 
+`sceneJump.add` inserts an explicit jump into the mixed timeline, and
+`sceneJump.update` changes its target. A jump must target another existing
+Scene. Deleting a referenced target returns `scene_in_use`; reaching the end of
+a Scene without a jump ends playback instead of implicitly selecting the next
+Scene in the Project array.
+
 The Renderer-facing Scene projection exposes `backgroundAssetId` directly,
 but continues to hide the rest of the persisted `visuals` object until those
 editing features are implemented. Every successful response separately
 returns a path-free `assets` array whose items contain only `id`, `type`, and
 `displayName`. Storage paths remain private to C++/Electron Main and the
-project manifest. The Renderer projection includes dialogue, background, and
-character timeline nodes. The C++ Backend retains and round-trips the full aggregate,
+project manifest. The Renderer projection includes dialogue, background,
+character, and Scene jump timeline nodes. The C++ Backend retains and
+round-trips the full aggregate,
 so ordinary project or dialogue edits cannot discard visual data loaded from
 older files.
 
@@ -202,7 +224,7 @@ The command resolves both IDs and checks the Asset type before changing the
 Scene. This static value is the compatible initial background; timeline nodes
 may override it later. A missing Scene, missing Asset, or non-image Asset fails without
 changing state. Reassigning the current value succeeds without advancing the
-revision. The next ordinary `project.save` persists the selection in the v5
+revision. The next ordinary `project.save` persists the selection in the v6
 `visuals.backgroundAssetId` field.
 
 Asset metadata supports `image`, `video`, and `audio`. Binary assets remain in
@@ -229,7 +251,7 @@ project is first saved; and `isDirty` is derived from those two values. Opening
 a document starts at revision 0 and is clean. A new document starts at revision
 0 with no saved revision and is dirty.
 
-`project.save` writes file version 5 and requires a Main-process-only,
+`project.save` writes file version 6 and requires a Main-process-only,
 normalized absolute `filePath`
 whose basename is exactly `project.vn.json`. The backend writes a
 temporary sibling, flushes it, atomically replaces the destination, and flushes

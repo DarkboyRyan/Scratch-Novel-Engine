@@ -92,6 +92,24 @@ describe('preload background and timeline engine API', () => {
       'character.update',
     ],
     [
+      'addSceneJump',
+      {
+        sceneId: 'scene-1',
+        targetSceneId: 'scene-2',
+        afterNodeId: 'dialogue-1',
+      },
+      'sceneJump.add',
+    ],
+    [
+      'updateSceneJump',
+      {
+        sceneId: 'scene-1',
+        nodeId: 'jump-1',
+        targetSceneId: 'scene-3',
+      },
+      'sceneJump.update',
+    ],
+    [
       'deleteTimelineNodes',
       {
         sceneId: 'scene-1',

@@ -106,6 +106,18 @@ export function isEngineInvocation(
         (params.layer as number) >= 1 &&
         (params.layer as number) <= 10
       );
+    case 'sceneJump.add':
+      return (
+        hasString('sceneId') &&
+        hasString('targetSceneId') &&
+        hasValidOptionalPlacement()
+      );
+    case 'sceneJump.update':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        hasString('targetSceneId')
+      );
     case 'dialogue.update':
       return (
         hasString('sceneId') &&
