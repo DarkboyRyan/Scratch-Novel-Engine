@@ -116,6 +116,24 @@ Json migrated_v2_document() {
   return document;
 }
 
+Json migrated_v3_document() {
+  Json document = migrated_v2_document();
+  document["fileVersion"] = 3;
+  return document;
+}
+
+Json migrated_v4_document() {
+  Json document = migrated_v3_document();
+  document["fileVersion"] = 4;
+  return document;
+}
+
+Json migrated_v5_document() {
+  Json document = migrated_v4_document();
+  document["fileVersion"] = 5;
+  return document;
+}
+
 Json valid_v2_visual_document() {
   Json document = migrated_v2_document();
   document["project"]["scenes"][0]["visuals"] = {
@@ -137,6 +155,32 @@ Json valid_v2_visual_document() {
   return document;
 }
 
+Json valid_v3_timeline_document() {
+  Json document = migrated_v3_document();
+  document["project"]["scenes"][0]["visuals"]["backgroundAssetId"] =
+      "asset-image-1";
+  document["project"]["scenes"][0]["nodes"] = Json::array({
+      {
+          {"id", "dialogue-1"},
+          {"type", "dialogue"},
+          {"speaker", "Alice"},
+          {"text", "切换前"},
+      },
+      {
+          {"id", "background-1"},
+          {"type", "background"},
+          {"assetId", "asset-image-1"},
+      },
+      {
+          {"id", "dialogue-2"},
+          {"type", "dialogue"},
+          {"speaker", "Bob"},
+          {"text", "切换后"},
+      },
+  });
+  return document;
+}
+
 void expect_file_error(
     const Json& document,
     const vnengine::backend::ProjectFileErrorKind expected_kind) {
@@ -150,7 +194,7 @@ void expect_file_error(
   throw std::runtime_error("expected ProjectFileError");
 }
 
-void reads_v1_and_writes_a_migrated_v2_document() {
+void reads_v1_and_writes_a_migrated_v5_document() {
   const Json source = valid_document();
   const vnengine::backend::ProjectFileDocument parsed =
       vnengine::backend::project_file_from_json(source);
@@ -159,7 +203,8 @@ void reads_v1_and_writes_a_migrated_v2_document() {
   CHECK(parsed.project.name == "读取的项目");
   CHECK(parsed.project.scenes.size() == 1);
   CHECK(parsed.project.scenes[0].nodes.size() == 1);
-  CHECK(parsed.project.scenes[0].nodes[0].text == "你好");
+  CHECK(std::get<vnengine::Dialogue>(
+            parsed.project.scenes[0].nodes[0]).text == "你好");
   CHECK(!parsed.project.scenes[0].visuals.background_asset_id.has_value());
   CHECK(parsed.project.scenes[0].visuals.characters.empty());
   CHECK(parsed.assets.size() == 2);
@@ -167,7 +212,7 @@ void reads_v1_and_writes_a_migrated_v2_document() {
   CHECK(parsed.assets[1].type == vnengine::AssetType::video);
   CHECK(
       vnengine::backend::project_file_to_json(parsed) ==
-      migrated_v2_document());
+      migrated_v5_document());
 }
 
 void round_trips_v2_visuals_and_preserves_character_order() {
@@ -183,7 +228,9 @@ void round_trips_v2_visuals_and_preserves_character_order() {
   CHECK(visuals.characters[0].slot == vnengine::CharacterSlot::right);
   CHECK(visuals.characters[1].id == "visual-alice-front");
   CHECK(visuals.characters[1].slot == vnengine::CharacterSlot::left);
-  CHECK(vnengine::backend::project_file_to_json(parsed) == source);
+  Json expected = source;
+  expected["fileVersion"] = 5;
+  CHECK(vnengine::backend::project_file_to_json(parsed) == expected);
 }
 
 void v1_reader_rejects_unversioned_visual_fields() {
@@ -206,7 +253,7 @@ void rejects_unsupported_and_malformed_project_documents() {
   expect_file_error(document, Kind::unsupported_format);
 
   document = valid_document();
-  document["fileVersion"] = 3;
+  document["fileVersion"] = 6;
   expect_file_error(document, Kind::unsupported_format);
 
   document = valid_document();
@@ -338,6 +385,70 @@ void rejects_malformed_v2_visual_fields_strictly() {
   document["project"]["scenes"][0]["visuals"]["characters"][0]["assetId"] =
       "asset-video-1";
   expect_file_error(document, Kind::invalid_document);
+}
+
+void round_trips_v3_mixed_timeline_strictly() {
+  using Kind = vnengine::backend::ProjectFileErrorKind;
+
+  const Json source = valid_v3_timeline_document();
+  const vnengine::backend::ProjectFileDocument parsed =
+      vnengine::backend::project_file_from_json(source);
+  const vnengine::Scene& scene = parsed.project.scenes[0];
+  CHECK(scene.nodes.size() == 3);
+  CHECK(std::holds_alternative<vnengine::Dialogue>(scene.nodes[0]));
+  CHECK(std::get<vnengine::BackgroundNode>(scene.nodes[1]).id ==
+        "background-1");
+  CHECK(std::get<vnengine::BackgroundNode>(scene.nodes[1]).asset_id ==
+        "asset-image-1");
+  CHECK(std::holds_alternative<vnengine::Dialogue>(scene.nodes[2]));
+  Json migrated_source = source;
+  migrated_source["fileVersion"] = 5;
+  CHECK(vnengine::backend::project_file_to_json(parsed) == migrated_source);
+
+  Json no_background_source = source;
+  no_background_source["fileVersion"] = 5;
+  no_background_source["project"]["scenes"][0]["nodes"][1]["assetId"] =
+      nullptr;
+  const auto no_background =
+      vnengine::backend::project_file_from_json(no_background_source);
+  CHECK(!std::get<vnengine::BackgroundNode>(
+             no_background.project.scenes[0].nodes[1])
+             .asset_id.has_value());
+  CHECK(vnengine::backend::project_file_to_json(no_background) ==
+        no_background_source);
+
+  const Json renderer = vnengine::backend::project_to_json(parsed.project);
+  CHECK(renderer.at("scenes")[0].at("nodes") ==
+        source.at("project").at("scenes")[0].at("nodes"));
+
+  for (const std::string& missing : {"id", "type", "assetId"}) {
+    Json malformed = source;
+    malformed["project"]["scenes"][0]["nodes"][1].erase(missing);
+    expect_file_error(malformed, Kind::invalid_document);
+  }
+
+  Json malformed = source;
+  malformed["project"]["scenes"][0]["nodes"][1]["unexpected"] = true;
+  expect_file_error(malformed, Kind::invalid_document);
+
+  malformed = source;
+  malformed["project"]["scenes"][0]["nodes"][1]["assetId"] = 7;
+  expect_file_error(malformed, Kind::invalid_document);
+
+  malformed = source;
+  malformed["project"]["scenes"][0]["nodes"][1]["type"] = "camera";
+  expect_file_error(malformed, Kind::unsupported_format);
+
+  malformed = source;
+  malformed["project"]["scenes"][0]["nodes"][1]["assetId"] =
+      "asset-video-1";
+  expect_file_error(malformed, Kind::invalid_document);
+
+  // Older versions remain dialogue-only, even if the node happens to have a
+  // shape understood by v3.
+  malformed = source;
+  malformed["fileVersion"] = 2;
+  expect_file_error(malformed, Kind::invalid_document);
 }
 
 class TemporaryDirectory final {
@@ -712,7 +823,7 @@ void sets_clears_and_persists_scene_backgrounds_atomically() {
       {{"filePath", target.string()}});
   expect_session(saved, 3, 3, false);
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 2);
+  CHECK(persisted.at("fileVersion") == 5);
   CHECK(persisted.at("project")
             .at("scenes")[0]
             .at("visuals")
@@ -729,6 +840,168 @@ void sets_clears_and_persists_scene_backgrounds_atomically() {
             .at("project")
             .at("scenes")[0]
             .at("backgroundAssetId") == "asset-image-1");
+}
+
+void mutates_and_persists_mixed_background_timeline() {
+  TemporaryDirectory temporary;
+  const std::filesystem::path source = temporary.write(
+      "timeline-source.vn.json", valid_document().dump(2));
+  const std::filesystem::path target = temporary.path("project.vn.json");
+
+  vnengine::backend::Backend backend;
+  const Json opened = request(
+      backend, 1, "project.open", {{"filePath", source.string()}});
+  expect_session(opened, 0, 0, false);
+
+  const Json added = request(
+      backend,
+      2,
+      "background.add",
+      {
+          {"sceneId", "scene-1"},
+          {"afterNodeId", "dialogue-1"},
+      });
+  expect_session(added, 1, 0, true);
+  const std::string background_id =
+      added.at("result").at("nodeId").get<std::string>();
+  const Json& added_nodes = added.at("result")
+                                .at("project")
+                                .at("scenes")[0]
+                                .at("nodes");
+  CHECK(added_nodes.size() == 2);
+  CHECK(added_nodes[0].at("id") == "dialogue-1");
+  CHECK(added_nodes[1] == Json({
+      {"id", background_id},
+      {"type", "background"},
+      {"assetId", nullptr},
+  }));
+
+  const Json filled = request(
+      backend,
+      3,
+      "background.update",
+      {
+          {"sceneId", "scene-1"},
+          {"nodeId", background_id},
+          {"assetId", "asset-image-1"},
+      });
+  expect_session(filled, 2, 0, true);
+
+  // A dialogue can be inserted relative to a BackgroundNode anchor.
+  const Json dialogue = request(
+      backend,
+      4,
+      "dialogue.add",
+      {
+          {"sceneId", "scene-1"},
+          {"speaker", "Bob"},
+          {"text", "新背景之后"},
+          {"afterNodeId", background_id},
+      });
+  expect_session(dialogue, 3, 0, true);
+  const std::string dialogue_id =
+      dialogue.at("result").at("nodeId").get<std::string>();
+
+  // Legal no-op updates/reorders preserve the revision.
+  const Json unchanged = request(
+      backend,
+      5,
+      "background.update",
+      {
+          {"sceneId", "scene-1"},
+          {"nodeId", background_id},
+          {"assetId", "asset-image-1"},
+      });
+  expect_session(unchanged, 3, 0, true);
+
+  const Json moved = request(
+      backend,
+      6,
+      "timeline.reorderMany",
+      {
+          {"sceneId", "scene-1"},
+          {"nodeIds", Json::array({dialogue_id, background_id})},
+          {"beforeNodeId", "dialogue-1"},
+      });
+  expect_session(moved, 4, 0, true);
+  const Json& moved_nodes = moved.at("result")
+                                .at("project")
+                                .at("scenes")[0]
+                                .at("nodes");
+  // Payload order is ignored; the authoritative Background->Dialogue order
+  // is retained when the mixed selection moves.
+  CHECK(moved_nodes[0].at("id") == background_id);
+  CHECK(moved_nodes[1].at("id") == dialogue_id);
+  CHECK(moved_nodes[2].at("id") == "dialogue-1");
+
+  const Json before_failures = request(backend, 7, "project.get");
+  const std::vector<std::pair<std::string, Json>> failures{
+      {
+          "background.update",
+          {
+              {"sceneId", "scene-1"},
+              {"nodeId", background_id},
+              {"assetId", "missing"},
+          },
+      },
+      {
+          "timeline.reorderMany",
+          {
+              {"sceneId", "scene-1"},
+              {"nodeIds", Json::array({dialogue_id, "missing"})},
+              {"beforeNodeId", nullptr},
+          },
+      },
+      {
+          "timeline.deleteMany",
+          {
+              {"sceneId", "scene-1"},
+              {"nodeIds", Json::array({background_id, "missing"})},
+          },
+      },
+  };
+  int request_id = 8;
+  for (const auto& [method, params] : failures) {
+    const Json failed = request(backend, request_id++, method, params);
+    CHECK(failed.at("ok") == false);
+    const Json current = request(backend, request_id++, "project.get");
+    expect_session(current, 4, 0, true);
+    CHECK(current.at("result").at("project") ==
+          before_failures.at("result").at("project"));
+  }
+
+  const Json saved = request(
+      backend,
+      request_id++,
+      "project.save",
+      {{"filePath", target.string()}});
+  expect_session(saved, 4, 4, false);
+  const Json persisted = Json::parse(read_file(target));
+  CHECK(persisted.at("fileVersion") == 5);
+  CHECK(persisted.at("project").at("scenes")[0].at("nodes") ==
+        moved_nodes);
+
+  vnengine::backend::Backend reopened_backend;
+  const Json reopened = request(
+      reopened_backend, 1, "project.open", {{"filePath", target.string()}});
+  expect_session(reopened, 0, 0, false);
+  CHECK(reopened.at("result").at("project").at("scenes")[0].at("nodes") ==
+        moved_nodes);
+
+  const Json deleted = request(
+      reopened_backend,
+      2,
+      "timeline.deleteMany",
+      {
+          {"sceneId", "scene-1"},
+          {"nodeIds", Json::array({background_id, dialogue_id})},
+      });
+  expect_session(deleted, 1, 0, true);
+  CHECK(deleted.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")
+            .size() == 1);
 }
 
 void tracks_real_mutations_and_normalizes_project_names() {
@@ -831,7 +1104,7 @@ void saves_atomically_and_round_trips_assets() {
 
   const Json on_disk = Json::parse(read_file(target));
   CHECK(on_disk.at("format") == "vn-engine-project");
-  CHECK(on_disk.at("fileVersion") == 2);
+  CHECK(on_disk.at("fileVersion") == 5);
   CHECK(on_disk.at("project").at("name") == "保存后的项目");
   CHECK(on_disk.at("assets") == valid_document().at("assets"));
 
@@ -885,7 +1158,7 @@ void backend_preserves_hidden_v2_visuals_across_mutation_and_save() {
   expect_session(saved, 1, 1, false);
 
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 2);
+  CHECK(persisted.at("fileVersion") == 5);
   CHECK(
       persisted.at("project").at("scenes")[0].at("visuals") ==
       source_document.at("project").at("scenes")[0].at("visuals"));
@@ -903,10 +1176,16 @@ void failed_open_preserves_dirty_hidden_v2_aggregate() {
   const std::filesystem::path invalid = temporary.write(
       "invalid-v2.vn.json", invalid_document.dump(2));
 
+  Json invalid_timeline_document = valid_v3_timeline_document();
+  invalid_timeline_document["project"]["scenes"][0]["nodes"][1]
+                           ["assetId"] = "asset-video-1";
+  const std::filesystem::path invalid_timeline = temporary.write(
+      "invalid-v3-timeline.vn.json", invalid_timeline_document.dump(2));
+
   Json future_document = valid_v2_visual_document();
-  future_document["fileVersion"] = 3;
+  future_document["fileVersion"] = 6;
   const std::filesystem::path future = temporary.write(
-      "future-v3.vn.json", future_document.dump(2));
+      "future-v6.vn.json", future_document.dump(2));
   const std::filesystem::path target =
       temporary.path("project.vn.json");
 
@@ -930,24 +1209,38 @@ void failed_open_preserves_dirty_hidden_v2_aggregate() {
       after_invalid.at("result").at("project").at("name") ==
       "失败后仍保留");
 
+  const Json invalid_timeline_open = request(
+      backend,
+      5,
+      "project.open",
+      {{"filePath", invalid_timeline.string()}});
+  CHECK(invalid_timeline_open.at("ok") == false);
+  CHECK(invalid_timeline_open.at("error").at("code") ==
+        "project_file_invalid");
+
+  const Json after_invalid_timeline = request(backend, 6, "project.get");
+  expect_session(after_invalid_timeline, 1, 0, true);
+  CHECK(after_invalid_timeline.at("result").at("project").at("name") ==
+        "失败后仍保留");
+
   const Json future_open = request(
-      backend, 5, "project.open", {{"filePath", future.string()}});
+      backend, 7, "project.open", {{"filePath", future.string()}});
   CHECK(future_open.at("ok") == false);
   CHECK(future_open.at("error").at("code") ==
         "project_file_unsupported");
 
-  const Json after_future = request(backend, 6, "project.get");
+  const Json after_future = request(backend, 8, "project.get");
   expect_session(after_future, 1, 0, true);
   CHECK(
       after_future.at("result").at("project").at("name") ==
       "失败后仍保留");
 
   const Json saved = request(
-      backend, 7, "project.save", {{"filePath", target.string()}});
+      backend, 9, "project.save", {{"filePath", target.string()}});
   expect_session(saved, 1, 1, false);
 
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 2);
+  CHECK(persisted.at("fileVersion") == 5);
   CHECK(persisted.at("project").at("name") == "失败后仍保留");
   CHECK(
       persisted.at("project").at("scenes")[0].at("visuals") ==
@@ -1074,12 +1367,100 @@ void failed_open_does_not_create_a_project() {
   CHECK(current.at("error").at("code") == "project_not_created");
 }
 
+void mutates_and_persists_character_timeline() {
+  TemporaryDirectory temporary;
+  const std::filesystem::path source = temporary.write(
+      "character-source.vn.json", migrated_v5_document().dump(2));
+  const std::filesystem::path target = temporary.path("project.vn.json");
+  vnengine::backend::Backend backend;
+  CHECK(request(
+            backend, 1, "project.open", {{"filePath", source.string()}})
+            .at("ok") == true);
+
+  const Json added = request(
+      backend,
+      2,
+      "character.add",
+      {{"sceneId", "scene-1"}, {"afterNodeId", "dialogue-1"}});
+  expect_session(added, 1, 0, true);
+  const std::string node_id =
+      added.at("result").at("nodeId").get<std::string>();
+  const Json& empty = added.at("result")
+                          .at("project")
+                          .at("scenes")[0]
+                          .at("nodes")[1];
+  CHECK(empty == Json({
+      {"id", node_id},
+      {"type", "character"},
+      {"assetId", nullptr},
+      {"slot", "center"},
+      {"layer", 1},
+  }));
+
+  const Json updated = request(
+      backend,
+      3,
+      "character.update",
+      {
+          {"sceneId", "scene-1"},
+          {"nodeId", node_id},
+          {"assetId", "asset-image-1"},
+          {"slot", "left"},
+          {"layer", 3},
+      });
+  expect_session(updated, 2, 0, true);
+  CHECK(updated.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[1]
+            .at("slot") == "left");
+
+  const Json failed = request(
+      backend,
+      4,
+      "character.update",
+      {
+          {"sceneId", "scene-1"},
+          {"nodeId", node_id},
+          {"assetId", "asset-video-1"},
+          {"slot", "right"},
+          {"layer", 2},
+      });
+  CHECK(failed.at("ok") == false);
+  CHECK(failed.at("error").at("code") == "asset_not_image");
+
+  const Json saved = request(
+      backend,
+      5,
+      "project.save",
+      {{"filePath", target.string()}});
+  expect_session(saved, 2, 2, false);
+  const Json persisted = Json::parse(read_file(target));
+  CHECK(persisted.at("fileVersion") == 5);
+  CHECK(persisted.at("project")
+            .at("scenes")[0]
+            .at("nodes")[1]
+            .at("assetId") == "asset-image-1");
+
+  vnengine::backend::Backend reopened_backend;
+  const Json reopened = request(
+      reopened_backend,
+      1,
+      "project.open",
+      {{"filePath", target.string()}});
+  CHECK(reopened.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[1]
+            .at("layer") == 3);
+}
+
 }  // namespace
 
 int main() {
   const std::vector<std::pair<std::string, std::function<void()>>> tests{
-      {"reads v1 and writes a migrated v2 document",
-       reads_v1_and_writes_a_migrated_v2_document},
+      {"reads v1 and writes a migrated v5 document",
+       reads_v1_and_writes_a_migrated_v5_document},
       {"round trips v2 visuals and preserves character order",
        round_trips_v2_visuals_and_preserves_character_order},
       {"v1 reader rejects unversioned visual fields",
@@ -1088,6 +1469,8 @@ int main() {
        rejects_unsupported_and_malformed_project_documents},
       {"rejects malformed v2 visual fields strictly",
        rejects_malformed_v2_visual_fields_strictly},
+      {"round trips v3 mixed timeline strictly",
+       round_trips_v3_mixed_timeline_strictly},
       {"tracks real mutations and normalizes project names",
        tracks_real_mutations_and_normalizes_project_names},
       {"imports an image without exposing paths or autosaving manifest",
@@ -1096,6 +1479,8 @@ int main() {
        rejects_unsafe_image_sources_without_mutating_document},
       {"sets clears and persists scene backgrounds atomically",
        sets_clears_and_persists_scene_backgrounds_atomically},
+      {"mutates and persists mixed background timeline",
+       mutates_and_persists_mixed_background_timeline},
       {"saves atomically and round trips assets",
        saves_atomically_and_round_trips_assets},
       {"backend preserves hidden v2 visuals across mutation and save",
@@ -1108,6 +1493,8 @@ int main() {
        opens_a_file_and_preserves_current_project_after_failures},
       {"failed open does not create a project",
        failed_open_does_not_create_a_project},
+      {"mutates and persists character timeline",
+       mutates_and_persists_character_timeline},
   };
 
   int failures = 0;

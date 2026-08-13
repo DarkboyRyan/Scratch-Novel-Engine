@@ -4,6 +4,9 @@ import type { EngineMutationResult } from './engineProtocol';
 // 对话框产生，并且永远不会作为 IPC 参数从 Renderer 传入。
 export const PROJECT_FILE_IPC_CHANNEL = 'vn-project-files:request';
 export const PROJECT_FILE_COMMAND_CHANNEL = 'vn-project-files:command';
+export const PROJECT_FILE_SUFFIX = '.vn.json';
+// C++ uses this fixed private working filename. Electron Main may publish the
+// same manifest under any user-selected basename ending in PROJECT_FILE_SUFFIX.
 export const PROJECT_FILE_NAME = 'project.vn.json';
 
 export type ProjectFileInvocation =

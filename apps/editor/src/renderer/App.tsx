@@ -12,6 +12,7 @@ import { ResourcePanel } from './features/assets/ResourcePanel';
 import { useAssetPreviewUrls } from './features/assets/useAssetPreviewUrls';
 import { FormEditor } from './features/form-editor/FormEditor';
 import { useFormEditor } from './features/form-editor/useFormEditor';
+import { deriveTimelinePreview } from './features/form-editor/timelinePreview';
 import { useEngineProject } from './hooks/useEngineProject';
 import { prepareProjectSave } from './projectSavePreparation';
 import { projectWindowTitle } from './projectSessionPresentation';
@@ -147,14 +148,9 @@ export default function App() {
   };
 
   const handleImportImage = async (): Promise<void> => {
-    // 资源必须放进项目目录。首次导入时先让用户保存项目，以获得一个
-    // 受 Main 进程控制的项目根目录；取消保存就不会打开图片选择框。
-    if (!engine.projectFilePath) {
-      const saved = await engine.saveProject(prepareCurrentEdits);
-      if (!saved) {
-        return;
-      }
-    } else if (!(await prepareCurrentEdits())) {
+    // 未保存项目也能导入：Main 会为当前窗口建立私有临时工作区，
+    // 首次保存时再安全发布 manifest 与 assets。Renderer 始终不接触路径。
+    if (!(await prepareCurrentEdits())) {
       return;
     }
 
@@ -258,14 +254,30 @@ export default function App() {
     );
   }
 
-  const backgroundAsset = scene.backgroundAssetId
+  const timelinePreview = deriveTimelinePreview(
+    scene,
+    editor.selectedNodeId,
+  );
+  const backgroundAsset = timelinePreview.backgroundAssetId
     ? engine.assets.find(
-        (asset) => asset.id === scene.backgroundAssetId,
+        (asset) => asset.id === timelinePreview.backgroundAssetId,
       ) ?? null
     : null;
   const backgroundUrl = backgroundAsset
     ? assetPreviewUrls[backgroundAsset.id] ?? null
     : null;
+  const previewCharacters = timelinePreview.characters.map((character) => {
+    const asset = engine.assets.find(
+      (item) => item.id === character.assetId,
+    );
+    return {
+      id: character.nodeId,
+      url: assetPreviewUrls[character.assetId] ?? null,
+      name: asset?.displayName ?? '缺失立绘',
+      slot: character.slot,
+      layer: character.layer,
+    };
+  });
 
   return (
     <div className="editor">
@@ -309,22 +321,30 @@ export default function App() {
       {editorMode === 'form' ? (
         <FormEditor
           editor={editor}
+          assets={engine.assets}
           backgroundUrl={backgroundUrl}
           backgroundName={backgroundAsset?.displayName ?? null}
+          showDialogue={timelinePreview.showDialogue}
+          characters={previewCharacters}
         />
       ) : (
         <BlockEditor
           ref={blockEditorRef}
           project={project}
           scene={scene}
+          assets={engine.assets}
           layoutStore={blockEditorLayouts.current}
           isBusy={engine.isBusy}
           onSceneChange={editor.selectScene}
           onDialogueUpdate={engine.updateDialogue}
           onDialogueAdd={engine.addDialogue}
-          onDialogueReorder={engine.reorderDialogue}
-          onDialoguesReorder={engine.reorderDialogues}
-          onDialogueDelete={engine.deleteDialogues}
+          onBackgroundAdd={engine.addBackground}
+          onBackgroundUpdate={engine.updateBackground}
+          onCharacterAdd={engine.addCharacter}
+          onCharacterUpdate={engine.updateCharacter}
+          onTimelineReorder={engine.reorderTimelineNode}
+          onTimelineNodesReorder={engine.reorderTimelineNodes}
+          onTimelineNodesDelete={engine.deleteTimelineNodes}
           onDraftDirtyChange={setBlockDraftDirty}
         />
       )}

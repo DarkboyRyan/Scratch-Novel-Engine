@@ -6,6 +6,8 @@ import {
   DIALOGUE_BLOCK_FIELDS,
   DIALOGUE_BLOCK_TYPE,
 } from './blocks/dialogueBlock';
+import { BACKGROUND_BLOCK_TYPE } from './blocks/backgroundBlock';
+import { CHARACTER_BLOCK_TYPE } from './blocks/characterBlock';
 
 export type DialogueFieldUpdate = {
   nodeId: string;
@@ -91,6 +93,10 @@ export function collectDialogueFieldDrafts(
   const drafts: DialogueFieldDraft[] = [];
 
   for (const node of scene.nodes) {
+    if (node.type !== 'dialogue') {
+      continue;
+    }
+
     const block = workspace.getBlockById(node.id);
     if (!block || block.type !== DIALOGUE_BLOCK_TYPE) {
       continue;
@@ -213,7 +219,12 @@ export function getReorderedDialogueBlock(
   }
 
   const block = workspace.getBlockById(moveEvent.blockId);
-  if (!block || block.type !== DIALOGUE_BLOCK_TYPE) {
+  if (
+    !block ||
+    (block.type !== DIALOGUE_BLOCK_TYPE &&
+      block.type !== BACKGROUND_BLOCK_TYPE &&
+      block.type !== CHARACTER_BLOCK_TYPE)
+  ) {
     return null;
   }
 

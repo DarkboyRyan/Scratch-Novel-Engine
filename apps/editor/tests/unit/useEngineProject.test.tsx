@@ -51,6 +51,32 @@ const importedResult: EngineMutationResult = {
   assetId: 'asset-1',
 };
 
+const backgroundResult: EngineMutationResult = {
+  ...initialResult,
+  project: {
+    ...initialResult.project,
+    scenes: [
+      {
+        ...initialResult.project.scenes[0],
+        nodes: [
+          {
+            id: 'background-1',
+            type: 'background',
+            assetId: 'asset-1',
+          },
+        ],
+      },
+    ],
+  },
+  assets: importedResult.assets,
+  session: {
+    revision: 4,
+    savedRevision: 2,
+    isDirty: true,
+  },
+  nodeId: 'background-1',
+};
+
 function exposeWindowApi<Key extends keyof Window>(
   key: Key,
   value: Window[Key],
@@ -66,6 +92,13 @@ describe('useEngineProject asset state', () => {
   let root: Root;
   let current: EngineProjectState | null;
   let importImage: ReturnType<typeof vi.fn>;
+  let addBackground: ReturnType<typeof vi.fn>;
+  let updateBackground: ReturnType<typeof vi.fn>;
+  let deleteBackground: ReturnType<typeof vi.fn>;
+  let reorderBackground: ReturnType<typeof vi.fn>;
+  let deleteTimelineNodes: ReturnType<typeof vi.fn>;
+  let reorderTimelineNode: ReturnType<typeof vi.fn>;
+  let reorderTimelineNodes: ReturnType<typeof vi.fn>;
 
   function Harness() {
     current = useEngineProject();
@@ -86,11 +119,25 @@ describe('useEngineProject asset state', () => {
       status: 'imported',
       result: importedResult,
     });
+    addBackground = vi.fn().mockResolvedValue(backgroundResult);
+    updateBackground = vi.fn().mockResolvedValue(backgroundResult);
+    deleteBackground = vi.fn().mockResolvedValue(backgroundResult);
+    reorderBackground = vi.fn().mockResolvedValue(backgroundResult);
+    deleteTimelineNodes = vi.fn().mockResolvedValue(backgroundResult);
+    reorderTimelineNode = vi.fn().mockResolvedValue(backgroundResult);
+    reorderTimelineNodes = vi.fn().mockResolvedValue(backgroundResult);
 
     exposeWindowApi(
       'vnEngine',
       {
         ensureProject: vi.fn().mockResolvedValue(initialResult),
+        addBackground,
+        updateBackground,
+        deleteBackground,
+        reorderBackground,
+        deleteTimelineNodes,
+        reorderTimelineNode,
+        reorderTimelineNodes,
       } as unknown as Window['vnEngine'],
     );
     exposeWindowApi(
@@ -140,6 +187,111 @@ describe('useEngineProject asset state', () => {
     expect(current?.session).toEqual({
       filePath: '/projects/story/project.vn.json',
       ...importedResult.session,
+    });
+  });
+
+  it('queues background actions through the typed engine API', async () => {
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(
+        await current!.addBackground({
+          sceneId: 'scene-1',
+          afterNodeId: null,
+        }),
+      ).toBe(true);
+      expect(
+        await current!.updateBackground({
+          sceneId: 'scene-1',
+          nodeId: 'background-1',
+          assetId: 'asset-2',
+        }),
+      ).toBe(true);
+      expect(
+        await current!.reorderBackground({
+          sceneId: 'scene-1',
+          nodeId: 'background-1',
+          beforeNodeId: null,
+        }),
+      ).toBe(true);
+      expect(
+        await current!.deleteBackground({
+          sceneId: 'scene-1',
+          nodeId: 'background-1',
+        }),
+      ).toBe(true);
+    });
+
+    expect(addBackground).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      afterNodeId: null,
+    });
+    expect(updateBackground).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      nodeId: 'background-1',
+      assetId: 'asset-2',
+    });
+    expect(reorderBackground).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      nodeId: 'background-1',
+      beforeNodeId: null,
+    });
+    expect(deleteBackground).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      nodeId: 'background-1',
+    });
+    expect(current?.project?.scenes[0].nodes[0]).toEqual({
+      id: 'background-1',
+      type: 'background',
+      assetId: 'asset-1',
+    });
+    expect(current?.session).toMatchObject(backgroundResult.session);
+  });
+
+  it('queues atomic mixed timeline actions through the typed engine API', async () => {
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    const selection = ['dialogue-1', 'background-1'];
+    await act(async () => {
+      expect(
+        await current!.deleteTimelineNodes({
+          sceneId: 'scene-1',
+          nodeIds: selection,
+        }),
+      ).toBe(true);
+      expect(
+        await current!.reorderTimelineNode({
+          sceneId: 'scene-1',
+          nodeId: 'background-1',
+          beforeNodeId: 'dialogue-2',
+        }),
+      ).toBe(true);
+      expect(
+        await current!.reorderTimelineNodes({
+          sceneId: 'scene-1',
+          nodeIds: selection,
+          beforeNodeId: null,
+        }),
+      ).toBe(true);
+    });
+
+    expect(deleteTimelineNodes).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      nodeIds: selection,
+    });
+    expect(reorderTimelineNode).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      nodeId: 'background-1',
+      beforeNodeId: 'dialogue-2',
+    });
+    expect(reorderTimelineNodes).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      nodeIds: selection,
+      beforeNodeId: null,
     });
   });
 });

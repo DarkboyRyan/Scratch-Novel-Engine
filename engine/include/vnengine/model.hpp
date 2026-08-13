@@ -2,6 +2,7 @@
 
 #include <optional>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace vnengine {
@@ -23,14 +24,41 @@ struct DialogueContent {
   bool operator==(const DialogueContent&) const = default;
 };
 
-// Character slots are authoring presets rather than z-order. Multiple
-// characters may intentionally share a slot; their order in SceneVisualState
-// decides which one is drawn in front.
 enum class CharacterSlot {
   left,
   center,
   right,
 };
+
+// A BackgroundNode is a timeline command rather than Asset metadata. When
+// playback reaches it, the optional referenced image becomes the active
+// background and remains active until the next BackgroundNode. nullopt is an
+// explicit "no background" command. SceneVisualState provides the initial
+// background before the first such command.
+struct BackgroundNode {
+  std::string id;
+  std::optional<std::string> asset_id;
+
+  bool operator==(const BackgroundNode&) const = default;
+};
+
+// A CharacterNode changes one persistent portrait layer on the timeline.
+// nullopt clears that layer; otherwise the referenced image remains visible
+// until another CharacterNode targets the same layer.
+struct CharacterNode {
+  std::string id;
+  std::optional<std::string> asset_id;
+  CharacterSlot slot = CharacterSlot::center;
+  int layer = 1;
+
+  bool operator==(const CharacterNode&) const = default;
+};
+
+using SceneNode = std::variant<Dialogue, BackgroundNode, CharacterNode>;
+
+// Character slots are authoring presets rather than z-order. Multiple
+// characters may intentionally share a slot; their order in SceneVisualState
+// decides which one is drawn in front.
 
 // An Asset describes one reusable file. A CharacterVisualInstance describes
 // one use of that file in a Scene, so the same sprite can appear more than once
@@ -56,7 +84,8 @@ struct Scene {
   std::string id;
   std::string name;
   SceneVisualState visuals;
-  std::vector<Dialogue> nodes;
+  // One authoritative playback order shared by dialogue and visual commands.
+  std::vector<SceneNode> nodes;
 
   bool operator==(const Scene&) const = default;
 };

@@ -22,13 +22,20 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 export function backendRequestTimeoutMs(
   invocation: BackendInvocation,
 ): number | null {
-  // A timed-out import may still finish in C++ and mutate the authoritative
-  // manifest. Keep the request pending until C++ answers (or the window closes
-  // and shuts the process down), so Main can never report failure for a
-  // mutation that later succeeds invisibly.
-  return invocation.method === 'asset.import'
-    ? null
-    : DEFAULT_REQUEST_TIMEOUT_MS;
+  // These operations may still finish in C++ after an application-level
+  // timeout and mutate authoritative project or disk state. Keep the request
+  // pending until C++ answers (or the window closes and shuts the process
+  // down), so Main never reports failure while a hidden commit is still able
+  // to arrive later.
+  if (
+    invocation.method === 'asset.import' ||
+    invocation.method === 'project.open' ||
+    invocation.method === 'project.save'
+  ) {
+    return null;
+  }
+
+  return DEFAULT_REQUEST_TIMEOUT_MS;
 }
 
 type PendingRequest = {

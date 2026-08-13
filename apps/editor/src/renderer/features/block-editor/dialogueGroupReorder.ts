@@ -1,7 +1,7 @@
-import type { ReorderDialoguesParams } from '../../../shared/engineProtocol';
+import type { TimelineReorderManyParams } from '../../../shared/engineProtocol';
 import type { SceneDocument } from '../../../shared/projectTypes';
 
-export type DialogueDropTarget = {
+export type TimelineDropTarget = {
   nodeId: string;
   left: number;
   right: number;
@@ -9,7 +9,7 @@ export type DialogueDropTarget = {
   bottom: number;
 };
 
-export type DialogueDropSlot = {
+export type TimelineDropSlot = {
   beforeNodeId: string | null;
 };
 
@@ -32,12 +32,12 @@ function distanceToHorizontalSegment(
   return Math.hypot(horizontalDistance, clientY - y);
 }
 
-export function getDialogueDropSlotForPoint(
-  targets: DialogueDropTarget[],
+export function getTimelineDropSlotForPoint(
+  targets: TimelineDropTarget[],
   clientX: number,
   clientY: number,
   snapRadius = DIALOGUE_GROUP_SNAP_RADIUS_PX,
-): DialogueDropSlot | null {
+): TimelineDropSlot | null {
   if (targets.length === 0) {
     return null;
   }
@@ -105,7 +105,7 @@ export function buildGroupReorderParams(
   scene: SceneDocument,
   selectedNodeIds: string[],
   beforeNodeId: string | null,
-): ReorderDialoguesParams | null {
+): TimelineReorderManyParams | null {
   const sceneNodeIds = scene.nodes.map((node) => node.id);
   const requestedIds = new Set(selectedNodeIds);
   const orderedSelection = sceneNodeIds.filter((nodeId) =>

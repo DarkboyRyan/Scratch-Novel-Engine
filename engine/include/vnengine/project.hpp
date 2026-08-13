@@ -38,10 +38,25 @@ ProjectAggregate create_empty_project_aggregate(
 
 Scene* find_scene(Project& project, std::string_view scene_id);
 const Scene* find_scene(const Project& project, std::string_view scene_id);
+std::string_view scene_node_id(const SceneNode& node);
+SceneNode* find_scene_node(Scene& scene, std::string_view node_id);
+const SceneNode* find_scene_node(
+    const Scene& scene,
+    std::string_view node_id);
 Dialogue* find_dialogue(Scene& scene, std::string_view dialogue_id);
 const Dialogue* find_dialogue(
     const Scene& scene,
     std::string_view dialogue_id);
+BackgroundNode* find_background_node(
+    Scene& scene,
+    std::string_view node_id);
+const BackgroundNode* find_background_node(
+    const Scene& scene,
+    std::string_view node_id);
+CharacterNode* find_character_node(Scene& scene, std::string_view node_id);
+const CharacterNode* find_character_node(
+    const Scene& scene,
+    std::string_view node_id);
 Asset* find_asset(
     ProjectAggregate& aggregate,
     std::string_view asset_id);
@@ -90,6 +105,101 @@ std::string add_scene(
     std::optional<std::string> name = std::nullopt);
 bool rename_scene(Project& project, std::string_view scene_id, std::string name);
 bool delete_scene(Project& project, std::string_view scene_id);
+
+enum class AddBackgroundNodeStatus {
+  added,
+  scene_not_found,
+  placement_conflict,
+  anchor_not_found,
+};
+
+struct AddBackgroundNodeResult {
+  AddBackgroundNodeStatus status;
+  std::optional<std::string> node_id;
+};
+
+// A new BackgroundNode always starts as the explicit "no background" command.
+// Assigning an imported image is a separate update operation.
+AddBackgroundNodeResult add_background_node(
+    ProjectAggregate& aggregate,
+    IdGenerator& ids,
+    std::string_view scene_id,
+    std::optional<std::string> after_node_id = std::nullopt,
+    std::optional<std::string> before_node_id = std::nullopt);
+
+enum class UpdateBackgroundNodeResult {
+  changed,
+  unchanged,
+  scene_not_found,
+  node_not_found,
+  asset_not_found,
+  asset_not_image,
+};
+
+UpdateBackgroundNodeResult update_background_node(
+    ProjectAggregate& aggregate,
+    std::string_view scene_id,
+    std::string_view node_id,
+    std::optional<std::string> asset_id);
+bool delete_background_node(
+    Project& project,
+    std::string_view scene_id,
+    std::string_view node_id);
+
+enum class AddCharacterNodeStatus {
+  added,
+  scene_not_found,
+  placement_conflict,
+  anchor_not_found,
+};
+
+struct AddCharacterNodeResult {
+  AddCharacterNodeStatus status;
+  std::optional<std::string> node_id;
+};
+
+AddCharacterNodeResult add_character_node(
+    ProjectAggregate& aggregate,
+    IdGenerator& ids,
+    std::string_view scene_id,
+    std::optional<std::string> after_node_id = std::nullopt,
+    std::optional<std::string> before_node_id = std::nullopt);
+
+enum class UpdateCharacterNodeResult {
+  changed,
+  unchanged,
+  scene_not_found,
+  node_not_found,
+  asset_not_found,
+  asset_not_image,
+  invalid_slot,
+  invalid_layer,
+};
+
+UpdateCharacterNodeResult update_character_node(
+    ProjectAggregate& aggregate,
+    std::string_view scene_id,
+    std::string_view node_id,
+    std::optional<std::string> asset_id,
+    CharacterSlot slot,
+    int layer);
+
+// Generic timeline ordering supports mixed Dialogue/BackgroundNode sequences.
+// A null before ID means the end of the Scene.
+bool reorder_scene_node(
+    Project& project,
+    std::string_view scene_id,
+    std::string_view node_id,
+    std::optional<std::string> before_node_id);
+bool delete_scene_nodes(
+    Project& project,
+    std::string_view scene_id,
+    const std::vector<std::string>& node_ids);
+bool reorder_scene_nodes(
+    Project& project,
+    std::string_view scene_id,
+    const std::vector<std::string>& node_ids,
+    std::optional<std::string> before_node_id);
 
 // Empty speaker/text values are intentionally valid: clicking the dialogue "+"
 // creates an editable empty node immediately.

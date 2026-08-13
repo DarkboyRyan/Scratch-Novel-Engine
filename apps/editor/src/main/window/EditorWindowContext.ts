@@ -3,6 +3,7 @@ import type { BrowserWindow } from 'electron';
 import type { AssetPreviewService } from '../assets/AssetPreviewService';
 import type { BackendClient } from '../backend/backendClient';
 import type { ProjectFileSession } from '../project/ProjectFileSession';
+import type { ProjectStorageSession } from '../project/ProjectStorageSession';
 import type { FileOperationCoordinator } from './FileOperationCoordinator';
 
 // 每个编辑器窗口都必须拥有独立的 C++ 子进程和文件会话。
@@ -12,6 +13,7 @@ export type EditorWindowContext = {
   backendClient: BackendClient;
   assetPreviewService: AssetPreviewService;
   projectFileSession: ProjectFileSession;
+  projectStorageSession: ProjectStorageSession;
   fileOperationCoordinator: FileOperationCoordinator;
 };
 

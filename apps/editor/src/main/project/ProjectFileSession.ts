@@ -5,6 +5,7 @@ import type { ProjectFileSessionSnapshot } from '../../shared/projectFileProtoco
 // 二者合并后，Renderer 不需要也不能自行持有或构造本机路径。
 export class ProjectFileSession {
   private filePath: string | null = null;
+  private logicalSavedRevision: number | null = null;
   private engineSession: EngineSessionState = {
     revision: 0,
     savedRevision: null,
@@ -20,7 +21,8 @@ export class ProjectFileSession {
 
   markCreated(engineSession: EngineSessionState): ProjectFileSessionSnapshot {
     this.filePath = null;
-    this.engineSession = engineSession;
+    this.logicalSavedRevision = null;
+    this.applyEngineRevision(engineSession);
     return this.snapshot();
   }
 
@@ -29,7 +31,9 @@ export class ProjectFileSession {
     engineSession: EngineSessionState,
   ): ProjectFileSessionSnapshot {
     this.filePath = filePath;
-    this.engineSession = engineSession;
+    this.logicalSavedRevision =
+      engineSession.savedRevision ?? engineSession.revision;
+    this.applyEngineRevision(engineSession);
     return this.snapshot();
   }
 
@@ -38,14 +42,28 @@ export class ProjectFileSession {
     engineSession: EngineSessionState,
   ): ProjectFileSessionSnapshot {
     this.filePath = filePath;
-    this.engineSession = engineSession;
+    this.logicalSavedRevision = engineSession.revision;
+    this.applyEngineRevision(engineSession);
     return this.snapshot();
   }
 
   updateEngineSession(
     engineSession: EngineSessionState,
   ): ProjectFileSessionSnapshot {
-    this.engineSession = engineSession;
+    this.applyEngineRevision(engineSession);
     return this.snapshot();
+  }
+
+  private applyEngineRevision(engineSession: EngineSessionState): void {
+    // C++ may save to a Main-private working manifest before Electron has
+    // safely published it to the user's chosen file. Only mark the document
+    // logically saved after markOpened/markSaved commits that external path.
+    this.engineSession = {
+      revision: engineSession.revision,
+      savedRevision: this.logicalSavedRevision,
+      isDirty:
+        this.logicalSavedRevision === null ||
+        engineSession.revision !== this.logicalSavedRevision,
+    };
   }
 }

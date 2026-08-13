@@ -42,11 +42,8 @@ export function registerAssetIpc(
 
       return context.fileOperationCoordinator.runExclusive(
         async (): Promise<ImportImageResult> => {
-          const projectFilePath =
+          const logicalProjectFilePath =
             context.projectFileSession.snapshot().filePath;
-          if (!projectFilePath) {
-            return { status: 'project-not-saved' };
-          }
 
           // Capture both identities before yielding to the native dialog. The
           // shared coordinator prevents file operations; the explicit checks
@@ -78,7 +75,7 @@ export function registerAssetIpc(
 
           if (
             context.projectFileSession.snapshot().filePath !==
-            projectFilePath
+            logicalProjectFilePath
           ) {
             throw new Error(
               '导入期间项目文件已变更，请重新选择图片',
@@ -95,13 +92,39 @@ export function registerAssetIpc(
             );
           }
 
+          let storageLocation;
+          try {
+            storageLocation =
+              await context.projectStorageSession.assetImportLocation(
+                logicalProjectFilePath,
+              );
+            if (
+              storageLocation.isTemporary &&
+              !(await context.assetPreviewService.activateTemporaryProject(
+                storageLocation.previewProjectFilePath,
+                projectAfterDialog,
+              ))
+            ) {
+              throw new Error(
+                'temporary preview state does not match the project',
+              );
+            }
+          } catch (error) {
+            console.error(
+              '[asset-import] temporary project storage preparation failed',
+              error,
+            );
+            throw new Error('无法准备项目资源存储位置');
+          }
+
           let result: EngineMutationResult;
           try {
             result = await context.backendClient.request({
               method: 'asset.import',
               params: {
                 sourceFilePath: selection.filePaths[0],
-                projectFilePath,
+                projectFilePath:
+                  storageLocation.backendProjectFilePath,
               },
             });
           } catch (error) {
@@ -115,6 +138,14 @@ export function registerAssetIpc(
           const session = context.projectFileSession.updateEngineSession(
             result.session,
           );
+          const publicResult: EngineMutationResult = {
+            ...result,
+            session: {
+              revision: session.revision,
+              savedRevision: session.savedRevision,
+              isDirty: session.isDirty,
+            },
+          };
           updateWindowDocumentPresentation(
             context.editorWindow,
             result.project.name,
@@ -123,9 +154,9 @@ export function registerAssetIpc(
 
           if (
             !context.assetPreviewService.registerImportedImage(
-              projectFilePath,
+              storageLocation.previewProjectFilePath,
               selection.filePaths[0],
-              result,
+              publicResult,
             )
           ) {
             // The import itself remains successful. Failing closed here means
@@ -137,7 +168,7 @@ export function registerAssetIpc(
           }
 
           // Absolute paths remain confined to this Main-process function.
-          return { status: 'imported', result };
+          return { status: 'imported', result: publicResult };
         },
       );
     },

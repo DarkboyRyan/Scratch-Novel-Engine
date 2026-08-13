@@ -3,6 +3,7 @@
 #include <initializer_list>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <unordered_set>
 #include <utility>
 
@@ -122,10 +123,124 @@ Dialogue dialogue_from_json(
   };
 }
 
+std::string character_slot_to_string(CharacterSlot slot);
+CharacterSlot character_slot_from_json(
+    const Json& value,
+    const std::string& context);
+
+Json background_node_to_json(const BackgroundNode& background) {
+  return {
+      {"id", background.id},
+      {"type", "background"},
+      {"assetId",
+       background.asset_id.has_value() ? Json(*background.asset_id)
+                                       : Json(nullptr)},
+  };
+}
+
+Json character_node_to_json(const CharacterNode& character) {
+  return {
+      {"id", character.id},
+      {"type", "character"},
+      {"assetId",
+       character.asset_id.has_value() ? Json(*character.asset_id)
+                                      : Json(nullptr)},
+      {"slot", character_slot_to_string(character.slot)},
+      {"layer", character.layer},
+  };
+}
+
+Json scene_node_to_json(const SceneNode& node) {
+  return std::visit(
+      [](const auto& value) -> Json {
+        using Value = std::decay_t<decltype(value)>;
+        if constexpr (std::is_same_v<Value, Dialogue>) {
+          return dialogue_to_json(value);
+        } else if constexpr (std::is_same_v<Value, BackgroundNode>) {
+          return background_node_to_json(value);
+        } else {
+          return character_node_to_json(value);
+        }
+      },
+      node);
+}
+
+SceneNode scene_node_from_json(
+    const Json& value,
+    const std::string& context,
+    const int file_version) {
+  // File versions 1 and 2 defined Scene.nodes as dialogue-only. Keeping that
+  // decoder strict prevents a v3 node from silently entering an older file.
+  if (file_version < 3) {
+    return dialogue_from_json(value, context);
+  }
+
+  if (!value.is_object()) {
+    invalid(context + " must be an object");
+  }
+  if (!value.contains("type")) {
+    invalid(context + ".type is required");
+  }
+  if (!value.at("type").is_string()) {
+    invalid(context + ".type must be a string");
+  }
+
+  const std::string type = value.at("type").get<std::string>();
+  if (type == "dialogue") {
+    return dialogue_from_json(value, context);
+  }
+  if (type == "background") {
+    require_exact_fields(value, {"id", "type", "assetId"}, context);
+    if (file_version < 4 && !value.at("assetId").is_string()) {
+      invalid(context + ".assetId must be a string before file version 4");
+    }
+    if (file_version >= 4 && !value.at("assetId").is_null() &&
+        !value.at("assetId").is_string()) {
+      invalid(context + ".assetId must be a string or null");
+    }
+    std::optional<std::string> asset_id;
+    if (!value.at("assetId").is_null()) {
+      asset_id = value.at("assetId").get<std::string>();
+    }
+    return BackgroundNode{
+        .id = require_string(value, "id", context),
+        .asset_id = std::move(asset_id),
+    };
+  }
+  if (type == "character") {
+    if (file_version < 5) {
+      unsupported(context + ".type is not supported before file version 5");
+    }
+    require_exact_fields(
+        value,
+        {"id", "type", "assetId", "slot", "layer"},
+        context);
+    const Json& asset_value = value.at("assetId");
+    if (!asset_value.is_null() && !asset_value.is_string()) {
+      invalid(context + ".assetId must be a string or null");
+    }
+    std::optional<std::string> asset_id;
+    if (asset_value.is_string()) {
+      asset_id = asset_value.get<std::string>();
+    }
+    const int layer = require_integer(value, "layer", context);
+    if (layer < 1 || layer > 10) {
+      invalid(context + ".layer must be between 1 and 10");
+    }
+    return CharacterNode{
+        .id = require_string(value, "id", context),
+        .asset_id = std::move(asset_id),
+        .slot = character_slot_from_json(value, context),
+        .layer = layer,
+    };
+  }
+  unsupported(context + ".type is not supported");
+}
+
 Json scene_to_renderer_json(const Scene& scene) {
   Json nodes = Json::array();
-  for (const Dialogue& dialogue : scene.nodes) {
-    nodes.push_back(dialogue_to_json(dialogue));
+  for (const SceneNode& node : scene.nodes) {
+    nodes.push_back(scene_node_to_json(node));
   }
 
   return {
@@ -240,8 +355,8 @@ Json scene_to_file_json(const Scene& scene) {
   // file format have separate version boundaries and must not accidentally
   // inherit one another's future fields.
   Json nodes = Json::array();
-  for (const Dialogue& dialogue : scene.nodes) {
-    nodes.push_back(dialogue_to_json(dialogue));
+  for (const SceneNode& node : scene.nodes) {
+    nodes.push_back(scene_node_to_json(node));
   }
 
   return {
@@ -290,9 +405,10 @@ Scene scene_from_json(
   };
   scene.nodes.reserve(nodes.size());
   for (std::size_t index = 0; index < nodes.size(); ++index) {
-    scene.nodes.push_back(dialogue_from_json(
+    scene.nodes.push_back(scene_node_from_json(
         nodes.at(index),
-        context + ".nodes[" + std::to_string(index) + "]"));
+        context + ".nodes[" + std::to_string(index) + "]",
+        file_version));
   }
   return scene;
 }

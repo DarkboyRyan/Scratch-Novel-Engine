@@ -1,6 +1,6 @@
 import * as Blockly from 'blockly';
 
-import type { ReorderDialoguesParams } from '../../../shared/engineProtocol';
+import type { TimelineReorderManyParams } from '../../../shared/engineProtocol';
 import type { SceneDocument } from '../../../shared/projectTypes';
 import {
   getBlockClientRectangle,
@@ -8,8 +8,8 @@ import {
 } from './blockSelection';
 import {
   buildGroupReorderParams,
-  getDialogueDropSlotForPoint,
-  type DialogueDropTarget,
+  getTimelineDropSlotForPoint,
+  type TimelineDropTarget,
 } from './dialogueGroupReorder';
 
 const DRAG_THRESHOLD_PX = 5;
@@ -18,7 +18,7 @@ type GroupDragCallbacks = {
   canStart(): boolean;
   onDelete(): void;
   onMoveAll(deltaX: number, deltaY: number): void;
-  onReorder(params: ReorderDialoguesParams): void;
+  onReorder(params: TimelineReorderManyParams): void;
 };
 
 export type BlockGroupDragController = {
@@ -42,7 +42,7 @@ type ActiveGesture = {
   outcome:
     | { kind: 'delete' }
     | { kind: 'move-all' }
-    | { kind: 'reorder'; params: ReorderDialoguesParams }
+    | { kind: 'reorder'; params: TimelineReorderManyParams }
     | null;
 };
 
@@ -122,7 +122,7 @@ export function createBlockGroupDragController(
     ghost.setAttribute('aria-hidden', 'true');
 
     const count = document.createElement('strong');
-    count.textContent = `${gesture.selectedNodeIds.length} 条对白`;
+    count.textContent = `${gesture.selectedNodeIds.length} 个剧情节点`;
     const hint = document.createElement('span');
     hint.textContent = '作为一组移动';
     ghost.append(count, hint);
@@ -216,7 +216,7 @@ export function createBlockGroupDragController(
     }
 
     const selectedIds = new Set(gesture.selectedNodeIds);
-    const targets = scene.nodes.flatMap<DialogueDropTarget>((node) => {
+    const targets = scene.nodes.flatMap<TimelineDropTarget>((node) => {
       if (selectedIds.has(node.id)) {
         return [];
       }
@@ -237,7 +237,7 @@ export function createBlockGroupDragController(
         },
       ];
     });
-    const dropSlot = getDialogueDropSlotForPoint(
+    const dropSlot = getTimelineDropSlotForPoint(
       targets,
       gesture.currentX,
       gesture.currentY,

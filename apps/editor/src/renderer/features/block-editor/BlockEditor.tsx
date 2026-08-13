@@ -1,16 +1,26 @@
-import { forwardRef } from 'react';
+import {
+  forwardRef,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react';
 
 import type {
+  AddBackgroundAction,
   AddDialogueAction,
-  DeleteDialoguesAction,
-  ReorderDialogueAction,
-  ReorderDialoguesAction,
+  AddCharacterAction,
+  DeleteTimelineNodesAction,
+  ReorderTimelineNodeAction,
+  ReorderTimelineNodesAction,
+  UpdateBackgroundAction,
   UpdateDialogueAction,
+  UpdateCharacterAction,
 } from '../../hooks/useEngineProject';
 
 import type {
   ProjectDocument,
   SceneDocument,
+  AssetDocument,
 } from '../../../shared/projectTypes';
 
 import {
@@ -24,12 +34,17 @@ type BlockEditorProps = {
   scene: SceneDocument;
   layoutStore: BlockEditorLayoutStore;
   isBusy: boolean;
-  onSceneChange: (sceneId: string) => void;
+  assets: AssetDocument[];
+  onSceneChange: (sceneId: string) => Promise<void>;
   onDialogueUpdate: UpdateDialogueAction;
   onDialogueAdd: AddDialogueAction;
-  onDialogueReorder: ReorderDialogueAction;
-  onDialoguesReorder: ReorderDialoguesAction;
-  onDialogueDelete: DeleteDialoguesAction;
+  onBackgroundAdd: AddBackgroundAction;
+  onBackgroundUpdate: UpdateBackgroundAction;
+  onCharacterAdd: AddCharacterAction;
+  onCharacterUpdate: UpdateCharacterAction;
+  onTimelineReorder: ReorderTimelineNodeAction;
+  onTimelineNodesReorder: ReorderTimelineNodesAction;
+  onTimelineNodesDelete: DeleteTimelineNodesAction;
   onDraftDirtyChange: (isDirty: boolean) => void;
 };
 
@@ -44,16 +59,28 @@ export const BlockEditor = forwardRef<
     scene,
     layoutStore,
     isBusy,
+    assets,
     onSceneChange,
     onDialogueAdd,
-    onDialogueReorder,
-    onDialoguesReorder,
-    onDialogueDelete,
+    onBackgroundAdd,
+    onBackgroundUpdate,
+    onCharacterAdd,
+    onCharacterUpdate,
+    onTimelineReorder,
+    onTimelineNodesReorder,
+    onTimelineNodesDelete,
     onDialogueUpdate,
     onDraftDirtyChange,
   },
   ref,
 ) {
+  const workspaceRef = useRef<BlocklyWorkspaceHandle>(null);
+  const [isChangingScene, setIsChangingScene] = useState(false);
+  useImperativeHandle(ref, () => ({
+    flushPendingDraft: () =>
+      workspaceRef.current?.flushPendingDraft() ?? Promise.resolve(true),
+  }));
+
   return (
     <main
       className="block-editor"
@@ -63,7 +90,7 @@ export const BlockEditor = forwardRef<
         <div>
           <h1 id="block-editor-title">图形化编辑器</h1>
           <p>
-            当前项目：{project.name} · {scene.nodes.length} 条对白
+            当前项目：{project.name} · {scene.nodes.length} 个剧情节点
           </p>
         </div>
 
@@ -74,10 +101,23 @@ export const BlockEditor = forwardRef<
             <select
               className="scene-select block-editor-scene-select"
               value={scene.id}
-              disabled={isBusy}
-              onChange={(event) =>
-                onSceneChange(event.target.value)
-              }
+              disabled={isBusy || isChangingScene}
+              onChange={(event) => {
+                const nextSceneId = event.target.value;
+                void (async () => {
+                  setIsChangingScene(true);
+                  try {
+                    const flushed =
+                      await (workspaceRef.current?.flushPendingDraft() ??
+                        true);
+                    if (flushed) {
+                      await onSceneChange(nextSceneId);
+                    }
+                  } finally {
+                    setIsChangingScene(false);
+                  }
+                })();
+              }}
             >
               {project.scenes.map((projectScene) => (
                 <option
@@ -101,15 +141,20 @@ export const BlockEditor = forwardRef<
         aria-label="图形化积木工作区"
       >
         <BlocklyWorkspace
-          ref={ref}
+          ref={workspaceRef}
           scene={scene}
+          assets={assets}
           layoutKey={`${project.id}:${scene.id}`}
           layoutStore={layoutStore}
           isBusy={isBusy}
           onDialogueAdd={onDialogueAdd}
-          onDialogueReorder={onDialogueReorder}
-          onDialoguesReorder={onDialoguesReorder}
-          onDialogueDelete={onDialogueDelete}
+          onBackgroundAdd={onBackgroundAdd}
+          onBackgroundUpdate={onBackgroundUpdate}
+          onCharacterAdd={onCharacterAdd}
+          onCharacterUpdate={onCharacterUpdate}
+          onTimelineReorder={onTimelineReorder}
+          onTimelineNodesReorder={onTimelineNodesReorder}
+          onTimelineNodesDelete={onTimelineNodesDelete}
           onDialogueUpdate={onDialogueUpdate}
           onDraftDirtyChange={onDraftDirtyChange}
         />

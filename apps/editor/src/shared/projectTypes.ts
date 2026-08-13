@@ -7,8 +7,30 @@ export type DialogueNode = {
   text: string;
 };
 
-// 未来增加背景、立绘和选项时，可以扩展为多个节点类型的联合类型。
-export type SceneNode = DialogueNode;
+// 背景节点属于有顺序的剧情时间线：播放到这里时切换背景，并持续到
+// 下一个背景节点。它只保存资源 ID，不暴露图片的本地路径。
+export type BackgroundNode = {
+  id: string;
+  type: 'background';
+  // null 是真实的“从这里开始无背景”时间线指令。
+  assetId: string | null;
+};
+
+export type CharacterSlot = 'left' | 'center' | 'right';
+
+// 立绘节点也是时间线指令。assetId 为 null 表示从这里开始清空指定层；
+// layer 越大越靠前，但仍始终位于对白框下方。
+export type CharacterNode = {
+  id: string;
+  type: 'character';
+  assetId: string | null;
+  slot: CharacterSlot;
+  layer: number;
+};
+
+// type 是跨 C++ / Electron / Renderer 的判别字段。使用联合类型后，消费方
+// 必须先检查 node.type，避免把背景节点误当成可编辑对白。
+export type SceneNode = DialogueNode | BackgroundNode | CharacterNode;
 
 export type SceneDocument = {
   schemaVersion: 1;

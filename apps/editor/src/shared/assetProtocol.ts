@@ -23,9 +23,6 @@ export type ImportImageResult =
     }
   | {
       status: 'cancelled';
-    }
-  | {
-      status: 'project-not-saved';
     };
 
 export type AssetResponse = ImportImageResult | string | null;

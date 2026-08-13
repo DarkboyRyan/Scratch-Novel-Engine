@@ -15,6 +15,7 @@ import { registerEngineIpc } from './main/ipc/registerEngineIpc';
 import { registerProjectFileIpc } from './main/ipc/registerProjectFileIpc';
 import { installApplicationMenu } from './main/menu/installApplicationMenu';
 import { ProjectFileSession } from './main/project/ProjectFileSession';
+import { ProjectStorageSession } from './main/project/ProjectStorageSession';
 import type { EditorWindowContexts } from './main/window/EditorWindowContext';
 import { FileOperationCoordinator } from './main/window/FileOperationCoordinator';
 import { updateWindowDocumentPresentation } from './main/window/updateWindowDocumentPresentation';
@@ -65,6 +66,7 @@ async function openEditorWindow(
     editorWindow.webContents.session.protocol,
   );
   const projectFileSession = new ProjectFileSession();
+  const projectStorageSession = new ProjectStorageSession();
   const fileOperationCoordinator = new FileOperationCoordinator();
 
   trustedEditorLocations.set(webContentsId, entryUrl);
@@ -73,6 +75,7 @@ async function openEditorWindow(
     backendClient,
     assetPreviewService,
     projectFileSession,
+    projectStorageSession,
     fileOperationCoordinator,
   });
 
@@ -80,6 +83,9 @@ async function openEditorWindow(
     trustedEditorLocations.delete(webContentsId);
     editorWindowContexts.delete(webContentsId);
     assetPreviewService.dispose();
+    void projectStorageSession.dispose().catch((error: unknown) => {
+      console.error('[project-storage] temporary cleanup failed', error);
+    });
     backendClient.shutdown();
   });
 
@@ -134,6 +140,9 @@ app.on('ready', () => {
 
 app.on('before-quit', () => {
   for (const context of editorWindowContexts.values()) {
+    void context.projectStorageSession.dispose().catch((error: unknown) => {
+      console.error('[project-storage] temporary cleanup failed', error);
+    });
     context.backendClient.shutdown();
   }
 });

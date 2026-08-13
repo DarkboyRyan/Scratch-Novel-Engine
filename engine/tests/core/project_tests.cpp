@@ -28,6 +28,33 @@ void check(const bool condition, const std::string& expression) {
 
 #define CHECK(expression) check((expression), #expression)
 
+const vnengine::Dialogue& dialogue_at(
+    const vnengine::Scene& scene,
+    const std::size_t index) {
+  return std::get<vnengine::Dialogue>(scene.nodes.at(index));
+}
+
+const vnengine::BackgroundNode& background_at(
+    const vnengine::Scene& scene,
+    const std::size_t index) {
+  return std::get<vnengine::BackgroundNode>(scene.nodes.at(index));
+}
+
+const vnengine::CharacterNode& character_at(
+    const vnengine::Scene& scene,
+    const std::size_t index) {
+  return std::get<vnengine::CharacterNode>(scene.nodes.at(index));
+}
+
+std::vector<std::string> timeline_ids(const vnengine::Scene& scene) {
+  std::vector<std::string> result;
+  result.reserve(scene.nodes.size());
+  for (const vnengine::SceneNode& node : scene.nodes) {
+    result.emplace_back(vnengine::scene_node_id(node));
+  }
+  return result;
+}
+
 void creates_project_with_one_empty_entry_scene() {
   SequenceIdGenerator ids;
   const vnengine::Project project = vnengine::create_empty_project(ids);
@@ -124,15 +151,15 @@ void inserts_empty_dialogue_after_selected_node() {
   const vnengine::Scene* scene = vnengine::find_scene(project, scene_id);
   CHECK(scene != nullptr);
   CHECK(scene->nodes.size() == 3);
-  CHECK(scene->nodes[0].id == first_id);
-  CHECK(scene->nodes[1].id == empty_id);
-  CHECK(scene->nodes[1].speaker.empty());
-  CHECK(scene->nodes[1].text.empty());
-  CHECK(scene->nodes[2].id == second_id);
+  CHECK(vnengine::scene_node_id(scene->nodes[0]) == first_id);
+  CHECK(vnengine::scene_node_id(scene->nodes[1]) == empty_id);
+  CHECK(dialogue_at(*scene, 1).speaker.empty());
+  CHECK(dialogue_at(*scene, 1).text.empty());
+  CHECK(vnengine::scene_node_id(scene->nodes[2]) == second_id);
 
   const std::string appended_id = *vnengine::add_dialogue(
       project, ids, scene_id, "旁白", "末尾", "missing-node");
-  CHECK(scene->nodes.back().id == appended_id);
+  CHECK(vnengine::scene_node_id(scene->nodes.back()) == appended_id);
   CHECK(!vnengine::add_dialogue(project, ids, "missing-scene").has_value());
 }
 
@@ -175,10 +202,10 @@ void inserts_dialogue_before_requested_node() {
 
   CHECK(scene != nullptr);
   CHECK(scene->nodes.size() == 4);
-  CHECK(scene->nodes[0].id == before_first_id);
-  CHECK(scene->nodes[1].id == first_id);
-  CHECK(scene->nodes[2].id == before_second_id);
-  CHECK(scene->nodes[3].id == second_id);
+  CHECK(vnengine::scene_node_id(scene->nodes[0]) == before_first_id);
+  CHECK(vnengine::scene_node_id(scene->nodes[1]) == first_id);
+  CHECK(vnengine::scene_node_id(scene->nodes[2]) == before_second_id);
+  CHECK(vnengine::scene_node_id(scene->nodes[3]) == second_id);
 
   const auto node_count = scene->nodes.size();
 
@@ -211,7 +238,7 @@ void inserts_dialogue_before_requested_node() {
       project, ids, scene_id, "End", "最后一句");
   CHECK(appended_id == "id-7");
   CHECK(scene->nodes.size() == node_count + 1);
-  CHECK(scene->nodes.back().id == appended_id);
+  CHECK(vnengine::scene_node_id(scene->nodes.back()) == appended_id);
 }
 
 void updates_deletes_and_moves_dialogue() {
@@ -235,15 +262,15 @@ void updates_deletes_and_moves_dialogue() {
 
   CHECK(vnengine::move_dialogue(project, scene_id, second_id, -1));
   const vnengine::Scene* scene = vnengine::find_scene(project, scene_id);
-  CHECK(scene->nodes[0].id == second_id);
-  CHECK(scene->nodes[1].id == first_id);
+  CHECK(vnengine::scene_node_id(scene->nodes[0]) == second_id);
+  CHECK(vnengine::scene_node_id(scene->nodes[1]) == first_id);
   CHECK(!vnengine::move_dialogue(project, scene_id, second_id, -1));
   CHECK(!vnengine::move_dialogue(project, scene_id, second_id, 2));
 
   CHECK(vnengine::delete_dialogue(project, scene_id, first_id));
   CHECK(scene->nodes.size() == 2);
-  CHECK(scene->nodes[0].id == second_id);
-  CHECK(scene->nodes[1].id == third_id);
+  CHECK(vnengine::scene_node_id(scene->nodes[0]) == second_id);
+  CHECK(vnengine::scene_node_id(scene->nodes[1]) == third_id);
   CHECK(!vnengine::delete_dialogue(project, scene_id, "missing"));
   CHECK(!vnengine::validate_project(project).has_value());
 }
@@ -264,9 +291,7 @@ void reorders_one_dialogue_to_an_arbitrary_position() {
   auto dialogue_ids = [&project, &scene_id]() {
     std::vector<std::string> result;
     const vnengine::Scene* scene = vnengine::find_scene(project, scene_id);
-    for (const vnengine::Dialogue& dialogue : scene->nodes) {
-      result.push_back(dialogue.id);
-    }
+    result = timeline_ids(*scene);
     return result;
   };
 
@@ -313,10 +338,7 @@ void reorders_multiple_dialogues_atomically() {
 
   auto current_ids = [&project, &scene_id]() {
     std::vector<std::string> result;
-    for (const vnengine::Dialogue& dialogue :
-         vnengine::find_scene(project, scene_id)->nodes) {
-      result.push_back(dialogue.id);
-    }
+    result = timeline_ids(*vnengine::find_scene(project, scene_id));
     return result;
   };
 
@@ -383,7 +405,7 @@ void deletes_multiple_dialogues_atomically() {
       project, scene_id, {first_id, third_id}));
   const vnengine::Scene* scene = vnengine::find_scene(project, scene_id);
   CHECK(scene->nodes.size() == 1);
-  CHECK(scene->nodes[0].id == second_id);
+  CHECK(vnengine::scene_node_id(scene->nodes[0]) == second_id);
   CHECK(!vnengine::validate_project(project).has_value());
 }
 
@@ -560,6 +582,242 @@ void changes_scene_background_only_after_validation() {
             aggregate, scene_id, std::nullopt) == Result::unchanged);
 }
 
+void manages_mixed_background_timeline_atomically() {
+  using AddStatus = vnengine::AddBackgroundNodeStatus;
+  using UpdateResult = vnengine::UpdateBackgroundNodeResult;
+
+  SequenceIdGenerator ids;
+  vnengine::ProjectAggregate aggregate = visual_aggregate();
+  // visual_aggregate used its own deterministic generator for id-1/id-2.
+  // Advance this independent fixture generator past those occupied IDs.
+  static_cast<void>(ids.next());
+  static_cast<void>(ids.next());
+  const std::string scene_id = aggregate.project.entry_scene_id;
+  vnengine::Scene& scene = aggregate.project.scenes[0];
+
+  const std::string first = *vnengine::add_dialogue(
+      aggregate.project, ids, scene_id, "Alice", "第一句");
+  const std::string second = *vnengine::add_dialogue(
+      aggregate.project, ids, scene_id, "Bob", "第二句");
+
+  const auto first_background = vnengine::add_background_node(
+      aggregate, ids, scene_id, first);
+  CHECK(first_background.status == AddStatus::added);
+  CHECK(first_background.node_id.has_value());
+  CHECK(timeline_ids(scene) == std::vector<std::string>({
+      first, *first_background.node_id, second}));
+  CHECK(!background_at(scene, 1).asset_id.has_value());
+  CHECK(vnengine::update_background_node(
+            aggregate,
+            scene_id,
+            *first_background.node_id,
+            "asset-alice") == UpdateResult::changed);
+
+  // Dialogue placement anchors are timeline nodes, not dialogue-only IDs.
+  const std::string between = *vnengine::add_dialogue(
+      aggregate.project,
+      ids,
+      scene_id,
+      "旁白",
+      "切换后",
+      *first_background.node_id);
+  CHECK(timeline_ids(scene) == std::vector<std::string>({
+      first, *first_background.node_id, between, second}));
+
+  const auto second_background = vnengine::add_background_node(
+      aggregate,
+      ids,
+      scene_id,
+      std::nullopt,
+      second);
+  CHECK(second_background.status == AddStatus::added);
+  CHECK(vnengine::update_background_node(
+            aggregate,
+            scene_id,
+            *second_background.node_id,
+            "asset-bob") == UpdateResult::changed);
+  CHECK(timeline_ids(scene) == std::vector<std::string>({
+      first,
+      *first_background.node_id,
+      between,
+      *second_background.node_id,
+      second}));
+
+  const std::string before_switch = *vnengine::add_dialogue(
+      aggregate.project,
+      ids,
+      scene_id,
+      "旁白",
+      "即将切换",
+      std::nullopt,
+      *second_background.node_id);
+  CHECK(timeline_ids(scene) == std::vector<std::string>({
+      first,
+      *first_background.node_id,
+      between,
+      before_switch,
+      *second_background.node_id,
+      second}));
+
+  // Preview semantics are a pure fold: static visuals initialize the value;
+  // each BackgroundNode replaces it for all following dialogue nodes.
+  std::optional<std::string> active = scene.visuals.background_asset_id;
+  std::vector<std::string> dialogue_backgrounds;
+  for (const vnengine::SceneNode& node : scene.nodes) {
+    if (const auto* background = std::get_if<vnengine::BackgroundNode>(&node)) {
+      active = background->asset_id;
+    } else {
+      dialogue_backgrounds.push_back(active.value_or("none"));
+    }
+  }
+  CHECK(dialogue_backgrounds == std::vector<std::string>({
+      "asset-background", "asset-alice", "asset-alice", "asset-bob"}));
+
+  CHECK(vnengine::update_background_node(
+            aggregate,
+            scene_id,
+            *first_background.node_id,
+            "asset-bob") == UpdateResult::changed);
+  CHECK(vnengine::update_background_node(
+            aggregate,
+            scene_id,
+            *first_background.node_id,
+            "asset-bob") == UpdateResult::unchanged);
+
+  const vnengine::ProjectAggregate before_failures = aggregate;
+  CHECK(vnengine::update_background_node(
+            aggregate,
+            scene_id,
+            *first_background.node_id,
+            "asset-music") == UpdateResult::asset_not_image);
+  CHECK(aggregate == before_failures);
+
+  CHECK(vnengine::update_background_node(
+            aggregate,
+            scene_id,
+            *first_background.node_id,
+            std::nullopt) == UpdateResult::changed);
+  CHECK(!background_at(scene, 1).asset_id.has_value());
+  CHECK(vnengine::update_background_node(
+            aggregate,
+            scene_id,
+            *first_background.node_id,
+            std::nullopt) == UpdateResult::unchanged);
+
+  // Legacy dialogue operations still participate in the unified timeline:
+  // they can move a Dialogue across, or anchor it to, a BackgroundNode.
+  const std::vector<vnengine::SceneNode> before_legacy_operations =
+      scene.nodes;
+  CHECK(vnengine::move_dialogue(
+      aggregate.project, scene_id, second, -1));
+  CHECK(timeline_ids(scene) == std::vector<std::string>({
+      first,
+      *first_background.node_id,
+      between,
+      before_switch,
+      second,
+      *second_background.node_id}));
+  scene.nodes = before_legacy_operations;
+
+  CHECK(vnengine::reorder_dialogue(
+      aggregate.project, scene_id, second, *second_background.node_id));
+  CHECK(timeline_ids(scene) == std::vector<std::string>({
+      first,
+      *first_background.node_id,
+      between,
+      before_switch,
+      second,
+      *second_background.node_id}));
+  scene.nodes = before_legacy_operations;
+
+  CHECK(vnengine::reorder_dialogues(
+      aggregate.project,
+      scene_id,
+      {between, first},
+      *second_background.node_id));
+  CHECK(timeline_ids(scene) == std::vector<std::string>({
+      *first_background.node_id,
+      before_switch,
+      first,
+      between,
+      *second_background.node_id,
+      second}));
+  scene.nodes = before_legacy_operations;
+
+  // Dialogue-only compatibility methods must never interpret a BackgroundNode
+  // as a Dialogue, including an otherwise valid-looking batch request.
+  CHECK(!vnengine::delete_dialogue(
+      aggregate.project, scene_id, *first_background.node_id));
+  CHECK(!vnengine::delete_dialogues(
+      aggregate.project, scene_id, {first, *first_background.node_id}));
+  CHECK(scene.nodes == before_legacy_operations);
+  CHECK(!vnengine::move_dialogue(
+      aggregate.project, scene_id, *first_background.node_id, 1));
+  CHECK(!vnengine::reorder_dialogue(
+      aggregate.project, scene_id, *first_background.node_id, std::nullopt));
+
+  // Generic operations support a mixed selection while preserving the
+  // authoritative order of selected nodes, independent of payload order.
+  CHECK(vnengine::reorder_scene_nodes(
+      aggregate.project,
+      scene_id,
+      {second, *first_background.node_id},
+      first));
+  CHECK(timeline_ids(scene) == std::vector<std::string>({
+      *first_background.node_id,
+      second,
+      first,
+      between,
+      before_switch,
+      *second_background.node_id}));
+
+  const vnengine::Project before_invalid_reorder = aggregate.project;
+  CHECK(!vnengine::reorder_scene_nodes(
+      aggregate.project, scene_id, {first, "missing"}, std::nullopt));
+  CHECK(aggregate.project == before_invalid_reorder);
+  CHECK(vnengine::delete_scene_nodes(
+      aggregate.project,
+      scene_id,
+      {between, *second_background.node_id}));
+  CHECK(vnengine::find_dialogue(scene, between) == nullptr);
+  CHECK(vnengine::find_background_node(
+            scene, *second_background.node_id) == nullptr);
+  CHECK(!vnengine::validate_project_aggregate(aggregate).has_value());
+}
+
+void rejects_invalid_background_timeline_references() {
+  vnengine::ProjectAggregate valid = visual_aggregate();
+  valid.project.scenes[0].nodes.push_back(vnengine::BackgroundNode{
+      .id = "background-node",
+      .asset_id = std::nullopt,
+  });
+  CHECK(!vnengine::validate_project_aggregate(valid).has_value());
+
+  std::get<vnengine::BackgroundNode>(valid.project.scenes[0].nodes[0])
+      .asset_id = "asset-alice";
+  CHECK(!vnengine::validate_project_aggregate(valid).has_value());
+
+  vnengine::ProjectAggregate invalid = valid;
+  std::get<vnengine::BackgroundNode>(invalid.project.scenes[0].nodes[0])
+      .asset_id = "missing";
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+
+  invalid = valid;
+  std::get<vnengine::BackgroundNode>(invalid.project.scenes[0].nodes[0])
+      .asset_id = "asset-music";
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+
+  invalid = valid;
+  std::get<vnengine::BackgroundNode>(invalid.project.scenes[0].nodes[0])
+      .id = invalid.project.id;
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+
+  invalid = valid;
+  std::get<vnengine::BackgroundNode>(invalid.project.scenes[0].nodes[0])
+      .id.clear();
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+}
+
 void rejects_invalid_asset_manifests() {
   const vnengine::ProjectAggregate valid = visual_aggregate();
 
@@ -644,6 +902,83 @@ void normalizes_committed_dialogue_content() {
              .has_value());
 }
 
+void manages_character_timeline_nodes_atomically() {
+  SequenceIdGenerator ids;
+  vnengine::ProjectAggregate aggregate =
+      vnengine::create_empty_project_aggregate(ids);
+  const std::string scene_id = aggregate.project.entry_scene_id;
+  aggregate.assets = {
+      {.id = "portrait", .type = vnengine::AssetType::image,
+       .relative_path = "assets/images/portrait.png",
+       .display_name = "Alice"},
+      {.id = "video", .type = vnengine::AssetType::video,
+       .relative_path = "assets/videos/clip.mp4", .display_name = "Clip"},
+  };
+
+  const auto added = vnengine::add_character_node(
+      aggregate, ids, scene_id);
+  CHECK(added.status == vnengine::AddCharacterNodeStatus::added);
+  CHECK(added.node_id.has_value());
+  const vnengine::Scene& scene = aggregate.project.scenes[0];
+  const vnengine::CharacterNode& empty = character_at(scene, 0);
+  CHECK(!empty.asset_id.has_value());
+  CHECK(empty.slot == vnengine::CharacterSlot::center);
+  CHECK(empty.layer == 1);
+
+  CHECK(vnengine::update_character_node(
+            aggregate,
+            scene_id,
+            *added.node_id,
+            "portrait",
+            vnengine::CharacterSlot::left,
+            3) == vnengine::UpdateCharacterNodeResult::changed);
+  const vnengine::CharacterNode& updated = character_at(scene, 0);
+  CHECK(updated.asset_id == "portrait");
+  CHECK(updated.slot == vnengine::CharacterSlot::left);
+  CHECK(updated.layer == 3);
+  CHECK(vnengine::update_character_node(
+            aggregate,
+            scene_id,
+            *added.node_id,
+            "portrait",
+            vnengine::CharacterSlot::left,
+            3) == vnengine::UpdateCharacterNodeResult::unchanged);
+
+  const vnengine::ProjectAggregate before_failures = aggregate;
+  CHECK(vnengine::update_character_node(
+            aggregate,
+            scene_id,
+            *added.node_id,
+            "missing",
+            vnengine::CharacterSlot::right,
+            2) == vnengine::UpdateCharacterNodeResult::asset_not_found);
+  CHECK(vnengine::update_character_node(
+            aggregate,
+            scene_id,
+            *added.node_id,
+            "video",
+            vnengine::CharacterSlot::right,
+            2) == vnengine::UpdateCharacterNodeResult::asset_not_image);
+  CHECK(vnengine::update_character_node(
+            aggregate,
+            scene_id,
+            *added.node_id,
+            "portrait",
+            vnengine::CharacterSlot::right,
+            11) == vnengine::UpdateCharacterNodeResult::invalid_layer);
+  CHECK(aggregate == before_failures);
+
+  CHECK(vnengine::update_character_node(
+            aggregate,
+            scene_id,
+            *added.node_id,
+            std::nullopt,
+            vnengine::CharacterSlot::right,
+            3) == vnengine::UpdateCharacterNodeResult::changed);
+  CHECK(!character_at(scene, 0).asset_id.has_value());
+  CHECK(!vnengine::validate_project_aggregate(aggregate).has_value());
+}
+
 }  // namespace
 
 int main() {
@@ -676,11 +1011,17 @@ int main() {
        validates_visual_references_and_stable_z_order},
       {"changes scene background only after validation",
        changes_scene_background_only_after_validation},
+      {"manages mixed background timeline atomically",
+       manages_mixed_background_timeline_atomically},
+      {"rejects invalid background timeline references",
+       rejects_invalid_background_timeline_references},
       {"rejects invalid asset manifests", rejects_invalid_asset_manifests},
       {"rejects invalid scene visuals atomically",
        rejects_invalid_scene_visuals_atomically},
       {"normalizes committed dialogue content",
        normalizes_committed_dialogue_content},
+      {"manages character timeline nodes atomically",
+       manages_character_timeline_nodes_atomically},
   };
 
   int failures = 0;

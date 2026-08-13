@@ -1,5 +1,8 @@
 import type { AssetDocument } from '../../../shared/projectTypes';
 
+export const VN_IMAGE_ASSET_DRAG_TYPE =
+  'application/x-vn-image-asset-id';
+
 type ResourcePanelProps = {
   assets: AssetDocument[];
   backgroundAssetId: string | null;
@@ -55,6 +58,7 @@ export function ResourcePanel({
             <button
               type="button"
               key={asset.id}
+              draggable={!isBusy}
               className={`resource-item${
                 asset.id === backgroundAssetId
                   ? ' is-background'
@@ -63,6 +67,14 @@ export function ResourcePanel({
               title={`将 ${asset.displayName} 设为当前场景背景`}
               aria-pressed={asset.id === backgroundAssetId}
               disabled={isBusy}
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = 'copy';
+                event.dataTransfer.setData(
+                  VN_IMAGE_ASSET_DRAG_TYPE,
+                  asset.id,
+                );
+                event.dataTransfer.setData('text/plain', asset.id);
+              }}
               onClick={() => void onSelectBackground(asset.id)}
             >
               {previewUrls[asset.id] ? (

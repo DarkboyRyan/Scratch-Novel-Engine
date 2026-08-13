@@ -106,6 +106,51 @@ const vnEngine: VnEngineApi = {
       method: 'dialogue.reorderMany',
       params,
     }),
+  addBackground: (params) =>
+    invokeEngine({
+      method: 'background.add',
+      params,
+    }),
+  updateBackground: (params) =>
+    invokeEngine({
+      method: 'background.update',
+      params,
+    }),
+  deleteBackground: (params) =>
+    invokeEngine({
+      method: 'background.delete',
+      params,
+    }),
+  reorderBackground: (params) =>
+    invokeEngine({
+      method: 'background.reorder',
+      params,
+    }),
+  addCharacter: (params) =>
+    invokeEngine({
+      method: 'character.add',
+      params,
+    }),
+  updateCharacter: (params) =>
+    invokeEngine({
+      method: 'character.update',
+      params,
+    }),
+  deleteTimelineNodes: (params) =>
+    invokeEngine({
+      method: 'timeline.deleteMany',
+      params,
+    }),
+  reorderTimelineNode: (params) =>
+    invokeEngine({
+      method: 'timeline.reorder',
+      params,
+    }),
+  reorderTimelineNodes: (params) =>
+    invokeEngine({
+      method: 'timeline.reorderMany',
+      params,
+    }),
 };
 
 type ProjectFileResultByAction = {

@@ -15,6 +15,18 @@ describe('backend request timeout', () => {
     ).toBeNull();
   });
 
+  it.each(['project.open', 'project.save'] as const)(
+    'does not abandon %s after it may still commit',
+    (method) => {
+      expect(
+        backendRequestTimeoutMs({
+          method,
+          params: { filePath: '/project/project.vn.json' },
+        }),
+      ).toBeNull();
+    },
+  );
+
   it('keeps ordinary JSON commands responsive', () => {
     expect(
       backendRequestTimeoutMs({

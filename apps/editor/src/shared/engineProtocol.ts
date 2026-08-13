@@ -1,4 +1,8 @@
-import type { AssetDocument, ProjectDocument } from './projectTypes';
+import type {
+  AssetDocument,
+  CharacterSlot,
+  ProjectDocument,
+} from './projectTypes';
 
 // C++、Electron Main、Preload 和 React 共同遵守的跨进程协议。
 export type EngineSessionState = {
@@ -22,6 +26,63 @@ export type AddDialogueParams = {
   beforeNodeId?: string | null;
   speaker?: string;
   text?: string;
+};
+
+export type AddBackgroundParams = {
+  sceneId: string;
+  afterNodeId?: string | null;
+  beforeNodeId?: string | null;
+};
+
+export type UpdateBackgroundParams = {
+  sceneId: string;
+  nodeId: string;
+  assetId: string | null;
+};
+
+export type AddCharacterParams = {
+  sceneId: string;
+  afterNodeId?: string | null;
+  beforeNodeId?: string | null;
+};
+
+export type UpdateCharacterParams = {
+  sceneId: string;
+  nodeId: string;
+  assetId: string | null;
+  slot: CharacterSlot;
+  layer: number;
+};
+
+export type DeleteBackgroundParams = {
+  sceneId: string;
+  nodeId: string;
+};
+
+export type ReorderBackgroundParams = {
+  sceneId: string;
+  nodeId: string;
+  // null 明确表示移动到当前场景末尾。
+  beforeNodeId: string | null;
+};
+
+export type TimelineDeleteManyParams = {
+  sceneId: string;
+  nodeIds: string[];
+};
+
+export type TimelineReorderParams = {
+  sceneId: string;
+  nodeId: string;
+  // null 明确表示移动到当前场景末尾。
+  beforeNodeId: string | null;
+};
+
+export type TimelineReorderManyParams = {
+  sceneId: string;
+  nodeIds: string[];
+  // null 明确表示把整个选择组移动到当前场景末尾。
+  beforeNodeId: string | null;
 };
 
 export type ReorderDialogueParams = {
@@ -59,6 +120,15 @@ export const ENGINE_METHODS = [
   'dialogue.move',
   'dialogue.reorder',
   'dialogue.reorderMany',
+  'background.add',
+  'background.update',
+  'background.delete',
+  'background.reorder',
+  'character.add',
+  'character.update',
+  'timeline.deleteMany',
+  'timeline.reorder',
+  'timeline.reorderMany',
 ] as const;
 
 export type EngineMethod = (typeof ENGINE_METHODS)[number];
@@ -105,6 +175,15 @@ export type EngineParamsByMethod = {
   };
   'dialogue.reorder': ReorderDialogueParams;
   'dialogue.reorderMany': ReorderDialoguesParams;
+  'background.add': AddBackgroundParams;
+  'background.update': UpdateBackgroundParams;
+  'background.delete': DeleteBackgroundParams;
+  'background.reorder': ReorderBackgroundParams;
+  'character.add': AddCharacterParams;
+  'character.update': UpdateCharacterParams;
+  'timeline.deleteMany': TimelineDeleteManyParams;
+  'timeline.reorder': TimelineReorderParams;
+  'timeline.reorderMany': TimelineReorderManyParams;
 };
 
 export type EngineInvocation = {
@@ -208,6 +287,33 @@ export type VnEngineApi = {
   ): Promise<EngineMutationResult>;
   reorderDialogues(
     params: ReorderDialoguesParams,
+  ): Promise<EngineMutationResult>;
+  addBackground(
+    params: AddBackgroundParams,
+  ): Promise<EngineMutationResult>;
+  updateBackground(
+    params: UpdateBackgroundParams,
+  ): Promise<EngineMutationResult>;
+  deleteBackground(
+    params: DeleteBackgroundParams,
+  ): Promise<EngineMutationResult>;
+  reorderBackground(
+    params: ReorderBackgroundParams,
+  ): Promise<EngineMutationResult>;
+  addCharacter(
+    params: AddCharacterParams,
+  ): Promise<EngineMutationResult>;
+  updateCharacter(
+    params: UpdateCharacterParams,
+  ): Promise<EngineMutationResult>;
+  deleteTimelineNodes(
+    params: TimelineDeleteManyParams,
+  ): Promise<EngineMutationResult>;
+  reorderTimelineNode(
+    params: TimelineReorderParams,
+  ): Promise<EngineMutationResult>;
+  reorderTimelineNodes(
+    params: TimelineReorderManyParams,
   ): Promise<EngineMutationResult>;
 };
 

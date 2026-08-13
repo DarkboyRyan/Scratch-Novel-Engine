@@ -411,6 +411,47 @@ export class AssetPreviewService {
     return true;
   }
 
+  async activateTemporaryProject(
+    projectFilePath: string,
+    result: EngineMutationResult,
+  ): Promise<boolean> {
+    const absoluteProjectFilePath = path.resolve(projectFilePath);
+    const active = this.activeProject;
+    if (
+      active?.projectFilePath === absoluteProjectFilePath &&
+      active.projectId === result.project.id
+    ) {
+      return result.assets.every((asset) => {
+        const privateAsset = active.assets.get(asset.id);
+        return (
+          privateAsset?.type === asset.type &&
+          privateAsset.displayName === asset.displayName
+        );
+      });
+    }
+
+    // An unsaved project can only acquire Assets through this window's import
+    // flow. If public Assets already exist but Main has no matching private
+    // map, fail closed rather than inventing a disk path.
+    if (result.assets.length !== 0) {
+      return false;
+    }
+
+    const projectRootPath = await realpath(
+      path.dirname(absoluteProjectFilePath),
+    );
+    this.activeProject = {
+      projectFilePath: absoluteProjectFilePath,
+      projectRootPath,
+      projectId: result.project.id,
+      assets: new Map(),
+      generationToken: freshGenerationToken(),
+      previewTokensByAssetId: new Map(),
+      assetIdsByPreviewToken: new Map(),
+    };
+    return true;
+  }
+
   registerImportedImage(
     projectFilePath: string,
     sourceFilePath: string,

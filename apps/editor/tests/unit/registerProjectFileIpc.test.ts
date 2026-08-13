@@ -17,6 +17,18 @@ const electronMocks = vi.hoisted(() => ({
   showSaveDialog: vi.fn(),
 }));
 
+vi.mock('../../src/main/project/ProjectStorageSession', () => ({
+  canonicalizeProjectFilePath: vi.fn(
+    async (filePath: string) => filePath,
+  ),
+  validateProjectFilePath: vi.fn((filePath: string) => {
+    const fileName = filePath.split('/').at(-1)?.toLowerCase() ?? '';
+    if (fileName.length <= '.vn.json'.length || !fileName.endsWith('.vn.json')) {
+      throw new Error('项目文件必须使用“名称.vn.json”格式');
+    }
+  }),
+}));
+
 vi.mock('electron', () => ({
   ipcMain: { handle: electronMocks.handle },
   dialog: {
@@ -72,6 +84,12 @@ function registerWithBackend(request = vi.fn()) {
     prepareProjectFile: vi.fn().mockResolvedValue(preparedPreview),
     activateProjectFile: vi.fn().mockResolvedValue(true),
   };
+  const projectStorageSession = {
+    backendSavePath: vi.fn(async (filePath: string) => filePath),
+    publishSavedProject: vi.fn().mockResolvedValue(undefined),
+    completeSuccessfulSave: vi.fn().mockResolvedValue(undefined),
+    discardTemporaryWorkspace: vi.fn().mockResolvedValue(undefined),
+  };
   const contexts = new Map([
     [
       7,
@@ -80,6 +98,7 @@ function registerWithBackend(request = vi.fn()) {
         backendClient: { request } as unknown as BackendClient,
         assetPreviewService,
         projectFileSession,
+        projectStorageSession,
         fileOperationCoordinator: new FileOperationCoordinator(),
       },
     ],
@@ -101,6 +120,7 @@ function registerWithBackend(request = vi.fn()) {
     request,
     editorWindow,
     assetPreviewService,
+    projectStorageSession,
     projectFileSession,
     openNewProjectWindow,
     handler: electronMocks.handle.mock.calls[0][1] as RegisteredHandler,
@@ -182,6 +202,27 @@ describe('project file IPC', () => {
     });
   });
 
+  it('opens a project with a custom basename and fixed .vn.json suffix', async () => {
+    const filePath = '/projects/My story/first-draft.vn.json';
+    electronMocks.showOpenDialog.mockResolvedValue({
+      canceled: false,
+      filePaths: [filePath],
+    });
+    const backendRequest = vi.fn().mockResolvedValue(projectResult);
+    const { handler } = registerWithBackend(backendRequest);
+
+    await expect(
+      handler(trustedEvent(), { action: 'open', params: {} }),
+    ).resolves.toMatchObject({
+      cancelled: false,
+      session: { filePath },
+    });
+    expect(backendRequest).toHaveBeenCalledWith({
+      method: 'project.open',
+      params: { filePath },
+    });
+  });
+
   it('keeps an opened project coherent when optional preview activation fails', async () => {
     const filePath = '/projects/My story/project.vn.json';
     electronMocks.showOpenDialog.mockResolvedValue({
@@ -212,6 +253,34 @@ describe('project file IPC', () => {
     );
   });
 
+  it('keeps an opened project committed when old workspace cleanup fails', async () => {
+    const filePath = '/projects/My story/project.vn.json';
+    electronMocks.showOpenDialog.mockResolvedValue({
+      canceled: false,
+      filePaths: [filePath],
+    });
+    const backendRequest = vi.fn().mockResolvedValue(projectResult);
+    const {
+      handler,
+      projectFileSession,
+      projectStorageSession,
+    } = registerWithBackend(backendRequest);
+    projectStorageSession.discardTemporaryWorkspace.mockRejectedValue(
+      new Error('simulated cleanup failure'),
+    );
+
+    await expect(
+      handler(trustedEvent(), { action: 'open', params: {} }),
+    ).resolves.toMatchObject({
+      cancelled: false,
+      session: { filePath, isDirty: false },
+    });
+    expect(projectFileSession.snapshot()).toMatchObject({
+      filePath,
+      isDirty: false,
+    });
+  });
+
   it('saves an unsaved project to a native-dialog path', async () => {
     electronMocks.showSaveDialog.mockResolvedValue({
       canceled: false,
@@ -233,6 +302,112 @@ describe('project file IPC', () => {
       method: 'project.save',
       params: { filePath: '/projects/My story/project.vn.json' },
     });
+  });
+
+  it('publishes a custom filename from a private C++ working manifest', async () => {
+    const filePath = '/projects/My story/my-ending.vn.json';
+    const backendFilePath =
+      '/private/temp/workspace/project.vn.json';
+    electronMocks.showSaveDialog.mockResolvedValue({
+      canceled: false,
+      filePath,
+    });
+    const backendRequest = vi.fn().mockResolvedValue(projectResult);
+    const { handler, projectStorageSession } =
+      registerWithBackend(backendRequest);
+    projectStorageSession.backendSavePath.mockResolvedValue(
+      backendFilePath,
+    );
+
+    await expect(
+      handler(trustedEvent(), { action: 'save', params: {} }),
+    ).resolves.toMatchObject({
+      cancelled: false,
+      session: { filePath, isDirty: false },
+    });
+    expect(backendRequest).toHaveBeenCalledWith({
+      method: 'project.save',
+      params: { filePath: backendFilePath },
+    });
+    expect(
+      projectStorageSession.publishSavedProject,
+    ).toHaveBeenCalledWith(backendFilePath, filePath);
+    expect(
+      projectStorageSession.completeSuccessfulSave,
+    ).toHaveBeenCalledWith(backendFilePath);
+  });
+
+  it('keeps a successful save committed when workspace cleanup fails', async () => {
+    const filePath = '/projects/My story/my-ending.vn.json';
+    const backendFilePath =
+      '/private/temp/workspace/project.vn.json';
+    electronMocks.showSaveDialog.mockResolvedValue({
+      canceled: false,
+      filePath,
+    });
+    const backendRequest = vi.fn().mockResolvedValue(projectResult);
+    const {
+      handler,
+      projectFileSession,
+      projectStorageSession,
+    } = registerWithBackend(backendRequest);
+    projectStorageSession.backendSavePath.mockResolvedValue(
+      backendFilePath,
+    );
+    projectStorageSession.completeSuccessfulSave.mockRejectedValue(
+      new Error('simulated cleanup failure'),
+    );
+
+    await expect(
+      handler(trustedEvent(), { action: 'save', params: {} }),
+    ).resolves.toMatchObject({
+      cancelled: false,
+      session: { filePath, isDirty: false },
+    });
+    expect(projectFileSession.snapshot()).toMatchObject({
+      filePath,
+      isDirty: false,
+    });
+  });
+
+  it('keeps the logical session dirty when publication fails after the C++ working save', async () => {
+    const filePath = '/projects/My story/my-ending.vn.json';
+    const backendFilePath =
+      '/private/temp/workspace/project.vn.json';
+    electronMocks.showSaveDialog.mockResolvedValue({
+      canceled: false,
+      filePath,
+    });
+    const backendRequest = vi.fn().mockResolvedValue(projectResult);
+    const {
+      handler,
+      projectFileSession,
+      projectStorageSession,
+    } = registerWithBackend(backendRequest);
+    projectFileSession.updateEngineSession({
+      revision: 2,
+      savedRevision: null,
+      isDirty: true,
+    });
+    projectStorageSession.backendSavePath.mockResolvedValue(
+      backendFilePath,
+    );
+    projectStorageSession.publishSavedProject.mockRejectedValue(
+      new Error('/private/path must stay in Main'),
+    );
+
+    await expect(
+      handler(trustedEvent(), { action: 'save', params: {} }),
+    ).rejects.toThrow('原项目和临时资源均已保留');
+    expect(projectFileSession.snapshot()).toEqual({
+      filePath: null,
+      revision: 2,
+      savedRevision: null,
+      isDirty: true,
+    });
+    expect(
+      projectStorageSession.completeSuccessfulSave,
+    ).not.toHaveBeenCalled();
   });
 
   it('reuses the current path on later saves without another dialog', async () => {
@@ -323,7 +498,7 @@ describe('project file IPC', () => {
     });
     await expect(
       handler(trustedEvent(), { action: 'open', params: {} }),
-    ).rejects.toThrow('请选择名为 project.vn.json');
+    ).rejects.toThrow('名称.vn.json');
     expect(request).not.toHaveBeenCalled();
   });
 

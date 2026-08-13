@@ -39,7 +39,15 @@ export function registerEngineIpc(
         session,
       );
 
-      return result;
+      const publicResult = {
+        ...result,
+        session: {
+          revision: session.revision,
+          savedRevision: session.savedRevision,
+          isDirty: session.isDirty,
+        },
+      };
+      return publicResult;
     },
   );
 }

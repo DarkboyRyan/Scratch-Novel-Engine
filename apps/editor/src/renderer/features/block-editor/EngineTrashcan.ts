@@ -1,90 +1,140 @@
 import * as Blockly from 'blockly';
 
 import { DIALOGUE_BLOCK_TYPE } from './blocks/dialogueBlock';
+import { BACKGROUND_BLOCK_TYPE } from './blocks/backgroundBlock';
+import { CHARACTER_BLOCK_TYPE } from './blocks/characterBlock';
 
 type DeleteRequest = (draggedNodeId: string | null) => void;
-type PersistedDialogueCheck = (nodeId: string) => boolean;
+type PersistedNodeCheck = (nodeId: string) => boolean;
 
 // Blockly 原生垃圾桶会先从画布删除，再通知监听器。这里改成
 // backend-first：先让积木回到原位，再请求 C++ 删除并等待新快照。
 export class EngineTrashcan extends Blockly.Trashcan {
   private suppressClickUntil = 0;
-  private hasDialogueHover = false;
+  private hasStoryBlockHover = false;
 
   constructor(
     workspace: Blockly.WorkspaceSvg,
     private readonly requestDelete: DeleteRequest,
-    private readonly isPersistedDialogue: PersistedDialogueCheck,
+    private readonly isPersistedNode: PersistedNodeCheck,
   ) {
     super(workspace);
   }
 
-  private isDialogue(
+  override createDom(): SVGElement {
+    const group = super.createDom();
+
+    // Blockly's stock trashcan is a clipped sprite sheet. It can look like an
+    // unrelated/broken image when the media path is unavailable in a packaged
+    // Electron build. Replace only that artwork with an inline SVG bin while
+    // keeping Blockly's positioning, focus and drag-target behaviour.
+    group
+      .querySelectorAll('image, clipPath, .blocklyTrashLid')
+      .forEach((element) => element.remove());
+
+    const body = Blockly.utils.dom.createSvgElement<SVGGElement>(
+      'g',
+      { class: 'vn-engine-trash-body', 'aria-hidden': 'true' },
+      group,
+    );
+    Blockly.utils.dom.createSvgElement<SVGPathElement>(
+      'path',
+      { d: 'M11 18h25l-3 39H14z' },
+      body,
+    );
+    for (const x of [18, 24, 30]) {
+      Blockly.utils.dom.createSvgElement<SVGLineElement>(
+        'line',
+        { x1: x, y1: 25, x2: x, y2: 50 },
+        body,
+      );
+    }
+
+    const lid = Blockly.utils.dom.createSvgElement<SVGGElement>(
+      'g',
+      {
+        class: 'blocklyTrashLid vn-engine-trash-lid',
+        'aria-hidden': 'true',
+      },
+      group,
+    );
+    Blockly.utils.dom.createSvgElement<SVGPathElement>(
+      'path',
+      { d: 'M17 6h13l2 5h7v6H8v-6h7z' },
+      lid,
+    );
+
+    return group;
+  }
+
+  private isStoryBlock(
     draggable: Blockly.IDraggable,
   ): draggable is Blockly.BlockSvg {
     return (
       draggable instanceof Blockly.BlockSvg &&
-      draggable.type === DIALOGUE_BLOCK_TYPE
+      (draggable.type === DIALOGUE_BLOCK_TYPE ||
+        draggable.type === BACKGROUND_BLOCK_TYPE ||
+        draggable.type === CHARACTER_BLOCK_TYPE)
     );
   }
 
   override wouldDelete(draggable: Blockly.IDraggable): boolean {
-    const isDialogue = this.isDialogue(draggable);
-    this.updateWouldDelete_(isDialogue);
+    const isStoryBlock = this.isStoryBlock(draggable);
+    this.updateWouldDelete_(isStoryBlock);
 
     // 工具箱中的临时积木尚未进入 C++，可交给 Blockly 原生销毁；
     // 正式积木必须等待 backend-first 删除成功后重绘。
     return (
-      isDialogue &&
-      !this.isPersistedDialogue(draggable.id)
+      isStoryBlock &&
+      !this.isPersistedNode(draggable.id)
     );
   }
 
   override shouldPreventMove(draggable: Blockly.IDraggable): boolean {
     return (
-      this.isDialogue(draggable) &&
-      this.isPersistedDialogue(draggable.id)
+      this.isStoryBlock(draggable) &&
+      this.isPersistedNode(draggable.id)
     );
   }
 
   override onDragEnter(draggable: Blockly.IDraggable): void {
     super.onDragEnter(draggable);
-    this.hasDialogueHover = this.isDialogue(draggable);
+    this.hasStoryBlockHover = this.isStoryBlock(draggable);
   }
 
   override onDragOver(draggable: Blockly.IDraggable): void {
-    this.hasDialogueHover = this.isDialogue(draggable);
-    this.setLidOpen(this.hasDialogueHover);
+    this.hasStoryBlockHover = this.isStoryBlock(draggable);
+    this.setLidOpen(this.hasStoryBlockHover);
   }
 
   override onDragExit(draggable: Blockly.IDraggable): void {
     super.onDragExit(draggable);
-    this.hasDialogueHover = false;
+    this.hasStoryBlockHover = false;
     this.setLidOpen(false);
   }
 
   override onDrop(draggable: Blockly.IDraggable): void {
     super.onDrop(draggable);
 
-    if (!this.isDialogue(draggable)) {
+    if (!this.isStoryBlock(draggable)) {
       return;
     }
 
-    this.hasDialogueHover = false;
+    this.hasStoryBlockHover = false;
     this.setLidOpen(false);
     this.suppressClickUntil = Math.max(
       this.suppressClickUntil,
       performance.now() + 250,
     );
 
-    if (this.isPersistedDialogue(draggable.id)) {
+    if (this.isPersistedNode(draggable.id)) {
       this.requestDelete(draggable.id);
     }
   }
 
   override click(): void {
     if (
-      this.hasDialogueHover ||
+      this.hasStoryBlockHover ||
       performance.now() < this.suppressClickUntil
     ) {
       return;

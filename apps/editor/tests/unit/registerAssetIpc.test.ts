@@ -71,7 +71,26 @@ function registerWithBackend(request = vi.fn()) {
         ? 'vn-asset://image/token/asset-1'
         : null,
     ),
+    activateTemporaryProject: vi.fn().mockResolvedValue(true),
     registerImportedImage: vi.fn(() => true),
+  };
+  const projectStorageSession = {
+    assetImportLocation: vi.fn(
+      async (filePath: string | null) =>
+        filePath
+          ? {
+              backendProjectFilePath: filePath,
+              previewProjectFilePath: filePath,
+              isTemporary: false,
+            }
+          : {
+              backendProjectFilePath:
+                '/private/temp/workspace/project.vn.json',
+              previewProjectFilePath:
+                '/private/temp/workspace/project.vn.json',
+              isTemporary: true,
+            },
+    ),
   };
   const contexts = new Map([
     [
@@ -81,6 +100,7 @@ function registerWithBackend(request = vi.fn()) {
         backendClient: { request } as unknown as BackendClient,
         assetPreviewService,
         projectFileSession,
+        projectStorageSession,
         fileOperationCoordinator,
       },
     ],
@@ -99,6 +119,7 @@ function registerWithBackend(request = vi.fn()) {
   return {
     request,
     assetPreviewService,
+    projectStorageSession,
     projectFileSession,
     fileOperationCoordinator,
     handler: electronMocks.handle.mock.calls[0][1] as RegisteredHandler,
@@ -139,17 +160,93 @@ describe('asset IPC', () => {
     expect(electronMocks.showOpenDialog).not.toHaveBeenCalled();
   });
 
-  it('requires the project to be saved before opening a dialog', async () => {
-    const { handler, request } = registerWithBackend();
+  it('imports into private temporary storage while the project is unsaved', async () => {
+    const sourceFilePath = '/Users/example/Pictures/portrait.png';
+    const temporaryProjectFilePath =
+      '/private/temp/workspace/project.vn.json';
+    electronMocks.showOpenDialog.mockResolvedValue({
+      canceled: false,
+      filePaths: [sourceFilePath],
+    });
+    const beforeImport = {
+      ...projectResult,
+      assets: [],
+      assetId: undefined,
+      session: {
+        revision: 2,
+        savedRevision: null,
+        isDirty: true,
+      },
+    };
+    const backendRequest = vi
+      .fn()
+      .mockResolvedValueOnce(beforeImport)
+      .mockResolvedValueOnce(beforeImport)
+      .mockResolvedValueOnce(projectResult);
+    const {
+      handler,
+      assetPreviewService,
+      projectStorageSession,
+      projectFileSession,
+    } = registerWithBackend(backendRequest);
+
+    const response = await handler(trustedEvent(), {
+      action: 'import-image',
+      params: {},
+    });
+
+    expect(response).toMatchObject({
+      status: 'imported',
+      result: {
+        session: {
+          revision: 3,
+          savedRevision: null,
+          isDirty: true,
+        },
+      },
+    });
+    expect(JSON.stringify(response)).not.toContain(sourceFilePath);
+    expect(JSON.stringify(response)).not.toContain(
+      temporaryProjectFilePath,
+    );
+    expect(projectStorageSession.assetImportLocation).toHaveBeenCalledWith(
+      null,
+    );
+    expect(
+      assetPreviewService.activateTemporaryProject,
+    ).toHaveBeenCalledWith(temporaryProjectFilePath, beforeImport);
+    expect(backendRequest).toHaveBeenLastCalledWith({
+      method: 'asset.import',
+      params: {
+        sourceFilePath,
+        projectFilePath: temporaryProjectFilePath,
+      },
+    });
+    expect(projectFileSession.snapshot()).toMatchObject({
+      filePath: null,
+      savedRevision: null,
+      isDirty: true,
+    });
+  });
+
+  it('does not create temporary storage when unsaved import is cancelled', async () => {
+    electronMocks.showOpenDialog.mockResolvedValue({
+      canceled: true,
+      filePaths: [],
+    });
+    const backendRequest = vi.fn().mockResolvedValue(projectResult);
+    const { handler, projectStorageSession } =
+      registerWithBackend(backendRequest);
 
     await expect(
       handler(trustedEvent(), {
         action: 'import-image',
         params: {},
       }),
-    ).resolves.toEqual({ status: 'project-not-saved' });
-    expect(electronMocks.showOpenDialog).not.toHaveBeenCalled();
-    expect(request).not.toHaveBeenCalled();
+    ).resolves.toEqual({ status: 'cancelled' });
+    expect(
+      projectStorageSession.assetImportLocation,
+    ).not.toHaveBeenCalled();
   });
 
   it('returns a discriminated cancellation without importing', async () => {
@@ -229,6 +326,55 @@ describe('asset IPC', () => {
       filePath: projectFilePath,
       ...projectResult.session,
     });
+  });
+
+  it('imports beside a custom manifest through C++ fixed-name path without exposing it', async () => {
+    const logicalProjectFilePath =
+      '/projects/story/custom-name.vn.json';
+    const backendProjectFilePath =
+      '/projects/story/project.vn.json';
+    const sourceFilePath = '/Users/example/Pictures/portrait.png';
+    electronMocks.showOpenDialog.mockResolvedValue({
+      canceled: false,
+      filePaths: [sourceFilePath],
+    });
+    const backendRequest = vi.fn().mockResolvedValue(projectResult);
+    const {
+      handler,
+      projectFileSession,
+      projectStorageSession,
+      assetPreviewService,
+    } = registerWithBackend(backendRequest);
+    projectFileSession.markOpened(logicalProjectFilePath, {
+      revision: 2,
+      savedRevision: 2,
+      isDirty: false,
+    });
+    projectStorageSession.assetImportLocation.mockResolvedValue({
+      backendProjectFilePath,
+      previewProjectFilePath: logicalProjectFilePath,
+      isTemporary: false,
+    });
+
+    const response = await handler(trustedEvent(), {
+      action: 'import-image',
+      params: {},
+    });
+
+    expect(JSON.stringify(response)).not.toContain(
+      backendProjectFilePath,
+    );
+    expect(backendRequest).toHaveBeenLastCalledWith({
+      method: 'asset.import',
+      params: { sourceFilePath, projectFilePath: backendProjectFilePath },
+    });
+    expect(
+      assetPreviewService.registerImportedImage,
+    ).toHaveBeenCalledWith(
+      logicalProjectFilePath,
+      sourceFilePath,
+      expect.any(Object),
+    );
   });
 
   it('rejects path injection and untrusted frames before native I/O', async () => {

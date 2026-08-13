@@ -2,6 +2,8 @@ import * as Blockly from 'blockly';
 
 import type { SceneDocument } from '../../../shared/projectTypes';
 import { DIALOGUE_BLOCK_TYPE } from './blocks/dialogueBlock';
+import { BACKGROUND_BLOCK_TYPE } from './blocks/backgroundBlock';
+import { CHARACTER_BLOCK_TYPE } from './blocks/characterBlock';
 
 const LONG_PRESS_MS = 450;
 // Blockly 自己的鼠标手势阈值是 5px；这里略小，避免短拖结束后
@@ -89,16 +91,16 @@ export function createBlockSelectionController(
   const sceneNodeIds = () =>
     new Set(scene.nodes.map((node) => node.id));
 
-  const dialogueBlocks = () =>
-    workspace
-      .getBlocksByType(DIALOGUE_BLOCK_TYPE, false)
+  const storyBlocks = () =>
+    [DIALOGUE_BLOCK_TYPE, BACKGROUND_BLOCK_TYPE, CHARACTER_BLOCK_TYPE]
+      .flatMap((type) => workspace.getBlocksByType(type, false))
       .filter(
         (block): block is Blockly.BlockSvg =>
           block instanceof Blockly.BlockSvg,
       );
 
   const applySelection = () => {
-    for (const block of dialogueBlocks()) {
+    for (const block of storyBlocks()) {
       block
         .getSvgRoot()
         .classList.toggle(
@@ -170,7 +172,7 @@ export function createBlockSelectionController(
       const validNodeIds = sceneNodeIds();
       const nextSelection = new Set<string>();
 
-      for (const block of dialogueBlocks()) {
+      for (const block of storyBlocks()) {
         if (
           validNodeIds.has(block.id) &&
           rectanglesIntersect(

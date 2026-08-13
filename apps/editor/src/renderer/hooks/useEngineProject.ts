@@ -2,11 +2,20 @@ import { useEffect, useRef, useState } from 'react';
 
 import type { ImportImageResult } from '../../shared/assetProtocol';
 import type {
+  AddBackgroundParams,
+  AddCharacterParams,
   AddDialogueParams,
+  DeleteBackgroundParams,
   DeleteDialoguesParams,
   EngineMutationResult,
+  ReorderBackgroundParams,
   ReorderDialogueParams,
   ReorderDialoguesParams,
+  TimelineDeleteManyParams,
+  TimelineReorderManyParams,
+  TimelineReorderParams,
+  UpdateBackgroundParams,
+  UpdateCharacterParams,
 } from '../../shared/engineProtocol';
 import type {
   AssetDocument,
@@ -36,6 +45,42 @@ export type ReorderDialoguesAction = (
 
 export type DeleteDialoguesAction = (
   params: DeleteDialoguesParams,
+) => Promise<boolean>;
+
+export type AddBackgroundAction = (
+  params: AddBackgroundParams,
+) => Promise<boolean>;
+
+export type UpdateBackgroundAction = (
+  params: UpdateBackgroundParams,
+) => Promise<boolean>;
+
+export type AddCharacterAction = (
+  params: AddCharacterParams,
+) => Promise<boolean>;
+
+export type UpdateCharacterAction = (
+  params: UpdateCharacterParams,
+) => Promise<boolean>;
+
+export type DeleteBackgroundAction = (
+  params: DeleteBackgroundParams,
+) => Promise<boolean>;
+
+export type ReorderBackgroundAction = (
+  params: ReorderBackgroundParams,
+) => Promise<boolean>;
+
+export type DeleteTimelineNodesAction = (
+  params: TimelineDeleteManyParams,
+) => Promise<boolean>;
+
+export type ReorderTimelineNodeAction = (
+  params: TimelineReorderParams,
+) => Promise<boolean>;
+
+export type ReorderTimelineNodesAction = (
+  params: TimelineReorderManyParams,
 ) => Promise<boolean>;
 
 export type OpenProjectStatus =
@@ -259,6 +304,96 @@ export function useEngineProject() {
     return result !== null;
   }
 
+  async function addBackground(
+    params: AddBackgroundParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.addBackground(params),
+    );
+
+    return result !== null;
+  }
+
+  async function updateBackground(
+    params: UpdateBackgroundParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.updateBackground(params),
+    );
+
+    return result !== null;
+  }
+
+  async function deleteBackground(
+    params: DeleteBackgroundParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.deleteBackground(params),
+    );
+
+    return result !== null;
+  }
+
+  async function reorderBackground(
+    params: ReorderBackgroundParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.reorderBackground(params),
+    );
+
+    return result !== null;
+  }
+
+  async function addCharacter(
+    params: AddCharacterParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.addCharacter(params),
+    );
+
+    return result !== null;
+  }
+
+  async function updateCharacter(
+    params: UpdateCharacterParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.updateCharacter(params),
+    );
+
+    return result !== null;
+  }
+
+  async function deleteTimelineNodes(
+    params: TimelineDeleteManyParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.deleteTimelineNodes(params),
+    );
+
+    return result !== null;
+  }
+
+  async function reorderTimelineNode(
+    params: TimelineReorderParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.reorderTimelineNode(params),
+    );
+
+    return result !== null;
+  }
+
+  async function reorderTimelineNodes(
+    params: TimelineReorderManyParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.reorderTimelineNodes(params),
+    );
+
+    return result !== null;
+  }
+
   async function createProject(name?: string): Promise<boolean> {
     if (fileOperationInProgress.current) {
       return false;
@@ -380,11 +515,6 @@ export function useEngineProject() {
       await waitForEngineActions();
       const outcome = await window.vnAssets.importImage();
 
-      if (outcome.status === 'project-not-saved') {
-        setEngineMessage('请先保存项目，再导入图片');
-        return outcome.status;
-      }
-
       if (outcome.status === 'cancelled') {
         return outcome.status;
       }
@@ -416,6 +546,15 @@ export function useEngineProject() {
     reorderDialogue,
     reorderDialogues,
     deleteDialogues,
+    addBackground,
+    updateBackground,
+    deleteBackground,
+    reorderBackground,
+    addCharacter,
+    updateCharacter,
+    deleteTimelineNodes,
+    reorderTimelineNode,
+    reorderTimelineNodes,
     createProject,
     openProject,
     saveProject,
