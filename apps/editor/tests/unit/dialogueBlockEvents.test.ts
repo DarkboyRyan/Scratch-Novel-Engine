@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest';
 
 import type { SceneDocument } from '../../src/shared/projectTypes';
 import { DIALOGUE_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/dialogueBlock';
+import { BACKGROUND_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/backgroundBlock';
+import { CHARACTER_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/characterBlock';
+import { SCENE_JUMP_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/sceneJumpBlock';
 import {
   collectDialogueFieldDrafts,
   getDialogueFieldUpdate,
@@ -14,6 +17,7 @@ const scene: SceneDocument = {
   schemaVersion: 1,
   id: 'scene-1',
   name: '场景 1',
+  backgroundAssetId: null,
   nodes: [
     {
       id: 'node-1',
@@ -156,6 +160,33 @@ describe('getDroppedNewDialogueBlock', () => {
       ),
     ).toBeNull();
   });
+
+  it('does not mistake a new background block for a dialogue', () => {
+    const block = {
+      ...createDialogueBlock('temporary-background', 'node-2'),
+      type: BACKGROUND_BLOCK_TYPE,
+    } as Blockly.BlockSvg;
+
+    expect(
+      getDroppedNewDialogueBlock(
+        createMoveEvent(block.id),
+        createWorkspace(block),
+        scene,
+      ),
+    ).toBeNull();
+  });
+
+  it('does not mistake a new scene jump block for a dialogue', () => {
+    const block = {
+      ...createDialogueBlock('temporary-scene-jump', 'node-2'),
+      type: SCENE_JUMP_BLOCK_TYPE,
+    } as Blockly.BlockSvg;
+    expect(getDroppedNewDialogueBlock(
+      createMoveEvent(block.id),
+      createWorkspace(block),
+      scene,
+    )).toBeNull();
+  });
 });
 
 describe('getDialogueFieldUpdate', () => {
@@ -271,5 +302,63 @@ describe('getReorderedDialogueBlock', () => {
         scene,
       ),
     ).toBeNull();
+  });
+
+  it('reorders a persisted background node in the same timeline', () => {
+    const mixedScene: SceneDocument = {
+      ...scene,
+      nodes: [
+        scene.nodes[0],
+        { id: 'background-1', type: 'background', assetId: 'image-1' },
+        scene.nodes[1],
+      ],
+    };
+    const block = {
+      ...createDialogueBlock('background-1', 'node-1'),
+      type: BACKGROUND_BLOCK_TYPE,
+    } as Blockly.BlockSvg;
+
+    expect(
+      getReorderedDialogueBlock(
+        createMoveEvent(block.id),
+        createWorkspace(block),
+        mixedScene,
+      ),
+    ).toEqual({
+      nodeId: 'background-1',
+      beforeNodeId: 'node-1',
+    });
+  });
+
+  it('reorders a persisted character node in the same timeline', () => {
+    const mixedScene: SceneDocument = {
+      ...scene,
+      nodes: [
+        scene.nodes[0],
+        {
+          id: 'character-1',
+          type: 'character',
+          assetId: 'image-1',
+          slot: 'left',
+          layer: 2,
+        },
+        scene.nodes[1],
+      ],
+    };
+    const block = {
+      ...createDialogueBlock('character-1', 'node-1'),
+      type: CHARACTER_BLOCK_TYPE,
+    } as Blockly.BlockSvg;
+
+    expect(
+      getReorderedDialogueBlock(
+        createMoveEvent(block.id),
+        createWorkspace(block),
+        mixedScene,
+      ),
+    ).toEqual({
+      nodeId: 'character-1',
+      beforeNodeId: 'node-1',
+    });
   });
 });

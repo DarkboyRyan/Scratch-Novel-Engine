@@ -1,4 +1,5 @@
 import { BrowserWindow, screen } from 'electron';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -42,6 +43,10 @@ export function createEditorWindow(
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // A separate in-memory Electron session gives every editor window its
+      // own vn-asset protocol handler and prevents one project from loading a
+      // capability URL created by another window.
+      partition: `vn-editor-${randomUUID()}`,
     },
   });
 

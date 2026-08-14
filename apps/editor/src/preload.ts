@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 import {
+  ASSET_IPC_CHANNEL,
+  type AssetInvocation,
+  type ImportAssetResult,
+  type VnAssetsApi,
+} from './shared/assetProtocol';
+import {
   ENGINE_IPC_CHANNEL,
   type EngineInvocation,
   type EngineMutationResult,
@@ -23,6 +29,32 @@ function invokeEngine(
   return ipcRenderer.invoke(ENGINE_IPC_CHANNEL, invocation);
 }
 
+function invokeAsset(
+  invocation: AssetInvocation,
+): Promise<ImportAssetResult | string | null> {
+  return ipcRenderer.invoke(ASSET_IPC_CHANNEL, invocation) as Promise<
+    ImportAssetResult | string | null
+  >;
+}
+
+const vnAssets: VnAssetsApi = {
+  importImage: () =>
+    invokeAsset({
+      action: 'import-image',
+      params: {},
+    }) as Promise<ImportAssetResult>,
+  importVideo: () =>
+    invokeAsset({
+      action: 'import-video',
+      params: {},
+    }) as Promise<ImportAssetResult>,
+  getPreviewUrl: (assetId) =>
+    invokeAsset({
+      action: 'get-preview-url',
+      params: { assetId },
+    }) as Promise<string | null>,
+};
+
 const vnEngine: VnEngineApi = {
   ensureProject: () =>
     invokeEngine({ method: 'project.ensure', params: {} }),
@@ -39,6 +71,11 @@ const vnEngine: VnEngineApi = {
     }),
   deleteScene: (sceneId) =>
     invokeEngine({ method: 'scene.delete', params: { sceneId } }),
+  setSceneBackground: (sceneId, assetId) =>
+    invokeEngine({
+      method: 'scene.setBackground',
+      params: { sceneId, assetId },
+    }),
   addDialogue: (params) =>
     invokeEngine({
       method: 'dialogue.add',
@@ -72,6 +109,61 @@ const vnEngine: VnEngineApi = {
   reorderDialogues: (params) =>
     invokeEngine({
       method: 'dialogue.reorderMany',
+      params,
+    }),
+  addBackground: (params) =>
+    invokeEngine({
+      method: 'background.add',
+      params,
+    }),
+  updateBackground: (params) =>
+    invokeEngine({
+      method: 'background.update',
+      params,
+    }),
+  deleteBackground: (params) =>
+    invokeEngine({
+      method: 'background.delete',
+      params,
+    }),
+  reorderBackground: (params) =>
+    invokeEngine({
+      method: 'background.reorder',
+      params,
+    }),
+  addCharacter: (params) =>
+    invokeEngine({
+      method: 'character.add',
+      params,
+    }),
+  updateCharacter: (params) =>
+    invokeEngine({
+      method: 'character.update',
+      params,
+    }),
+  addSceneJump: (params) =>
+    invokeEngine({
+      method: 'sceneJump.add',
+      params,
+    }),
+  updateSceneJump: (params) =>
+    invokeEngine({
+      method: 'sceneJump.update',
+      params,
+    }),
+  deleteTimelineNodes: (params) =>
+    invokeEngine({
+      method: 'timeline.deleteMany',
+      params,
+    }),
+  reorderTimelineNode: (params) =>
+    invokeEngine({
+      method: 'timeline.reorder',
+      params,
+    }),
+  reorderTimelineNodes: (params) =>
+    invokeEngine({
+      method: 'timeline.reorderMany',
       params,
     }),
 };
@@ -117,5 +209,6 @@ const vnProjectFiles: VnProjectFilesApi = {
   },
 };
 
+contextBridge.exposeInMainWorld('vnAssets', vnAssets);
 contextBridge.exposeInMainWorld('vnEngine', vnEngine);
 contextBridge.exposeInMainWorld('vnProjectFiles', vnProjectFiles);

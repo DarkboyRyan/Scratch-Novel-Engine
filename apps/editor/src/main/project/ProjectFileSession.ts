@@ -1,10 +1,13 @@
 import type { EngineSessionState } from '../../shared/engineProtocol';
 import type { ProjectFileSessionSnapshot } from '../../shared/projectFileProtocol';
+import { PROJECT_FILE_NAME } from '../../shared/projectFileProtocol';
+import path from 'node:path';
 
-// 文件路径属于 Electron 窗口会话，revision 则由该窗口独享的 C++ 后端计算。
-// 二者合并后，Renderer 不需要也不能自行持有或构造本机路径。
+// 项目目录路径只属于 Electron Main 窗口会话，绝不进入公开 snapshot。
+// revision 则由该窗口独享的 C++ 后端计算。
 export class ProjectFileSession {
-  private filePath: string | null = null;
+  private projectRootPath: string | null = null;
+  private logicalSavedRevision: number | null = null;
   private engineSession: EngineSessionState = {
     revision: 0,
     savedRevision: null,
@@ -13,39 +16,70 @@ export class ProjectFileSession {
 
   snapshot(): ProjectFileSessionSnapshot {
     return {
-      filePath: this.filePath,
+      hasStorage: this.projectRootPath !== null,
+      projectFolderName:
+        this.projectRootPath === null
+          ? null
+          : path.basename(this.projectRootPath),
       ...this.engineSession,
     };
   }
 
+  getProjectRootPath(): string | null {
+    return this.projectRootPath;
+  }
+
+  getManifestPath(): string | null {
+    return this.projectRootPath === null
+      ? null
+      : path.join(this.projectRootPath, PROJECT_FILE_NAME);
+  }
+
   markCreated(engineSession: EngineSessionState): ProjectFileSessionSnapshot {
-    this.filePath = null;
-    this.engineSession = engineSession;
+    this.projectRootPath = null;
+    this.logicalSavedRevision = null;
+    this.applyEngineRevision(engineSession);
     return this.snapshot();
   }
 
   markOpened(
-    filePath: string,
+    projectRootPath: string,
     engineSession: EngineSessionState,
   ): ProjectFileSessionSnapshot {
-    this.filePath = filePath;
-    this.engineSession = engineSession;
+    this.projectRootPath = projectRootPath;
+    this.logicalSavedRevision =
+      engineSession.savedRevision ?? engineSession.revision;
+    this.applyEngineRevision(engineSession);
     return this.snapshot();
   }
 
   markSaved(
-    filePath: string,
+    projectRootPath: string,
     engineSession: EngineSessionState,
   ): ProjectFileSessionSnapshot {
-    this.filePath = filePath;
-    this.engineSession = engineSession;
+    this.projectRootPath = projectRootPath;
+    this.logicalSavedRevision = engineSession.revision;
+    this.applyEngineRevision(engineSession);
     return this.snapshot();
   }
 
   updateEngineSession(
     engineSession: EngineSessionState,
   ): ProjectFileSessionSnapshot {
-    this.engineSession = engineSession;
+    this.applyEngineRevision(engineSession);
     return this.snapshot();
+  }
+
+  private applyEngineRevision(engineSession: EngineSessionState): void {
+    // C++ may save to a Main-private working manifest before Electron has
+    // safely published it to the user's chosen file. Only mark the document
+    // logically saved after markOpened/markSaved commits that external path.
+    this.engineSession = {
+      revision: engineSession.revision,
+      savedRevision: this.logicalSavedRevision,
+      isDirty:
+        this.logicalSavedRevision === null ||
+        engineSession.revision !== this.logicalSavedRevision,
+    };
   }
 }

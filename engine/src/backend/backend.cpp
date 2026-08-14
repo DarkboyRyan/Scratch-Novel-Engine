@@ -2,13 +2,12 @@
 
 #include <cstdint>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
-#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -16,6 +15,7 @@
 #include <nlohmann/json.hpp>
 
 #include "atomic_file.hpp"
+#include "image_asset_import.hpp"
 #include "serialization.hpp"
 
 namespace vnengine::backend {
@@ -80,46 +80,35 @@ std::vector<std::string> required_unique_string_array(
   return values;
 }
 
-std::string read_project_file(const std::string& file_path) {
-  if (file_path.empty() || file_path.find('\0') != std::string::npos) {
-    throw ProtocolError(
-        "invalid_params", "params.filePath must not be empty");
+CharacterSlot required_character_slot(const Json& object) {
+  const std::string slot = required_string(object, "slot");
+  if (slot == "left") {
+    return CharacterSlot::left;
   }
+  if (slot == "center") {
+    return CharacterSlot::center;
+  }
+  if (slot == "right") {
+    return CharacterSlot::right;
+  }
+  throw ProtocolError(
+      "invalid_params", "params.slot must be left, center, or right");
+}
 
-  const std::filesystem::path path(file_path);
-  std::error_code error;
-  if (!std::filesystem::is_regular_file(path, error) || error) {
+int required_character_layer(const Json& object) {
+  if (!object.contains("layer") || !object.at("layer").is_number_integer()) {
     throw ProtocolError(
-        "project_file_read_failed", "project file could not be read");
+        "invalid_params", "params.layer must be an integer between 1 and 10");
   }
-
-  const std::uintmax_t file_size = std::filesystem::file_size(path, error);
-  if (error || file_size > kMaximumProjectFileBytes ||
-      file_size > static_cast<std::uintmax_t>(
-          std::numeric_limits<std::streamsize>::max())) {
-    throw ProtocolError(
-        "project_file_read_failed",
-        "project file is unavailable or exceeds the size limit");
+  try {
+    const int layer = object.at("layer").get<int>();
+    if (layer >= 1 && layer <= 10) {
+      return layer;
+    }
+  } catch (const Json::exception&) {
   }
-
-  std::ifstream input(path, std::ios::binary);
-  if (!input) {
-    throw ProtocolError(
-        "project_file_read_failed", "project file could not be opened");
-  }
-
-  std::string contents(static_cast<std::size_t>(file_size), '\0');
-  if (file_size > 0) {
-    input.read(
-        contents.data(),
-        static_cast<std::streamsize>(file_size));
-  }
-  if (!input || input.gcount() != static_cast<std::streamsize>(file_size) ||
-      input.peek() != std::char_traits<char>::eof()) {
-    throw ProtocolError(
-        "project_file_read_failed", "project file changed while being read");
-  }
-  return contents;
+  throw ProtocolError(
+      "invalid_params", "params.layer must be an integer between 1 and 10");
 }
 
 std::filesystem::path project_file_path(const std::string& file_path) {
@@ -140,21 +129,28 @@ std::filesystem::path project_file_path(const std::string& file_path) {
 
 Json success_response(
     const Json& id,
-    const std::optional<vnengine::Project>& project,
+    const std::optional<vnengine::ProjectAggregate>& aggregate,
     const std::uint64_t revision,
     const std::optional<std::uint64_t> saved_revision,
     const std::optional<std::string>& scene_id = std::nullopt,
-    const std::optional<std::string>& node_id = std::nullopt) {
+    const std::optional<std::string>& node_id = std::nullopt,
+    const std::optional<std::string>& asset_id = std::nullopt) {
   Json result{
       {"project",
-       project.has_value() ? project_to_json(*project) : Json(nullptr)},
+       aggregate.has_value()
+           ? project_to_json(aggregate->project)
+           : Json(nullptr)},
+      {"assets",
+       aggregate.has_value()
+           ? assets_to_renderer_json(aggregate->assets)
+           : Json::array()},
       {"session",
        {
            {"revision", revision},
            {"savedRevision",
             saved_revision.has_value() ? Json(*saved_revision) : Json(nullptr)},
            {"isDirty",
-            project.has_value() &&
+            aggregate.has_value() &&
                 (!saved_revision.has_value() ||
                  *saved_revision != revision)},
        }},
@@ -164,6 +160,9 @@ Json success_response(
   }
   if (node_id.has_value()) {
     result["nodeId"] = *node_id;
+  }
+  if (asset_id.has_value()) {
+    result["assetId"] = *asset_id;
   }
 
   return {
@@ -201,7 +200,7 @@ Json Backend::handle(const Json& request) {
 
   if (method == "ping") {
     return success_response(
-        request_id(request), project_, revision_, saved_revision_);
+        request_id(request), aggregate_, revision_, saved_revision_);
   }
   if (method == "project.create") {
     std::string name = params.contains("name")
@@ -214,27 +213,30 @@ Json Backend::handle(const Json& request) {
           "project_name_required", "project name must not be empty");
     }
 
-    Project candidate = vnengine::create_empty_project(ids_, *normalized_name);
-    project_ = std::move(candidate);
-    assets_.clear();
+    ProjectAggregate candidate = vnengine::create_empty_project_aggregate(
+        ids_, *normalized_name);
+    aggregate_ = std::move(candidate);
     reset_unsaved_session();
     return success_response(
         request_id(request),
-        project_,
+        aggregate_,
         revision_,
         saved_revision_,
-        project_->entry_scene_id);
+        aggregate_->project.entry_scene_id);
   }
   if (method == "project.open") {
-    const std::string file_path = required_string(params, "filePath");
+    const std::string contents = required_string(params, "contents");
+    if (contents.size() > kMaximumProjectFileBytes) {
+      throw ProtocolError(
+          "project_file_read_failed",
+          "project file exceeds the size limit");
+    }
 
-    // All fallible work happens against local candidates. project_ and the
-    // retained asset manifest are replaced only after the complete envelope,
-    // schema, entity graph, and asset paths have passed validation.
+    // All fallible work happens against a local aggregate. The current
+    // Project and Asset manifest are replaced together only after validation.
     ProjectFileDocument candidate;
     try {
-      candidate = project_file_from_json(Json::parse(
-          read_project_file(file_path)));
+      candidate = project_file_from_json(Json::parse(contents));
     } catch (const Json::parse_error& error) {
       throw ProtocolError(
           "project_file_invalid",
@@ -247,33 +249,31 @@ Json Backend::handle(const Json& request) {
       throw ProtocolError(code, error.what());
     }
 
-    project_ = std::move(candidate.project);
-    assets_ = std::move(candidate.assets);
+    aggregate_ = std::move(candidate);
     reset_opened_session();
     return success_response(
         request_id(request),
-        project_,
+        aggregate_,
         revision_,
         saved_revision_,
-        project_->entry_scene_id);
+        aggregate_->project.entry_scene_id);
   }
   if (method == "project.ensure") {
-    if (!project_.has_value()) {
-      project_ = vnengine::create_empty_project(ids_);
-      assets_.clear();
+    if (!aggregate_.has_value()) {
+      aggregate_ = vnengine::create_empty_project_aggregate(ids_);
       reset_unsaved_session();
     }
     return success_response(
         request_id(request),
-        project_,
+        aggregate_,
         revision_,
         saved_revision_,
-        project_->entry_scene_id);
+        aggregate_->project.entry_scene_id);
   }
   if (method == "project.get") {
     require_project();
     return success_response(
-        request_id(request), project_, revision_, saved_revision_);
+        request_id(request), aggregate_, revision_, saved_revision_);
   }
   if (method == "project.save") {
     require_project();
@@ -282,10 +282,7 @@ Json Backend::handle(const Json& request) {
 
     std::string contents;
     try {
-      contents = project_file_to_json(ProjectFileDocument{
-          .project = *project_,
-          .assets = assets_,
-      }).dump(2);
+      contents = project_file_to_json(require_aggregate()).dump(2);
       contents.push_back('\n');
       atomic_write_file(file_path, contents);
     } catch (const ProjectFileError& error) {
@@ -300,7 +297,89 @@ Json Backend::handle(const Json& request) {
 
     saved_revision_ = revision_;
     return success_response(
-        request_id(request), project_, revision_, saved_revision_);
+        request_id(request), aggregate_, revision_, saved_revision_);
+  }
+  if (method == "asset.import") {
+    ProjectAggregate& current = require_aggregate();
+    const std::string source_file_path =
+        required_string(params, "sourceFilePath");
+    const std::filesystem::path project_path = project_file_path(
+        required_string(params, "projectFilePath"));
+    const std::string kind = required_string(params, "kind");
+    AssetImportKind import_kind;
+    if (kind == "image") {
+      import_kind = AssetImportKind::image;
+    } else if (kind == "video") {
+      import_kind = AssetImportKind::video;
+    } else {
+      throw ProtocolError(
+          "invalid_params", "params.kind must be image or video");
+    }
+
+    std::string asset_id;
+    for (int attempt = 0; attempt < 32; ++attempt) {
+      std::string candidate_id = ids_.next();
+      if (vnengine::find_asset(current, candidate_id) == nullptr) {
+        asset_id = std::move(candidate_id);
+        break;
+      }
+    }
+    if (asset_id.empty()) {
+      throw ProtocolError(
+          "internal_error", "could not generate a unique Asset ID");
+    }
+
+    AssetImportPlan plan;
+    try {
+      plan = plan_asset_import(source_file_path, asset_id, import_kind);
+    } catch (const ImageAssetImportError& error) {
+      throw ProtocolError("asset_import_failed", error.what());
+    }
+
+    // Validate a complete aggregate before touching the project directory.
+    // Once the no-clobber file publication succeeds, move assignment commits
+    // this already-validated candidate without allocating or copying.
+    ProjectAggregate candidate = current;
+    candidate.assets.push_back(Asset{
+        .id = asset_id,
+        .type = import_kind == AssetImportKind::image
+            ? AssetType::image
+            : AssetType::video,
+        .relative_path = plan.relative_path,
+        .display_name = plan.display_name,
+    });
+    if (const auto violation =
+            vnengine::validate_project_aggregate(candidate);
+        violation.has_value()) {
+      throw ProtocolError("internal_error", *violation);
+    }
+
+    try {
+      copy_asset_no_clobber(
+          std::filesystem::path(source_file_path),
+          project_path.parent_path(),
+          plan,
+          import_kind);
+    } catch (const ImageAssetImportError& error) {
+      throw ProtocolError("asset_import_failed", error.what());
+    } catch (const std::exception&) {
+      throw ProtocolError(
+          "asset_import_failed", "Asset could not be imported safely");
+    }
+
+    static_assert(
+        std::is_nothrow_move_assignable_v<ProjectAggregate>,
+        "filesystem publication requires a no-throw aggregate commit");
+    current = std::move(candidate);
+    record_mutation(true);
+    return success_response(
+        request_id(request),
+        aggregate_,
+        revision_,
+        saved_revision_,
+        std::nullopt,
+        std::nullopt,
+        asset_id);
   }
 
   vnengine::Project& project = require_project();
@@ -321,14 +400,15 @@ Json Backend::handle(const Json& request) {
     }
     const std::string scene_id =
         vnengine::add_scene(project, ids_, std::move(name));
-    if (const auto violation = vnengine::validate_project(project);
+    if (const auto violation =
+            vnengine::validate_project_aggregate(require_aggregate());
         violation.has_value()) {
       throw ProtocolError("internal_error", *violation);
     }
     record_mutation(true);
     return success_response(
         request_id(request),
-        project_,
+        aggregate_,
         revision_,
         saved_revision_,
         scene_id);
@@ -341,12 +421,411 @@ Json Backend::handle(const Json& request) {
         project,
         scene_id,
         required_string(params, "name"));
+  } else if (method == "scene.setBackground") {
+    const std::string scene_id = required_string(params, "sceneId");
+    if (!params.contains("assetId") ||
+        (!params.at("assetId").is_null() &&
+         !params.at("assetId").is_string())) {
+      throw ProtocolError(
+          "invalid_params", "params.assetId must be a string or null");
+    }
+
+    std::optional<std::string> asset_id;
+    if (!params.at("assetId").is_null()) {
+      asset_id = params.at("assetId").get<std::string>();
+    }
+
+    switch (vnengine::set_scene_background(
+        require_aggregate(), scene_id, std::move(asset_id))) {
+      case vnengine::SetSceneBackgroundResult::changed:
+        changed = true;
+        break;
+      case vnengine::SetSceneBackgroundResult::unchanged:
+        changed = false;
+        break;
+      case vnengine::SetSceneBackgroundResult::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case vnengine::SetSceneBackgroundResult::asset_not_found:
+        throw ProtocolError("asset_not_found", "asset does not exist");
+      case vnengine::SetSceneBackgroundResult::asset_not_image:
+        throw ProtocolError(
+            "asset_not_image", "scene background asset must be an image");
+    }
   } else if (method == "scene.delete") {
     const std::string scene_id = required_string(params, "sceneId");
     if (vnengine::find_scene(project, scene_id) == nullptr) {
       throw ProtocolError("scene_not_found", "scene does not exist");
     }
+    for (const vnengine::Scene& owner : project.scenes) {
+      for (const vnengine::SceneNode& node : owner.nodes) {
+        const auto* jump = std::get_if<vnengine::SceneJumpNode>(&node);
+        if (jump != nullptr && jump->target_scene_id == scene_id) {
+          throw ProtocolError(
+              "scene_in_use", "scene is referenced by a scene jump node");
+        }
+      }
+    }
     changed = vnengine::delete_scene(project, scene_id);
+  } else if (method == "background.add") {
+    const std::string scene_id = required_string(params, "sceneId");
+    if (params.contains("assetId")) {
+      throw ProtocolError(
+          "invalid_params",
+          "background.add always creates an empty node; use background.update to assign an image");
+    }
+
+    std::optional<std::string> after_node_id;
+    if (params.contains("afterNodeId") &&
+        !params.at("afterNodeId").is_null()) {
+      after_node_id = required_string(params, "afterNodeId");
+    }
+    std::optional<std::string> before_node_id;
+    if (params.contains("beforeNodeId") &&
+        !params.at("beforeNodeId").is_null()) {
+      before_node_id = required_string(params, "beforeNodeId");
+    }
+
+    // Work on a complete candidate so even a generated-ID collision or a
+    // future invariant failure cannot partially alter the current document.
+    ProjectAggregate candidate = require_aggregate();
+    const vnengine::AddBackgroundNodeResult result =
+        vnengine::add_background_node(
+            candidate,
+            ids_,
+            scene_id,
+            std::move(after_node_id),
+            std::move(before_node_id));
+    switch (result.status) {
+      case vnengine::AddBackgroundNodeStatus::added:
+        break;
+      case vnengine::AddBackgroundNodeStatus::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case vnengine::AddBackgroundNodeStatus::placement_conflict:
+        throw ProtocolError(
+            "background_placement_conflict",
+            "afterNodeId and beforeNodeId cannot both be provided");
+      case vnengine::AddBackgroundNodeStatus::anchor_not_found:
+        throw ProtocolError("node_not_found", "timeline anchor does not exist");
+    }
+    if (const auto violation = vnengine::validate_project_aggregate(candidate);
+        violation.has_value()) {
+      throw ProtocolError("internal_error", *violation);
+    }
+    require_aggregate() = std::move(candidate);
+    record_mutation(true);
+    return success_response(
+        request_id(request),
+        aggregate_,
+        revision_,
+        saved_revision_,
+        scene_id,
+        result.node_id);
+  } else if (method == "background.update") {
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::string node_id = required_string(params, "nodeId");
+    if (!params.contains("assetId") ||
+        (!params.at("assetId").is_null() &&
+         !params.at("assetId").is_string())) {
+      throw ProtocolError(
+          "invalid_params", "params.assetId must be a string or null");
+    }
+    std::optional<std::string> asset_id;
+    if (!params.at("assetId").is_null()) {
+      asset_id = params.at("assetId").get<std::string>();
+    }
+    switch (vnengine::update_background_node(
+        require_aggregate(), scene_id, node_id, asset_id)) {
+      case vnengine::UpdateBackgroundNodeResult::changed:
+        changed = true;
+        break;
+      case vnengine::UpdateBackgroundNodeResult::unchanged:
+        changed = false;
+        break;
+      case vnengine::UpdateBackgroundNodeResult::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case vnengine::UpdateBackgroundNodeResult::node_not_found:
+        throw ProtocolError(
+            "background_node_not_found", "background node does not exist");
+      case vnengine::UpdateBackgroundNodeResult::asset_not_found:
+        throw ProtocolError("asset_not_found", "asset does not exist");
+      case vnengine::UpdateBackgroundNodeResult::asset_not_image:
+        throw ProtocolError(
+            "asset_not_image", "background node asset must be an image");
+    }
+  } else if (method == "background.delete") {
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::string node_id = required_string(params, "nodeId");
+    vnengine::Scene* scene = vnengine::find_scene(project, scene_id);
+    if (scene == nullptr) {
+      throw ProtocolError("scene_not_found", "scene does not exist");
+    }
+    if (vnengine::find_background_node(*scene, node_id) == nullptr) {
+      throw ProtocolError(
+          "background_node_not_found", "background node does not exist");
+    }
+    changed = vnengine::delete_background_node(project, scene_id, node_id);
+  } else if (method == "background.reorder") {
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::string node_id = required_string(params, "nodeId");
+    if (!params.contains("beforeNodeId") ||
+        (!params.at("beforeNodeId").is_null() &&
+         !params.at("beforeNodeId").is_string())) {
+      throw ProtocolError(
+          "invalid_params",
+          "params.beforeNodeId must be a string or null");
+    }
+    std::optional<std::string> before_node_id;
+    if (!params.at("beforeNodeId").is_null()) {
+      before_node_id = required_string(params, "beforeNodeId");
+    }
+
+    vnengine::Scene* scene = vnengine::find_scene(project, scene_id);
+    if (scene == nullptr) {
+      throw ProtocolError("scene_not_found", "scene does not exist");
+    }
+    if (vnengine::find_background_node(*scene, node_id) == nullptr) {
+      throw ProtocolError(
+          "background_node_not_found", "background node does not exist");
+    }
+    if (before_node_id == node_id) {
+      throw ProtocolError(
+          "invalid_params", "params.beforeNodeId must differ from nodeId");
+    }
+    if (before_node_id.has_value() &&
+        vnengine::find_scene_node(*scene, *before_node_id) == nullptr) {
+      throw ProtocolError("node_not_found", "timeline anchor does not exist");
+    }
+    changed = vnengine::reorder_scene_node(
+        project, scene_id, node_id, std::move(before_node_id));
+  } else if (method == "character.add") {
+    const std::string scene_id = required_string(params, "sceneId");
+    if (params.contains("assetId") || params.contains("slot") ||
+        params.contains("layer")) {
+      throw ProtocolError(
+          "invalid_params",
+          "character.add always creates an empty centered layer-1 node");
+    }
+    std::optional<std::string> after_node_id;
+    if (params.contains("afterNodeId") &&
+        !params.at("afterNodeId").is_null()) {
+      after_node_id = required_string(params, "afterNodeId");
+    }
+    std::optional<std::string> before_node_id;
+    if (params.contains("beforeNodeId") &&
+        !params.at("beforeNodeId").is_null()) {
+      before_node_id = required_string(params, "beforeNodeId");
+    }
+
+    ProjectAggregate candidate = require_aggregate();
+    const vnengine::AddCharacterNodeResult result =
+        vnengine::add_character_node(
+            candidate,
+            ids_,
+            scene_id,
+            std::move(after_node_id),
+            std::move(before_node_id));
+    switch (result.status) {
+      case vnengine::AddCharacterNodeStatus::added:
+        break;
+      case vnengine::AddCharacterNodeStatus::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case vnengine::AddCharacterNodeStatus::placement_conflict:
+        throw ProtocolError(
+            "character_placement_conflict",
+            "afterNodeId and beforeNodeId cannot both be provided");
+      case vnengine::AddCharacterNodeStatus::anchor_not_found:
+        throw ProtocolError("node_not_found", "timeline anchor does not exist");
+    }
+    if (const auto violation = vnengine::validate_project_aggregate(candidate);
+        violation.has_value()) {
+      throw ProtocolError("internal_error", *violation);
+    }
+    require_aggregate() = std::move(candidate);
+    record_mutation(true);
+    return success_response(
+        request_id(request),
+        aggregate_,
+        revision_,
+        saved_revision_,
+        scene_id,
+        result.node_id);
+  } else if (method == "character.update") {
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::string node_id = required_string(params, "nodeId");
+    if (!params.contains("assetId") ||
+        (!params.at("assetId").is_null() &&
+         !params.at("assetId").is_string())) {
+      throw ProtocolError(
+          "invalid_params", "params.assetId must be a string or null");
+    }
+    std::optional<std::string> asset_id;
+    if (params.at("assetId").is_string()) {
+      asset_id = params.at("assetId").get<std::string>();
+    }
+    switch (vnengine::update_character_node(
+        require_aggregate(),
+        scene_id,
+        node_id,
+        std::move(asset_id),
+        required_character_slot(params),
+        required_character_layer(params))) {
+      case vnengine::UpdateCharacterNodeResult::changed:
+        changed = true;
+        break;
+      case vnengine::UpdateCharacterNodeResult::unchanged:
+        changed = false;
+        break;
+      case vnengine::UpdateCharacterNodeResult::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case vnengine::UpdateCharacterNodeResult::node_not_found:
+        throw ProtocolError(
+            "character_node_not_found", "character node does not exist");
+      case vnengine::UpdateCharacterNodeResult::asset_not_found:
+        throw ProtocolError("asset_not_found", "asset does not exist");
+      case vnengine::UpdateCharacterNodeResult::asset_not_image:
+        throw ProtocolError(
+            "asset_not_image", "character node asset must be an image");
+      case vnengine::UpdateCharacterNodeResult::invalid_slot:
+      case vnengine::UpdateCharacterNodeResult::invalid_layer:
+        throw ProtocolError("invalid_params", "character node fields are invalid");
+    }
+  } else if (method == "sceneJump.add") {
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::string target_scene_id =
+        required_string(params, "targetSceneId");
+    std::optional<std::string> after_node_id;
+    if (params.contains("afterNodeId") &&
+        !params.at("afterNodeId").is_null()) {
+      after_node_id = required_string(params, "afterNodeId");
+    }
+    std::optional<std::string> before_node_id;
+    if (params.contains("beforeNodeId") &&
+        !params.at("beforeNodeId").is_null()) {
+      before_node_id = required_string(params, "beforeNodeId");
+    }
+
+    ProjectAggregate candidate = require_aggregate();
+    const vnengine::AddSceneJumpNodeResult result =
+        vnengine::add_scene_jump_node(
+            candidate.project,
+            ids_,
+            scene_id,
+            target_scene_id,
+            std::move(after_node_id),
+            std::move(before_node_id));
+    switch (result.status) {
+      case vnengine::AddSceneJumpNodeStatus::added:
+        break;
+      case vnengine::AddSceneJumpNodeStatus::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case vnengine::AddSceneJumpNodeStatus::target_scene_not_found:
+        throw ProtocolError(
+            "target_scene_not_found", "target scene does not exist");
+      case vnengine::AddSceneJumpNodeStatus::self_target:
+        throw ProtocolError(
+            "scene_jump_self_target", "scene jump cannot target its own scene");
+      case vnengine::AddSceneJumpNodeStatus::placement_conflict:
+        throw ProtocolError(
+            "scene_jump_placement_conflict",
+            "afterNodeId and beforeNodeId cannot both be provided");
+      case vnengine::AddSceneJumpNodeStatus::anchor_not_found:
+        throw ProtocolError("node_not_found", "timeline anchor does not exist");
+    }
+    if (const auto violation = vnengine::validate_project_aggregate(candidate);
+        violation.has_value()) {
+      throw ProtocolError("internal_error", *violation);
+    }
+    require_aggregate() = std::move(candidate);
+    record_mutation(true);
+    return success_response(
+        request_id(request),
+        aggregate_,
+        revision_,
+        saved_revision_,
+        scene_id,
+        result.node_id);
+  } else if (method == "sceneJump.update") {
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::string node_id = required_string(params, "nodeId");
+    const std::string target_scene_id =
+        required_string(params, "targetSceneId");
+    switch (vnengine::update_scene_jump_node(
+        project, scene_id, node_id, target_scene_id)) {
+      case vnengine::UpdateSceneJumpNodeResult::changed:
+        changed = true;
+        break;
+      case vnengine::UpdateSceneJumpNodeResult::unchanged:
+        changed = false;
+        break;
+      case vnengine::UpdateSceneJumpNodeResult::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case vnengine::UpdateSceneJumpNodeResult::node_not_found:
+        throw ProtocolError(
+            "scene_jump_node_not_found", "scene jump node does not exist");
+      case vnengine::UpdateSceneJumpNodeResult::target_scene_not_found:
+        throw ProtocolError(
+            "target_scene_not_found", "target scene does not exist");
+      case vnengine::UpdateSceneJumpNodeResult::self_target:
+        throw ProtocolError(
+            "scene_jump_self_target", "scene jump cannot target its own scene");
+    }
+  } else if (method == "timeline.deleteMany") {
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::vector<std::string> node_ids =
+        required_unique_string_array(params, "nodeIds");
+    vnengine::Scene* scene = vnengine::find_scene(project, scene_id);
+    if (scene == nullptr) {
+      throw ProtocolError("scene_not_found", "scene does not exist");
+    }
+    for (const std::string& node_id : node_ids) {
+      if (vnengine::find_scene_node(*scene, node_id) == nullptr) {
+        throw ProtocolError("node_not_found", "timeline node does not exist");
+      }
+    }
+    changed = vnengine::delete_scene_nodes(project, scene_id, node_ids);
+  } else if (method == "timeline.reorder" ||
+             method == "timeline.reorderMany") {
+    const std::string scene_id = required_string(params, "sceneId");
+    std::vector<std::string> node_ids;
+    if (method == "timeline.reorder") {
+      node_ids.push_back(required_string(params, "nodeId"));
+    } else {
+      node_ids = required_unique_string_array(params, "nodeIds");
+    }
+    if (!params.contains("beforeNodeId") ||
+        (!params.at("beforeNodeId").is_null() &&
+         !params.at("beforeNodeId").is_string())) {
+      throw ProtocolError(
+          "invalid_params",
+          "params.beforeNodeId must be a string or null");
+    }
+
+    vnengine::Scene* scene = vnengine::find_scene(project, scene_id);
+    if (scene == nullptr) {
+      throw ProtocolError("scene_not_found", "scene does not exist");
+    }
+    const std::unordered_set<std::string> selected_ids(
+        node_ids.begin(), node_ids.end());
+    for (const std::string& node_id : node_ids) {
+      if (vnengine::find_scene_node(*scene, node_id) == nullptr) {
+        throw ProtocolError("node_not_found", "timeline node does not exist");
+      }
+    }
+
+    std::optional<std::string> before_node_id;
+    if (!params.at("beforeNodeId").is_null()) {
+      before_node_id = required_string(params, "beforeNodeId");
+      if (selected_ids.contains(*before_node_id)) {
+        throw ProtocolError(
+            "invalid_params",
+            "params.beforeNodeId must not be one of the moved nodes");
+      }
+      if (vnengine::find_scene_node(*scene, *before_node_id) == nullptr) {
+        throw ProtocolError("node_not_found", "timeline anchor does not exist");
+      }
+    }
+    changed = vnengine::reorder_scene_nodes(
+        project, scene_id, node_ids, std::move(before_node_id));
   } else if (method == "dialogue.add") {
     const std::string scene_id = required_string(params, "sceneId");
     std::optional<std::string> after_dialogue_id;
@@ -371,9 +850,9 @@ Json Backend::handle(const Json& request) {
           "afterNodeId and beforeNodeId cannot both be provided");
     }
     if (before_dialogue_id.has_value() &&
-        vnengine::find_dialogue(*scene, *before_dialogue_id) == nullptr) {
+        vnengine::find_scene_node(*scene, *before_dialogue_id) == nullptr) {
       throw ProtocolError(
-          "dialogue_not_found", "before dialogue does not exist");
+          "dialogue_not_found", "before timeline node does not exist");
     }
 
     const bool has_speaker = params.contains("speaker");
@@ -411,14 +890,15 @@ Json Backend::handle(const Json& request) {
       throw ProtocolError(
           "dialogue_add_failed", "could not add dialogue");
     }
-    if (const auto violation = vnengine::validate_project(project);
+    if (const auto violation =
+            vnengine::validate_project_aggregate(require_aggregate());
         violation.has_value()) {
       throw ProtocolError("internal_error", *violation);
     }
     record_mutation(true);
     return success_response(
         request_id(request),
-        project_,
+        aggregate_,
         revision_,
         saved_revision_,
         scene_id,
@@ -539,9 +1019,9 @@ Json Backend::handle(const Json& request) {
       throw ProtocolError("dialogue_not_found", "dialogue does not exist");
     }
     if (before_dialogue_id.has_value() &&
-        vnengine::find_dialogue(*scene, *before_dialogue_id) == nullptr) {
+        vnengine::find_scene_node(*scene, *before_dialogue_id) == nullptr) {
       throw ProtocolError(
-          "dialogue_not_found", "before dialogue does not exist");
+          "dialogue_not_found", "before timeline node does not exist");
     }
 
     // A legal no-op is still a successful command. The renderer may emit one
@@ -585,9 +1065,9 @@ Json Backend::handle(const Json& request) {
             "invalid_params",
             "params.beforeNodeId must not be one of params.nodeIds");
       }
-      if (vnengine::find_dialogue(*scene, *before_dialogue_id) == nullptr) {
+      if (vnengine::find_scene_node(*scene, *before_dialogue_id) == nullptr) {
         throw ProtocolError(
-            "dialogue_not_found", "before dialogue does not exist");
+            "dialogue_not_found", "before timeline node does not exist");
       }
     }
 
@@ -601,26 +1081,31 @@ Json Backend::handle(const Json& request) {
     throw ProtocolError("method_not_found", "unknown method: " + method);
   }
 
-  if (const auto violation = vnengine::validate_project(project);
+  if (const auto violation =
+          vnengine::validate_project_aggregate(require_aggregate());
       violation.has_value()) {
     throw ProtocolError("internal_error", *violation);
   }
   record_mutation(changed);
   return success_response(
-      request_id(request), project_, revision_, saved_revision_);
+      request_id(request), aggregate_, revision_, saved_revision_);
 }
 
 Json Backend::request_id(const Json& request) {
   return request.contains("id") ? request.at("id") : Json(nullptr);
 }
 
-Project& Backend::require_project() {
-  if (!project_.has_value()) {
+ProjectAggregate& Backend::require_aggregate() {
+  if (!aggregate_.has_value()) {
     throw ProtocolError(
         "project_not_created",
         "call project.create before using this method");
   }
-  return *project_;
+  return *aggregate_;
+}
+
+Project& Backend::require_project() {
+  return require_aggregate().project;
 }
 
 void Backend::reset_unsaved_session() {

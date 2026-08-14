@@ -2,6 +2,9 @@ import type * as Blockly from 'blockly';
 
 import type { SceneDocument } from '../../../shared/projectTypes';
 import { DIALOGUE_BLOCK_TYPE } from './blocks/dialogueBlock';
+import { BACKGROUND_BLOCK_TYPE } from './blocks/backgroundBlock';
+import { CHARACTER_BLOCK_TYPE } from './blocks/characterBlock';
+import { SCENE_JUMP_BLOCK_TYPE } from './blocks/sceneJumpBlock';
 
 export type WorkspacePoint = {
   x: number;
@@ -25,7 +28,7 @@ type CaptureLayoutOptions = {
   preferredRoot?: Blockly.BlockSvg;
 };
 
-function findCompleteDialogueRoot(
+function findCompleteTimelineRoot(
   scene: SceneDocument,
   workspace: Blockly.WorkspaceSvg,
 ): Blockly.BlockSvg | null {
@@ -38,7 +41,12 @@ function findCompleteDialogueRoot(
   );
 
   for (const root of workspace.getTopBlocks(false)) {
-    if (root.type !== DIALOGUE_BLOCK_TYPE) {
+    if (
+      root.type !== DIALOGUE_BLOCK_TYPE &&
+      root.type !== BACKGROUND_BLOCK_TYPE &&
+      root.type !== CHARACTER_BLOCK_TYPE &&
+      root.type !== SCENE_JUMP_BLOCK_TYPE
+    ) {
       continue;
     }
 
@@ -69,7 +77,7 @@ export function captureSceneWorkspaceLayout(
 
   if (updateRootPosition) {
     const root =
-      findCompleteDialogueRoot(scene, workspace) ??
+      findCompleteTimelineRoot(scene, workspace) ??
       (scene.nodes.length === 0
         ? preferredRoot?.getRootBlock()
         : undefined);

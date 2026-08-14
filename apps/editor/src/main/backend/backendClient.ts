@@ -17,13 +17,40 @@ import {
   parseBackendResponse,
 } from './backendResponse';
 
-const REQUEST_TIMEOUT_MS = 10_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
+
+export function backendRequestTimeoutMs(
+  invocation: BackendInvocation,
+): number | null {
+  // These operations may still finish in C++ after an application-level
+  // timeout and mutate authoritative project or disk state. Keep the request
+  // pending until C++ answers (or the window closes and shuts the process
+  // down), so Main never reports failure while a hidden commit is still able
+  // to arrive later.
+  if (
+    invocation.method === 'asset.import' ||
+    invocation.method === 'project.open' ||
+    invocation.method === 'project.save'
+  ) {
+    return null;
+  }
+
+  return DEFAULT_REQUEST_TIMEOUT_MS;
+}
 
 type PendingRequest = {
   resolve: (result: EngineMutationResult) => void;
   reject: (error: Error) => void;
-  timeout: ReturnType<typeof setTimeout>;
+  timeout: ReturnType<typeof setTimeout> | null;
 };
+
+function clearRequestTimeout(
+  timeout: PendingRequest['timeout'],
+): void {
+  if (timeout !== null) {
+    clearTimeout(timeout);
+  }
+}
 
 export class BackendClient {
   private child: ChildProcessWithoutNullStreams | null = null;
@@ -46,14 +73,18 @@ export class BackendClient {
     };
 
     return new Promise<EngineMutationResult>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.pendingRequests.delete(id);
-        reject(
-          new Error(
-            `C++ 后端请求超时：${invocation.method} (${id})`,
-          ),
-        );
-      }, REQUEST_TIMEOUT_MS);
+      const timeoutMs = backendRequestTimeoutMs(invocation);
+      const timeout =
+        timeoutMs === null
+          ? null
+          : setTimeout(() => {
+              this.pendingRequests.delete(id);
+              reject(
+                new Error(
+                  `C++ 后端请求超时：${invocation.method} (${id})`,
+                ),
+              );
+            }, timeoutMs);
 
       this.pendingRequests.set(id, { resolve, reject, timeout });
 
@@ -68,7 +99,7 @@ export class BackendClient {
           return;
         }
 
-        clearTimeout(pendingRequest.timeout);
+        clearRequestTimeout(pendingRequest.timeout);
         this.pendingRequests.delete(id);
         pendingRequest.reject(
           new Error(`无法向 C++ 后端发送请求：${error.message}`),
@@ -185,7 +216,7 @@ export class BackendClient {
       return;
     }
 
-    clearTimeout(pendingRequest.timeout);
+    clearRequestTimeout(pendingRequest.timeout);
     this.pendingRequests.delete(response.id);
 
     if (response.ok === true) {
@@ -211,7 +242,7 @@ export class BackendClient {
 
   private rejectAllPending(error: Error): void {
     for (const pendingRequest of this.pendingRequests.values()) {
-      clearTimeout(pendingRequest.timeout);
+      clearRequestTimeout(pendingRequest.timeout);
       pendingRequest.reject(error);
     }
 

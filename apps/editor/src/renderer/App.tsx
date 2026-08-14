@@ -8,8 +8,13 @@ import {
   type BlockEditorHandle,
 } from './features/block-editor/BlockEditor';
 import type { BlockEditorLayoutStore } from './features/block-editor/blockEditorLayout';
+import { ResourcePanel } from './features/assets/ResourcePanel';
+import { useAssetPreviewUrls } from './features/assets/useAssetPreviewUrls';
 import { FormEditor } from './features/form-editor/FormEditor';
 import { useFormEditor } from './features/form-editor/useFormEditor';
+import { deriveTimelinePreview } from './features/form-editor/timelinePreview';
+import { GamePreview } from './features/game-preview/GamePreview';
+import { useGamePreview } from './features/game-preview/useGamePreview';
 import { useEngineProject } from './hooks/useEngineProject';
 import { prepareProjectSave } from './projectSavePreparation';
 import { projectWindowTitle } from './projectSessionPresentation';
@@ -21,7 +26,13 @@ export default function App() {
   const blockEditorRef = useRef<BlockEditorHandle>(null);
   const engine = useEngineProject();
   const editor = useFormEditor(engine);
+  const gamePreview = useGamePreview();
   const { project, scene } = editor;
+  const assetPreviewUrls = useAssetPreviewUrls(
+    project?.id ?? null,
+    engine.projectGeneration,
+    engine.assets,
+  );
   const [isRenamingProject, setIsRenamingProject] = useState(false);
   const [projectNameDraft, setProjectNameDraft] = useState('');
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
@@ -116,25 +127,75 @@ export default function App() {
     }
   };
 
-  const handleSaveProject = async () => {
+  const prepareCurrentEdits = async (): Promise<boolean> => {
     // 先提交当前正在编辑的视图，再提交项目名，最后才写文件。
     // Blockly 必须第一个 flush：项目重命名返回的 C++ 快照会重绘
     // workspace，如果先重命名，可能把仍在输入框中的最新文字覆盖。
-    await engine.saveProject(async () => {
-      const prepared = await prepareProjectSave({
-        editorMode,
-        flushBlockDraft: () =>
-          blockEditorRef.current?.flushPendingDraft() ??
-          Promise.resolve(true),
-        commitProjectName,
-        commitFormDraft: editor.commitPendingDraft,
-      });
-
-      if (prepared && editorMode === 'blocks') {
-        setBlockDraftDirty(false);
-      }
-      return prepared;
+    const prepared = await prepareProjectSave({
+      editorMode,
+      flushBlockDraft: () =>
+        blockEditorRef.current?.flushPendingDraft() ??
+        Promise.resolve(true),
+      commitProjectName,
+      commitFormDraft: editor.commitPendingDraft,
     });
+
+    if (prepared && editorMode === 'blocks') {
+      setBlockDraftDirty(false);
+    }
+    return prepared;
+  };
+
+  const handleSaveProject = async () => {
+    await engine.saveProject(prepareCurrentEdits);
+  };
+
+  const handleStartPreview = async (): Promise<void> => {
+    if (engine.isBusy || gamePreview.session) {
+      return;
+    }
+    if (!(await prepareCurrentEdits())) {
+      return;
+    }
+
+    const latestProject = await engine.getProjectSnapshot();
+    if (!latestProject || !gamePreview.start(latestProject)) {
+      engine.setEngineMessage('项目入口场景不存在，无法开始预览');
+    }
+  };
+
+  const handleImportImage = async (): Promise<void> => {
+    // 未保存项目也能导入：Main 会为当前窗口建立私有临时工作区，
+    // 首次保存时再安全发布 manifest 与 assets。Renderer 始终不接触路径。
+    if (!(await prepareCurrentEdits())) {
+      return;
+    }
+
+    await engine.importImage();
+  };
+
+  const handleImportVideo = async (): Promise<void> => {
+    if (!(await prepareCurrentEdits())) {
+      return;
+    }
+
+    await engine.importVideo();
+  };
+
+  const handleSelectBackground = async (
+    assetId: string | null,
+  ): Promise<void> => {
+    if (!scene || scene.backgroundAssetId === assetId) {
+      return;
+    }
+
+    // 背景命令也会返回完整 C++ 快照。先提交当前编辑器草稿，避免
+    // 快照重绘 Blockly 或表单时覆盖尚未写入 C++ 的文字。
+    if (!(await prepareCurrentEdits())) {
+      return;
+    }
+
+    await engine.setSceneBackground(scene.id, assetId);
   };
 
   const handleEditorModeChange = async (
@@ -156,11 +217,17 @@ export default function App() {
     }
   };
 
-  latestActionsRef.current = {
-    create: handleCreateProject,
-    open: handleOpenProject,
-    save: handleSaveProject,
-  };
+  latestActionsRef.current = gamePreview.session
+    ? {
+        create: async () => {},
+        open: async () => {},
+        save: async () => {},
+      }
+    : {
+        create: handleCreateProject,
+        open: handleOpenProject,
+        save: handleSaveProject,
+      };
 
   useEffect(() => {
     return window.vnProjectFiles.onCommand((command) => {
@@ -197,10 +264,10 @@ export default function App() {
     }
     document.title = projectWindowTitle(
       project.name,
-      engine.projectFilePath,
+      engine.session.hasStorage,
       isDirty,
     );
-  }, [engine.projectFilePath, isDirty, project]);
+  }, [engine.session.hasStorage, isDirty, project]);
 
   if (!project || !scene) {
     return (
@@ -218,6 +285,31 @@ export default function App() {
     );
   }
 
+  const timelinePreview = deriveTimelinePreview(
+    scene,
+    editor.selectedNodeId,
+  );
+  const backgroundAsset = timelinePreview.backgroundAssetId
+    ? engine.assets.find(
+        (asset) => asset.id === timelinePreview.backgroundAssetId,
+      ) ?? null
+    : null;
+  const backgroundUrl = backgroundAsset
+    ? assetPreviewUrls[backgroundAsset.id] ?? null
+    : null;
+  const previewCharacters = timelinePreview.characters.map((character) => {
+    const asset = engine.assets.find(
+      (item) => item.id === character.assetId,
+    );
+    return {
+      id: character.nodeId,
+      url: assetPreviewUrls[character.assetId] ?? null,
+      name: asset?.displayName ?? '缺失立绘',
+      slot: character.slot,
+      layer: character.layer,
+    };
+  });
+
   return (
     <div className="editor">
       <Toolbar
@@ -229,7 +321,7 @@ export default function App() {
         isDirty={isDirty}
         isSaving={engine.isSaving}
         engineMessage={editor.engineMessage}
-        projectFilePath={engine.projectFilePath}
+        projectFolderName={engine.projectFolderName}
         onCreateProject={() => void handleCreateProject()}
         onOpenProject={() => void handleOpenProject()}
         onSaveProject={() => void handleSaveProject()}
@@ -248,21 +340,47 @@ export default function App() {
         }}
       />
 
+      <ResourcePanel
+        assets={engine.assets}
+        backgroundAssetId={scene.backgroundAssetId}
+        previewUrls={assetPreviewUrls}
+        isBusy={engine.isBusy}
+        onImportImage={handleImportImage}
+        onImportVideo={handleImportVideo}
+        onSelectBackground={handleSelectBackground}
+      />
+
       {editorMode === 'form' ? (
-        <FormEditor editor={editor} />
+        <FormEditor
+          editor={editor}
+          assets={engine.assets}
+          backgroundUrl={backgroundUrl}
+          backgroundName={backgroundAsset?.displayName ?? null}
+          showDialogue={timelinePreview.showDialogue}
+          characters={previewCharacters}
+          isStartPreviewDisabled={engine.isBusy}
+          onStartPreview={() => void handleStartPreview()}
+        />
       ) : (
         <BlockEditor
           ref={blockEditorRef}
           project={project}
           scene={scene}
+          assets={engine.assets}
           layoutStore={blockEditorLayouts.current}
           isBusy={engine.isBusy}
           onSceneChange={editor.selectScene}
           onDialogueUpdate={engine.updateDialogue}
           onDialogueAdd={engine.addDialogue}
-          onDialogueReorder={engine.reorderDialogue}
-          onDialoguesReorder={engine.reorderDialogues}
-          onDialogueDelete={engine.deleteDialogues}
+          onBackgroundAdd={engine.addBackground}
+          onBackgroundUpdate={engine.updateBackground}
+          onCharacterAdd={engine.addCharacter}
+          onCharacterUpdate={engine.updateCharacter}
+          onSceneJumpAdd={engine.addSceneJump}
+          onSceneJumpUpdate={engine.updateSceneJump}
+          onTimelineReorder={engine.reorderTimelineNode}
+          onTimelineNodesReorder={engine.reorderTimelineNodes}
+          onTimelineNodesDelete={engine.deleteTimelineNodes}
           onDraftDirtyChange={setBlockDraftDirty}
         />
       )}
@@ -282,6 +400,16 @@ export default function App() {
         onCancel={() => setIsCreateProjectOpen(false)}
         onConfirm={() => void confirmCreateProject()}
       />
+
+      {gamePreview.session ? (
+        <GamePreview
+          session={gamePreview.session}
+          assets={engine.assets}
+          previewUrls={assetPreviewUrls}
+          onAdvance={gamePreview.advance}
+          onExit={gamePreview.exit}
+        />
+      ) : null}
     </div>
   );
 }

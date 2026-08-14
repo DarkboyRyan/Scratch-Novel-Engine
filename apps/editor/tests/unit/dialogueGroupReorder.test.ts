@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildGroupReorderParams,
-  getDialogueDropSlotForPoint,
+  getTimelineDropSlotForPoint,
   reorderNodeIds,
 } from '../../src/renderer/features/block-editor/dialogueGroupReorder';
 import type { SceneDocument } from '../../src/shared/projectTypes';
@@ -12,6 +12,7 @@ function createScene(nodeIds: string[]): SceneDocument {
     schemaVersion: 1,
     id: 'scene-1',
     name: 'Scene 1',
+    backgroundAssetId: null,
     nodes: nodeIds.map((id) => ({
       id,
       type: 'dialogue',
@@ -40,14 +41,14 @@ describe('dialogue group reorder', () => {
       },
     ];
 
-    expect(getDialogueDropSlotForPoint(targets, 150, 11, 12)).toEqual({
+    expect(getTimelineDropSlotForPoint(targets, 150, 11, 12)).toEqual({
       beforeNodeId: 'A',
     });
-    expect(getDialogueDropSlotForPoint(targets, 150, 58, 12)).toEqual({
+    expect(getTimelineDropSlotForPoint(targets, 150, 58, 12)).toEqual({
       beforeNodeId: null,
     });
-    expect(getDialogueDropSlotForPoint(targets, 150, 25, 12)).toBeNull();
-    expect(getDialogueDropSlotForPoint(targets, 80, 10, 12)).toBeNull();
+    expect(getTimelineDropSlotForPoint(targets, 150, 25, 12)).toBeNull();
+    expect(getTimelineDropSlotForPoint(targets, 80, 10, 12)).toBeNull();
   });
 
   it('preserves scene order even when selection arrives reversed', () => {

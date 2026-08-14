@@ -1,4 +1,8 @@
-import type { ProjectDocument } from './projectTypes';
+import type {
+  AssetDocument,
+  CharacterSlot,
+  ProjectDocument,
+} from './projectTypes';
 
 // C++、Electron Main、Preload 和 React 共同遵守的跨进程协议。
 export type EngineSessionState = {
@@ -9,9 +13,11 @@ export type EngineSessionState = {
 
 export type EngineMutationResult = {
   project: ProjectDocument;
+  assets: AssetDocument[];
   session: EngineSessionState;
   sceneId?: string;
   nodeId?: string;
+  assetId?: string;
 };
 
 export type AddDialogueParams = {
@@ -20,6 +26,76 @@ export type AddDialogueParams = {
   beforeNodeId?: string | null;
   speaker?: string;
   text?: string;
+};
+
+export type AddBackgroundParams = {
+  sceneId: string;
+  afterNodeId?: string | null;
+  beforeNodeId?: string | null;
+};
+
+export type UpdateBackgroundParams = {
+  sceneId: string;
+  nodeId: string;
+  assetId: string | null;
+};
+
+export type AddCharacterParams = {
+  sceneId: string;
+  afterNodeId?: string | null;
+  beforeNodeId?: string | null;
+};
+
+export type UpdateCharacterParams = {
+  sceneId: string;
+  nodeId: string;
+  assetId: string | null;
+  slot: CharacterSlot;
+  layer: number;
+};
+
+export type AddSceneJumpParams = {
+  sceneId: string;
+  targetSceneId: string;
+  afterNodeId?: string | null;
+  beforeNodeId?: string | null;
+};
+
+export type UpdateSceneJumpParams = {
+  sceneId: string;
+  nodeId: string;
+  targetSceneId: string;
+};
+
+export type DeleteBackgroundParams = {
+  sceneId: string;
+  nodeId: string;
+};
+
+export type ReorderBackgroundParams = {
+  sceneId: string;
+  nodeId: string;
+  // null 明确表示移动到当前场景末尾。
+  beforeNodeId: string | null;
+};
+
+export type TimelineDeleteManyParams = {
+  sceneId: string;
+  nodeIds: string[];
+};
+
+export type TimelineReorderParams = {
+  sceneId: string;
+  nodeId: string;
+  // null 明确表示移动到当前场景末尾。
+  beforeNodeId: string | null;
+};
+
+export type TimelineReorderManyParams = {
+  sceneId: string;
+  nodeIds: string[];
+  // null 明确表示把整个选择组移动到当前场景末尾。
+  beforeNodeId: string | null;
 };
 
 export type ReorderDialogueParams = {
@@ -49,6 +125,7 @@ export const ENGINE_METHODS = [
   'scene.add',
   'scene.rename',
   'scene.delete',
+  'scene.setBackground',
   'dialogue.add',
   'dialogue.update',
   'dialogue.delete',
@@ -56,6 +133,17 @@ export const ENGINE_METHODS = [
   'dialogue.move',
   'dialogue.reorder',
   'dialogue.reorderMany',
+  'background.add',
+  'background.update',
+  'background.delete',
+  'background.reorder',
+  'character.add',
+  'character.update',
+  'sceneJump.add',
+  'sceneJump.update',
+  'timeline.deleteMany',
+  'timeline.reorder',
+  'timeline.reorderMany',
 ] as const;
 
 export type EngineMethod = (typeof ENGINE_METHODS)[number];
@@ -79,6 +167,10 @@ export type EngineParamsByMethod = {
   'scene.delete': {
     sceneId: string;
   };
+  'scene.setBackground': {
+    sceneId: string;
+    assetId: string | null;
+  };
   'dialogue.add': AddDialogueParams;
   'dialogue.update': {
     sceneId: string;
@@ -98,6 +190,17 @@ export type EngineParamsByMethod = {
   };
   'dialogue.reorder': ReorderDialogueParams;
   'dialogue.reorderMany': ReorderDialoguesParams;
+  'background.add': AddBackgroundParams;
+  'background.update': UpdateBackgroundParams;
+  'background.delete': DeleteBackgroundParams;
+  'background.reorder': ReorderBackgroundParams;
+  'character.add': AddCharacterParams;
+  'character.update': UpdateCharacterParams;
+  'sceneJump.add': AddSceneJumpParams;
+  'sceneJump.update': UpdateSceneJumpParams;
+  'timeline.deleteMany': TimelineDeleteManyParams;
+  'timeline.reorder': TimelineReorderParams;
+  'timeline.reorderMany': TimelineReorderManyParams;
 };
 
 export type EngineInvocation = {
@@ -107,13 +210,13 @@ export type EngineInvocation = {
   };
 }[EngineMethod];
 
-// `project.open` 带有本机文件路径，因此它不是 Renderer 可以直接构造的
-// EngineInvocation。只有 Electron Main 在用户完成原生文件选择后，才能创建
-// 这个后端请求。
+// `project.open` carries manifest bytes read and stabilized by Electron Main,
+// so it is not an EngineInvocation that Renderer may construct. C++ parses
+// exactly this snapshot instead of reopening a mutable native path.
 export type OpenProjectBackendInvocation = {
   method: 'project.open';
   params: {
-    filePath: string;
+    contents: string;
   };
 };
 
@@ -124,10 +227,22 @@ export type SaveProjectBackendInvocation = {
   };
 };
 
+// Asset import paths are created only by Electron Main after a native file
+// selection. This invocation must never be added to ENGINE_METHODS.
+export type ImportAssetBackendInvocation = {
+  method: 'asset.import';
+  params: {
+    kind: 'image' | 'video';
+    sourceFilePath: string;
+    projectFilePath: string;
+  };
+};
+
 export type BackendInvocation =
   | EngineInvocation
   | OpenProjectBackendInvocation
-  | SaveProjectBackendInvocation;
+  | SaveProjectBackendInvocation
+  | ImportAssetBackendInvocation;
 
 // Electron Main 会补充 id；C++ 使用同一个 id 返回结果。
 export type BackendRequest = BackendInvocation & {
@@ -160,6 +275,10 @@ export type VnEngineApi = {
     name: string,
   ): Promise<EngineMutationResult>;
   deleteScene(sceneId: string): Promise<EngineMutationResult>;
+  setSceneBackground(
+    sceneId: string,
+    assetId: string | null,
+  ): Promise<EngineMutationResult>;
   addDialogue(
     params: AddDialogueParams,
   ): Promise<EngineMutationResult>;
@@ -186,6 +305,39 @@ export type VnEngineApi = {
   ): Promise<EngineMutationResult>;
   reorderDialogues(
     params: ReorderDialoguesParams,
+  ): Promise<EngineMutationResult>;
+  addBackground(
+    params: AddBackgroundParams,
+  ): Promise<EngineMutationResult>;
+  updateBackground(
+    params: UpdateBackgroundParams,
+  ): Promise<EngineMutationResult>;
+  deleteBackground(
+    params: DeleteBackgroundParams,
+  ): Promise<EngineMutationResult>;
+  reorderBackground(
+    params: ReorderBackgroundParams,
+  ): Promise<EngineMutationResult>;
+  addCharacter(
+    params: AddCharacterParams,
+  ): Promise<EngineMutationResult>;
+  updateCharacter(
+    params: UpdateCharacterParams,
+  ): Promise<EngineMutationResult>;
+  addSceneJump(
+    params: AddSceneJumpParams,
+  ): Promise<EngineMutationResult>;
+  updateSceneJump(
+    params: UpdateSceneJumpParams,
+  ): Promise<EngineMutationResult>;
+  deleteTimelineNodes(
+    params: TimelineDeleteManyParams,
+  ): Promise<EngineMutationResult>;
+  reorderTimelineNode(
+    params: TimelineReorderParams,
+  ): Promise<EngineMutationResult>;
+  reorderTimelineNodes(
+    params: TimelineReorderManyParams,
   ): Promise<EngineMutationResult>;
 };
 

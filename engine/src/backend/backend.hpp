@@ -4,7 +4,6 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <vector>
 
 #include <nlohmann/json_fwd.hpp>
 
@@ -22,17 +21,17 @@ class Backend final {
  private:
   nlohmann::json handle(const nlohmann::json& request);
   static nlohmann::json request_id(const nlohmann::json& request);
+  ProjectAggregate& require_aggregate();
   Project& require_project();
   void reset_unsaved_session();
   void reset_opened_session();
   void record_mutation(bool changed);
 
   RandomIdGenerator ids_;
-  std::optional<Project> project_;
-  // Asset metadata is loaded transactionally with the Project and retained
-  // for the later save/import stages. It is intentionally not exposed in the
-  // renderer-facing Project snapshot yet.
-  std::vector<Asset> assets_;
+  // Project data and Asset metadata are one consistency boundary because
+  // Scene visuals reference Assets by ID. Renderer responses expose only the
+  // Project plus path-free Asset metadata; storage paths remain private here.
+  std::optional<ProjectAggregate> aggregate_;
   // Revisions describe the current in-memory document, not a filesystem path.
   // Electron Main remains the sole owner of the active path.
   std::uint64_t revision_ = 0;

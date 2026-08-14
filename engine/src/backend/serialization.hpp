@@ -12,14 +12,11 @@
 namespace vnengine::backend {
 
 inline constexpr std::string_view kProjectFileFormat = "vn-engine-project";
-inline constexpr int kProjectFileVersion = 1;
+inline constexpr int kProjectFileVersion = 6;
 
-struct ProjectFileDocument {
-  Project project;
-  std::vector<Asset> assets;
-
-  bool operator==(const ProjectFileDocument&) const = default;
-};
+// The persistence envelope serializes the same aggregate that Core validates.
+// Keep the legacy name as an adapter while callers migrate to ProjectAggregate.
+using ProjectFileDocument = ProjectAggregate;
 
 enum class ProjectFileErrorKind {
   invalid_document,
@@ -39,6 +36,10 @@ class ProjectFileError final : public std::runtime_error {
 // project_to_json is the renderer-facing Project snapshot and deliberately
 // excludes the persistence envelope and asset manifest.
 nlohmann::json project_to_json(const Project& project);
+
+// Public Asset snapshots deliberately omit relativePath. Storage locations
+// stay inside trusted C++/Main persistence code and the on-disk manifest.
+nlohmann::json assets_to_renderer_json(const std::vector<Asset>& assets);
 
 // The file representation is versioned independently from the in-memory
 // model. project_file_from_json performs strict structural and invariant

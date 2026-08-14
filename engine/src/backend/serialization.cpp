@@ -3,6 +3,7 @@
 #include <initializer_list>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <unordered_set>
 #include <utility>
 
@@ -122,29 +123,291 @@ Dialogue dialogue_from_json(
   };
 }
 
-Json scene_to_json(const Scene& scene) {
+std::string character_slot_to_string(CharacterSlot slot);
+CharacterSlot character_slot_from_json(
+    const Json& value,
+    const std::string& context);
+
+Json background_node_to_json(const BackgroundNode& background) {
+  return {
+      {"id", background.id},
+      {"type", "background"},
+      {"assetId",
+       background.asset_id.has_value() ? Json(*background.asset_id)
+                                       : Json(nullptr)},
+  };
+}
+
+Json character_node_to_json(const CharacterNode& character) {
+  return {
+      {"id", character.id},
+      {"type", "character"},
+      {"assetId",
+       character.asset_id.has_value() ? Json(*character.asset_id)
+                                      : Json(nullptr)},
+      {"slot", character_slot_to_string(character.slot)},
+      {"layer", character.layer},
+  };
+}
+
+Json scene_jump_node_to_json(const SceneJumpNode& jump) {
+  return {
+      {"id", jump.id},
+      {"type", "sceneJump"},
+      {"targetSceneId", jump.target_scene_id},
+  };
+}
+
+Json scene_node_to_json(const SceneNode& node) {
+  return std::visit(
+      [](const auto& value) -> Json {
+        using Value = std::decay_t<decltype(value)>;
+        if constexpr (std::is_same_v<Value, Dialogue>) {
+          return dialogue_to_json(value);
+        } else if constexpr (std::is_same_v<Value, BackgroundNode>) {
+          return background_node_to_json(value);
+        } else if constexpr (std::is_same_v<Value, CharacterNode>) {
+          return character_node_to_json(value);
+        } else {
+          return scene_jump_node_to_json(value);
+        }
+      },
+      node);
+}
+
+SceneNode scene_node_from_json(
+    const Json& value,
+    const std::string& context,
+    const int file_version) {
+  // File versions 1 and 2 defined Scene.nodes as dialogue-only. Keeping that
+  // decoder strict prevents a v3 node from silently entering an older file.
+  if (file_version < 3) {
+    return dialogue_from_json(value, context);
+  }
+
+  if (!value.is_object()) {
+    invalid(context + " must be an object");
+  }
+  if (!value.contains("type")) {
+    invalid(context + ".type is required");
+  }
+  if (!value.at("type").is_string()) {
+    invalid(context + ".type must be a string");
+  }
+
+  const std::string type = value.at("type").get<std::string>();
+  if (type == "dialogue") {
+    return dialogue_from_json(value, context);
+  }
+  if (type == "background") {
+    require_exact_fields(value, {"id", "type", "assetId"}, context);
+    if (file_version < 4 && !value.at("assetId").is_string()) {
+      invalid(context + ".assetId must be a string before file version 4");
+    }
+    if (file_version >= 4 && !value.at("assetId").is_null() &&
+        !value.at("assetId").is_string()) {
+      invalid(context + ".assetId must be a string or null");
+    }
+    std::optional<std::string> asset_id;
+    if (!value.at("assetId").is_null()) {
+      asset_id = value.at("assetId").get<std::string>();
+    }
+    return BackgroundNode{
+        .id = require_string(value, "id", context),
+        .asset_id = std::move(asset_id),
+    };
+  }
+  if (type == "character") {
+    if (file_version < 5) {
+      unsupported(context + ".type is not supported before file version 5");
+    }
+    require_exact_fields(
+        value,
+        {"id", "type", "assetId", "slot", "layer"},
+        context);
+    const Json& asset_value = value.at("assetId");
+    if (!asset_value.is_null() && !asset_value.is_string()) {
+      invalid(context + ".assetId must be a string or null");
+    }
+    std::optional<std::string> asset_id;
+    if (asset_value.is_string()) {
+      asset_id = asset_value.get<std::string>();
+    }
+    const int layer = require_integer(value, "layer", context);
+    if (layer < 1 || layer > 10) {
+      invalid(context + ".layer must be between 1 and 10");
+    }
+    return CharacterNode{
+        .id = require_string(value, "id", context),
+        .asset_id = std::move(asset_id),
+        .slot = character_slot_from_json(value, context),
+        .layer = layer,
+    };
+  }
+  if (type == "sceneJump") {
+    if (file_version < 6) {
+      unsupported(context + ".type is not supported before file version 6");
+    }
+    require_exact_fields(
+        value,
+        {"id", "type", "targetSceneId"},
+        context);
+    return SceneJumpNode{
+        .id = require_string(value, "id", context),
+        .target_scene_id = require_string(value, "targetSceneId", context),
+    };
+  }
+  unsupported(context + ".type is not supported");
+}
+
+Json scene_to_renderer_json(const Scene& scene) {
   Json nodes = Json::array();
-  for (const Dialogue& dialogue : scene.nodes) {
-    nodes.push_back(dialogue_to_json(dialogue));
+  for (const SceneNode& node : scene.nodes) {
+    nodes.push_back(scene_node_to_json(node));
   }
 
   return {
       {"schemaVersion", scene.schema_version},
       {"id", scene.id},
       {"name", scene.name},
+      {"backgroundAssetId",
+       scene.visuals.background_asset_id.has_value()
+           ? Json(*scene.visuals.background_asset_id)
+           : Json(nullptr)},
+      {"nodes", std::move(nodes)},
+  };
+}
+
+std::string character_slot_to_string(const CharacterSlot slot) {
+  switch (slot) {
+    case CharacterSlot::left:
+      return "left";
+    case CharacterSlot::center:
+      return "center";
+    case CharacterSlot::right:
+      return "right";
+  }
+  invalid("character visual slot is invalid");
+}
+
+CharacterSlot character_slot_from_json(
+    const Json& value,
+    const std::string& context) {
+  const std::string slot = require_string(value, "slot", context);
+  if (slot == "left") {
+    return CharacterSlot::left;
+  }
+  if (slot == "center") {
+    return CharacterSlot::center;
+  }
+  if (slot == "right") {
+    return CharacterSlot::right;
+  }
+  invalid(context + ".slot must be left, center, or right");
+}
+
+Json character_visual_to_json(
+    const CharacterVisualInstance& character) {
+  return {
+      {"id", character.id},
+      {"assetId", character.asset_id},
+      {"slot", character_slot_to_string(character.slot)},
+  };
+}
+
+CharacterVisualInstance character_visual_from_json(
+    const Json& value,
+    const std::string& context) {
+  require_exact_fields(value, {"id", "assetId", "slot"}, context);
+  return CharacterVisualInstance{
+      .id = require_string(value, "id", context),
+      .asset_id = require_string(value, "assetId", context),
+      .slot = character_slot_from_json(value, context),
+  };
+}
+
+Json scene_visuals_to_json(const SceneVisualState& visuals) {
+  Json characters = Json::array();
+  for (const CharacterVisualInstance& character : visuals.characters) {
+    characters.push_back(character_visual_to_json(character));
+  }
+
+  return {
+      {"backgroundAssetId",
+       visuals.background_asset_id.has_value()
+           ? Json(*visuals.background_asset_id)
+           : Json(nullptr)},
+      {"characters", std::move(characters)},
+  };
+}
+
+SceneVisualState scene_visuals_from_json(
+    const Json& value,
+    const std::string& context) {
+  require_exact_fields(
+      value, {"backgroundAssetId", "characters"}, context);
+
+  std::optional<std::string> background_asset_id;
+  const Json& background = value.at("backgroundAssetId");
+  if (background.is_string()) {
+    background_asset_id = background.get<std::string>();
+  } else if (!background.is_null()) {
+    invalid(context + ".backgroundAssetId must be a string or null");
+  }
+
+  const Json& characters_json = value.at("characters");
+  if (!characters_json.is_array()) {
+    invalid(context + ".characters must be an array");
+  }
+
+  SceneVisualState visuals{
+      .background_asset_id = std::move(background_asset_id),
+      .characters = {},
+  };
+  visuals.characters.reserve(characters_json.size());
+  for (std::size_t index = 0; index < characters_json.size(); ++index) {
+    visuals.characters.push_back(character_visual_from_json(
+        characters_json.at(index),
+        context + ".characters[" + std::to_string(index) + "]"));
+  }
+  return visuals;
+}
+
+Json scene_to_file_json(const Scene& scene) {
+  // Construct the persisted shape explicitly. The Renderer projection and
+  // file format have separate version boundaries and must not accidentally
+  // inherit one another's future fields.
+  Json nodes = Json::array();
+  for (const SceneNode& node : scene.nodes) {
+    nodes.push_back(scene_node_to_json(node));
+  }
+
+  return {
+      {"schemaVersion", scene.schema_version},
+      {"id", scene.id},
+      {"name", scene.name},
+      {"visuals", scene_visuals_to_json(scene.visuals)},
       {"nodes", std::move(nodes)},
   };
 }
 
 Scene scene_from_json(
     const Json& value,
-    const std::size_t scene_index) {
+    const std::size_t scene_index,
+    const int file_version) {
   const std::string context =
       "project.scenes[" + std::to_string(scene_index) + "]";
-  require_exact_fields(
-      value,
-      {"schemaVersion", "id", "name", "nodes"},
-      context);
+  if (file_version == 1) {
+    require_exact_fields(
+        value,
+        {"schemaVersion", "id", "name", "nodes"},
+        context);
+  } else {
+    require_exact_fields(
+        value,
+        {"schemaVersion", "id", "name", "visuals", "nodes"},
+        context);
+  }
   require_schema_version(value, context);
 
   const Json& nodes = value.at("nodes");
@@ -156,18 +419,24 @@ Scene scene_from_json(
       .schema_version = kSchemaVersion,
       .id = require_string(value, "id", context),
       .name = require_string(value, "name", context),
+      // File version 1 predates Scene visuals. Reading it always produces an
+      // explicit empty visual state rather than inventing implicit Assets.
+      .visuals = file_version == 1
+          ? SceneVisualState{}
+          : scene_visuals_from_json(value.at("visuals"), context + ".visuals"),
       .nodes = {},
   };
   scene.nodes.reserve(nodes.size());
   for (std::size_t index = 0; index < nodes.size(); ++index) {
-    scene.nodes.push_back(dialogue_from_json(
+    scene.nodes.push_back(scene_node_from_json(
         nodes.at(index),
-        context + ".nodes[" + std::to_string(index) + "]"));
+        context + ".nodes[" + std::to_string(index) + "]",
+        file_version));
   }
   return scene;
 }
 
-Project project_from_json(const Json& value) {
+Project project_from_json(const Json& value, const int file_version) {
   constexpr std::string_view context = "project";
   require_exact_fields(
       value,
@@ -189,13 +458,10 @@ Project project_from_json(const Json& value) {
   };
   project.scenes.reserve(scenes.size());
   for (std::size_t index = 0; index < scenes.size(); ++index) {
-    project.scenes.push_back(scene_from_json(scenes.at(index), index));
+    project.scenes.push_back(
+        scene_from_json(scenes.at(index), index, file_version));
   }
 
-  if (const auto violation = validate_project(project);
-      violation.has_value()) {
-    invalid("project is invalid: " + *violation);
-  }
   return project;
 }
 
@@ -226,51 +492,6 @@ AssetType asset_type_from_string(
   unsupported(context + ".type is not supported");
 }
 
-std::string asset_directory(const AssetType type) {
-  switch (type) {
-    case AssetType::image:
-      return "images";
-    case AssetType::video:
-      return "videos";
-    case AssetType::audio:
-      return "audio";
-  }
-  invalid("asset type is invalid");
-}
-
-void validate_asset_path(
-    const AssetType type,
-    const std::string& path,
-    const std::string& context) {
-  // Project files use portable forward-slash paths. Requiring the type's
-  // directory also prevents absolute paths and ../ directory traversal.
-  const std::string prefix = "assets/" + asset_directory(type) + "/";
-  if (path.size() <= prefix.size() || !path.starts_with(prefix) ||
-      path.find('\\') != std::string::npos ||
-      path.find('\0') != std::string::npos) {
-    invalid(
-        context + ".relativePath must be a safe path below " + prefix);
-  }
-
-  std::size_t component_start = 0;
-  while (component_start < path.size()) {
-    const std::size_t separator = path.find('/', component_start);
-    const std::size_t component_end = separator == std::string::npos
-        ? path.size()
-        : separator;
-    const std::string_view component(
-        path.data() + component_start,
-        component_end - component_start);
-    if (component.empty() || component == "." || component == "..") {
-      invalid(context + ".relativePath contains an unsafe component");
-    }
-    if (separator == std::string::npos) {
-      break;
-    }
-    component_start = separator + 1;
-  }
-}
-
 Json asset_to_json(const Asset& asset) {
   return {
       {"id", asset.id},
@@ -297,35 +518,22 @@ Asset asset_from_json(
       .relative_path = require_string(value, "relativePath", context),
       .display_name = require_string(value, "displayName", context),
   };
-  if (asset.id.empty()) {
-    invalid(context + ".id must not be empty");
-  }
-  validate_asset_path(asset.type, asset.relative_path, context);
   return asset;
 }
 
-void validate_assets(
-    const Project& project,
-    const std::vector<Asset>& assets) {
-  std::unordered_set<std::string> entity_ids{project.id};
+Json project_to_file_json(const Project& project) {
+  Json scenes = Json::array();
   for (const Scene& scene : project.scenes) {
-    entity_ids.insert(scene.id);
-    for (const Dialogue& dialogue : scene.nodes) {
-      entity_ids.insert(dialogue.id);
-    }
+    scenes.push_back(scene_to_file_json(scene));
   }
 
-  for (std::size_t index = 0; index < assets.size(); ++index) {
-    const Asset& asset = assets[index];
-    const std::string context = "assets[" + std::to_string(index) + "]";
-    if (asset.id.empty()) {
-      invalid(context + ".id must not be empty");
-    }
-    if (!entity_ids.insert(asset.id).second) {
-      invalid("entity and asset IDs must be unique");
-    }
-    validate_asset_path(asset.type, asset.relative_path, context);
-  }
+  return {
+      {"schemaVersion", project.schema_version},
+      {"id", project.id},
+      {"name", project.name},
+      {"entrySceneId", project.entry_scene_id},
+      {"scenes", std::move(scenes)},
+  };
 }
 
 }  // namespace
@@ -342,7 +550,7 @@ ProjectFileErrorKind ProjectFileError::kind() const noexcept {
 Json project_to_json(const Project& project) {
   Json scenes = Json::array();
   for (const Scene& scene : project.scenes) {
-    scenes.push_back(scene_to_json(scene));
+    scenes.push_back(scene_to_renderer_json(scene));
   }
 
   return {
@@ -354,12 +562,23 @@ Json project_to_json(const Project& project) {
   };
 }
 
-Json project_file_to_json(const ProjectFileDocument& document) {
-  if (const auto violation = validate_project(document.project);
-      violation.has_value()) {
-    invalid("project is invalid: " + *violation);
+Json assets_to_renderer_json(const std::vector<Asset>& assets) {
+  Json result = Json::array();
+  for (const Asset& asset : assets) {
+    result.push_back({
+        {"id", asset.id},
+        {"type", asset_type_to_string(asset.type)},
+        {"displayName", asset.display_name},
+    });
   }
-  validate_assets(document.project, document.assets);
+  return result;
+}
+
+Json project_file_to_json(const ProjectFileDocument& document) {
+  if (const auto violation = validate_project_aggregate(document);
+      violation.has_value()) {
+    invalid("project aggregate is invalid: " + *violation);
+  }
 
   Json assets = Json::array();
   for (const Asset& asset : document.assets) {
@@ -369,7 +588,7 @@ Json project_file_to_json(const ProjectFileDocument& document) {
   return {
       {"format", kProjectFileFormat},
       {"fileVersion", kProjectFileVersion},
-      {"project", project_to_json(document.project)},
+      {"project", project_to_file_json(document.project)},
       {"assets", std::move(assets)},
   };
 }
@@ -385,7 +604,7 @@ ProjectFileDocument project_file_from_json(const Json& value) {
   }
 
   const int file_version = require_integer(value, "fileVersion", "document");
-  if (file_version != kProjectFileVersion) {
+  if (file_version < 1 || file_version > kProjectFileVersion) {
     unsupported("document.fileVersion is not supported");
   }
 
@@ -394,7 +613,7 @@ ProjectFileDocument project_file_from_json(const Json& value) {
   }
 
   ProjectFileDocument document{
-      .project = project_from_json(value.at("project")),
+      .project = project_from_json(value.at("project"), file_version),
       .assets = {},
   };
   const Json& assets = value.at("assets");
@@ -402,7 +621,10 @@ ProjectFileDocument project_file_from_json(const Json& value) {
   for (std::size_t index = 0; index < assets.size(); ++index) {
     document.assets.push_back(asset_from_json(assets.at(index), index));
   }
-  validate_assets(document.project, document.assets);
+  if (const auto violation = validate_project_aggregate(document);
+      violation.has_value()) {
+    invalid("project aggregate is invalid: " + *violation);
+  }
   return document;
 }
 

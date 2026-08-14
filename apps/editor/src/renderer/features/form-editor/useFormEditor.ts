@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 
-import type { DialogueNode } from '../../../shared/projectTypes';
+import type {
+  BackgroundNode,
+  CharacterNode,
+  CharacterSlot,
+  SceneJumpNode,
+  SceneNode,
+} from '../../../shared/projectTypes';
 import { EMPTY_DIALOGUE_MESSAGE } from '../../editorMessages';
 import type { EngineProjectState } from '../../hooks/useEngineProject';
 
@@ -50,6 +56,14 @@ export function useFormEditor({
   const selectedNode = scene?.nodes.find(
     (node) => node.id === selectedNodeId,
   );
+  const selectedDialogue =
+    selectedNode?.type === 'dialogue' ? selectedNode : undefined;
+  const selectedBackground =
+    selectedNode?.type === 'background' ? selectedNode : undefined;
+  const selectedCharacter =
+    selectedNode?.type === 'character' ? selectedNode : undefined;
+  const selectedSceneJump =
+    selectedNode?.type === 'sceneJump' ? selectedNode : undefined;
 
   // 图形化编辑器可能删除表单当前选中的节点。Project 更新后清理
   // 失效选择，避免切回表单时还显示已经删除的对白草稿。
@@ -70,16 +84,21 @@ export function useFormEditor({
   // 如果其他编辑模式更新了当前节点，就用 C++ 最新快照刷新表单草稿。
   // 依赖具体字段值，避免无关的 Project 更新覆盖未提交草稿。
   useEffect(() => {
-    if (!selectedNode) {
+    if (!selectedDialogue) {
+      if (selectedNode && selectedNode.type !== 'dialogue') {
+        setSpeaker('');
+        setText('');
+      }
       return;
     }
 
-    setSpeaker(selectedNode.speaker);
-    setText(selectedNode.text);
+    setSpeaker(selectedDialogue.speaker);
+    setText(selectedDialogue.text);
   }, [
-    selectedNode?.id,
-    selectedNode?.speaker,
-    selectedNode?.text,
+    selectedDialogue?.id,
+    selectedDialogue?.speaker,
+    selectedDialogue?.text,
+    selectedNode?.type,
   ]);
 
   function startNewDialogue() {
@@ -93,9 +112,12 @@ export function useFormEditor({
     startNewDialogue();
   }
 
-  const draftDirty = selectedNode
-    ? speaker !== selectedNode.speaker || text !== selectedNode.text
-    : speaker.length > 0 || text.length > 0;
+  const draftDirty = selectedDialogue
+    ? speaker !== selectedDialogue.speaker ||
+      text !== selectedDialogue.text
+    : selectedNode
+      ? false
+      : speaker.length > 0 || text.length > 0;
   const commitInProgressRef = useRef<Promise<boolean> | null>(null);
 
   async function commitPendingDraft(): Promise<boolean> {
@@ -117,11 +139,11 @@ export function useFormEditor({
         return false;
       }
 
-      if (selectedNode) {
+      if (selectedDialogue) {
         const result = await runEngineAction(() =>
           window.vnEngine.updateDialogue(
             scene.id,
-            selectedNode.id,
+            selectedDialogue.id,
             speaker,
             text,
           ),
@@ -129,9 +151,9 @@ export function useFormEditor({
 
         const savedNode = result?.project.scenes
           .find((projectScene) => projectScene.id === scene.id)
-          ?.nodes.find((node) => node.id === selectedNode.id);
-        if (savedNode) {
-          selectNode(savedNode);
+          ?.nodes.find((node) => node.id === selectedDialogue.id);
+        if (savedNode?.type === 'dialogue') {
+          applyNodeSelection(savedNode);
         }
         return result !== null;
       }
@@ -159,13 +181,32 @@ export function useFormEditor({
     }
   }
 
-  function selectNode(node: DialogueNode) {
+  function applyNodeSelection(node: SceneNode) {
     setSelectedNodeId(node.id);
-    setSpeaker(node.speaker);
-    setText(node.text);
+    if (node.type === 'dialogue') {
+      setSpeaker(node.speaker);
+      setText(node.text);
+    } else {
+      setSpeaker('');
+      setText('');
+    }
+  }
+
+  async function selectNode(node: SceneNode): Promise<void> {
+    if (node.id === selectedNodeId) {
+      return;
+    }
+
+    if (await commitPendingDraft()) {
+      applyNodeSelection(node);
+    }
   }
 
   async function addScene() {
+    if (!(await commitPendingDraft())) {
+      return;
+    }
+
     // 不再由 React 计算“场景 N”或生成 ID；C++ 统一负责这些规则。
     const result = await runEngineAction(() =>
       window.vnEngine.addScene(),
@@ -179,7 +220,7 @@ export function useFormEditor({
     startNewDialogue();
   }
 
-  function selectScene(nextSceneId: string) {
+  async function selectScene(nextSceneId: string) {
     if (
       !project ||
       !scene ||
@@ -191,19 +232,24 @@ export function useFormEditor({
       return;
     }
 
+    if (!(await commitPendingDraft())) {
+      return;
+    }
+
     setSelectedSceneId(nextSceneId);
     startNewDialogue();
   }
 
   async function insertEmptyDialogue() {
-    if (!scene) {
+    const anchorNodeId = selectedNodeId;
+    if (!scene || !(await commitPendingDraft())) {
       return;
     }
 
     const result = await runEngineAction(() =>
       window.vnEngine.addDialogue({
         sceneId: scene.id,
-        afterNodeId: selectedNodeId,
+        afterNodeId: anchorNodeId,
       }),
     );
 
@@ -218,9 +264,144 @@ export function useFormEditor({
       (node) => node.id === result.nodeId,
     );
 
-    if (createdNode) {
-      selectNode(createdNode);
+    if (createdNode?.type === 'dialogue') {
+      applyNodeSelection(createdNode);
     }
+  }
+
+  async function insertBackground() {
+    const anchorNodeId = selectedNodeId;
+    if (!scene || !(await commitPendingDraft())) {
+      return;
+    }
+
+    const result = await runEngineAction(() =>
+      window.vnEngine.addBackground({
+        sceneId: scene.id,
+        afterNodeId: anchorNodeId,
+      }),
+    );
+
+    if (!result?.nodeId) {
+      return;
+    }
+
+    const createdNode = result.project.scenes
+      .find((projectScene) => projectScene.id === scene.id)
+      ?.nodes.find((node) => node.id === result.nodeId);
+
+    if (createdNode?.type === 'background') {
+      applyNodeSelection(createdNode);
+    }
+  }
+
+  async function insertCharacter() {
+    const anchorNodeId = selectedNodeId;
+    if (!scene || !(await commitPendingDraft())) {
+      return;
+    }
+
+    const result = await runEngineAction(() =>
+      window.vnEngine.addCharacter({
+        sceneId: scene.id,
+        afterNodeId: anchorNodeId,
+      }),
+    );
+
+    if (!result?.nodeId) {
+      return;
+    }
+
+    const createdNode = result.project.scenes
+      .find((projectScene) => projectScene.id === scene.id)
+      ?.nodes.find((node) => node.id === result.nodeId);
+
+    if (createdNode?.type === 'character') {
+      applyNodeSelection(createdNode);
+    }
+  }
+
+  async function insertSceneJump() {
+    const anchorNodeId = selectedNodeId;
+    const targetScene = project?.scenes.find(
+      (projectScene) => projectScene.id !== scene?.id,
+    );
+    if (!scene || !targetScene || !(await commitPendingDraft())) {
+      return;
+    }
+
+    const result = await runEngineAction(() =>
+      window.vnEngine.addSceneJump({
+        sceneId: scene.id,
+        targetSceneId: targetScene.id,
+        afterNodeId: anchorNodeId,
+      }),
+    );
+    const createdNode = result?.project.scenes
+      .find((projectScene) => projectScene.id === scene.id)
+      ?.nodes.find((node) => node.id === result.nodeId);
+    if (createdNode?.type === 'sceneJump') {
+      applyNodeSelection(createdNode);
+    }
+  }
+
+  async function updateBackgroundNode(
+    node: BackgroundNode,
+    assetId: string | null,
+  ) {
+    if (!scene || node.assetId === assetId) {
+      return;
+    }
+
+    await runEngineAction(() =>
+      window.vnEngine.updateBackground({
+        sceneId: scene.id,
+        nodeId: node.id,
+        assetId,
+      }),
+    );
+  }
+
+  async function updateCharacterNode(
+    node: CharacterNode,
+    next: {
+      assetId: string | null;
+      slot: CharacterSlot;
+      layer: number;
+    },
+  ) {
+    if (
+      !scene ||
+      (node.assetId === next.assetId &&
+        node.slot === next.slot &&
+        node.layer === next.layer)
+    ) {
+      return;
+    }
+
+    await runEngineAction(() =>
+      window.vnEngine.updateCharacter({
+        sceneId: scene.id,
+        nodeId: node.id,
+        ...next,
+      }),
+    );
+  }
+
+  async function updateSceneJumpNode(
+    node: SceneJumpNode,
+    targetSceneId: string,
+  ) {
+    if (!scene || node.targetSceneId === targetSceneId) {
+      return;
+    }
+    await runEngineAction(() =>
+      window.vnEngine.updateSceneJump({
+        sceneId: scene.id,
+        nodeId: node.id,
+        targetSceneId,
+      }),
+    );
   }
 
   async function submitDialogue() {
@@ -240,7 +421,7 @@ export function useFormEditor({
     await commitPendingDraft();
   }
 
-  async function deleteDialogue(nodeId: string) {
+  async function deleteNode(nodeId: string) {
     if (!scene) {
       return;
     }
@@ -253,12 +434,29 @@ export function useFormEditor({
       return;
     }
 
-    const speakerLabel = nodeToDelete.speaker || '未命名角色';
+    const nodeLabel =
+      nodeToDelete.type === 'dialogue'
+        ? `${nodeToDelete.speaker || '未命名角色'} 的这条对白`
+        : nodeToDelete.type === 'background'
+          ? '这个背景切换'
+          : nodeToDelete.type === 'character'
+            ? '这个人物立绘节点'
+            : '这个场景跳转节点';
     const shouldDelete = window.confirm(
-      `确定删除 ${speakerLabel} 的这条对白吗？`,
+      `确定删除${nodeLabel}吗？`,
     );
 
     if (!shouldDelete) {
+      return;
+    }
+
+    // 删除其他节点也会返回完整 Project 快照。先提交当前对白草稿，
+    // 避免这次重投影把正在编辑的内容覆盖掉。删除当前节点本身则是
+    // 用户明确确认的丢弃操作，不要求先保存即将删除的草稿。
+    if (
+      nodeId !== selectedNodeId &&
+      !(await commitPendingDraft())
+    ) {
       return;
     }
 
@@ -274,7 +472,10 @@ export function useFormEditor({
       remainingNodeIds[selectedIndex - 1];
 
     const result = await runEngineAction(() =>
-      window.vnEngine.deleteDialogue(scene.id, nodeId),
+      window.vnEngine.deleteTimelineNodes({
+        sceneId: scene.id,
+        nodeIds: [nodeId],
+      }),
     );
 
     if (!result || nodeId !== selectedNodeId) {
@@ -289,13 +490,13 @@ export function useFormEditor({
     );
 
     if (nextNode) {
-      selectNode(nextNode);
+      applyNodeSelection(nextNode);
     } else {
       startNewDialogue();
     }
   }
 
-  async function moveDialogue(
+  async function moveNode(
     nodeId: string,
     direction: -1 | 1,
   ) {
@@ -303,12 +504,41 @@ export function useFormEditor({
       return;
     }
 
+    const wasCreatingDialogue =
+      selectedNodeId === null && draftDirty;
+    if (!(await commitPendingDraft())) {
+      return;
+    }
+
+    // 新对白提交会改变时间线长度，而且新 ID 只存在于返回快照中。
+    // 本次点击先完成创建，避免再使用提交前的旧索引错误地跨两格移动；
+    // 用户随后可在已经刷新后的时间线中执行明确的移动操作。
+    if (wasCreatingDialogue) {
+      return;
+    }
+
+    const currentIndex = scene.nodes.findIndex(
+      (node) => node.id === nodeId,
+    );
+    if (currentIndex < 0) {
+      return;
+    }
+
+    const beforeNodeId =
+      direction === -1
+        ? scene.nodes[currentIndex - 1]?.id
+        : scene.nodes[currentIndex + 2]?.id ?? null;
+
+    if (direction === -1 && !beforeNodeId) {
+      return;
+    }
+
     await runEngineAction(() =>
-      window.vnEngine.moveDialogue(
-        scene.id,
+      window.vnEngine.reorderTimelineNode({
+        sceneId: scene.id,
         nodeId,
-        direction,
-      ),
+        beforeNodeId,
+      }),
     );
   }
 
@@ -316,6 +546,10 @@ export function useFormEditor({
     project,
     scene,
     selectedNode,
+    selectedDialogue,
+    selectedBackground,
+    selectedCharacter,
+    selectedSceneJump,
     selectedNodeId,
     speaker,
     text,
@@ -329,10 +563,16 @@ export function useFormEditor({
     addScene,
     selectScene,
     insertEmptyDialogue,
+    insertBackground,
+    insertCharacter,
+    insertSceneJump,
+    updateBackgroundNode,
+    updateCharacterNode,
+    updateSceneJumpNode,
     selectNode,
     submitDialogue,
-    deleteDialogue,
-    moveDialogue,
+    deleteNode,
+    moveNode,
     resetEditorState,
     commitPendingDraft,
   };

@@ -1,4 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createInterface, type Interface } from 'node:readline';
 
@@ -84,6 +86,25 @@ describe('C++ JSONL backend', () => {
         reject(new Error(`C++ backend request timed out: ${method}`));
       }, 2_000);
 
+      pending.set(id, { resolve, reject, timeout });
+      backend.stdin.write(
+        `${JSON.stringify({ id, method, params })}\n`,
+      );
+    });
+  }
+
+  function requestBackendOnly(
+    method: 'project.open',
+    params: { contents: string },
+  ): Promise<BackendResponse> {
+    const id = nextRequestId;
+    nextRequestId += 1;
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error(`C++ backend request timed out: ${method}`));
+      }, 2_000);
       pending.set(id, { resolve, reject, timeout });
       backend.stdin.write(
         `${JSON.stringify({ id, method, params })}\n`,
@@ -634,5 +655,133 @@ describe('C++ JSONL backend', () => {
         (node) => node.id,
       ),
     ).toEqual([createdIds[1]]);
+  });
+
+  it('moves and deletes mixed dialogue/background timeline nodes atomically', async () => {
+    const directory = await mkdtemp(
+      path.join(tmpdir(), 'vn-engine-timeline-integration-'),
+    );
+    const fixturePath = path.join(directory, 'project.vn.json');
+    const imageAssetId = 'image-1';
+    const manifestContents = JSON.stringify({
+      format: 'vn-engine-project',
+      fileVersion: 4,
+      project: {
+        schemaVersion: 1,
+        id: 'timeline-project',
+        name: '混合时间线协议测试',
+        entrySceneId: 'scene-1',
+        scenes: [
+          {
+            schemaVersion: 1,
+            id: 'scene-1',
+            name: '场景 1',
+            visuals: {
+              backgroundAssetId: null,
+              characters: [],
+            },
+            nodes: [],
+          },
+        ],
+      },
+      assets: [
+        {
+          id: imageAssetId,
+          type: 'image',
+          relativePath: 'assets/images/image-1.png',
+          displayName: '测试背景',
+        },
+      ],
+    });
+    await writeFile(fixturePath, manifestContents, 'utf8');
+
+    try {
+      const opened = await requestBackendOnly('project.open', {
+        contents: manifestContents,
+      });
+
+      if (!opened.ok) {
+        throw new Error(opened.error.message);
+      }
+
+      const sceneId = opened.result.project.entrySceneId;
+
+      const background = await request('background.add', {
+        sceneId,
+      });
+      if (!background.ok || !background.result.nodeId) {
+        throw new Error('C++ did not return a background node ID');
+      }
+      const backgroundId = background.result.nodeId;
+      expect(
+        background.result.project.scenes[0].nodes.find(
+          (node) => node.id === backgroundId,
+        ),
+      ).toEqual({
+        id: backgroundId,
+        type: 'background',
+        assetId: null,
+      });
+
+      const filledBackground = await request('background.update', {
+        sceneId,
+        nodeId: backgroundId,
+        assetId: imageAssetId,
+      });
+      expect(filledBackground.ok).toBe(true);
+
+      const character = await request('character.add', {
+        sceneId,
+        afterNodeId: backgroundId,
+      });
+      if (!character.ok || !character.result.nodeId) {
+        throw new Error('C++ did not return a character node ID');
+      }
+      const characterId = character.result.nodeId;
+      expect(
+        character.result.project.scenes[0].nodes.find(
+          (node) => node.id === characterId,
+        ),
+      ).toEqual({
+        id: characterId,
+        type: 'character',
+        assetId: null,
+        slot: 'center',
+        layer: 1,
+      });
+
+      const filledCharacter = await request('character.update', {
+        sceneId,
+        nodeId: characterId,
+        assetId: imageAssetId,
+        slot: 'left',
+        layer: 2,
+      });
+      expect(filledCharacter.ok).toBe(true);
+
+      const dialogue = await request('dialogue.add', {
+        sceneId,
+        speaker: 'A',
+        text: '混合时间线',
+      });
+      if (!dialogue.ok || !dialogue.result.nodeId) {
+        throw new Error('C++ did not return a dialogue node ID');
+      }
+
+      const moved = await request('timeline.reorderMany', {
+        sceneId,
+        nodeIds: [dialogue.result.nodeId, backgroundId, characterId],
+        beforeNodeId: null,
+      });
+      expect(moved.ok).toBe(true);
+
+      const deleted = await request('timeline.deleteMany', {
+        sceneId,
+        nodeIds: [backgroundId, characterId, dialogue.result.nodeId],
+      });
+      expect(deleted.ok).toBe(true);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });

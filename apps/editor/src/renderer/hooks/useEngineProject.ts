@@ -1,13 +1,28 @@
 import { useEffect, useRef, useState } from 'react';
 
+import type { ImportAssetResult } from '../../shared/assetProtocol';
 import type {
+  AddBackgroundParams,
+  AddCharacterParams,
   AddDialogueParams,
+  AddSceneJumpParams,
+  DeleteBackgroundParams,
   DeleteDialoguesParams,
   EngineMutationResult,
+  ReorderBackgroundParams,
   ReorderDialogueParams,
   ReorderDialoguesParams,
+  TimelineDeleteManyParams,
+  TimelineReorderManyParams,
+  TimelineReorderParams,
+  UpdateBackgroundParams,
+  UpdateCharacterParams,
+  UpdateSceneJumpParams,
 } from '../../shared/engineProtocol';
-import type { ProjectDocument } from '../../shared/projectTypes';
+import type {
+  AssetDocument,
+  ProjectDocument,
+} from '../../shared/projectTypes';
 import type { ProjectFileSessionSnapshot } from '../../shared/projectFileProtocol';
 import { EMPTY_DIALOGUE_MESSAGE } from '../editorMessages';
 
@@ -34,10 +49,57 @@ export type DeleteDialoguesAction = (
   params: DeleteDialoguesParams,
 ) => Promise<boolean>;
 
+export type AddBackgroundAction = (
+  params: AddBackgroundParams,
+) => Promise<boolean>;
+
+export type UpdateBackgroundAction = (
+  params: UpdateBackgroundParams,
+) => Promise<boolean>;
+
+export type AddCharacterAction = (
+  params: AddCharacterParams,
+) => Promise<boolean>;
+
+export type UpdateCharacterAction = (
+  params: UpdateCharacterParams,
+) => Promise<boolean>;
+
+export type AddSceneJumpAction = (
+  params: AddSceneJumpParams,
+) => Promise<boolean>;
+
+export type UpdateSceneJumpAction = (
+  params: UpdateSceneJumpParams,
+) => Promise<boolean>;
+
+export type DeleteBackgroundAction = (
+  params: DeleteBackgroundParams,
+) => Promise<boolean>;
+
+export type ReorderBackgroundAction = (
+  params: ReorderBackgroundParams,
+) => Promise<boolean>;
+
+export type DeleteTimelineNodesAction = (
+  params: TimelineDeleteManyParams,
+) => Promise<boolean>;
+
+export type ReorderTimelineNodeAction = (
+  params: TimelineReorderParams,
+) => Promise<boolean>;
+
+export type ReorderTimelineNodesAction = (
+  params: TimelineReorderManyParams,
+) => Promise<boolean>;
+
 export type OpenProjectStatus =
   | 'opened'
   | 'cancelled'
   | 'failed';
+
+export type ImportAssetStatus = ImportAssetResult['status'] | 'failed';
+export type ImportImageStatus = ImportAssetStatus;
 
 function requestInitialProject(): Promise<EngineMutationResult> {
   // 每个 BrowserWindow 都拥有独立后端；不可使用模块级 Promise，否则开发
@@ -46,6 +108,15 @@ function requestInitialProject(): Promise<EngineMutationResult> {
 }
 
 function readableError(error: unknown): string {
+  if (
+    error instanceof Error &&
+    (error.message.includes('addSceneJump is not a function') ||
+      error.message.includes('updateSceneJump is not a function') ||
+      error.message.includes('unknown method: sceneJump'))
+  ) {
+    return '场景跳转模块尚未加载，请完全退出并重新启动编辑器';
+  }
+
   if (
     error instanceof Error &&
     error.message.includes('dialogue text must not be empty')
@@ -76,14 +147,17 @@ function readableError(error: unknown): string {
 export function useEngineProject() {
   const [project, setProject] =
     useState<ProjectDocument | null>(null);
+  const [assets, setAssets] = useState<AssetDocument[]>([]);
+  // 即使重新打开的是同一个 project.id，Main 也会轮换图片预览能力令牌。
+  // 这个计数让 Renderer 丢弃旧 URL，并按新项目会话重新申请。
+  const [projectGeneration, setProjectGeneration] = useState(0);
   const [isInitializing, setIsInitializing] = useState(true);
   const [pendingEngineActions, setPendingEngineActions] = useState(0);
   const [isFileOperating, setIsFileOperating] = useState(false);
   const [engineMessage, setEngineMessage] = useState('');
-  const [projectFilePath, setProjectFilePath] =
-    useState<string | null>(null);
   const [session, setSession] = useState<ProjectFileSessionSnapshot>({
-    filePath: null,
+    hasStorage: false,
+    projectFolderName: null,
     revision: 0,
     savedRevision: null,
     isDirty: true,
@@ -91,24 +165,49 @@ export function useEngineProject() {
   const [isSaving, setIsSaving] = useState(false);
   const fileOperationInProgress = useRef(false);
   const engineActionQueue = useRef<Promise<void>>(Promise.resolve());
+  const initializationRequest = useRef<Promise<[
+    EngineMutationResult,
+    ProjectFileSessionSnapshot,
+  ]> | null>(null);
   const isBusy =
     isInitializing ||
     pendingEngineActions > 0 ||
     isFileOperating ||
     isSaving;
 
+  function applyResult(
+    result: EngineMutationResult,
+    fileSession?: ProjectFileSessionSnapshot,
+  ): void {
+    setProject(result.project);
+    setAssets(result.assets);
+
+    if (fileSession) {
+      setSession({
+        ...fileSession,
+        ...result.session,
+      });
+      return;
+    }
+
+    setSession((current) => ({
+      ...current,
+      ...result.session,
+    }));
+  }
+
   useEffect(() => {
     let isActive = true;
 
-    void Promise.all([
+    initializationRequest.current ??= Promise.all([
       requestInitialProject(),
       window.vnProjectFiles.getSession(),
-    ])
+    ]);
+
+    void initializationRequest.current
       .then(([result, session]) => {
         if (isActive) {
-          setProject(result.project);
-          setProjectFilePath(session.filePath);
-          setSession({
+          applyResult(result, {
             ...session,
             revision: result.session.revision,
             savedRevision: result.session.savedRevision,
@@ -152,11 +251,7 @@ export function useEngineProject() {
 
       try {
         const result = await action();
-        setProject(result.project);
-        setSession((current) => ({
-          ...current,
-          ...result.session,
-        }));
+        applyResult(result);
         resolveQueuedResult(result);
       } catch (error: unknown) {
         setEngineMessage(readableError(error));
@@ -171,6 +266,11 @@ export function useEngineProject() {
 
   async function waitForEngineActions(): Promise<void> {
     await engineActionQueue.current;
+  }
+
+  async function getProjectSnapshot(): Promise<ProjectDocument | null> {
+    const result = await runEngineAction(() => window.vnEngine.getProject());
+    return result?.project ?? null;
   }
 
   async function addDialogue(
@@ -231,6 +331,122 @@ export function useEngineProject() {
     return result !== null;
   }
 
+  async function addBackground(
+    params: AddBackgroundParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.addBackground(params),
+    );
+
+    return result !== null;
+  }
+
+  async function updateBackground(
+    params: UpdateBackgroundParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.updateBackground(params),
+    );
+
+    return result !== null;
+  }
+
+  async function deleteBackground(
+    params: DeleteBackgroundParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.deleteBackground(params),
+    );
+
+    return result !== null;
+  }
+
+  async function reorderBackground(
+    params: ReorderBackgroundParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.reorderBackground(params),
+    );
+
+    return result !== null;
+  }
+
+  async function addCharacter(
+    params: AddCharacterParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.addCharacter(params),
+    );
+
+    return result !== null;
+  }
+
+  async function updateCharacter(
+    params: UpdateCharacterParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.updateCharacter(params),
+    );
+
+    return result !== null;
+  }
+
+  async function addSceneJump(
+    params: AddSceneJumpParams,
+  ): Promise<boolean> {
+    if (typeof window.vnEngine.addSceneJump !== 'function') {
+      setEngineMessage('场景跳转模块尚未加载，请完全退出并重新启动编辑器');
+      return false;
+    }
+    const result = await runEngineAction(() =>
+      window.vnEngine.addSceneJump(params),
+    );
+    return result !== null;
+  }
+
+  async function updateSceneJump(
+    params: UpdateSceneJumpParams,
+  ): Promise<boolean> {
+    if (typeof window.vnEngine.updateSceneJump !== 'function') {
+      setEngineMessage('场景跳转模块尚未加载，请完全退出并重新启动编辑器');
+      return false;
+    }
+    const result = await runEngineAction(() =>
+      window.vnEngine.updateSceneJump(params),
+    );
+    return result !== null;
+  }
+
+  async function deleteTimelineNodes(
+    params: TimelineDeleteManyParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.deleteTimelineNodes(params),
+    );
+
+    return result !== null;
+  }
+
+  async function reorderTimelineNode(
+    params: TimelineReorderParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.reorderTimelineNode(params),
+    );
+
+    return result !== null;
+  }
+
+  async function reorderTimelineNodes(
+    params: TimelineReorderManyParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.reorderTimelineNodes(params),
+    );
+
+    return result !== null;
+  }
+
   async function createProject(name?: string): Promise<boolean> {
     if (fileOperationInProgress.current) {
       return false;
@@ -270,9 +486,8 @@ export function useEngineProject() {
       }
 
       // Main 只会在 C++ 已完整解析并校验项目后返回成功。
-      setProject(outcome.result.project);
-      setProjectFilePath(outcome.session.filePath);
-      setSession(outcome.session);
+      applyResult(outcome.result, outcome.session);
+      setProjectGeneration((current) => current + 1);
       return 'opened';
     } catch (error: unknown) {
       // 失败时不调用 setProject，因此当前编辑内容会原样保留。
@@ -301,14 +516,17 @@ export function useEngineProject() {
       }
       await waitForEngineActions();
       const outcome = await window.vnProjectFiles.saveProject();
-      setSession(outcome.session);
-      setProjectFilePath(outcome.session.filePath);
 
       if (outcome.cancelled) {
+        setSession(outcome.session);
         return false;
       }
 
-      setProject(outcome.result.project);
+      applyResult(outcome.result, outcome.session);
+      // Main 会在每次成功保存后刷新私有资源清单。即使 project/assets
+      // 业务数据没变，也重新申请一次预览 URL，以便从先前的安全降级
+      // （例如临时读取失败）中恢复。
+      setProjectGeneration((current) => current + 1);
       return true;
     } catch (error: unknown) {
       setEngineMessage(readableError(error));
@@ -326,9 +544,77 @@ export function useEngineProject() {
     return result !== null;
   }
 
+  async function setSceneBackground(
+    sceneId: string,
+    assetId: string | null,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.setSceneBackground(sceneId, assetId),
+    );
+    return result !== null;
+  }
+
+  async function importImage(): Promise<ImportImageStatus> {
+    if (fileOperationInProgress.current) {
+      return 'failed';
+    }
+
+    fileOperationInProgress.current = true;
+    setIsFileOperating(true);
+    setEngineMessage('');
+
+    try {
+      await waitForEngineActions();
+      const outcome = await window.vnAssets.importImage();
+
+      if (outcome.status === 'cancelled') {
+        return outcome.status;
+      }
+
+      applyResult(outcome.result);
+      return outcome.status;
+    } catch (error: unknown) {
+      setEngineMessage(readableError(error));
+      return 'failed';
+    } finally {
+      fileOperationInProgress.current = false;
+      setIsFileOperating(false);
+    }
+  }
+
+  async function importVideo(): Promise<ImportAssetStatus> {
+    if (fileOperationInProgress.current) {
+      return 'failed';
+    }
+
+    fileOperationInProgress.current = true;
+    setIsFileOperating(true);
+    setEngineMessage('');
+
+    try {
+      await waitForEngineActions();
+      const outcome = await window.vnAssets.importVideo();
+
+      if (outcome.status === 'cancelled') {
+        return outcome.status;
+      }
+
+      applyResult(outcome.result);
+      return outcome.status;
+    } catch (error: unknown) {
+      setEngineMessage(readableError(error));
+      return 'failed';
+    } finally {
+      fileOperationInProgress.current = false;
+      setIsFileOperating(false);
+    }
+  }
+
   return {
     project,
-    projectFilePath,
+    assets,
+    projectGeneration,
+    projectFolderName: session.projectFolderName,
     session,
     isSaving,
     isBusy,
@@ -340,11 +626,26 @@ export function useEngineProject() {
     reorderDialogue,
     reorderDialogues,
     deleteDialogues,
+    addBackground,
+    updateBackground,
+    deleteBackground,
+    reorderBackground,
+    addCharacter,
+    updateCharacter,
+    addSceneJump,
+    updateSceneJump,
+    deleteTimelineNodes,
+    reorderTimelineNode,
+    reorderTimelineNodes,
     createProject,
     openProject,
     saveProject,
+    importImage,
+    importVideo,
     renameProject,
+    setSceneBackground,
     waitForEngineActions,
+    getProjectSnapshot,
   };
 }
 

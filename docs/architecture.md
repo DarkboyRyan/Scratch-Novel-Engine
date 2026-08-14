@@ -1,119 +1,238 @@
 # VN Engine：当前架构
 
-## 1. 迁移目标
+> 面试版的技术选型、端到端调用链和常见问答见
+> [技术栈与面试讲解指南](./technical-stack-interview-guide.md)。本文侧重当前代码的
+> 分层和依赖方向。
 
-编辑器继续使用 Electron + React 构建桌面界面，但项目数据和业务规则由
-C++ 负责。这里的“后端”不是远程网站服务器，而是由 Electron Main 启动的
-本地 C++ 进程。
+## 1. 当前目标与完成能力
+
+编辑器使用 Electron + React 构建桌面界面，Blockly 提供图形化编辑；项目数据、
+业务规则、文件格式和媒体导入由 C++20 负责。这里的“后端”不是远程服务器，
+而是 Electron Main 为每个编辑器窗口启动的本地 C++ 子进程。
+
+当前已经实现：
+
+- 场景、对白、背景切换、人物立绘和显式场景跳转；
+- 表单编辑与 Blockly 图形化编辑共享一条剧情时间线；
+- 项目文件夹新建、保存、打开、dirty 状态和 Cmd/Ctrl+S；
+- 未保存项目导入图片/视频，以及安全图片预览；
+- 正式游戏顺序预览、点击推进和跳转循环保护；
+- C++ Core/Backend、IPC、存储、Blockly 和预览的自动测试。
+
+## 2. 技术栈
+
+| 层 | 当前技术 | 主要用途 |
+| --- | --- | --- |
+| Renderer | React 19、TypeScript 5.9、HTML/CSS | UI、表单草稿、资源条和预览 |
+| 图形编辑 | Blockly 13.1 | 剧情积木、拖动、框选、删除和顺序编辑 |
+| 桌面边界 | Electron 43、contextBridge、IPC | 窗口、原生菜单/对话框和权限隔离 |
+| 本地核心 | C++20、STL、CMake | 领域模型、校验、revision 和持久化 |
+| JSON 边界 | nlohmann/json 3.11.3、JSONL | C++ 项目文件与 Main↔C++ 协议 |
+| 文件安全 | Node 文件 API、C++ OS 文件 API | 临时工作区、流式复制、fsync、原子替换 |
+| 构建打包 | Vite 5、Electron Forge 7、pnpm | 三个 Electron target 和生产安装包 |
+| 测试 | Vitest、CTest、真实 C++ JSONL 集成 | TS、C++、协议和文件事务回归 |
+
+## 3. 进程和调用关系
 
 ```text
-React UI
-  ↓ window.vnEngine（窄接口）
-Preload
-  ↓ Electron IPC
+React / Blockly Renderer
+  ↓ window.vnEngine / window.vnAssets / window.vnProjectFiles
+Preload contextBridge
+  ↓ Electron IPC（ipcRenderer.invoke）
 Electron Main
-  ↓ stdin/stdout JSON Lines
+  ↓ BackendClient：stdin/stdout JSON Lines
 vn_engine_backend
   ↓
 C++ Project Core
 ```
 
-这种结构让编辑器界面仍然可以快速迭代，同时让剧情数据、文件保存、运行时和
-未来的导出工具共享同一套 C++ 核心。
+项目不启动用于业务 API 的 HTTP Server，也不监听业务端口。Electron IPC 负责
+低权限 Renderer 到高权限 Main；JSONL 负责 Main 到独立 C++ 子进程。开发模式
+仍由 Vite dev server 通过本地 HTTP/WebSocket 提供 Renderer 页面和 HMR，
+它不是项目数据或 C++ 业务通信通道。
 
-## 2. 每一层负责什么
+每个 BrowserWindow 拥有独立的：
 
-### React Renderer
+- `BackendClient` 和 C++ 子进程；
+- `ProjectFileSession`；
+- `ProjectStorageSession` 临时工作区；
+- `FileOperationCoordinator`；
+- Electron session 和 `vn-asset://` protocol handler。
 
-React 只负责当前窗口里的交互状态：
+因此新建项目窗口不会和旧窗口共享内存 Project 或资源能力 URL。
 
-- 当前选中的场景和对白
-- 输入框里尚未提交的草稿
-- 实时预览
-- 删除确认框
-- 按钮禁用、加载中和错误提示
+## 4. 每一层负责什么
 
-React 不再生成项目实体 ID，也不再直接修改 `project.scenes` 或
-`scene.nodes`。
+### 4.1 React Renderer
 
-### Preload
+React 负责当前窗口的交互状态：
 
-Preload 使用 `contextBridge` 暴露明确的业务接口，例如：
+- 当前场景、节点和编辑模式；
+- 输入框、Blockly 活动字段和项目名称草稿；
+- 资源列表与 capability 预览 URL；
+- 游戏预览临时会话；
+- busy、dirty 和错误提示。
+
+React 不生成持久化实体 ID，也不直接修改 `project.scenes` 或 `scene.nodes`。
+`useEngineProject` 发送命令并在成功后应用 C++ 返回的完整快照。
+
+### 4.2 Preload
+
+Preload 使用 `contextBridge` 暴露三个窄接口：
 
 ```ts
-window.vnEngine.addScene()
-window.vnEngine.addDialogue(sceneId, afterNodeId)
-window.vnEngine.updateDialogue(sceneId, nodeId, speaker, text)
+window.vnEngine       // 领域命令
+window.vnProjectFiles // 新建、打开、保存和会话状态
+window.vnAssets       // 导入图片/视频和申请预览 URL
 ```
 
-Renderer 看不到 `ipcRenderer`、Node 文件系统和子进程 API，避免任意网页内容
-获得桌面权限。
+Renderer 看不到 `ipcRenderer`、Node 文件系统、child process 或本机资源路径。
 
-### Electron Main
+### 4.3 Electron Main
 
-Electron Main 负责：
+Main 负责：
 
-- 创建窗口
-- 校验 Renderer 发来的命令
-- 启动和关闭 `vn_engine_backend`
-- 为每个请求分配 ID
-- 管理超时、进程退出和错误
-- 把 C++ 返回的数据传回 Renderer
+- 窗口、原生菜单和文件选择器；
+- 校验 IPC 来源和参数形状；
+- 为每个窗口启动/关闭 C++ 后端；
+- 管理请求 ID、Promise、进程退出和错误；
+- 管理项目目录、临时工作区和原子发布；
+- 把 C++ 私有 Asset 净化成公开 DTO；
+- 提供带能力令牌的安全图片 protocol。
 
-它是系统桥接层，不决定场景应该如何删除或对白应该插入到哪里。
+Main 不决定“场景是否能删除”或“人物层是否合法”，最终领域规则仍由 C++ 决定。
 
-### C++ Core
+### 4.4 C++ Backend
 
-C++ Core 是项目数据和规则的唯一权威来源：
+Backend 使用 nlohmann/json 处理两种边界：
 
-- `Project / Scene / Dialogue` 数据模型
-- UUID v4 生成
-- 场景新增、重命名和删除
-- 删除入口场景后的入口替换规则
-- 对白新增、更新、删除和移动
-- 在当前对白后插入空对白
-- 对白规范化和项目不变量检查
+- JSONL 请求/响应；
+- `project.vn.json` 文件 envelope。
 
-以后保存、打开、Undo/Redo、剧情运行时和导出也应该继续放在这一层。
+它把 method/params 转成 Core 调用，维护 `revision/savedRevision/isDirty`，并返回
+完整 Project、公开 Asset 元数据和会话状态。stdout 只写 JSONL，日志必须写 stderr。
 
-## 3. 为什么 C++ 返回完整 Project 快照
+### 4.5 C++ Core
 
-每次修改成功后，C++ 返回：
+Core 是唯一业务权威来源，且不依赖 Electron 或 JSON。它负责：
+
+- `ProjectAggregate = Project + Assets`；
+- `SceneNode` 四种判别类型；
+- ID 生成、全局唯一性和引用完整性；
+- 场景、对白、背景、人物和跳转操作；
+- 混合时间线原子删除与重排；
+- 入口场景和被跳转引用场景的保护规则；
+- no-op 判断和候选对象提交。
+
+未来的原生 Player、命令行导出器或 WASM 层可以复用 Core，而无需依赖编辑器 UI。
+
+## 5. 权威数据模型
+
+```cpp
+using SceneNode = std::variant<
+    Dialogue,
+    BackgroundNode,
+    CharacterNode,
+    SceneJumpNode>;
+
+struct ProjectAggregate {
+  Project project;
+  std::vector<Asset> assets;
+};
+```
+
+四种节点共享 `Scene.nodes` 的唯一顺序：
+
+- `Dialogue`：玩家可见的对白停顿点；
+- `BackgroundNode`：设置图片或显式切换为无背景；
+- `CharacterNode`：设置/清除某人物层；
+- `SceneJumpNode`：切换到稳定 Scene ID。
+
+Asset 只描述媒体文件，不保存“它是背景还是立绘”。用途由时间线节点引用决定，
+同一张图可以被不同场景以不同方式复用。
+
+## 6. 为什么返回完整 Project 快照
+
+每次修改成功后，C++ 返回结构化结果：
 
 ```json
 {
-  "id": 3,
-  "ok": true,
-  "result": {
-    "project": {},
-    "sceneId": "可选的新场景 ID",
-    "nodeId": "可选的新对白 ID"
-  }
+  "project": {},
+  "assets": [],
+  "session": {
+    "revision": 8,
+    "savedRevision": 7,
+    "isDirty": true
+  },
+  "nodeId": "可选的新节点 ID"
 }
 ```
 
-React 直接用新的 `project` 替换旧快照。这样不会出现“React 认为删除成功，
-但 C++ 因为规则拒绝删除”的双重状态问题。`sceneId` 和 `nodeId` 用来让 UI
-自动选中由 C++ 创建的新实体。
+React 用新的 `project/assets/session` 替换旧快照。这样不会出现“React 已经改了
+顺序，但 C++ 拒绝了操作”的双重状态。当前项目规模下完整快照更容易保证正确；
+未来数据量变大时可以加入基于 revision 的 patch，但业务规则仍只能有一份。
 
-命令现在是异步的，所以界面在请求期间会暂时禁用修改按钮，并显示
-“C++ 处理中”。
+## 7. 草稿与已提交数据
 
-## 4. 空对白与已提交对白
+表单输入、Blockly FieldInput 和项目名在编辑期间是 Renderer 草稿。保存、导入、
+切换模式、切换场景或开始预览前，必须先提交当前草稿。
 
-点击工具栏“对白 +”时，C++ 允许创建 speaker/text 都为空的占位节点。这是
-编辑器草稿，不代表它已经可以导出。
+对白提交时：
 
-通过表单提交时，C++ 会执行最终规范化：
+- 文本去掉首尾空白；
+- 空文本被拒绝；
+- 角色名去掉首尾空白；
+- 空角色名规范化为“旁白”。
 
-- 文本去掉首尾空白
-- 空文本被拒绝
-- 角色名去掉首尾空白
-- 空角色名变为“旁白”
+React 的检查提供即时提示，C++ 的检查才是最终规则。
 
-React 也做一次空文本检查，只是为了立即提示；最终决定仍由 C++ 作出。
+## 8. Blockly 不是第二份 Project
 
-## 5. 目录结构
+Blockly 工作区由 C++ Scene 快照投影而来。用户新增、修改、拖动或删除积木时：
+
+```text
+Blockly event
+  → 解析 typed timeline command
+  → C++ 修改权威 Project
+  → 返回新快照
+  → 清理临时积木并重新投影正式节点
+```
+
+画布根位置、缩放和滚动属于视图布局，单独保存在 Renderer 的场景布局 Map 中；
+它们不影响游戏执行顺序，也不进入 `project.vn.json`。
+
+## 9. 项目文件夹和媒体
+
+```text
+项目文件夹/
+├── project.vn.json
+└── assets/
+    ├── images/
+    ├── videos/
+    └── audio/
+```
+
+Main 掌握项目根和源媒体路径，Renderer 只知道 `hasStorage`、文件夹显示名和
+公开 Asset `{id,type,displayName}`。
+
+保存采用“媒体先发布，manifest 最后原子替换”；未保存项目先使用窗口私有临时
+工作区。图片预览使用 `vn-asset://` capability URL，而不是 `file://`。
+
+详见 [项目文件夹存储与媒体资源实现](./project-folder-storage.md)。
+
+## 10. 游戏预览
+
+当前正式预览是 TypeScript 纯状态机：从 `entrySceneId` 开始，自动执行背景、
+人物和场景跳转，遇到对白时暂停。鼠标、Space 或 Enter 继续；Escape 退出。
+
+跳转进入目标场景时清空上一场景人物层并加载目标场景初始背景。运行时使用
+访问位置集合检测“没有对白可停留”的跳转循环。预览会话不写回 C++ Project、
+revision 或磁盘。
+
+详见 [游戏顺序预览](./game-preview-runtime.md) 与
+[场景跳转实现](./scene-jump-implementation.md)。
+
+## 11. 目录结构
 
 ```text
 engine/
@@ -124,101 +243,65 @@ engine/
 │   ├── core/project.cpp
 │   └── backend/
 │       ├── backend.cpp/.hpp
-│       ├── main.cpp
-│       └── serialization.cpp/.hpp
-└── tests/core/project_tests.cpp
+│       ├── serialization.cpp/.hpp
+│       ├── atomic_file.cpp/.hpp
+│       ├── image_asset_import.cpp/.hpp
+│       └── main.cpp
+└── tests/
 
 apps/editor/src/
-├── main.ts                    # Electron 生命周期入口
-├── preload.ts                 # contextBridge 业务 API
+├── main.ts
+├── preload.ts
 ├── main/
-│   ├── createEditorWindow.ts
 │   ├── backend/
-│   └── ipc/
+│   ├── ipc/
+│   ├── project/
+│   ├── assets/
+│   └── window/
 ├── renderer/
-│   ├── index.tsx
 │   ├── App.tsx
-│   ├── components/            # 两种编辑模式共享的 UI
-│   ├── features/form-editor/  # 当前表单编辑模式
 │   ├── hooks/useEngineProject.ts
-│   └── styles/
+│   ├── components/
+│   └── features/
+│       ├── form-editor/
+│       ├── block-editor/
+│       ├── assets/
+│       └── game-preview/
 └── shared/
-    ├── engineProtocol.ts
     ├── projectTypes.ts
+    ├── engineProtocol.ts
+    ├── projectFileProtocol.ts
+    ├── assetProtocol.ts
     └── global.d.ts
 ```
 
-`vn_engine_core` 不依赖 Electron，也不依赖 JSON。`nlohmann/json` 只存在于
-进程通信边界，因此未来可以把 Core 用在命令行工具、原生 Player 或 WASM。
+依赖方向固定为 `shared ← main / preload / renderer`。`shared` 不导入 React、
+Electron 或 Node；Renderer 也不能导入 Main 实现。
 
-TypeScript 的依赖方向固定为 `shared ← main / preload / renderer`。`shared` 不能
-导入 React、Electron 或 Node；Renderer 也不能导入 Main 和 Preload 的实现。
-
-## 6. JSON Lines 协议
-
-Electron 每行发送一个 JSON 请求：
-
-```json
-{"id":1,"method":"scene.add","params":{}}
-```
-
-C++ 每行返回一个 JSON 响应：
-
-```json
-{"id":1,"ok":true,"result":{"project":{},"sceneId":"..."}}
-```
-
-请求 ID 让 Electron 能把响应交还给正确的 Promise。C++ 的 stdout 只能写协议，
-普通日志必须写到 stderr，否则会导致 JSON 解析失败。
-
-## 7. 常用命令
-
-在仓库根目录运行：
+## 12. 构建、测试和打包
 
 ```sh
 fnm exec --using=24 pnpm --dir apps/editor start
-```
-
-`start` 会先配置并编译 C++ Debug 后端，再启动 Electron。
-
-运行全部 C++ 核心和 JSONL 协议测试：
-
-```sh
-fnm exec --using=24 pnpm --dir apps/editor test
-```
-
-只做 TypeScript 检查：
-
-```sh
 fnm exec --using=24 pnpm --dir apps/editor typecheck
 fnm exec --using=24 pnpm --dir apps/editor lint
-```
-
-生成正式 Electron 应用：
-
-```sh
+fnm exec --using=24 pnpm --dir apps/editor test
 fnm exec --using=24 pnpm --dir apps/editor package
 ```
 
-Release C++ 后端会先被安装到 `engine/stage/backend`，Forge 再把整个目录复制到
-应用的 `Resources/backend`。可执行文件不能放在 `app.asar` 里面。
+`test` 会配置并构建 C++，运行 CTest，再执行 Vitest。生产打包先构建 Release
+C++ Backend，通过 `cmake --install` 放入 `engine/stage/backend`，Forge 再用
+`extraResource` 复制到应用的 `Resources/backend`。可执行文件不能放在
+`app.asar` 内运行。
 
-## 8. TypeScript 边界
+## 13. 当前边界
 
-原来的 `projectReducer`、`sceneReducer`、TypeScript factory 以及对应测试已经
-删除。Renderer 只保留 `ProjectDocument / SceneDocument / DialogueNode` DTO，
-用于描述 C++ 返回的 JSON 形状；这些类型不生成 ID，也不包含数据修改规则。
+已完成的能力不等于完整游戏引擎。当前尚未完成：
 
-当前项目数据的创建、校验和修改只有一份实现，全部位于 C++ Core。
+- 选择项、变量、条件分支和游戏存档；
+- 视频播放、Range streaming 和时间线视频节点；
+- Undo/Redo；
+- 同一项目根的多窗口排他锁；
+- Blockly 布局持久化和未引用资源回收；
+- 独立游戏 Player 与导出流水线。
 
-## 9. 图形化编辑阶段
-
-“表单编辑 / 图形化编辑”双模式骨架已经建立。`App` 持有唯一的
-`useEngineProject`，因此切换界面不会复制 C++ Project，也不会丢失表单草稿。
-
-接下来的纵向顺序是：
-
-1. 在现有 `features/block-editor/` 中接入 Blockly 工作区。
-2. 先打通一个对白积木：拖入积木、C++ 创建节点、实时预览、切回表单仍可编辑。
-3. 扩展人物与通用剧情节点后，再加入背景、跳转、选择支和条件积木。
-4. 在复杂分支之前完成项目保存/打开；积木布局数据与游戏项目数据分开保存。
+这些是后续路线，面试时不应描述成已经采用或完成。

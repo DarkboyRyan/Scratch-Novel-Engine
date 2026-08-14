@@ -2,7 +2,9 @@
 
 > **历史计划：** 本文记录项目最初采用 TypeScript 业务核心时制定的方案。
 > 项目现已迁移为 Electron + React 前端与 C++20 后端架构，当前技术边界和
-> 后续顺序请以 [当前架构说明](../architecture.md) 为准。
+> 后续顺序请以 [当前架构说明](../architecture.md) 为准；准备面试时请使用
+> [技术栈与面试讲解指南](../technical-stack-interview-guide.md)。本文提到的
+> PixiJS、Zod、Zustand 和 Web 导出等内容是历史设想，不代表当前已经采用。
 
 > 文档版本：v1.0  
 > 制定日期：2026-08-03  
@@ -742,10 +744,10 @@ desktop adapter
 
 ### 本地参考
 
-- [Piccolo README](../Piccolo/README.md)
-- [Piccolo 编辑器 UI](../Piccolo/engine/source/editor/source/editor_ui.cpp)
-- [Piccolo 文件服务](../Piccolo/engine/source/editor/source/editor_file_service.cpp)
-- [Piccolo License](../Piccolo/LICENSE)
+- [Piccolo README](../../../Piccolo/README.md)
+- [Piccolo 编辑器 UI](../../../Piccolo/engine/source/editor/source/editor_ui.cpp)
+- [Piccolo 文件服务](../../../Piccolo/engine/source/editor/source/editor_file_service.cpp)
+- [Piccolo License](../../../Piccolo/LICENSE)
 
 ### 官方技术文档
 

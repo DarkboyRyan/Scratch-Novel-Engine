@@ -25,6 +25,28 @@ std::string trim_ascii_whitespace(std::string value) {
   return value.substr(first, last - first + 1);
 }
 
+std::optional<std::string_view> asset_directory(const AssetType type) {
+  switch (type) {
+    case AssetType::image:
+      return "images";
+    case AssetType::video:
+      return "videos";
+    case AssetType::audio:
+      return "audio";
+  }
+  return std::nullopt;
+}
+
+bool is_valid_character_slot(const CharacterSlot slot) {
+  switch (slot) {
+    case CharacterSlot::left:
+    case CharacterSlot::center:
+    case CharacterSlot::right:
+      return true;
+  }
+  return false;
+}
+
 }  // namespace
 
 RandomIdGenerator::RandomIdGenerator() : random_engine_(std::random_device{}()) {}
@@ -58,6 +80,7 @@ Scene create_empty_scene(IdGenerator& ids, std::string name) {
       .schema_version = kSchemaVersion,
       .id = ids.next(),
       .name = std::move(name),
+      .visuals = {},
       .nodes = {},
   };
 }
@@ -72,6 +95,15 @@ Project create_empty_project(IdGenerator& ids, std::string name) {
       .name = std::move(name),
       .entry_scene_id = first_scene_id,
       .scenes = {std::move(first_scene)},
+  };
+}
+
+ProjectAggregate create_empty_project_aggregate(
+    IdGenerator& ids,
+    std::string name) {
+  return ProjectAggregate{
+      .project = create_empty_project(ids, std::move(name)),
+      .assets = {},
   };
 }
 
@@ -93,26 +125,139 @@ const Scene* find_scene(
   return iterator == project.scenes.end() ? nullptr : &*iterator;
 }
 
-Dialogue* find_dialogue(Scene& scene, const std::string_view dialogue_id) {
+std::string_view scene_node_id(const SceneNode& node) {
+  return std::visit(
+      [](const auto& value) -> std::string_view { return value.id; },
+      node);
+}
+
+SceneNode* find_scene_node(
+    Scene& scene,
+    const std::string_view node_id) {
   const auto iterator = std::find_if(
       scene.nodes.begin(),
       scene.nodes.end(),
-      [dialogue_id](const Dialogue& dialogue) {
-        return dialogue.id == dialogue_id;
+      [node_id](const SceneNode& node) {
+        return scene_node_id(node) == node_id;
       });
   return iterator == scene.nodes.end() ? nullptr : &*iterator;
+}
+
+const SceneNode* find_scene_node(
+    const Scene& scene,
+    const std::string_view node_id) {
+  const auto iterator = std::find_if(
+      scene.nodes.begin(),
+      scene.nodes.end(),
+      [node_id](const SceneNode& node) {
+        return scene_node_id(node) == node_id;
+      });
+  return iterator == scene.nodes.end() ? nullptr : &*iterator;
+}
+
+Dialogue* find_dialogue(Scene& scene, const std::string_view dialogue_id) {
+  SceneNode* node = find_scene_node(scene, dialogue_id);
+  return node == nullptr ? nullptr : std::get_if<Dialogue>(node);
 }
 
 const Dialogue* find_dialogue(
     const Scene& scene,
     const std::string_view dialogue_id) {
+  const SceneNode* node = find_scene_node(scene, dialogue_id);
+  return node == nullptr ? nullptr : std::get_if<Dialogue>(node);
+}
+
+BackgroundNode* find_background_node(
+    Scene& scene,
+    const std::string_view node_id) {
+  SceneNode* node = find_scene_node(scene, node_id);
+  return node == nullptr ? nullptr : std::get_if<BackgroundNode>(node);
+}
+
+const BackgroundNode* find_background_node(
+    const Scene& scene,
+    const std::string_view node_id) {
+  const SceneNode* node = find_scene_node(scene, node_id);
+  return node == nullptr ? nullptr : std::get_if<BackgroundNode>(node);
+}
+
+CharacterNode* find_character_node(
+    Scene& scene,
+    const std::string_view node_id) {
+  SceneNode* node = find_scene_node(scene, node_id);
+  return node == nullptr ? nullptr : std::get_if<CharacterNode>(node);
+}
+
+const CharacterNode* find_character_node(
+    const Scene& scene,
+    const std::string_view node_id) {
+  const SceneNode* node = find_scene_node(scene, node_id);
+  return node == nullptr ? nullptr : std::get_if<CharacterNode>(node);
+}
+
+SceneJumpNode* find_scene_jump_node(
+    Scene& scene,
+    const std::string_view node_id) {
+  SceneNode* node = find_scene_node(scene, node_id);
+  return node == nullptr ? nullptr : std::get_if<SceneJumpNode>(node);
+}
+
+const SceneJumpNode* find_scene_jump_node(
+    const Scene& scene,
+    const std::string_view node_id) {
+  const SceneNode* node = find_scene_node(scene, node_id);
+  return node == nullptr ? nullptr : std::get_if<SceneJumpNode>(node);
+}
+
+Asset* find_asset(
+    ProjectAggregate& aggregate,
+    const std::string_view asset_id) {
   const auto iterator = std::find_if(
-      scene.nodes.begin(),
-      scene.nodes.end(),
-      [dialogue_id](const Dialogue& dialogue) {
-        return dialogue.id == dialogue_id;
-      });
-  return iterator == scene.nodes.end() ? nullptr : &*iterator;
+      aggregate.assets.begin(),
+      aggregate.assets.end(),
+      [asset_id](const Asset& asset) { return asset.id == asset_id; });
+  return iterator == aggregate.assets.end() ? nullptr : &*iterator;
+}
+
+const Asset* find_asset(
+    const ProjectAggregate& aggregate,
+    const std::string_view asset_id) {
+  const auto iterator = std::find_if(
+      aggregate.assets.begin(),
+      aggregate.assets.end(),
+      [asset_id](const Asset& asset) { return asset.id == asset_id; });
+  return iterator == aggregate.assets.end() ? nullptr : &*iterator;
+}
+
+SetSceneBackgroundResult set_scene_background(
+    ProjectAggregate& aggregate,
+    const std::string_view scene_id,
+    std::optional<std::string> asset_id) {
+  Scene* scene = find_scene(aggregate.project, scene_id);
+  if (scene == nullptr) {
+    return SetSceneBackgroundResult::scene_not_found;
+  }
+
+  // Resolve and type-check the requested Asset before touching the Scene.
+  // Clearing the background uses nullopt and intentionally needs no Asset.
+  if (asset_id.has_value()) {
+    const Asset* asset = find_asset(aggregate, *asset_id);
+    if (asset == nullptr) {
+      return SetSceneBackgroundResult::asset_not_found;
+    }
+    if (asset->type != AssetType::image) {
+      return SetSceneBackgroundResult::asset_not_image;
+    }
+  }
+
+  if (scene->visuals.background_asset_id == asset_id) {
+    return SetSceneBackgroundResult::unchanged;
+  }
+
+  // std::string's move assignment is noexcept with the default allocator, so
+  // no fallible work remains after the authoritative value starts changing.
+  scene->visuals.background_asset_id = std::move(asset_id);
+  return SetSceneBackgroundResult::changed;
 }
 
 std::string next_scene_name(const Project& project) {
@@ -200,6 +345,15 @@ bool delete_scene(Project& project, const std::string_view scene_id) {
     return false;
   }
 
+  for (const Scene& scene : project.scenes) {
+    for (const SceneNode& node : scene.nodes) {
+      const auto* jump = std::get_if<SceneJumpNode>(&node);
+      if (jump != nullptr && jump->target_scene_id == scene_id) {
+        return false;
+      }
+    }
+  }
+
   const auto scene_index = static_cast<std::size_t>(
       std::distance(project.scenes.begin(), scene_iterator));
   const bool deleting_entry_scene = project.entry_scene_id == scene_id;
@@ -214,6 +368,373 @@ bool delete_scene(Project& project, const std::string_view scene_id) {
     project.entry_scene_id = project.scenes[replacement_index].id;
   }
 
+  return true;
+}
+
+AddBackgroundNodeResult add_background_node(
+    ProjectAggregate& aggregate,
+    IdGenerator& ids,
+    const std::string_view scene_id,
+    std::optional<std::string> after_node_id,
+    std::optional<std::string> before_node_id) {
+  Scene* scene = find_scene(aggregate.project, scene_id);
+  if (scene == nullptr) {
+    return {AddBackgroundNodeStatus::scene_not_found, std::nullopt};
+  }
+  if (after_node_id.has_value() && before_node_id.has_value()) {
+    return {AddBackgroundNodeStatus::placement_conflict, std::nullopt};
+  }
+
+  auto insertion_iterator = scene->nodes.end();
+  if (before_node_id.has_value()) {
+    insertion_iterator = std::find_if(
+        scene->nodes.begin(),
+        scene->nodes.end(),
+        [&before_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *before_node_id;
+        });
+    if (insertion_iterator == scene->nodes.end()) {
+      return {AddBackgroundNodeStatus::anchor_not_found, std::nullopt};
+    }
+  } else if (after_node_id.has_value()) {
+    const auto anchor = std::find_if(
+        scene->nodes.begin(),
+        scene->nodes.end(),
+        [&after_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *after_node_id;
+        });
+    if (anchor == scene->nodes.end()) {
+      return {AddBackgroundNodeStatus::anchor_not_found, std::nullopt};
+    }
+    insertion_iterator = std::next(anchor);
+  }
+
+  BackgroundNode background{
+      .id = ids.next(),
+      .asset_id = std::nullopt,
+  };
+  std::string created_id = background.id;
+  scene->nodes.insert(insertion_iterator, std::move(background));
+  return {AddBackgroundNodeStatus::added, std::move(created_id)};
+}
+
+UpdateBackgroundNodeResult update_background_node(
+    ProjectAggregate& aggregate,
+    const std::string_view scene_id,
+    const std::string_view node_id,
+    std::optional<std::string> asset_id) {
+  Scene* scene = find_scene(aggregate.project, scene_id);
+  if (scene == nullptr) {
+    return UpdateBackgroundNodeResult::scene_not_found;
+  }
+  BackgroundNode* background = find_background_node(*scene, node_id);
+  if (background == nullptr) {
+    return UpdateBackgroundNodeResult::node_not_found;
+  }
+
+  if (asset_id.has_value()) {
+    const Asset* asset = find_asset(aggregate, *asset_id);
+    if (asset == nullptr) {
+      return UpdateBackgroundNodeResult::asset_not_found;
+    }
+    if (asset->type != AssetType::image) {
+      return UpdateBackgroundNodeResult::asset_not_image;
+    }
+  }
+  if (background->asset_id == asset_id) {
+    return UpdateBackgroundNodeResult::unchanged;
+  }
+
+  background->asset_id = std::move(asset_id);
+  return UpdateBackgroundNodeResult::changed;
+}
+
+bool delete_background_node(
+    Project& project,
+    const std::string_view scene_id,
+    const std::string_view node_id) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr || find_background_node(*scene, node_id) == nullptr) {
+    return false;
+  }
+  const auto old_size = scene->nodes.size();
+  std::erase_if(scene->nodes, [node_id](const SceneNode& node) {
+    return scene_node_id(node) == node_id;
+  });
+  return scene->nodes.size() != old_size;
+}
+
+AddCharacterNodeResult add_character_node(
+    ProjectAggregate& aggregate,
+    IdGenerator& ids,
+    const std::string_view scene_id,
+    std::optional<std::string> after_node_id,
+    std::optional<std::string> before_node_id) {
+  Scene* scene = find_scene(aggregate.project, scene_id);
+  if (scene == nullptr) {
+    return {AddCharacterNodeStatus::scene_not_found, std::nullopt};
+  }
+  if (after_node_id.has_value() && before_node_id.has_value()) {
+    return {AddCharacterNodeStatus::placement_conflict, std::nullopt};
+  }
+
+  auto insertion_iterator = scene->nodes.end();
+  if (before_node_id.has_value()) {
+    insertion_iterator = std::find_if(
+        scene->nodes.begin(),
+        scene->nodes.end(),
+        [&before_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *before_node_id;
+        });
+    if (insertion_iterator == scene->nodes.end()) {
+      return {AddCharacterNodeStatus::anchor_not_found, std::nullopt};
+    }
+  } else if (after_node_id.has_value()) {
+    const auto anchor = std::find_if(
+        scene->nodes.begin(),
+        scene->nodes.end(),
+        [&after_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *after_node_id;
+        });
+    if (anchor == scene->nodes.end()) {
+      return {AddCharacterNodeStatus::anchor_not_found, std::nullopt};
+    }
+    insertion_iterator = std::next(anchor);
+  }
+
+  CharacterNode character{
+      .id = ids.next(),
+      .asset_id = std::nullopt,
+      .slot = CharacterSlot::center,
+      .layer = 1,
+  };
+  std::string created_id = character.id;
+  scene->nodes.insert(insertion_iterator, std::move(character));
+  return {AddCharacterNodeStatus::added, std::move(created_id)};
+}
+
+UpdateCharacterNodeResult update_character_node(
+    ProjectAggregate& aggregate,
+    const std::string_view scene_id,
+    const std::string_view node_id,
+    std::optional<std::string> asset_id,
+    const CharacterSlot slot,
+    const int layer) {
+  Scene* scene = find_scene(aggregate.project, scene_id);
+  if (scene == nullptr) {
+    return UpdateCharacterNodeResult::scene_not_found;
+  }
+  CharacterNode* character = find_character_node(*scene, node_id);
+  if (character == nullptr) {
+    return UpdateCharacterNodeResult::node_not_found;
+  }
+  if (!is_valid_character_slot(slot)) {
+    return UpdateCharacterNodeResult::invalid_slot;
+  }
+  if (layer < 1 || layer > 10) {
+    return UpdateCharacterNodeResult::invalid_layer;
+  }
+  if (asset_id.has_value()) {
+    const Asset* asset = find_asset(aggregate, *asset_id);
+    if (asset == nullptr) {
+      return UpdateCharacterNodeResult::asset_not_found;
+    }
+    if (asset->type != AssetType::image) {
+      return UpdateCharacterNodeResult::asset_not_image;
+    }
+  }
+  if (character->asset_id == asset_id && character->slot == slot &&
+      character->layer == layer) {
+    return UpdateCharacterNodeResult::unchanged;
+  }
+
+  character->asset_id = std::move(asset_id);
+  character->slot = slot;
+  character->layer = layer;
+  return UpdateCharacterNodeResult::changed;
+}
+
+AddSceneJumpNodeResult add_scene_jump_node(
+    Project& project,
+    IdGenerator& ids,
+    const std::string_view scene_id,
+    std::string target_scene_id,
+    std::optional<std::string> after_node_id,
+    std::optional<std::string> before_node_id) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return {AddSceneJumpNodeStatus::scene_not_found, std::nullopt};
+  }
+  if (find_scene(project, target_scene_id) == nullptr) {
+    return {AddSceneJumpNodeStatus::target_scene_not_found, std::nullopt};
+  }
+  if (scene_id == target_scene_id) {
+    return {AddSceneJumpNodeStatus::self_target, std::nullopt};
+  }
+  if (after_node_id.has_value() && before_node_id.has_value()) {
+    return {AddSceneJumpNodeStatus::placement_conflict, std::nullopt};
+  }
+
+  auto insertion_iterator = scene->nodes.end();
+  if (before_node_id.has_value()) {
+    insertion_iterator = std::find_if(
+        scene->nodes.begin(),
+        scene->nodes.end(),
+        [&before_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *before_node_id;
+        });
+    if (insertion_iterator == scene->nodes.end()) {
+      return {AddSceneJumpNodeStatus::anchor_not_found, std::nullopt};
+    }
+  } else if (after_node_id.has_value()) {
+    const auto anchor = std::find_if(
+        scene->nodes.begin(),
+        scene->nodes.end(),
+        [&after_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *after_node_id;
+        });
+    if (anchor == scene->nodes.end()) {
+      return {AddSceneJumpNodeStatus::anchor_not_found, std::nullopt};
+    }
+    insertion_iterator = std::next(anchor);
+  }
+
+  SceneJumpNode jump{
+      .id = ids.next(),
+      .target_scene_id = std::move(target_scene_id),
+  };
+  std::string created_id = jump.id;
+  scene->nodes.insert(insertion_iterator, std::move(jump));
+  return {AddSceneJumpNodeStatus::added, std::move(created_id)};
+}
+
+UpdateSceneJumpNodeResult update_scene_jump_node(
+    Project& project,
+    const std::string_view scene_id,
+    const std::string_view node_id,
+    std::string target_scene_id) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return UpdateSceneJumpNodeResult::scene_not_found;
+  }
+  SceneJumpNode* jump = find_scene_jump_node(*scene, node_id);
+  if (jump == nullptr) {
+    return UpdateSceneJumpNodeResult::node_not_found;
+  }
+  if (find_scene(project, target_scene_id) == nullptr) {
+    return UpdateSceneJumpNodeResult::target_scene_not_found;
+  }
+  if (scene_id == target_scene_id) {
+    return UpdateSceneJumpNodeResult::self_target;
+  }
+  if (jump->target_scene_id == target_scene_id) {
+    return UpdateSceneJumpNodeResult::unchanged;
+  }
+
+  jump->target_scene_id = std::move(target_scene_id);
+  return UpdateSceneJumpNodeResult::changed;
+}
+
+bool reorder_scene_node(
+    Project& project,
+    const std::string_view scene_id,
+    const std::string_view node_id,
+    std::optional<std::string> before_node_id) {
+  return reorder_scene_nodes(
+      project,
+      scene_id,
+      {std::string(node_id)},
+      std::move(before_node_id));
+}
+
+bool delete_scene_nodes(
+    Project& project,
+    const std::string_view scene_id,
+    const std::vector<std::string>& node_ids) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr || node_ids.empty()) {
+    return false;
+  }
+
+  std::unordered_set<std::string> requested_ids;
+  for (const std::string& node_id : node_ids) {
+    if (!requested_ids.insert(node_id).second ||
+        find_scene_node(*scene, node_id) == nullptr) {
+      return false;
+    }
+  }
+
+  std::erase_if(scene->nodes, [&requested_ids](const SceneNode& node) {
+    return requested_ids.contains(std::string(scene_node_id(node)));
+  });
+  return true;
+}
+
+bool reorder_scene_nodes(
+    Project& project,
+    const std::string_view scene_id,
+    const std::vector<std::string>& node_ids,
+    std::optional<std::string> before_node_id) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr || node_ids.empty()) {
+    return false;
+  }
+
+  std::unordered_set<std::string> selected_ids;
+  for (const std::string& node_id : node_ids) {
+    if (!selected_ids.insert(node_id).second ||
+        find_scene_node(*scene, node_id) == nullptr) {
+      return false;
+    }
+  }
+
+  if (before_node_id.has_value() &&
+      (selected_ids.contains(*before_node_id) ||
+       find_scene_node(*scene, *before_node_id) == nullptr)) {
+    return false;
+  }
+
+  std::vector<SceneNode> moving;
+  std::vector<SceneNode> remaining;
+  moving.reserve(selected_ids.size());
+  remaining.reserve(scene->nodes.size() - selected_ids.size());
+  for (const SceneNode& node : scene->nodes) {
+    if (selected_ids.contains(std::string(scene_node_id(node)))) {
+      moving.push_back(node);
+    } else {
+      remaining.push_back(node);
+    }
+  }
+
+  auto insertion_iterator = remaining.end();
+  if (before_node_id.has_value()) {
+    insertion_iterator = std::find_if(
+        remaining.begin(),
+        remaining.end(),
+        [&before_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *before_node_id;
+        });
+  }
+
+  std::vector<SceneNode> reordered;
+  reordered.reserve(scene->nodes.size());
+  reordered.insert(
+      reordered.end(), remaining.begin(), insertion_iterator);
+  reordered.insert(reordered.end(), moving.begin(), moving.end());
+  reordered.insert(reordered.end(), insertion_iterator, remaining.end());
+
+  const bool changed = !std::equal(
+      scene->nodes.begin(),
+      scene->nodes.end(),
+      reordered.begin(),
+      [](const SceneNode& current, const SceneNode& next) {
+        return scene_node_id(current) == scene_node_id(next);
+      });
+  if (!changed) {
+    return false;
+  }
+
+  scene->nodes.swap(reordered);
   return true;
 }
 
@@ -243,8 +764,8 @@ std::optional<std::string> add_dialogue(
     insertion_iterator = std::find_if(
         scene->nodes.begin(),
         scene->nodes.end(),
-        [&before_dialogue_id](const Dialogue& current) {
-          return current.id == *before_dialogue_id;
+        [&before_dialogue_id](const SceneNode& current) {
+          return scene_node_id(current) == *before_dialogue_id;
         });
 
     // before 的目标不存在时，不能猜测用户想放在哪里。
@@ -255,8 +776,8 @@ std::optional<std::string> add_dialogue(
     const auto after_iterator = std::find_if(
         scene->nodes.begin(),
         scene->nodes.end(),
-        [&after_dialogue_id](const Dialogue& current) {
-          return current.id == *after_dialogue_id;
+        [&after_dialogue_id](const SceneNode& current) {
+          return scene_node_id(current) == *after_dialogue_id;
         });
 
     // 保留旧行为：无效的 after ID 会追加到末尾。
@@ -289,7 +810,7 @@ bool update_dialogue(
     std::string speaker,
     std::string text) {
   Scene* scene = find_scene(project, scene_id);
-  if (scene == nullptr) {
+  if (scene == nullptr || find_dialogue(*scene, dialogue_id) == nullptr) {
     return false;
   }
 
@@ -309,13 +830,13 @@ bool delete_dialogue(
     const std::string_view scene_id,
     const std::string_view dialogue_id) {
   Scene* scene = find_scene(project, scene_id);
-  if (scene == nullptr) {
+  if (scene == nullptr || find_dialogue(*scene, dialogue_id) == nullptr) {
     return false;
   }
 
   const auto old_size = scene->nodes.size();
-  std::erase_if(scene->nodes, [dialogue_id](const Dialogue& dialogue) {
-    return dialogue.id == dialogue_id;
+  std::erase_if(scene->nodes, [dialogue_id](const SceneNode& node) {
+    return scene_node_id(node) == dialogue_id;
   });
   return scene->nodes.size() != old_size;
 }
@@ -337,8 +858,8 @@ bool delete_dialogues(
     }
   }
 
-  std::erase_if(scene->nodes, [&requested_ids](const Dialogue& dialogue) {
-    return requested_ids.contains(dialogue.id);
+  std::erase_if(scene->nodes, [&requested_ids](const SceneNode& node) {
+    return requested_ids.contains(std::string(scene_node_id(node)));
   });
   return true;
 }
@@ -353,15 +874,15 @@ bool move_dialogue(
   }
 
   Scene* scene = find_scene(project, scene_id);
-  if (scene == nullptr) {
+  if (scene == nullptr || find_dialogue(*scene, dialogue_id) == nullptr) {
     return false;
   }
 
   const auto current_iterator = std::find_if(
       scene->nodes.begin(),
       scene->nodes.end(),
-      [dialogue_id](const Dialogue& dialogue) {
-        return dialogue.id == dialogue_id;
+      [dialogue_id](const SceneNode& node) {
+        return scene_node_id(node) == dialogue_id;
       });
   if (current_iterator == scene->nodes.end()) {
     return false;
@@ -387,11 +908,12 @@ bool reorder_dialogue(
     const std::string_view scene_id,
     const std::string_view dialogue_id,
     std::optional<std::string> before_dialogue_id) {
-  return reorder_dialogues(
-      project,
-      scene_id,
-      {std::string(dialogue_id)},
-      std::move(before_dialogue_id));
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr || find_dialogue(*scene, dialogue_id) == nullptr) {
+    return false;
+  }
+  return reorder_scene_node(
+      project, scene_id, dialogue_id, std::move(before_dialogue_id));
 }
 
 bool reorder_dialogues(
@@ -414,22 +936,22 @@ bool reorder_dialogues(
 
   if (before_dialogue_id.has_value()) {
     if (selected_ids.contains(*before_dialogue_id) ||
-        find_dialogue(*scene, *before_dialogue_id) == nullptr) {
+        find_scene_node(*scene, *before_dialogue_id) == nullptr) {
       return false;
     }
   }
 
-  std::vector<Dialogue> moving;
-  std::vector<Dialogue> remaining;
+  std::vector<SceneNode> moving;
+  std::vector<SceneNode> remaining;
   moving.reserve(selected_ids.size());
   remaining.reserve(scene->nodes.size() - selected_ids.size());
 
   // Iterate over the authoritative Scene order instead of request order.
-  for (const Dialogue& dialogue : scene->nodes) {
-    if (selected_ids.contains(dialogue.id)) {
-      moving.push_back(dialogue);
+  for (const SceneNode& node : scene->nodes) {
+    if (selected_ids.contains(std::string(scene_node_id(node)))) {
+      moving.push_back(node);
     } else {
-      remaining.push_back(dialogue);
+      remaining.push_back(node);
     }
   }
 
@@ -438,12 +960,12 @@ bool reorder_dialogues(
     insertion_iterator = std::find_if(
         remaining.begin(),
         remaining.end(),
-        [&before_dialogue_id](const Dialogue& dialogue) {
-          return dialogue.id == *before_dialogue_id;
+        [&before_dialogue_id](const SceneNode& node) {
+          return scene_node_id(node) == *before_dialogue_id;
         });
   }
 
-  std::vector<Dialogue> reordered;
+  std::vector<SceneNode> reordered;
   reordered.reserve(scene->nodes.size());
   reordered.insert(
       reordered.end(), remaining.begin(), insertion_iterator);
@@ -454,8 +976,8 @@ bool reorder_dialogues(
       scene->nodes.begin(),
       scene->nodes.end(),
       reordered.begin(),
-      [](const Dialogue& current, const Dialogue& next) {
-        return current.id == next.id;
+      [](const SceneNode& current, const SceneNode& next) {
+        return scene_node_id(current) == scene_node_id(next);
       });
   if (!changed) {
     return false;
@@ -483,9 +1005,8 @@ std::optional<std::string> validate_project(const Project& project) {
     return "project must contain at least one scene";
   }
 
-  // Project, scene, dialogue, and (later) asset references share one ID
-  // namespace. Rejecting a project ID collision here prevents ambiguous
-  // references after a file is opened from disk.
+  // Project, Scene, Dialogue, and visual-instance IDs share one namespace.
+  // Assets join the same namespace in validate_project_aggregate().
   std::unordered_set<std::string> ids{project.id};
   bool found_entry_scene = false;
 
@@ -501,18 +1022,194 @@ std::optional<std::string> validate_project(const Project& project) {
     }
     found_entry_scene = found_entry_scene || scene.id == project.entry_scene_id;
 
-    for (const Dialogue& dialogue : scene.nodes) {
-      if (dialogue.id.empty()) {
-        return "dialogue ID must not be empty";
+    if (scene.visuals.background_asset_id.has_value() &&
+        scene.visuals.background_asset_id->empty()) {
+      return "background Asset ID must not be empty";
+    }
+
+    for (const CharacterVisualInstance& character :
+         scene.visuals.characters) {
+      if (character.id.empty()) {
+        return "character visual instance ID must not be empty";
       }
-      if (!ids.insert(dialogue.id).second) {
+      if (!ids.insert(character.id).second) {
         return "entity IDs must be unique";
+      }
+      if (character.asset_id.empty()) {
+        return "character visual Asset ID must not be empty";
+      }
+      if (!is_valid_character_slot(character.slot)) {
+        return "character visual slot is invalid";
+      }
+    }
+
+    for (const SceneNode& node : scene.nodes) {
+      const std::string_view node_id = scene_node_id(node);
+      if (node_id.empty()) {
+        return "scene node ID must not be empty";
+      }
+      if (!ids.insert(std::string(node_id)).second) {
+        return "entity IDs must be unique";
+      }
+      if (const auto* background = std::get_if<BackgroundNode>(&node);
+          background != nullptr && background->asset_id.has_value() &&
+          background->asset_id->empty()) {
+        return "background node Asset ID must not be empty";
+      }
+      if (const auto* character = std::get_if<CharacterNode>(&node);
+          character != nullptr) {
+        if (character->asset_id.has_value() && character->asset_id->empty()) {
+          return "character node Asset ID must not be empty";
+        }
+        if (!is_valid_character_slot(character->slot)) {
+          return "character node slot is invalid";
+        }
+        if (character->layer < 1 || character->layer > 10) {
+          return "character node layer must be between 1 and 10";
+        }
+      }
+      if (const auto* jump = std::get_if<SceneJumpNode>(&node);
+          jump != nullptr && jump->target_scene_id.empty()) {
+        return "scene jump target Scene ID must not be empty";
       }
     }
   }
 
   if (!found_entry_scene) {
     return "entry scene ID must reference an existing scene";
+  }
+
+  return std::nullopt;
+}
+
+std::optional<std::string> validate_asset_relative_path(
+    const AssetType type,
+    const std::string_view relative_path) {
+  const std::optional<std::string_view> directory = asset_directory(type);
+  if (!directory.has_value()) {
+    return "asset type is invalid";
+  }
+
+  const std::string prefix = "assets/" + std::string(*directory) + "/";
+  if (relative_path.size() <= prefix.size() ||
+      !relative_path.starts_with(prefix) ||
+      relative_path.back() == '/' ||
+      relative_path.find('\\') != std::string_view::npos ||
+      relative_path.find('\0') != std::string_view::npos) {
+    return "asset relative path must be a safe path below " + prefix;
+  }
+
+  std::size_t component_start = 0;
+  while (component_start < relative_path.size()) {
+    const std::size_t separator =
+        relative_path.find('/', component_start);
+    const std::size_t component_end = separator == std::string_view::npos
+        ? relative_path.size()
+        : separator;
+    const std::string_view component = relative_path.substr(
+        component_start,
+        component_end - component_start);
+    if (component.empty() || component == "." || component == "..") {
+      return "asset relative path contains an unsafe component";
+    }
+    if (separator == std::string_view::npos) {
+      break;
+    }
+    component_start = separator + 1;
+  }
+
+  return std::nullopt;
+}
+
+std::optional<std::string> validate_project_aggregate(
+    const ProjectAggregate& aggregate) {
+  if (const auto violation = validate_project(aggregate.project);
+      violation.has_value()) {
+    return violation;
+  }
+
+  std::unordered_set<std::string> ids{aggregate.project.id};
+  for (const Scene& scene : aggregate.project.scenes) {
+    ids.insert(scene.id);
+    for (const CharacterVisualInstance& character :
+         scene.visuals.characters) {
+      ids.insert(character.id);
+    }
+    for (const SceneNode& node : scene.nodes) {
+      ids.insert(std::string(scene_node_id(node)));
+    }
+  }
+
+  for (const Asset& asset : aggregate.assets) {
+    if (asset.id.empty()) {
+      return "asset ID must not be empty";
+    }
+    if (!ids.insert(asset.id).second) {
+      return "entity and asset IDs must be unique";
+    }
+
+    if (const auto violation =
+            validate_asset_relative_path(asset.type, asset.relative_path);
+        violation.has_value()) {
+      return violation;
+    }
+  }
+
+  for (const Scene& scene : aggregate.project.scenes) {
+    if (scene.visuals.background_asset_id.has_value()) {
+      const Asset* background = find_asset(
+          aggregate,
+          *scene.visuals.background_asset_id);
+      if (background == nullptr) {
+        return "background must reference an existing Asset";
+      }
+      if (background->type != AssetType::image) {
+        return "background Asset must be an image";
+      }
+    }
+
+    for (const CharacterVisualInstance& character :
+         scene.visuals.characters) {
+      const Asset* sprite = find_asset(aggregate, character.asset_id);
+      if (sprite == nullptr) {
+        return "character visual must reference an existing Asset";
+      }
+      if (sprite->type != AssetType::image) {
+        return "character visual Asset must be an image";
+      }
+    }
+
+    for (const SceneNode& node : scene.nodes) {
+      if (const auto* background = std::get_if<BackgroundNode>(&node);
+          background != nullptr && background->asset_id.has_value()) {
+        const Asset* asset = find_asset(aggregate, *background->asset_id);
+        if (asset == nullptr) {
+          return "background node must reference an existing Asset";
+        }
+        if (asset->type != AssetType::image) {
+          return "background node Asset must be an image";
+        }
+      }
+      if (const auto* character = std::get_if<CharacterNode>(&node);
+          character != nullptr && character->asset_id.has_value()) {
+        const Asset* asset = find_asset(aggregate, *character->asset_id);
+        if (asset == nullptr) {
+          return "character node must reference an existing Asset";
+        }
+        if (asset->type != AssetType::image) {
+          return "character node Asset must be an image";
+        }
+      }
+      if (const auto* jump = std::get_if<SceneJumpNode>(&node);
+          jump != nullptr) {
+        if (jump->target_scene_id == scene.id) {
+          return "scene jump must not target its containing Scene";
+        }
+        if (find_scene(aggregate.project, jump->target_scene_id) == nullptr) {
+          return "scene jump must reference an existing Scene";
+        }
+      }
+    }
   }
 
   return std::nullopt;

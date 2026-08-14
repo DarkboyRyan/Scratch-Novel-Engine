@@ -1,6 +1,22 @@
 import * as Blockly from 'blockly';
 
-import type { SceneDocument } from '../../../shared/projectTypes';
+import type {
+  AssetDocument,
+  SceneDocument,
+} from '../../../shared/projectTypes';
+import {
+  BACKGROUND_BLOCK_TYPE,
+  setBackgroundBlockAsset,
+} from './blocks/backgroundBlock';
+import {
+  CHARACTER_BLOCK_FIELDS,
+  CHARACTER_BLOCK_TYPE,
+  setCharacterBlockAsset,
+} from './blocks/characterBlock';
+import {
+  SCENE_JUMP_BLOCK_FIELDS,
+  SCENE_JUMP_BLOCK_TYPE,
+} from './blocks/sceneJumpBlock';
 import {
   DIALOGUE_BLOCK_FIELDS,
   DIALOGUE_BLOCK_TYPE,
@@ -20,6 +36,7 @@ export function projectSceneToWorkspace(
     x: FIRST_BLOCK_X,
     y: FIRST_BLOCK_Y,
   },
+  assets: AssetDocument[] = [],
 ): void {
   // 程序创建积木时不要产生“用户编辑”事件。
   Blockly.Events.disable();
@@ -33,7 +50,13 @@ export function projectSceneToWorkspace(
 
     for (const node of scene.nodes) {
       const block = workspace.newBlock(
-        DIALOGUE_BLOCK_TYPE,
+        node.type === 'dialogue'
+          ? DIALOGUE_BLOCK_TYPE
+          : node.type === 'background'
+            ? BACKGROUND_BLOCK_TYPE
+            : node.type === 'character'
+              ? CHARACTER_BLOCK_TYPE
+              : SCENE_JUMP_BLOCK_TYPE,
         node.id,
       );
 
@@ -48,15 +71,37 @@ export function projectSceneToWorkspace(
 
       block.initSvg();
 
-      block.setFieldValue(
-        node.speaker,
-        DIALOGUE_BLOCK_FIELDS.speaker,
-      );
-
-      block.setFieldValue(
-        node.text,
-        DIALOGUE_BLOCK_FIELDS.text,
-      );
+      if (node.type === 'dialogue') {
+        block.setFieldValue(
+          node.speaker,
+          DIALOGUE_BLOCK_FIELDS.speaker,
+        );
+        block.setFieldValue(
+          node.text,
+          DIALOGUE_BLOCK_FIELDS.text,
+        );
+      } else if (node.type === 'background') {
+        const name =
+          node.assetId === null
+            ? ''
+            : assets.find((asset) => asset.id === node.assetId)
+                ?.displayName ?? '缺失图片';
+        setBackgroundBlockAsset(block, node.assetId, name);
+      } else if (node.type === 'character') {
+        const name =
+          node.assetId === null
+            ? ''
+            : assets.find((asset) => asset.id === node.assetId)
+                ?.displayName ?? '缺失图片';
+        setCharacterBlockAsset(block, node.assetId, name);
+        block.setFieldValue(node.slot, CHARACTER_BLOCK_FIELDS.slot);
+        block.setFieldValue(String(node.layer), CHARACTER_BLOCK_FIELDS.layer);
+      } else {
+        block.setFieldValue(
+          node.targetSceneId,
+          SCENE_JUMP_BLOCK_FIELDS.targetScene,
+        );
+      }
 
       block.render();
       blocks.push(block);
@@ -71,14 +116,14 @@ export function projectSceneToWorkspace(
       const previousConnection = nextBlock.previousConnection;
 
       if (!nextConnection || !previousConnection) {
-        throw new Error('对白积木缺少上下连接点');
+        throw new Error('剧情积木缺少上下连接点');
       }
 
       const connected = nextConnection.connect(previousConnection);
 
       if (!connected) {
         throw new Error(
-          `无法连接对白：${currentBlock.id} -> ${nextBlock.id}`,
+          `无法连接剧情节点：${currentBlock.id} -> ${nextBlock.id}`,
         );
       }
 

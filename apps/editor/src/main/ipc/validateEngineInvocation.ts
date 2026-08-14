@@ -20,6 +20,20 @@ export function isEngineInvocation(
 
   const params = value.params;
   const hasString = (key: string) => typeof params[key] === 'string';
+  const hasValidOptionalPlacement = (): boolean => {
+    const hasAfterNodeId = hasString('afterNodeId');
+    const hasBeforeNodeId = hasString('beforeNodeId');
+
+    return (
+      (params.afterNodeId === undefined ||
+        params.afterNodeId === null ||
+        hasAfterNodeId) &&
+      (params.beforeNodeId === undefined ||
+        params.beforeNodeId === null ||
+        hasBeforeNodeId) &&
+      !(hasAfterNodeId && hasBeforeNodeId)
+    );
+  };
 
   switch (value.method) {
     case 'project.create':
@@ -37,25 +51,73 @@ export function isEngineInvocation(
       return hasString('sceneId') && hasString('name');
     case 'scene.delete':
       return hasString('sceneId');
-    case 'dialogue.add': {
-      const hasAfterNodeId = hasString('afterNodeId');
-      const hasBeforeNodeId = hasString('beforeNodeId');
-
+    case 'scene.setBackground':
       return (
         hasString('sceneId') &&
-        (params.afterNodeId === undefined ||
-          params.afterNodeId === null ||
-          hasAfterNodeId) &&
-        (params.beforeNodeId === undefined ||
-          params.beforeNodeId === null ||
-          hasBeforeNodeId) &&
-        !(hasAfterNodeId && hasBeforeNodeId) &&
+        (params.assetId === null || hasString('assetId'))
+      );
+    case 'dialogue.add':
+      return (
+        hasString('sceneId') &&
+        hasValidOptionalPlacement() &&
         (params.speaker === undefined ||
           hasString('speaker')) &&
         (params.text === undefined ||
           hasString('text'))
       );
-    }
+    case 'background.add':
+      return (
+        hasString('sceneId') &&
+        params.assetId === undefined &&
+        hasValidOptionalPlacement()
+      );
+    case 'background.update':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        (params.assetId === null || hasString('assetId'))
+      );
+    case 'background.delete':
+      return hasString('sceneId') && hasString('nodeId');
+    case 'background.reorder':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        (params.beforeNodeId === null ||
+          hasString('beforeNodeId'))
+      );
+    case 'character.add':
+      return (
+        hasString('sceneId') &&
+        params.assetId === undefined &&
+        params.slot === undefined &&
+        params.layer === undefined &&
+        hasValidOptionalPlacement()
+      );
+    case 'character.update':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        (params.assetId === null || hasString('assetId')) &&
+        (params.slot === 'left' ||
+          params.slot === 'center' ||
+          params.slot === 'right') &&
+        Number.isInteger(params.layer) &&
+        (params.layer as number) >= 1 &&
+        (params.layer as number) <= 10
+      );
+    case 'sceneJump.add':
+      return (
+        hasString('sceneId') &&
+        hasString('targetSceneId') &&
+        hasValidOptionalPlacement()
+      );
+    case 'sceneJump.update':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        hasString('targetSceneId')
+      );
     case 'dialogue.update':
       return (
         hasString('sceneId') &&
@@ -66,7 +128,9 @@ export function isEngineInvocation(
     case 'dialogue.delete':
       return hasString('sceneId') && hasString('nodeId');
     case 'dialogue.deleteMany':
-    case 'dialogue.reorderMany': {
+    case 'dialogue.reorderMany':
+    case 'timeline.deleteMany':
+    case 'timeline.reorderMany': {
       const hasValidNodeIds =
         Array.isArray(params.nodeIds) &&
         params.nodeIds.length > 0 &&
@@ -79,6 +143,7 @@ export function isEngineInvocation(
         hasString('sceneId') &&
         hasValidNodeIds &&
         (value.method === 'dialogue.deleteMany' ||
+          value.method === 'timeline.deleteMany' ||
           params.beforeNodeId === null ||
           hasString('beforeNodeId'))
       );
@@ -90,6 +155,7 @@ export function isEngineInvocation(
         (params.direction === -1 || params.direction === 1)
       );
     case 'dialogue.reorder':
+    case 'timeline.reorder':
       return (
         hasString('sceneId') &&
         hasString('nodeId') &&
