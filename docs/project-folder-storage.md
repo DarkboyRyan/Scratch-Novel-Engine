@@ -1,5 +1,26 @@
 # 项目文件夹存储与媒体资源实现
 
+> 总体技术选型和面试问答见
+> [技术栈与面试讲解指南](./technical-stack-interview-guide.md)。
+
+## 技术栈与面试答法
+
+| 子问题 | 使用技术 | 选择原因 |
+| --- | --- | --- |
+| 目录选择 | Electron Main `dialog` | 路径只在高权限 Main 中产生，不允许 Renderer 伪造 |
+| 文件会话 | TypeScript、`ProjectFileSession` | 统一管理 revision、savedRevision、dirty 和私有项目根 |
+| 临时工作区 | Node `fs`/`os`、每窗口 `ProjectStorageSession` | 未保存项目也能先导入资源，并保持窗口隔离 |
+| 项目序列化 | C++20、nlohmann/json | 业务模型与磁盘格式由同一权威核心校验 |
+| 安全保存 | 临时文件、流式复制、flush/fsync、atomic rename | 失败时不截断或先删除旧 manifest |
+| 媒体导入 | C++ OS 文件句柄、magic bytes、no-follow/no-clobber | 防止链接逃逸、格式伪装和目标覆盖 |
+| 图片预览 | Electron `vn-asset://`、capability token、CSP | 不向 Renderer 暴露 `file://` 或本机路径 |
+| 进程协议 | contextBridge、Electron IPC、JSONL | Renderer 只发无路径意图，Main/C++ 执行高权限操作 |
+| 测试 | Vitest、CTest、真实 C++ 集成 | 分别验证 IPC、存储事务、原子文件和媒体导入 |
+
+面试时可以把核心思想概括为：**项目文件夹是存储单元，`project.vn.json` 是
+最后提交标记；资源先安全发布，manifest 最后原子替换；路径永远不进入
+Renderer。**
+
 ## 1. 目标
 
 VN Engine 的项目不再以用户手动选择的单个 JSON 文件为单位，而是以一个
@@ -266,8 +287,10 @@ type ProjectStoragePresentation = {
 ## 9. 并发与窗口边界
 
 - 每个窗口拥有独立 BackendClient、ProjectFileSession、临时工作区和资源协议；
-- 普通 C++ mutation 与 open/save/import 都通过
-  `FileOperationCoordinator` 共用同一个窗口级串行边界；
+- Renderer 的普通 C++ mutation 先通过 `useEngineProject` 的 Promise 队列串行；
+- Main 的 open/save/import 使用 `FileOperationCoordinator` 做窗口级排他操作，
+  普通 Engine IPC 也必须经过同一 guard，文件事务进行中会被拒绝而不会排到
+  “打开新项目”之后误改新 Project；
 - 原生文件选择器打开期间，不允许另一个文件操作替换当前项目；
 - 后端 `project.open`、`project.save` 和 `asset.import` 不使用会产生“Main 已超时、
   C++ 稍后仍提交”分裂状态的应用层超时；

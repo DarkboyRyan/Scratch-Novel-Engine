@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { act } from 'react';
+import { act, StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -214,6 +214,46 @@ describe('useEngineProject asset state', () => {
       projectFolderName: 'story',
       ...importedResult.session,
     });
+  });
+
+  it('reuses the pending startup request when StrictMode repeats the effect', async () => {
+    let resolveInitialProject: (
+      result: EngineMutationResult,
+    ) => void = () => {};
+    const pendingInitialProject = new Promise<EngineMutationResult>(
+      (resolve) => {
+        resolveInitialProject = resolve;
+      },
+    );
+    const ensureProject = vi
+      .fn()
+      .mockReturnValue(pendingInitialProject);
+    exposeWindowApi(
+      'vnEngine',
+      {
+        ...window.vnEngine,
+        ensureProject,
+      },
+    );
+
+    await act(async () => {
+      root.render(
+        <StrictMode>
+          <Harness />
+        </StrictMode>,
+      );
+      await Promise.resolve();
+    });
+
+    expect(ensureProject).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveInitialProject(initialResult);
+      await pendingInitialProject;
+    });
+
+    expect(current?.project?.name).toBe('Initial story');
+    expect(current?.engineMessage).toBe('');
   });
 
   it('applies an imported video to the public resource list', async () => {

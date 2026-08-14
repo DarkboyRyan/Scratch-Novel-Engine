@@ -165,6 +165,10 @@ export function useEngineProject() {
   const [isSaving, setIsSaving] = useState(false);
   const fileOperationInProgress = useRef(false);
   const engineActionQueue = useRef<Promise<void>>(Promise.resolve());
+  const initializationRequest = useRef<Promise<[
+    EngineMutationResult,
+    ProjectFileSessionSnapshot,
+  ]> | null>(null);
   const isBusy =
     isInitializing ||
     pendingEngineActions > 0 ||
@@ -195,10 +199,12 @@ export function useEngineProject() {
   useEffect(() => {
     let isActive = true;
 
-    void Promise.all([
+    initializationRequest.current ??= Promise.all([
       requestInitialProject(),
       window.vnProjectFiles.getSession(),
-    ])
+    ]);
+
+    void initializationRequest.current
       .then(([result, session]) => {
         if (isActive) {
           applyResult(result, {

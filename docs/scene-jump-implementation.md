@@ -1,5 +1,26 @@
 # 场景跳转积木实现流程
 
+> 总体技术选型和面试问答见
+> [技术栈与面试讲解指南](./technical-stack-interview-guide.md)；正式预览状态机见
+> [游戏顺序预览](./game-preview-runtime.md)。
+
+## 技术栈与面试答法
+
+| 部分 | 使用技术 | 关键价值 |
+| --- | --- | --- |
+| 节点模型 | C++20 `std::variant` | `SceneJumpNode` 成为真正的剧情节点，不是 UI 临时字段 |
+| 引用关系 | 稳定 Scene UUID、ProjectAggregate 校验 | 场景改名/排序不影响跳转，删除被引用场景会被拒绝 |
+| 文件格式 | nlohmann/json、严格 v6 Reader/Writer | 保存 `targetSceneId` 并兼容早期文件版本 |
+| 公共类型 | TypeScript discriminated union | React/Blockly 用 `node.type` 安全缩窄 |
+| 跨进程 | contextBridge、Electron IPC、JSONL | 请求逐层校验，C++ 返回完整权威快照 |
+| 图形化编辑 | Blockly 13 动态 Dropdown、自定义 Block | 场景列表变化时仍以 ID 绑定目标 |
+| 预览 | TypeScript 纯状态机、`Set` 循环检测 | 自动执行跳转并阻止无对白死循环 |
+| 测试 | CTest、Vitest、真实 C++ Backend 集成 | 覆盖模型、持久化、协议、积木和运行语义 |
+
+面试中最值得强调的是：一个“跳转积木”横跨领域模型、持久化、跨进程协议、
+两套编辑器和运行时。修改文件多不是代码耦合失控，而是每一层都要明确理解
+同一个新业务概念，同时 C++ 仍保持唯一数据真相。
+
 ## 为什么一个积木需要修改这么多代码
 
 “场景跳转”并不只是 Blockly 画布上的一张积木图片。它会改变游戏剧情的
@@ -37,7 +58,8 @@
 
 ## 进程之间怎么通信
 
-这里没有使用 HTTP，也没有启动 Web 服务器。完整通信方式是：
+场景跳转业务通信不使用 HTTP，也不启动业务 Web Server。开发模式仍会使用
+Vite dev server 提供 Renderer/HMR；它不承载剧情命令。完整业务通信方式是：
 
 ```text
 React / Blockly

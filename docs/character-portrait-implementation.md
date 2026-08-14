@@ -1,8 +1,29 @@
 # 人物立绘实现流程
 
-> 实现状态：已完成（2026-08-13）。当前检查结果为 CTest 4/4、Vitest
-> 152/152、TypeScript、ESLint、C++ Release 与 Electron production package
-> 全部通过。
+> 实现状态：已完成。人物节点最初在项目文件格式 v5 引入；场景跳转加入后，
+> 当前 Writer 已升级为 v6，详见
+> [场景跳转实现](./scene-jump-implementation.md)。测试数量会随功能变化，当前
+> 状态应以 `pnpm --dir apps/editor test` 的结果为准。
+
+> 总体技术选型和面试问答见
+> [技术栈与面试讲解指南](./technical-stack-interview-guide.md)。
+
+## 技术栈与面试答法
+
+| 部分 | 使用技术 | 作用 |
+| --- | --- | --- |
+| 领域模型 | C++20、`std::variant`、`std::optional` | 把人物作为强类型时间线节点，`null` 表示清除层 |
+| 层级规则 | C++ Core、整数 layer 1–10 | C++ 校验范围，Renderer 只负责映射视觉 z-order |
+| 文件格式 | nlohmann/json、严格 v5/v6 Reader/Writer | 保存 assetId、slot、layer，并拒绝非法引用 |
+| 跨进程 DTO | TypeScript discriminated union | 用 `node.type === 'character'` 做安全缩窄 |
+| UI | React 19 受控表单、HTML/CSS | 人物检查器、左中右位置和分层渲染 |
+| 图形化编辑 | Blockly 13 自定义 Block/Field | 人物积木、图片资源槽、拖动和时间线重排 |
+| 预览 | TypeScript 纯 reducer、`Map<number, State>` | 按时间线归约每一人物层，不复制 Project |
+| 测试 | CTest、Vitest | 校验模型、协议、积木事件和预览层级 |
+
+面试时重点说明三层分离：**Asset 是文件，CharacterNode 是“从此处修改某层”
+的指令，PreviewState 是扫描时间线得到的临时结果。** 所以同一图片可以复用，
+编辑器也不会把 CSS `z-index` 当成业务数据保存。
 
 ## 目标
 
@@ -61,7 +82,11 @@ struct CharacterNode {
   int layer = 1;
 };
 
-using SceneNode = std::variant<Dialogue, BackgroundNode, CharacterNode>;
+using SceneNode = std::variant<
+    Dialogue,
+    BackgroundNode,
+    CharacterNode,
+    SceneJumpNode>;
 ```
 
 领域约束：
@@ -86,7 +111,7 @@ type CharacterNode = {
 
 公共快照只含 Asset ID 和显示所需字段，不含绝对路径或项目相对路径。
 
-## 文件格式 v5
+## 文件格式 v5（人物引入版本）与当前 v6
 
 v5 增加人物时间线节点：
 
@@ -114,12 +139,13 @@ v5 增加人物时间线节点：
 
 兼容策略：
 
-- Reader 严格接受 v1–v5。
+- 人物节点在 v5 首次加入。
+- 当前 Reader 严格接受 v1–v6。
 - v1/v2 只有对白节点。
 - v3 支持必须绑定图片的背景节点。
 - v4 支持 `assetId: null` 的背景节点。
 - v5 支持人物节点。
-- Writer 始终写 v5。
+- v6 支持场景跳转节点，当前 Writer 始终写 v6。
 - Project/Scene `schemaVersion` 仍为 1；本次变化属于磁盘 envelope 的演进。
 
 ## C++ 命令
@@ -260,7 +286,7 @@ PreviewPanel 的固定视觉顺序：
 9. 表单与 Blockly 修改同一 C++ 节点，没有本地第二份真相。
 10. 混合多选拖动、Delete 和垃圾桶对对白/背景/人物都有效。
 11. 保存重开后人物、位置、层级与时间线顺序不变。
-12. v1–v4 项目仍能打开并在保存时升级到 v5。
+12. v1–v5 项目仍能打开并在保存时升级到当前 v6。
 13. 非图片、缺失资源、非法 slot/layer 失败且 Project/revision 不变。
 14. 图片路径不进入 Renderer、Preload 公共返回或普通 Engine 调用。
 
