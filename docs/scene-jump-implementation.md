@@ -47,7 +47,7 @@
 | C++ 模型 | 定义 `SceneJumpNode` 和领域不变量 | `engine/include/vnengine/model.hpp`、`project.hpp` |
 | C++ Core | 新增、更新、查找跳转节点，保护被引用场景 | `engine/src/core/project.cpp` |
 | C++ Backend | 将 JSON 命令翻译为 Core 操作，返回稳定错误码和快照 | `engine/src/backend/backend.cpp` |
-| 持久化 | 严格读写 v6，兼容 v1–v5 | `engine/src/backend/serialization.cpp` |
+| 持久化 | 跳转在 v6 引入；当前 Writer v9、Reader v1–v9 | `engine/src/backend/serialization.cpp` |
 | 共享 TypeScript | 描述跨进程 DTO 和命令参数 | `apps/editor/src/shared/projectTypes.ts`、`engineProtocol.ts` |
 | Electron 边界 | 校验 Renderer 请求、桥接安全 API、净化 C++ 响应 | `validateEngineInvocation.ts`、`preload.ts`、`backendResponse.ts` |
 | React 状态协调 | 串行发送命令并应用完整 C++ 快照 | `useEngineProject.ts` |
@@ -391,8 +391,8 @@ ProjectAggregate(SceneJumpNode)
 
 - `sceneJump.add/update` 命令返回正式 node ID；
 - 错误码稳定；
-- v6 保存后重新打开仍保留目标 ID；
-- v1–v5 仍能读取并升级；
+- v6 来源文件打开后，保存为 v9 并重新打开仍保留目标 ID；
+- v1–v8 均能读取并升级为当前 v9 写出格式；
 - 非法打开不替换当前项目和 session。
 
 ### TypeScript / Electron
@@ -530,4 +530,5 @@ dialogue = null
 7. 无对白自动循环安全报错。
 8. 删除被引用场景会失败且不改变项目。
 9. 保存重开后目标 Scene ID 不变。
-10. v1–v5 文件仍能打开并保存为 v6。
+10. 在跳转功能引入时，v1–v5 文件会保存为 v6；当前 Reader 支持
+    v1–v9，Writer 固定保存为 v9。

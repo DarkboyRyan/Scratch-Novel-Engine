@@ -315,5 +315,6 @@ apps/editor/src/renderer/styles/editor.css
 
 - 当前选择是“点击后直接跳到目标场景”，尚无变量赋值、条件表达式和选项可见性；
 - 尚无键盘上下选择、历史返回、限时选项、已选标记和存档；
-- 正式预览状态机仍在 TypeScript。开发独立 Player、存档或确定性回放时，应把同样
-  的 Choice 运行语义迁移到可复用的 C++ Runtime。
+- 正式预览状态机仍在 TypeScript。独立 Player 的 MVP 应复用抽离后的共享
+  TypeScript Runtime；只有在变量、脚本、跨版本存档或确定性回放变得复杂后，
+  才评估把同一 Choice 运行语义下沉到 C++ Runtime。

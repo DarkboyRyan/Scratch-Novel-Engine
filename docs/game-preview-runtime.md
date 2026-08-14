@@ -35,7 +35,8 @@
 | Vitest | reducer、跳转、选项、循环与输入规则测试 | 纯函数不需要启动整个 Electron 即可验证 |
 
 面试时可以解释：当前预览是编辑器内的只读功能，所以先用 TypeScript 纯状态机
-实现；未来做独立 Player、变量和存档时，再把同一运行语义迁移到 C++ Runtime。
+实现。独立 Player 的第一阶段应先把这套 reducer 抽成 Editor/Player 共享包；
+只有在变量、存档、脚本与确定性回放变得复杂后，才需要评估迁移到 C++ Runtime。
 
 ## 核心边界
 
@@ -157,8 +158,9 @@ renderer/components/
 - 视频裁剪、字幕、转码、淡入淡出和节点级音量。
 - 把运行状态写入 C++。
 
-开发独立 Player、变量和存档后，应把同样的 reducer 语义迁移到 C++ Runtime；
-React 只负责发送玩家选择和渲染 C++ 返回的运行快照。
+独立 Player 的 MVP 应直接复用抽离后的 TypeScript reducer，保证编辑器预览与
+导出游戏语义一致。未来引入复杂变量、脚本、跨版本存档或确定性回放时，
+可再将同一语义下沉到 C++ RuntimeSession。
 
 ## 验收
 

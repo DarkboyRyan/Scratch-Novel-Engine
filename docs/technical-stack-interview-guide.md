@@ -311,8 +311,9 @@ ended 或非长按 Enter 才恢复扫描。非空 ChoiceNode 是选择阻塞点�
 同时保持 BGM；`Set<sceneId:index>` 检测没有可停留节点的自动跳转循环。
 
 预览状态是临时会话，不写回 Project、revision 或磁盘。当前先用 TS 纯状态机
-获得快速可测的编辑器预览；将来做独立游戏 Player、变量和存档时，可以把同一
-运行语义迁入 C++ Runtime。
+获得快速可测的编辑器预览；独立 Player 的 MVP 会复用抽离后的共享 TypeScript
+Runtime。等变量、脚本、跨版本存档或确定性回放变得复杂后，再评估把同一语义
+下沉到 C++ Runtime。
 
 ### 4.12 构建、打包和测试
 
@@ -427,8 +428,9 @@ Blockly 是编辑视图。它的事件被翻译为 C++ 命令，成功后再用 
 ### 为什么预览状态机先写在 TypeScript？
 
 当前需求是编辑器内的只读预览，TS 纯函数便于快速迭代和用 Vitest 做输入输出测试，
-也不修改 Project。未来需要导出独立游戏、变量、存档和确定性回放时，再把相同语义
-迁入 C++ Runtime，让编辑器与 Player 共享实现。
+也不修改 Project。独立 Player 的 MVP 会先把 reducer 抽成 Editor/Player 共享的
+TypeScript Runtime；等变量、脚本、跨版本存档和确定性回放变得复杂后，再评估
+下沉到 C++ RuntimeSession。
 
 ### Promise 和 async/await 在项目里解决什么问题？
 
