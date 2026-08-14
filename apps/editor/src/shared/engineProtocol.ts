@@ -17,6 +17,7 @@ export type EngineMutationResult = {
   session: EngineSessionState;
   sceneId?: string;
   nodeId?: string;
+  optionId?: string;
   assetId?: string;
 };
 
@@ -65,6 +66,71 @@ export type UpdateSceneJumpParams = {
   sceneId: string;
   nodeId: string;
   targetSceneId: string;
+};
+
+export type SetDialogueVoiceParams = {
+  sceneId: string;
+  nodeId: string;
+  assetId: string | null;
+};
+
+export type AddBgmParams = {
+  sceneId: string;
+  afterNodeId?: string | null;
+  beforeNodeId?: string | null;
+};
+
+export type UpdateBgmParams = {
+  sceneId: string;
+  nodeId: string;
+  assetId: string | null;
+};
+
+export type AddVideoParams = {
+  sceneId: string;
+  afterNodeId?: string | null;
+  beforeNodeId?: string | null;
+};
+
+export type UpdateVideoParams = {
+  sceneId: string;
+  nodeId: string;
+  assetId: string | null;
+};
+
+export type AddChoiceParams = {
+  sceneId: string;
+  afterNodeId?: string | null;
+  beforeNodeId?: string | null;
+};
+
+export type AddChoiceOptionParams = {
+  sceneId: string;
+  nodeId: string;
+  text: string;
+  targetSceneId: string;
+  beforeOptionId?: string | null;
+};
+
+export type UpdateChoiceOptionParams = {
+  sceneId: string;
+  nodeId: string;
+  optionId: string;
+  text: string;
+  targetSceneId: string;
+};
+
+export type DeleteChoiceOptionParams = {
+  sceneId: string;
+  nodeId: string;
+  optionId: string;
+};
+
+export type ReorderChoiceOptionParams = {
+  sceneId: string;
+  nodeId: string;
+  optionId: string;
+  beforeOptionId: string | null;
 };
 
 export type DeleteBackgroundParams = {
@@ -128,6 +194,7 @@ export const ENGINE_METHODS = [
   'scene.setBackground',
   'dialogue.add',
   'dialogue.update',
+  'dialogue.setVoice',
   'dialogue.delete',
   'dialogue.deleteMany',
   'dialogue.move',
@@ -141,6 +208,15 @@ export const ENGINE_METHODS = [
   'character.update',
   'sceneJump.add',
   'sceneJump.update',
+  'bgm.add',
+  'bgm.update',
+  'video.add',
+  'video.update',
+  'choice.add',
+  'choice.option.add',
+  'choice.option.update',
+  'choice.option.delete',
+  'choice.option.reorder',
   'timeline.deleteMany',
   'timeline.reorder',
   'timeline.reorderMany',
@@ -178,6 +254,7 @@ export type EngineParamsByMethod = {
     speaker: string;
     text: string;
   };
+  'dialogue.setVoice': SetDialogueVoiceParams;
   'dialogue.delete': {
     sceneId: string;
     nodeId: string;
@@ -198,6 +275,15 @@ export type EngineParamsByMethod = {
   'character.update': UpdateCharacterParams;
   'sceneJump.add': AddSceneJumpParams;
   'sceneJump.update': UpdateSceneJumpParams;
+  'bgm.add': AddBgmParams;
+  'bgm.update': UpdateBgmParams;
+  'video.add': AddVideoParams;
+  'video.update': UpdateVideoParams;
+  'choice.add': AddChoiceParams;
+  'choice.option.add': AddChoiceOptionParams;
+  'choice.option.update': UpdateChoiceOptionParams;
+  'choice.option.delete': DeleteChoiceOptionParams;
+  'choice.option.reorder': ReorderChoiceOptionParams;
   'timeline.deleteMany': TimelineDeleteManyParams;
   'timeline.reorder': TimelineReorderParams;
   'timeline.reorderMany': TimelineReorderManyParams;
@@ -232,7 +318,7 @@ export type SaveProjectBackendInvocation = {
 export type ImportAssetBackendInvocation = {
   method: 'asset.import';
   params: {
-    kind: 'image' | 'video';
+    kind: 'image' | 'video' | 'audio';
     sourceFilePath: string;
     projectFilePath: string;
   };
@@ -288,6 +374,9 @@ export type VnEngineApi = {
     speaker: string,
     text: string,
   ): Promise<EngineMutationResult>;
+  setDialogueVoice(
+    params: SetDialogueVoiceParams,
+  ): Promise<EngineMutationResult>;
   deleteDialogue(
     sceneId: string,
     nodeId: string,
@@ -329,6 +418,33 @@ export type VnEngineApi = {
   ): Promise<EngineMutationResult>;
   updateSceneJump(
     params: UpdateSceneJumpParams,
+  ): Promise<EngineMutationResult>;
+  addBgm(
+    params: AddBgmParams,
+  ): Promise<EngineMutationResult>;
+  updateBgm(
+    params: UpdateBgmParams,
+  ): Promise<EngineMutationResult>;
+  addVideo(
+    params: AddVideoParams,
+  ): Promise<EngineMutationResult>;
+  updateVideo(
+    params: UpdateVideoParams,
+  ): Promise<EngineMutationResult>;
+  addChoice(
+    params: AddChoiceParams,
+  ): Promise<EngineMutationResult>;
+  addChoiceOption(
+    params: AddChoiceOptionParams,
+  ): Promise<EngineMutationResult>;
+  updateChoiceOption(
+    params: UpdateChoiceOptionParams,
+  ): Promise<EngineMutationResult>;
+  deleteChoiceOption(
+    params: DeleteChoiceOptionParams,
+  ): Promise<EngineMutationResult>;
+  reorderChoiceOption(
+    params: ReorderChoiceOptionParams,
   ): Promise<EngineMutationResult>;
   deleteTimelineNodes(
     params: TimelineDeleteManyParams,

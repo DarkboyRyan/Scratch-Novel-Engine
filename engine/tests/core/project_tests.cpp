@@ -52,6 +52,24 @@ const vnengine::SceneJumpNode& scene_jump_at(
   return std::get<vnengine::SceneJumpNode>(scene.nodes.at(index));
 }
 
+const vnengine::BgmNode& bgm_at(
+    const vnengine::Scene& scene,
+    const std::size_t index) {
+  return std::get<vnengine::BgmNode>(scene.nodes.at(index));
+}
+
+const vnengine::VideoNode& video_at(
+    const vnengine::Scene& scene,
+    const std::size_t index) {
+  return std::get<vnengine::VideoNode>(scene.nodes.at(index));
+}
+
+const vnengine::ChoiceNode& choice_at(
+    const vnengine::Scene& scene,
+    const std::size_t index) {
+  return std::get<vnengine::ChoiceNode>(scene.nodes.at(index));
+}
+
 std::vector<std::string> timeline_ids(const vnengine::Scene& scene) {
   std::vector<std::string> result;
   result.reserve(scene.nodes.size());
@@ -1048,6 +1066,357 @@ void manages_scene_jump_nodes_and_protects_targets() {
   CHECK(vnengine::validate_project_aggregate(dangling).has_value());
 }
 
+void manages_dialogue_voice_and_bgm_audio_references() {
+  SequenceIdGenerator ids;
+  vnengine::ProjectAggregate aggregate =
+      vnengine::create_empty_project_aggregate(ids);
+  const std::string scene_id = aggregate.project.entry_scene_id;
+  aggregate.assets = {
+      {.id = "voice", .type = vnengine::AssetType::audio,
+       .relative_path = "assets/audio/voice.mp3", .display_name = "Voice"},
+      {.id = "theme", .type = vnengine::AssetType::audio,
+       .relative_path = "assets/audio/theme.ogg", .display_name = "Theme"},
+      {.id = "image", .type = vnengine::AssetType::image,
+       .relative_path = "assets/images/image.png", .display_name = "Image"},
+  };
+
+  const std::string dialogue_id = *vnengine::add_dialogue(
+      aggregate.project, ids, scene_id, "Alice", "Hello");
+  vnengine::Dialogue* dialogue = vnengine::find_dialogue(
+      *vnengine::find_scene(aggregate.project, scene_id), dialogue_id);
+  CHECK(dialogue != nullptr);
+  CHECK(!dialogue->voice_asset_id.has_value());
+  CHECK(vnengine::set_dialogue_voice(
+            aggregate, scene_id, dialogue_id, "voice") ==
+        vnengine::SetDialogueVoiceResult::changed);
+  CHECK(dialogue->voice_asset_id == "voice");
+  CHECK(vnengine::set_dialogue_voice(
+            aggregate, scene_id, dialogue_id, "voice") ==
+        vnengine::SetDialogueVoiceResult::unchanged);
+
+  const vnengine::ProjectAggregate before_voice_failures = aggregate;
+  CHECK(vnengine::set_dialogue_voice(
+            aggregate, scene_id, dialogue_id, "missing") ==
+        vnengine::SetDialogueVoiceResult::asset_not_found);
+  CHECK(vnengine::set_dialogue_voice(
+            aggregate, scene_id, dialogue_id, "image") ==
+        vnengine::SetDialogueVoiceResult::asset_not_audio);
+  CHECK(aggregate == before_voice_failures);
+
+  const vnengine::AddBgmNodeResult added = vnengine::add_bgm_node(
+      aggregate, ids, scene_id, dialogue_id);
+  CHECK(added.status == vnengine::AddBgmNodeStatus::added);
+  CHECK(added.node_id.has_value());
+  const vnengine::Scene& scene = aggregate.project.scenes[0];
+  CHECK(scene.nodes.size() == 2);
+  CHECK(!bgm_at(scene, 1).asset_id.has_value());
+  CHECK(vnengine::update_bgm_node(
+            aggregate, scene_id, *added.node_id, "theme") ==
+        vnengine::UpdateBgmNodeResult::changed);
+  CHECK(bgm_at(scene, 1).asset_id == "theme");
+  CHECK(vnengine::update_bgm_node(
+            aggregate, scene_id, *added.node_id, "theme") ==
+        vnengine::UpdateBgmNodeResult::unchanged);
+
+  const vnengine::ProjectAggregate before_bgm_failures = aggregate;
+  CHECK(vnengine::update_bgm_node(
+            aggregate, scene_id, *added.node_id, "missing") ==
+        vnengine::UpdateBgmNodeResult::asset_not_found);
+  CHECK(vnengine::update_bgm_node(
+            aggregate, scene_id, *added.node_id, "image") ==
+        vnengine::UpdateBgmNodeResult::asset_not_audio);
+  CHECK(aggregate == before_bgm_failures);
+  CHECK(!vnengine::validate_project_aggregate(aggregate).has_value());
+
+  // BGM participates in the same mixed timeline operations as every other
+  // node type.
+  CHECK(vnengine::reorder_scene_node(
+      aggregate.project, scene_id, *added.node_id, dialogue_id));
+  CHECK(vnengine::scene_node_id(scene.nodes[0]) == *added.node_id);
+  CHECK(vnengine::delete_scene_nodes(
+      aggregate.project, scene_id, {*added.node_id}));
+  CHECK(scene.nodes.size() == 1);
+
+  vnengine::ProjectAggregate invalid_voice = aggregate;
+  std::get<vnengine::Dialogue>(invalid_voice.project.scenes[0].nodes[0])
+      .voice_asset_id = "image";
+  CHECK(vnengine::validate_project_aggregate(invalid_voice).has_value());
+
+  CHECK(vnengine::set_dialogue_voice(
+            aggregate, scene_id, dialogue_id, std::nullopt) ==
+        vnengine::SetDialogueVoiceResult::changed);
+  CHECK(!vnengine::find_dialogue(
+             *vnengine::find_scene(aggregate.project, scene_id), dialogue_id)
+             ->voice_asset_id.has_value());
+}
+
+void manages_video_timeline_nodes_atomically() {
+  SequenceIdGenerator ids;
+  vnengine::ProjectAggregate aggregate =
+      vnengine::create_empty_project_aggregate(ids);
+  const std::string scene_id = aggregate.project.entry_scene_id;
+  aggregate.assets = {
+      {.id = "opening", .type = vnengine::AssetType::video,
+       .relative_path = "assets/videos/opening.mp4",
+       .display_name = "Opening"},
+      {.id = "image", .type = vnengine::AssetType::image,
+       .relative_path = "assets/images/poster.png",
+       .display_name = "Poster"},
+      {.id = "audio", .type = vnengine::AssetType::audio,
+       .relative_path = "assets/audio/theme.mp3", .display_name = "Theme"},
+  };
+  const std::string dialogue_id = *vnengine::add_dialogue(
+      aggregate.project, ids, scene_id, "Alice", "Watch this");
+
+  const vnengine::AddVideoNodeResult added = vnengine::add_video_node(
+      aggregate, ids, scene_id, dialogue_id);
+  CHECK(added.status == vnengine::AddVideoNodeStatus::added);
+  CHECK(added.node_id.has_value());
+  const vnengine::Scene& scene = aggregate.project.scenes[0];
+  CHECK(scene.nodes.size() == 2);
+  CHECK(!video_at(scene, 1).asset_id.has_value());
+  CHECK(vnengine::find_video_node(
+            *vnengine::find_scene(aggregate.project, scene_id),
+            *added.node_id) != nullptr);
+
+  CHECK(vnengine::update_video_node(
+            aggregate, scene_id, *added.node_id, "opening") ==
+        vnengine::UpdateVideoNodeResult::changed);
+  CHECK(video_at(scene, 1).asset_id == "opening");
+  CHECK(vnengine::update_video_node(
+            aggregate, scene_id, *added.node_id, "opening") ==
+        vnengine::UpdateVideoNodeResult::unchanged);
+
+  const vnengine::ProjectAggregate before_failures = aggregate;
+  CHECK(vnengine::update_video_node(
+            aggregate, scene_id, *added.node_id, "missing") ==
+        vnengine::UpdateVideoNodeResult::asset_not_found);
+  CHECK(vnengine::update_video_node(
+            aggregate, scene_id, *added.node_id, "image") ==
+        vnengine::UpdateVideoNodeResult::asset_not_video);
+  CHECK(vnengine::update_video_node(
+            aggregate, scene_id, dialogue_id, "opening") ==
+        vnengine::UpdateVideoNodeResult::node_not_found);
+  CHECK(vnengine::update_video_node(
+            aggregate, "missing-scene", *added.node_id, "opening") ==
+        vnengine::UpdateVideoNodeResult::scene_not_found);
+  CHECK(vnengine::add_video_node(
+            aggregate, ids, "missing-scene").status ==
+        vnengine::AddVideoNodeStatus::scene_not_found);
+  CHECK(vnengine::add_video_node(
+            aggregate, ids, scene_id, dialogue_id, *added.node_id).status ==
+        vnengine::AddVideoNodeStatus::placement_conflict);
+  CHECK(vnengine::add_video_node(
+            aggregate, ids, scene_id, "missing-anchor").status ==
+        vnengine::AddVideoNodeStatus::anchor_not_found);
+  CHECK(aggregate == before_failures);
+
+  CHECK(vnengine::update_video_node(
+            aggregate, scene_id, *added.node_id, std::nullopt) ==
+        vnengine::UpdateVideoNodeResult::changed);
+  CHECK(!video_at(scene, 1).asset_id.has_value());
+  CHECK(vnengine::update_video_node(
+            aggregate, scene_id, *added.node_id, std::nullopt) ==
+        vnengine::UpdateVideoNodeResult::unchanged);
+  CHECK(!vnengine::validate_project_aggregate(aggregate).has_value());
+
+  CHECK(vnengine::reorder_scene_node(
+      aggregate.project, scene_id, *added.node_id, dialogue_id));
+  CHECK(vnengine::scene_node_id(scene.nodes[0]) == *added.node_id);
+  CHECK(vnengine::delete_scene_nodes(
+      aggregate.project, scene_id, {*added.node_id}));
+  CHECK(scene.nodes.size() == 1);
+
+  vnengine::ProjectAggregate invalid = aggregate;
+  invalid.project.scenes[0].nodes.emplace_back(vnengine::VideoNode{
+      .id = "invalid-video", .asset_id = "image"});
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+}
+
+void manages_choice_nodes_and_options_atomically() {
+  SequenceIdGenerator ids;
+  vnengine::ProjectAggregate aggregate =
+      vnengine::create_empty_project_aggregate(ids);
+  const std::string first_scene_id = aggregate.project.entry_scene_id;
+  const std::string second_scene_id =
+      vnengine::add_scene(aggregate.project, ids, "第二幕");
+  const std::string third_scene_id =
+      vnengine::add_scene(aggregate.project, ids, "第三幕");
+  const std::string dialogue_id = *vnengine::add_dialogue(
+      aggregate.project, ids, first_scene_id, "Alice", "请选择");
+
+  const vnengine::AddChoiceNodeResult added = vnengine::add_choice_node(
+      aggregate.project, ids, first_scene_id, dialogue_id);
+  CHECK(added.status == vnengine::AddChoiceNodeStatus::added);
+  CHECK(added.node_id.has_value());
+  const std::string choice_id = *added.node_id;
+  const vnengine::Scene& scene =
+      *vnengine::find_scene(aggregate.project, first_scene_id);
+  CHECK(scene.nodes.size() == 2);
+  CHECK(choice_at(scene, 1).options.empty());
+  CHECK(vnengine::find_choice_node(
+            *vnengine::find_scene(aggregate.project, first_scene_id),
+            choice_id) != nullptr);
+
+  const vnengine::AddChoiceOptionResult first =
+      vnengine::add_choice_option(
+          aggregate.project,
+          ids,
+          first_scene_id,
+          choice_id,
+          "  接受  ",
+          second_scene_id);
+  CHECK(first.status == vnengine::AddChoiceOptionStatus::added);
+  CHECK(first.option_id.has_value());
+  const vnengine::AddChoiceOptionResult second =
+      vnengine::add_choice_option(
+          aggregate.project,
+          ids,
+          first_scene_id,
+          choice_id,
+          "拒绝",
+          third_scene_id,
+          first.option_id);
+  CHECK(second.status == vnengine::AddChoiceOptionStatus::added);
+  CHECK(second.option_id.has_value());
+
+  const vnengine::ChoiceNode& choice = choice_at(scene, 1);
+  CHECK(choice.options.size() == 2);
+  CHECK(choice.options[0].id == *second.option_id);
+  CHECK(choice.options[1].id == *first.option_id);
+  CHECK(choice.options[1].text == "接受");
+  CHECK(choice.options[1].target_scene_id == second_scene_id);
+  CHECK(vnengine::find_choice_option(choice, *first.option_id) != nullptr);
+  CHECK(!vnengine::validate_project_aggregate(aggregate).has_value());
+
+  CHECK(vnengine::update_choice_option(
+            aggregate.project,
+            first_scene_id,
+            choice_id,
+            *second.option_id,
+            "拒绝",
+            third_scene_id) ==
+        vnengine::UpdateChoiceOptionResult::unchanged);
+  CHECK(vnengine::update_choice_option(
+            aggregate.project,
+            first_scene_id,
+            choice_id,
+            *first.option_id,
+            "  接受并前往第三幕 ",
+            third_scene_id) ==
+        vnengine::UpdateChoiceOptionResult::changed);
+  CHECK(choice.options[1].text == "接受并前往第三幕");
+
+  CHECK(vnengine::reorder_choice_option(
+            aggregate.project,
+            first_scene_id,
+            choice_id,
+            *first.option_id,
+            second.option_id) ==
+        vnengine::ReorderChoiceOptionResult::changed);
+  CHECK(choice.options[0].id == *first.option_id);
+  CHECK(vnengine::reorder_choice_option(
+            aggregate.project,
+            first_scene_id,
+            choice_id,
+            *first.option_id,
+            second.option_id) ==
+        vnengine::ReorderChoiceOptionResult::unchanged);
+
+  const vnengine::ProjectAggregate before_failures = aggregate;
+  CHECK(vnengine::add_choice_option(
+            aggregate.project,
+            ids,
+            first_scene_id,
+            choice_id,
+            " \t ",
+            second_scene_id).status ==
+        vnengine::AddChoiceOptionStatus::text_required);
+  CHECK(vnengine::add_choice_option(
+            aggregate.project,
+            ids,
+            first_scene_id,
+            choice_id,
+            "无效目标",
+            "missing").status ==
+        vnengine::AddChoiceOptionStatus::target_scene_not_found);
+  CHECK(vnengine::update_choice_option(
+            aggregate.project,
+            first_scene_id,
+            choice_id,
+            *first.option_id,
+            "",
+            second_scene_id) ==
+        vnengine::UpdateChoiceOptionResult::text_required);
+  CHECK(vnengine::reorder_choice_option(
+            aggregate.project,
+            first_scene_id,
+            choice_id,
+            *first.option_id,
+            first.option_id) ==
+        vnengine::ReorderChoiceOptionResult::self_anchor);
+  CHECK(vnengine::reorder_choice_option(
+            aggregate.project,
+            first_scene_id,
+            choice_id,
+            *first.option_id,
+            "missing") ==
+        vnengine::ReorderChoiceOptionResult::before_option_not_found);
+  CHECK(aggregate == before_failures);
+
+  CHECK(!vnengine::delete_scene(aggregate.project, third_scene_id));
+  CHECK(vnengine::delete_choice_option(
+            aggregate.project,
+            first_scene_id,
+            choice_id,
+            *second.option_id) ==
+        vnengine::DeleteChoiceOptionResult::changed);
+  CHECK(vnengine::delete_choice_option(
+            aggregate.project,
+            first_scene_id,
+            choice_id,
+            *second.option_id) ==
+        vnengine::DeleteChoiceOptionResult::option_not_found);
+  CHECK(!vnengine::delete_scene(aggregate.project, third_scene_id));
+  CHECK(vnengine::delete_choice_option(
+            aggregate.project,
+            first_scene_id,
+            choice_id,
+            *first.option_id) ==
+        vnengine::DeleteChoiceOptionResult::changed);
+  CHECK(vnengine::delete_scene(aggregate.project, third_scene_id));
+
+  const vnengine::Scene& first_scene =
+      *vnengine::find_scene(aggregate.project, first_scene_id);
+  CHECK(vnengine::reorder_scene_node(
+      aggregate.project, first_scene_id, choice_id, dialogue_id));
+  CHECK(vnengine::scene_node_id(first_scene.nodes[0]) == choice_id);
+  CHECK(vnengine::delete_scene_nodes(
+      aggregate.project, first_scene_id, {choice_id}));
+  CHECK(first_scene.nodes.size() == 1);
+
+  vnengine::ProjectAggregate invalid = aggregate;
+  invalid.project.scenes[0].nodes.emplace_back(vnengine::ChoiceNode{
+      .id = "choice-invalid",
+      .options = {{
+          .id = invalid.project.id,
+          .text = "非法重复 ID",
+          .target_scene_id = second_scene_id,
+      }},
+  });
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+  std::get<vnengine::ChoiceNode>(invalid.project.scenes[0].nodes.back())
+      .options[0].id = "option-invalid";
+  std::get<vnengine::ChoiceNode>(invalid.project.scenes[0].nodes.back())
+      .options[0].text = "  周围空白  ";
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+  std::get<vnengine::ChoiceNode>(invalid.project.scenes[0].nodes.back())
+      .options[0].text = "有效文本";
+  std::get<vnengine::ChoiceNode>(invalid.project.scenes[0].nodes.back())
+      .options[0].target_scene_id = "missing";
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+}
+
 }  // namespace
 
 int main() {
@@ -1093,6 +1462,12 @@ int main() {
        manages_character_timeline_nodes_atomically},
       {"manages scene jump nodes and protects targets",
        manages_scene_jump_nodes_and_protects_targets},
+      {"manages dialogue voice and BGM audio references",
+       manages_dialogue_voice_and_bgm_audio_references},
+      {"manages video timeline nodes atomically",
+       manages_video_timeline_nodes_atomically},
+      {"manages choice nodes and options atomically",
+       manages_choice_nodes_and_options_atomically},
   };
 
   int failures = 0;

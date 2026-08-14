@@ -5,6 +5,8 @@ export type DialogueNode = {
   type: 'dialogue';
   speaker: string;
   text: string;
+  // null means this dialogue has no one-shot voice clip.
+  voiceAssetId: string | null;
 };
 
 // 背景节点属于有顺序的剧情时间线：播放到这里时切换背景，并持续到
@@ -34,13 +36,48 @@ export type SceneJumpNode = {
   targetSceneId: string;
 };
 
+// BGM is a persistent timeline command. null explicitly stops the current
+// track; otherwise the referenced audio loops until another BGM node.
+export type BgmNode = {
+  id: string;
+  type: 'bgm';
+  assetId: string | null;
+};
+
+// A video node pauses the ordinary story presentation while its referenced
+// clip plays. When playback reaches the end, preview resumes at the following
+// timeline node. null is an unassigned editor slot, not a host file path.
+export type VideoNode = {
+  id: string;
+  type: 'video';
+  assetId: string | null;
+};
+
+// A choice pauses formal preview and presents all options together. Each
+// option owns a stable C++ ID so nested Blockly edits and reordering remain
+// authoritative across complete project snapshots.
+export type ChoiceOption = {
+  id: string;
+  text: string;
+  targetSceneId: string;
+};
+
+export type ChoiceNode = {
+  id: string;
+  type: 'choice';
+  options: ChoiceOption[];
+};
+
 // type 是跨 C++ / Electron / Renderer 的判别字段。使用联合类型后，消费方
 // 必须先检查 node.type，避免把背景节点误当成可编辑对白。
 export type SceneNode =
   | DialogueNode
   | BackgroundNode
   | CharacterNode
-  | SceneJumpNode;
+  | SceneJumpNode
+  | BgmNode
+  | VideoNode
+  | ChoiceNode;
 
 export type SceneDocument = {
   schemaVersion: 1;

@@ -24,8 +24,12 @@ type InspectorPanelProps = {
     layer: number;
   }) => Promise<void>;
   onSceneJumpChange: (targetSceneId: string) => Promise<void>;
+  onBgmChange: (assetId: string | null) => Promise<void>;
+  onVideoChange: (assetId: string | null) => Promise<void>;
+  onDialogueVoiceChange: (assetId: string | null) => Promise<void>;
   onInsertDialogue: () => Promise<void>;
   onInsertCharacter: () => Promise<void>;
+  onInsertBgm: () => Promise<void>;
   onSubmit: () => Promise<void>;
 };
 
@@ -42,8 +46,12 @@ export function InspectorPanel({
   onBackgroundChange,
   onCharacterChange,
   onSceneJumpChange,
+  onBgmChange,
+  onVideoChange,
+  onDialogueVoiceChange,
   onInsertDialogue,
   onInsertCharacter,
+  onInsertBgm,
   onSubmit,
 }: InspectorPanelProps) {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -61,6 +69,7 @@ export function InspectorPanel({
           <TimelineInsertActions
             isBusy={isBusy}
             onInsertCharacter={onInsertCharacter}
+            onInsertBgm={onInsertBgm}
             onInsertDialogue={onInsertDialogue}
           />
         </div>
@@ -114,6 +123,7 @@ export function InspectorPanel({
           <TimelineInsertActions
             isBusy={isBusy}
             onInsertCharacter={onInsertCharacter}
+            onInsertBgm={onInsertBgm}
             onInsertDialogue={onInsertDialogue}
           />
         </div>
@@ -187,6 +197,7 @@ export function InspectorPanel({
           <TimelineInsertActions
             isBusy={isBusy}
             onInsertCharacter={onInsertCharacter}
+            onInsertBgm={onInsertBgm}
             onInsertDialogue={onInsertDialogue}
           />
         </div>
@@ -218,6 +229,125 @@ export function InspectorPanel({
     );
   }
 
+  if (selectedNode?.type === 'bgm') {
+    const audioAssets = assets.filter((asset) => asset.type === 'audio');
+
+    return (
+      <aside className="panel inspector-panel bgm-inspector">
+        <div className="panel-heading">
+          <h2>背景音乐</h2>
+          <TimelineInsertActions
+            isBusy={isBusy}
+            onInsertCharacter={onInsertCharacter}
+            onInsertBgm={onInsertBgm}
+            onInsertDialogue={onInsertDialogue}
+          />
+        </div>
+        <label>
+          从这里开始
+          <select
+            value={selectedNode.assetId ?? ''}
+            disabled={isBusy}
+            onChange={(event) =>
+              void onBgmChange(event.target.value || null)
+            }
+          >
+            <option value="">停止背景音乐</option>
+            {audioAssets.map((asset) => (
+              <option key={asset.id} value={asset.id}>
+                {asset.displayName}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="bgm-node-help">
+          背景音乐会循环播放，并持续到下一个背景音乐积木。
+        </p>
+      </aside>
+    );
+  }
+
+  if (selectedNode?.type === 'video') {
+    const videoAssets = assets.filter((asset) => asset.type === 'video');
+
+    return (
+      <aside className="panel inspector-panel video-inspector">
+        <div className="panel-heading">
+          <h2>播放视频</h2>
+          <TimelineInsertActions
+            isBusy={isBusy}
+            onInsertCharacter={onInsertCharacter}
+            onInsertBgm={onInsertBgm}
+            onInsertDialogue={onInsertDialogue}
+          />
+        </div>
+        <label>
+          视频资源
+          <select
+            value={selectedNode.assetId ?? ''}
+            disabled={isBusy}
+            onChange={(event) =>
+              void onVideoChange(event.target.value || null)
+            }
+          >
+            <option value="">未选择视频</option>
+            {videoAssets.map((asset) => (
+              <option key={asset.id} value={asset.id}>
+                {asset.displayName}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="video-node-help">
+          正式预览会播放这个视频；视频结束后继续执行下一条剧情。
+        </p>
+      </aside>
+    );
+  }
+
+  if (selectedNode?.type === 'choice') {
+    return (
+      <aside className="panel inspector-panel choice-inspector">
+        <div className="panel-heading">
+          <h2>场景选项</h2>
+          <TimelineInsertActions
+            isBusy={isBusy}
+            onInsertCharacter={onInsertCharacter}
+            onInsertBgm={onInsertBgm}
+            onInsertDialogue={onInsertDialogue}
+          />
+        </div>
+
+        {selectedNode.options.length > 0 ? (
+          <ol className="choice-inspector-list">
+            {selectedNode.options.map((option) => {
+              const targetIndex = scenes.findIndex(
+                (scene) => scene.id === option.targetSceneId,
+              );
+              return (
+                <li key={option.id}>
+                  <strong>{option.text || '未命名选项'}</strong>
+                  <span>
+                    {targetIndex >= 0
+                      ? `跳转到场景 ${targetIndex + 1}`
+                      : '目标场景缺失'}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        ) : (
+          <p className="choice-node-empty">
+            当前没有选项，正式预览会直接执行下一条剧情。
+          </p>
+        )}
+        <p className="choice-node-help">
+          选项内容和目标场景请在图形化编辑中设置。
+        </p>
+      </aside>
+    );
+  }
+
   const dialogueNode =
     selectedNode?.type === 'dialogue' ? selectedNode : undefined;
 
@@ -228,6 +358,7 @@ export function InspectorPanel({
         <TimelineInsertActions
           isBusy={isBusy}
           onInsertCharacter={onInsertCharacter}
+          onInsertBgm={onInsertBgm}
           onInsertDialogue={onInsertDialogue}
         />
       </div>
@@ -256,6 +387,26 @@ export function InspectorPanel({
           />
         </label>
 
+        <label>
+          人物语音
+          <select
+            value={dialogueNode?.voiceAssetId ?? ''}
+            disabled={isBusy || !dialogueNode}
+            onChange={(event) =>
+              void onDialogueVoiceChange(event.target.value || null)
+            }
+          >
+            <option value="">无语音</option>
+            {assets
+              .filter((asset) => asset.type === 'audio')
+              .map((asset) => (
+                <option key={asset.id} value={asset.id}>
+                  {asset.displayName}
+                </option>
+              ))}
+          </select>
+        </label>
+
         <button
           type="submit"
           className="dialogue-submit-button"
@@ -271,10 +422,12 @@ export function InspectorPanel({
 function TimelineInsertActions({
   isBusy,
   onInsertCharacter,
+  onInsertBgm,
   onInsertDialogue,
 }: {
   isBusy: boolean;
   onInsertCharacter: () => Promise<void>;
+  onInsertBgm: () => Promise<void>;
   onInsertDialogue: () => Promise<void>;
 }) {
   return (
@@ -288,6 +441,16 @@ function TimelineInsertActions({
         onClick={() => void onInsertCharacter()}
       >
         立绘 <span aria-hidden="true">+</span>
+      </button>
+      <button
+        type="button"
+        className="panel-heading-action bgm-action"
+        aria-label="在当前节点后插入背景音乐"
+        title="在当前节点后插入背景音乐"
+        disabled={isBusy}
+        onClick={() => void onInsertBgm()}
+      >
+        音频 <span aria-hidden="true">+</span>
       </button>
       <button
         type="button"

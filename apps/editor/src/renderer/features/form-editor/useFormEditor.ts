@@ -2,10 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 
 import type {
   BackgroundNode,
+  BgmNode,
   CharacterNode,
   CharacterSlot,
+  DialogueNode,
   SceneJumpNode,
   SceneNode,
+  VideoNode,
 } from '../../../shared/projectTypes';
 import { EMPTY_DIALOGUE_MESSAGE } from '../../editorMessages';
 import type { EngineProjectState } from '../../hooks/useEngineProject';
@@ -64,6 +67,12 @@ export function useFormEditor({
     selectedNode?.type === 'character' ? selectedNode : undefined;
   const selectedSceneJump =
     selectedNode?.type === 'sceneJump' ? selectedNode : undefined;
+  const selectedBgm =
+    selectedNode?.type === 'bgm' ? selectedNode : undefined;
+  const selectedVideo =
+    selectedNode?.type === 'video' ? selectedNode : undefined;
+  const selectedChoice =
+    selectedNode?.type === 'choice' ? selectedNode : undefined;
 
   // 图形化编辑器可能删除表单当前选中的节点。Project 更新后清理
   // 失效选择，避免切回表单时还显示已经删除的对白草稿。
@@ -345,6 +354,26 @@ export function useFormEditor({
     }
   }
 
+  async function insertBgm() {
+    const anchorNodeId = selectedNodeId;
+    if (!scene || !(await commitPendingDraft())) {
+      return;
+    }
+
+    const result = await runEngineAction(() =>
+      window.vnEngine.addBgm({
+        sceneId: scene.id,
+        afterNodeId: anchorNodeId,
+      }),
+    );
+    const createdNode = result?.project.scenes
+      .find((projectScene) => projectScene.id === scene.id)
+      ?.nodes.find((node) => node.id === result.nodeId);
+    if (createdNode?.type === 'bgm') {
+      applyNodeSelection(createdNode);
+    }
+  }
+
   async function updateBackgroundNode(
     node: BackgroundNode,
     assetId: string | null,
@@ -404,6 +433,54 @@ export function useFormEditor({
     );
   }
 
+  async function updateBgmNode(
+    node: BgmNode,
+    assetId: string | null,
+  ) {
+    if (!scene || node.assetId === assetId) {
+      return;
+    }
+    await runEngineAction(() =>
+      window.vnEngine.updateBgm({
+        sceneId: scene.id,
+        nodeId: node.id,
+        assetId,
+      }),
+    );
+  }
+
+  async function updateVideoNode(
+    node: VideoNode,
+    assetId: string | null,
+  ) {
+    if (!scene || node.assetId === assetId) {
+      return;
+    }
+    await runEngineAction(() =>
+      window.vnEngine.updateVideo({
+        sceneId: scene.id,
+        nodeId: node.id,
+        assetId,
+      }),
+    );
+  }
+
+  async function updateDialogueVoice(
+    node: DialogueNode,
+    voiceAssetId: string | null,
+  ) {
+    if (!scene || node.voiceAssetId === voiceAssetId) {
+      return;
+    }
+    await runEngineAction(() =>
+      window.vnEngine.setDialogueVoice({
+        sceneId: scene.id,
+        nodeId: node.id,
+        assetId: voiceAssetId,
+      }),
+    );
+  }
+
   async function submitDialogue() {
     if (!scene) {
       return;
@@ -441,7 +518,13 @@ export function useFormEditor({
           ? '这个背景切换'
           : nodeToDelete.type === 'character'
             ? '这个人物立绘节点'
-            : '这个场景跳转节点';
+            : nodeToDelete.type === 'sceneJump'
+              ? '这个场景跳转节点'
+              : nodeToDelete.type === 'bgm'
+                ? '这个背景音乐节点'
+                : nodeToDelete.type === 'video'
+                  ? '这个视频播放节点'
+                  : '这个场景选项节点';
     const shouldDelete = window.confirm(
       `确定删除${nodeLabel}吗？`,
     );
@@ -550,6 +633,9 @@ export function useFormEditor({
     selectedBackground,
     selectedCharacter,
     selectedSceneJump,
+    selectedBgm,
+    selectedVideo,
+    selectedChoice,
     selectedNodeId,
     speaker,
     text,
@@ -566,9 +652,13 @@ export function useFormEditor({
     insertBackground,
     insertCharacter,
     insertSceneJump,
+    insertBgm,
     updateBackgroundNode,
     updateCharacterNode,
     updateSceneJumpNode,
+    updateBgmNode,
+    updateVideoNode,
+    updateDialogueVoice,
     selectNode,
     submitDialogue,
     deleteNode,

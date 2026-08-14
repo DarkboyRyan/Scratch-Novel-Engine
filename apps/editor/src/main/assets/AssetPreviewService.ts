@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { constants, type Stats } from 'node:fs';
-import { lstat, open, realpath } from 'node:fs/promises';
+import {
+  lstat,
+  open,
+  realpath,
+  type FileHandle,
+} from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 
@@ -13,9 +18,12 @@ export const ASSET_PREVIEW_SCHEME = 'vn-asset';
 
 const MAX_PROJECT_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_PREVIEW_IMAGE_BYTES = 128 * 1024 * 1024;
+const MAX_PREVIEW_AUDIO_BYTES = 512 * 1024 * 1024;
 const MAX_PROJECT_VIDEO_BYTES = 2 * 1024 * 1024 * 1024;
 const MAGIC_BYTE_COUNT = 12;
-const MEDIA_MAGIC_BYTE_COUNT = 64;
+// Keep media probing aligned with the C++ importer so every accepted MP4/WebM
+// can also be validated again before it is exposed through vn-asset://.
+const MEDIA_MAGIC_BYTE_COUNT = 4096;
 
 type PrivateAssetRecord = AssetDocument & {
   relativePath: string;
@@ -41,6 +49,14 @@ type ActiveAssetPreviewProject = PreparedAssetPreviewProject & {
 type ProtocolRegistrar = Pick<Protocol, 'handle' | 'unhandle'>;
 
 type ImageMime = 'image/jpeg' | 'image/png' | 'image/webp';
+type AudioMime = 'audio/mpeg' | 'audio/ogg' | 'audio/wav';
+type VideoMime = 'video/mp4' | 'video/webm';
+type PreviewMime = ImageMime | AudioMime | VideoMime;
+
+type ByteRange = {
+  start: number;
+  end: number;
+};
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -239,6 +255,13 @@ function canonicalAssetExtension(
     return extension;
   }
 
+  if (
+    type === 'audio' &&
+    (extension === '.mp3' || extension === '.wav' || extension === '.ogg')
+  ) {
+    return extension;
+  }
+
   return null;
 }
 
@@ -251,6 +274,30 @@ function imageMimeForPath(relativePath: string): ImageMime | null {
       return 'image/jpeg';
     case '.webp':
       return 'image/webp';
+    default:
+      return null;
+  }
+}
+
+function audioMimeForPath(relativePath: string): AudioMime | null {
+  switch (path.posix.extname(relativePath).toLowerCase()) {
+    case '.mp3':
+      return 'audio/mpeg';
+    case '.wav':
+      return 'audio/wav';
+    case '.ogg':
+      return 'audio/ogg';
+    default:
+      return null;
+  }
+}
+
+function videoMimeForPath(relativePath: string): VideoMime | null {
+  switch (path.posix.extname(relativePath).toLowerCase()) {
+    case '.mp4':
+      return 'video/mp4';
+    case '.webm':
+      return 'video/webm';
     default:
       return null;
   }
@@ -289,6 +336,300 @@ function magicMatches(mime: ImageMime, bytes: Uint8Array): boolean {
         bytes[10] === 0x42 &&
         bytes[11] === 0x50
       );
+  }
+}
+
+async function readBytes(
+  file: FileHandle,
+  position: number,
+  length: number,
+): Promise<Buffer> {
+  const bytes = Buffer.alloc(length);
+  const { bytesRead } = await file.read(bytes, 0, length, position);
+  return bytes.subarray(0, bytesRead);
+}
+
+function syncSafeInteger(bytes: Buffer, offset: number): number | null {
+  if (offset + 4 > bytes.length) {
+    return null;
+  }
+  let value = 0;
+  for (let index = offset; index < offset + 4; index += 1) {
+    if ((bytes[index] & 0x80) !== 0) {
+      return null;
+    }
+    value = value * 128 + bytes[index];
+  }
+  return value;
+}
+
+const MPEG1_LAYER1_BITRATES = [
+  0, 32, 64, 96, 128, 160, 192, 224,
+  256, 288, 320, 352, 384, 416, 448,
+];
+const MPEG1_LAYER2_BITRATES = [
+  0, 32, 48, 56, 64, 80, 96, 112,
+  128, 160, 192, 224, 256, 320, 384,
+];
+const MPEG1_LAYER3_BITRATES = [
+  0, 32, 40, 48, 56, 64, 80, 96,
+  112, 128, 160, 192, 224, 256, 320,
+];
+const MPEG2_LAYER1_BITRATES = [
+  0, 32, 48, 56, 64, 80, 96, 112,
+  128, 144, 160, 176, 192, 224, 256,
+];
+const MPEG2_LAYER23_BITRATES = [
+  0, 8, 16, 24, 32, 40, 48, 56,
+  64, 80, 96, 112, 128, 144, 160,
+];
+
+function mpegFrameLength(header: Buffer): number | null {
+  if (
+    header.length < 4 ||
+    header[0] !== 0xff ||
+    (header[1] & 0xe0) !== 0xe0
+  ) {
+    return null;
+  }
+
+  const versionBits = (header[1] >> 3) & 0x03;
+  const layerBits = (header[1] >> 1) & 0x03;
+  const bitrateIndex = (header[2] >> 4) & 0x0f;
+  const sampleRateIndex = (header[2] >> 2) & 0x03;
+  if (
+    versionBits === 1 ||
+    layerBits === 0 ||
+    bitrateIndex === 0 ||
+    bitrateIndex === 15 ||
+    sampleRateIndex === 3
+  ) {
+    return null;
+  }
+
+  const isMpeg1 = versionBits === 3;
+  let bitrateTable: number[];
+  if (isMpeg1) {
+    bitrateTable = layerBits === 3
+      ? MPEG1_LAYER1_BITRATES
+      : layerBits === 2
+        ? MPEG1_LAYER2_BITRATES
+        : MPEG1_LAYER3_BITRATES;
+  } else {
+    bitrateTable = layerBits === 3
+      ? MPEG2_LAYER1_BITRATES
+      : MPEG2_LAYER23_BITRATES;
+  }
+  const bitrate = bitrateTable[bitrateIndex] * 1000;
+  const baseSampleRates = [44_100, 48_000, 32_000];
+  const versionDivisor = versionBits === 3
+    ? 1
+    : versionBits === 2
+      ? 2
+      : 4;
+  const sampleRate = baseSampleRates[sampleRateIndex] / versionDivisor;
+  const padding = (header[2] >> 1) & 0x01;
+
+  if (layerBits === 3) {
+    return Math.floor((12 * bitrate) / sampleRate + padding) * 4;
+  }
+  const coefficient = layerBits === 1 && !isMpeg1 ? 72 : 144;
+  return Math.floor((coefficient * bitrate) / sampleRate) + padding;
+}
+
+async function mp3MagicMatches(
+  file: FileHandle,
+  fileSize: number,
+): Promise<boolean> {
+  const beginning = await readBytes(file, 0, 10);
+  let audioOffset = 0;
+  if (beginning.length >= 10 && beginning.toString('ascii', 0, 3) === 'ID3') {
+    const majorVersion = beginning[3];
+    const flags = beginning[5];
+    const tagSize = syncSafeInteger(beginning, 6);
+    const reservedFlagMask = majorVersion === 2
+      ? 0x3f
+      : majorVersion === 3
+        ? 0x1f
+        : 0x0f;
+    if (
+      tagSize === null ||
+      majorVersion < 2 ||
+      majorVersion > 4 ||
+      beginning[4] === 0xff ||
+      (flags & reservedFlagMask) !== 0
+    ) {
+      return false;
+    }
+    const footerBytes = majorVersion === 4 && (flags & 0x10) !== 0
+      ? 10
+      : 0;
+    audioOffset = 10 + tagSize + footerBytes;
+  }
+  if (audioOffset + 4 > fileSize) {
+    return false;
+  }
+
+  const scanLength = Math.min(64 * 1024, fileSize - audioOffset);
+  const bytes = await readBytes(file, audioOffset, scanLength);
+  let frameOffset = 0;
+  while (frameOffset < bytes.length && bytes[frameOffset] === 0) {
+    frameOffset += 1;
+  }
+  const frameLength = mpegFrameLength(
+    bytes.subarray(frameOffset, frameOffset + 4),
+  );
+  return (
+    frameLength !== null &&
+    frameLength >= 24 &&
+    audioOffset + frameOffset + frameLength <= fileSize
+  );
+}
+
+async function wavMagicMatches(
+  file: FileHandle,
+  fileSize: number,
+): Promise<boolean> {
+  const header = await readBytes(file, 0, 12);
+  const riffEnd = header.length === 12
+    ? header.readUInt32LE(4) + 8
+    : 0;
+  if (
+    header.length !== 12 ||
+    header.toString('ascii', 0, 4) !== 'RIFF' ||
+    header.toString('ascii', 8, 12) !== 'WAVE' ||
+    riffEnd < 36 ||
+    riffEnd > fileSize
+  ) {
+    return false;
+  }
+
+  let offset = 12;
+  let foundFormat = false;
+  let foundData = false;
+  for (let chunkCount = 0; chunkCount < 1024; chunkCount += 1) {
+    if (offset + 8 > riffEnd) {
+      break;
+    }
+    const chunkHeader = await readBytes(file, offset, 8);
+    if (chunkHeader.length !== 8) {
+      return false;
+    }
+    const chunkId = chunkHeader.toString('ascii', 0, 4);
+    const chunkSize = chunkHeader.readUInt32LE(4);
+    const dataOffset = offset + 8;
+    if (chunkSize > riffEnd - dataOffset) {
+      return false;
+    }
+
+    if (chunkId === 'fmt ') {
+      if (foundFormat || chunkSize < 16 || chunkSize > 1024) {
+        return false;
+      }
+      const format = await readBytes(file, dataOffset, 16);
+      const formatTag = format.length === 16
+        ? format.readUInt16LE(0)
+        : 0;
+      if (
+        format.length !== 16 ||
+        ![1, 3, 6, 7, 0xfffe].includes(formatTag) ||
+        format.readUInt16LE(2) === 0 ||
+        format.readUInt32LE(4) === 0 ||
+        format.readUInt32LE(8) === 0 ||
+        format.readUInt16LE(12) === 0 ||
+        format.readUInt16LE(14) === 0
+      ) {
+        return false;
+      }
+      foundFormat = true;
+    } else if (chunkId === 'data') {
+      if (chunkSize === 0) {
+        return false;
+      }
+      foundData = true;
+    }
+
+    offset = dataOffset + chunkSize + (chunkSize % 2);
+    if (offset > riffEnd) {
+      return false;
+    }
+    if (foundFormat && foundData) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function oggMagicMatches(
+  file: FileHandle,
+  fileSize: number,
+): Promise<boolean> {
+  const pageHeader = await readBytes(file, 0, 27);
+  if (
+    pageHeader.length !== 27 ||
+    pageHeader.toString('ascii', 0, 4) !== 'OggS' ||
+    pageHeader[4] !== 0 ||
+    (pageHeader[5] & 0x02) === 0 ||
+    pageHeader.readUInt32LE(18) !== 0
+  ) {
+    return false;
+  }
+  const segmentCount = pageHeader[26];
+  if (segmentCount === 0 || 27 + segmentCount > fileSize) {
+    return false;
+  }
+  const lacing = await readBytes(file, 27, segmentCount);
+  let packetLength = 0;
+  let packetComplete = false;
+  for (const segmentLength of lacing) {
+    packetLength += segmentLength;
+    if (segmentLength < 255) {
+      packetComplete = true;
+      break;
+    }
+  }
+  const packetOffset = 27 + segmentCount;
+  if (
+    !packetComplete ||
+    packetLength === 0 ||
+    packetOffset + packetLength > fileSize
+  ) {
+    return false;
+  }
+  const packet = await readBytes(file, packetOffset, packetLength);
+  if (
+    packet.length >= 19 &&
+    packet.toString('ascii', 0, 8) === 'OpusHead'
+  ) {
+    return (
+      packet[8] > 0 &&
+      (packet[8] & 0xf0) === 0 &&
+      packet[9] > 0
+    );
+  }
+  return (
+    packet.length >= 30 &&
+    packet[0] === 0x01 &&
+    packet.toString('ascii', 1, 7) === 'vorbis' &&
+    packet.readUInt32LE(7) === 0 &&
+    packet[11] > 0 &&
+    packet.readUInt32LE(12) > 0 &&
+    (packet[29] & 0x01) === 1
+  );
+}
+
+async function audioMagicMatches(
+  file: FileHandle,
+  mime: AudioMime,
+  fileSize: number,
+): Promise<boolean> {
+  switch (mime) {
+    case 'audio/mpeg':
+      return mp3MagicMatches(file, fileSize);
+    case 'audio/wav':
+      return wavMagicMatches(file, fileSize);
+    case 'audio/ogg':
+      return oggMagicMatches(file, fileSize);
   }
 }
 
@@ -439,7 +780,9 @@ async function validatePreparedAssetFile(
     const status = await file.stat();
     const maximumBytes = asset.type === 'video'
       ? MAX_PROJECT_VIDEO_BYTES
-      : MAX_PREVIEW_IMAGE_BYTES;
+      : asset.type === 'audio'
+        ? MAX_PREVIEW_AUDIO_BYTES
+        : MAX_PREVIEW_IMAGE_BYTES;
     if (
       !sameFileSnapshot(safeAsset.snapshot, status) ||
       !status.isFile() || status.nlink !== 1 ||
@@ -462,9 +805,12 @@ async function validatePreparedAssetFile(
         ? mp4MagicMatches(bytes, status.size)
         : extension === '.webm' && webmMagicMatches(bytes, status.size);
     } else {
-      // Audio import is not exposed yet, but a manifest entry must still point
-      // to a safe, non-empty file before the project can be opened.
-      valid = extension.length > 1;
+      const mime = audioMimeForPath(asset.relativePath);
+      valid = mime !== null && await audioMagicMatches(
+        file,
+        mime,
+        status.size,
+      );
     }
     if (!valid || !sameFileSnapshot(status, await file.stat())) {
       throw new Error('项目资源类型与文件内容不一致');
@@ -482,6 +828,109 @@ function unavailableResponse(status = 404): Response {
       'X-Content-Type-Options': 'nosniff',
     },
   });
+}
+
+function rangeNotSatisfiableResponse(fileSize: number): Response {
+  return new Response(null, {
+    status: 416,
+    headers: {
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'no-store',
+      'Content-Range': `bytes */${fileSize}`,
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
+}
+
+function parseDecimal(value: string): number | null {
+  if (!/^\d+$/.test(value)) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+function parseSingleByteRange(
+  header: string,
+  fileSize: number,
+): ByteRange | null {
+  const match = header.trim().match(/^bytes=(\d*)-(\d*)$/);
+  if (match === null || (match[1] === '' && match[2] === '')) {
+    return null;
+  }
+
+  if (match[1] === '') {
+    const suffixLength = parseDecimal(match[2]);
+    if (suffixLength === null || suffixLength === 0) {
+      return null;
+    }
+    return {
+      start: Math.max(0, fileSize - suffixLength),
+      end: fileSize - 1,
+    };
+  }
+
+  const start = parseDecimal(match[1]);
+  const requestedEnd = match[2] === ''
+    ? fileSize - 1
+    : parseDecimal(match[2]);
+  if (
+    start === null ||
+    requestedEnd === null ||
+    start >= fileSize ||
+    requestedEnd < start
+  ) {
+    return null;
+  }
+  return { start, end: Math.min(requestedEnd, fileSize - 1) };
+}
+
+function previewMimeForAsset(
+  asset: PrivateAssetRecord,
+): PreviewMime | null {
+  if (asset.type === 'image') {
+    return imageMimeForPath(asset.relativePath);
+  }
+  if (asset.type === 'audio') {
+    return audioMimeForPath(asset.relativePath);
+  }
+  return videoMimeForPath(asset.relativePath);
+}
+
+function previewHostnameForAsset(
+  asset: PrivateAssetRecord,
+): AssetDocument['type'] {
+  return asset.type;
+}
+
+function maximumPreviewBytes(asset: PrivateAssetRecord): number {
+  return asset.type === 'video'
+    ? MAX_PROJECT_VIDEO_BYTES
+    : asset.type === 'audio'
+      ? MAX_PREVIEW_AUDIO_BYTES
+      : MAX_PREVIEW_IMAGE_BYTES;
+}
+
+async function previewMagicMatches(
+  file: FileHandle,
+  mime: PreviewMime,
+  fileSize: number,
+): Promise<boolean> {
+  if (
+    mime === 'image/jpeg' ||
+    mime === 'image/png' ||
+    mime === 'image/webp'
+  ) {
+    const header = await readBytes(file, 0, MAGIC_BYTE_COUNT);
+    return magicMatches(mime, header);
+  }
+  if (mime === 'video/mp4' || mime === 'video/webm') {
+    const header = await readBytes(file, 0, MEDIA_MAGIC_BYTE_COUNT);
+    return mime === 'video/mp4'
+      ? mp4MagicMatches(header, fileSize)
+      : webmMagicMatches(header, fileSize);
+  }
+  return audioMagicMatches(file, mime, fileSize);
 }
 
 async function assertSafeAssetFile(
@@ -620,7 +1069,12 @@ export class AssetPreviewService {
         const previewToken = previous.previewTokensByAssetId.get(
           asset.id,
         );
-        if (previewToken && asset.type === 'image') {
+        if (
+          previewToken &&
+          (asset.type === 'image' ||
+            asset.type === 'audio' ||
+            asset.type === 'video')
+        ) {
           previewTokensByAssetId.set(asset.id, previewToken);
           assetIdsByPreviewToken.set(previewToken, asset.id);
         }
@@ -646,13 +1100,20 @@ export class AssetPreviewService {
       active?.projectFilePath === absoluteProjectFilePath &&
       active.projectId === result.project.id
     ) {
-      return result.assets.every((asset) => {
+      const matches = result.assets.length === active.assets.size &&
+        result.assets.every((asset) => {
         const privateAsset = active.assets.get(asset.id);
         return (
           privateAsset?.type === asset.type &&
           privateAsset.displayName === asset.displayName
         );
       });
+      if (!matches) {
+        // A stale private map must not keep old capability URLs alive after
+        // the authoritative C++ Asset set has changed.
+        this.activeProject = null;
+      }
+      return matches;
     }
 
     // An unsaved project can only acquire Assets through this window's import
@@ -722,6 +1183,27 @@ export class AssetPreviewService {
       return null;
     }
 
+    return this.issueMediaUrl(active, assetId, 'image');
+  }
+
+  getMediaUrl(assetId: string): string | null {
+    const active = this.activeProject;
+    if (active === null || !isOpaqueAssetId(assetId)) {
+      return null;
+    }
+    const asset = active.assets.get(assetId);
+    const hostname = asset ? previewHostnameForAsset(asset) : null;
+    if (hostname === null) {
+      return null;
+    }
+    return this.issueMediaUrl(active, assetId, hostname);
+  }
+
+  private issueMediaUrl(
+    active: ActiveAssetPreviewProject,
+    assetId: string,
+    hostname: AssetDocument['type'],
+  ): string {
     let previewToken = active.previewTokensByAssetId.get(assetId);
     if (!previewToken) {
       previewToken = freshGenerationToken();
@@ -729,7 +1211,7 @@ export class AssetPreviewService {
       active.assetIdsByPreviewToken.set(previewToken, assetId);
     }
 
-    return `${ASSET_PREVIEW_SCHEME}://image/${active.generationToken}/${previewToken}`;
+    return `${ASSET_PREVIEW_SCHEME}://${hostname}/${active.generationToken}/${previewToken}`;
   }
 
   dispose(): void {
@@ -767,7 +1249,9 @@ export class AssetPreviewService {
     );
     if (
       requestUrl.protocol !== `${ASSET_PREVIEW_SCHEME}:` ||
-      requestUrl.hostname !== 'image' ||
+      (requestUrl.hostname !== 'image' &&
+        requestUrl.hostname !== 'audio' &&
+        requestUrl.hostname !== 'video') ||
       requestUrl.username !== '' ||
       requestUrl.password !== '' ||
       requestUrl.port !== '' ||
@@ -785,10 +1269,15 @@ export class AssetPreviewService {
     }
 
     const asset = active.assets.get(assetId);
-    const mime = asset ? imageMimeForPath(asset.relativePath) : null;
+    const mime = asset ? previewMimeForAsset(asset) : null;
+    const expectedHostname = asset
+      ? previewHostnameForAsset(asset)
+      : null;
     if (
       !isOpaqueAssetId(assetId) ||
-      asset?.type !== 'image' ||
+      asset === undefined ||
+      expectedHostname === null ||
+      requestUrl.hostname !== expectedHostname ||
       mime === null
     ) {
       return unavailableResponse();
@@ -812,20 +1301,13 @@ export class AssetPreviewService {
           !status.isFile() ||
           status.nlink !== 1 ||
           status.size <= 0 ||
-          status.size > MAX_PREVIEW_IMAGE_BYTES
+          status.size > maximumPreviewBytes(asset)
         ) {
           await file.close();
           return unavailableResponse();
         }
 
-        const header = Buffer.alloc(MAGIC_BYTE_COUNT);
-        const { bytesRead } = await file.read(
-          header,
-          0,
-          MAGIC_BYTE_COUNT,
-          0,
-        );
-        if (!magicMatches(mime, header.subarray(0, bytesRead))) {
+        if (!(await previewMagicMatches(file, mime, status.size))) {
           await file.close();
           return unavailableResponse();
         }
@@ -841,28 +1323,51 @@ export class AssetPreviewService {
           return unavailableResponse();
         }
 
-        const headers = {
+        const supportsRanges =
+          asset.type === 'audio' || asset.type === 'video';
+        const rangeHeader = supportsRanges
+          ? request.headers.get('Range')
+          : null;
+        const range = rangeHeader === null
+          ? null
+          : parseSingleByteRange(rangeHeader, status.size);
+        if (rangeHeader !== null && range === null) {
+          await file.close();
+          return rangeNotSatisfiableResponse(status.size);
+        }
+        const responseStart = range?.start ?? 0;
+        const responseEnd = range?.end ?? status.size - 1;
+        const contentLength = responseEnd - responseStart + 1;
+        const headers: Record<string, string> = {
           'Cache-Control': 'no-store',
-          'Content-Length': String(status.size),
+          'Content-Length': String(contentLength),
           'Content-Type': mime,
           'X-Content-Type-Options': 'nosniff',
         };
+        if (supportsRanges) {
+          headers['Accept-Ranges'] = 'bytes';
+        }
+        if (range !== null) {
+          headers['Content-Range'] =
+            `bytes ${responseStart}-${responseEnd}/${status.size}`;
+        }
+        const responseStatus = range === null ? 200 : 206;
         if (request.method === 'HEAD') {
           await file.close();
-          return new Response(null, { status: 200, headers });
+          return new Response(null, { status: responseStatus, headers });
         }
 
         // Bound the response to the exact byte range that was validated.
         // If another process grows the same inode after stat(), the stream
-        // must not read past the declared Content-Length or the 128 MiB cap.
+        // must not read past the declared Content-Length or media size cap.
         const stream = file.createReadStream({
           autoClose: true,
-          start: 0,
-          end: status.size - 1,
+          start: responseStart,
+          end: responseEnd,
         });
         const body = Readable.toWeb(stream) as unknown as BodyInit;
         return new Response(body, {
-          status: 200,
+          status: responseStatus,
           headers,
         });
       } catch (error) {

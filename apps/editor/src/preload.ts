@@ -48,9 +48,19 @@ const vnAssets: VnAssetsApi = {
       action: 'import-video',
       params: {},
     }) as Promise<ImportAssetResult>,
+  importAudio: () =>
+    invokeAsset({
+      action: 'import-audio',
+      params: {},
+    }) as Promise<ImportAssetResult>,
   getPreviewUrl: (assetId) =>
     invokeAsset({
       action: 'get-preview-url',
+      params: { assetId },
+    }) as Promise<string | null>,
+  getMediaUrl: (assetId) =>
+    invokeAsset({
+      action: 'get-media-url',
       params: { assetId },
     }) as Promise<string | null>,
 };
@@ -85,6 +95,11 @@ const vnEngine: VnEngineApi = {
     invokeEngine({
       method: 'dialogue.update',
       params: { sceneId, nodeId, speaker, text },
+    }),
+  setDialogueVoice: (params) =>
+    invokeEngine({
+      method: 'dialogue.setVoice',
+      params,
     }),
   deleteDialogue: (sceneId, nodeId) =>
     invokeEngine({
@@ -149,6 +164,51 @@ const vnEngine: VnEngineApi = {
   updateSceneJump: (params) =>
     invokeEngine({
       method: 'sceneJump.update',
+      params,
+    }),
+  addBgm: (params) =>
+    invokeEngine({
+      method: 'bgm.add',
+      params,
+    }),
+  updateBgm: (params) =>
+    invokeEngine({
+      method: 'bgm.update',
+      params,
+    }),
+  addVideo: (params) =>
+    invokeEngine({
+      method: 'video.add',
+      params,
+    }),
+  updateVideo: (params) =>
+    invokeEngine({
+      method: 'video.update',
+      params,
+    }),
+  addChoice: (params) =>
+    invokeEngine({
+      method: 'choice.add',
+      params,
+    }),
+  addChoiceOption: (params) =>
+    invokeEngine({
+      method: 'choice.option.add',
+      params,
+    }),
+  updateChoiceOption: (params) =>
+    invokeEngine({
+      method: 'choice.option.update',
+      params,
+    }),
+  deleteChoiceOption: (params) =>
+    invokeEngine({
+      method: 'choice.option.delete',
+      params,
+    }),
+  reorderChoiceOption: (params) =>
+    invokeEngine({
+      method: 'choice.option.reorder',
       params,
     }),
   deleteTimelineNodes: (params) =>

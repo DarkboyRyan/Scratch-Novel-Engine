@@ -12,11 +12,12 @@
 
 当前已经实现：
 
-- 场景、对白、背景切换、人物立绘和显式场景跳转；
+- 场景、对白、背景切换、人物立绘、视频播放、选项分支和显式场景跳转；
 - 表单编辑与 Blockly 图形化编辑共享一条剧情时间线；
 - 项目文件夹新建、保存、打开、dirty 状态和 Cmd/Ctrl+S；
-- 未保存项目导入图片/视频，以及安全图片预览；
-- 正式游戏顺序预览、点击推进和跳转循环保护；
+- 未保存项目导入图片/视频/音频，以及 capability 媒体读取；
+- 对白语音、时间线 BGM，以及正式预览中的双音轨播放；
+- 正式游戏顺序预览、阻塞式视频/选项、点击推进和跳转循环保护；
 - C++ Core/Backend、IPC、存储、Blockly 和预览的自动测试。
 
 ## 2. 技术栈
@@ -83,7 +84,7 @@ Preload 使用 `contextBridge` 暴露三个窄接口：
 ```ts
 window.vnEngine       // 领域命令
 window.vnProjectFiles // 新建、打开、保存和会话状态
-window.vnAssets       // 导入图片/视频和申请预览 URL
+window.vnAssets       // 导入图片/视频/音频和申请 capability URL
 ```
 
 Renderer 看不到 `ipcRenderer`、Node 文件系统、child process 或本机资源路径。
@@ -98,7 +99,7 @@ Main 负责：
 - 管理请求 ID、Promise、进程退出和错误；
 - 管理项目目录、临时工作区和原子发布；
 - 把 C++ 私有 Asset 净化成公开 DTO；
-- 提供带能力令牌的安全图片 protocol。
+- 提供带能力令牌的安全图片/音频/视频 protocol，以及音频和视频 Range 响应。
 
 Main 不决定“场景是否能删除”或“人物层是否合法”，最终领域规则仍由 C++ 决定。
 
@@ -117,9 +118,9 @@ Backend 使用 nlohmann/json 处理两种边界：
 Core 是唯一业务权威来源，且不依赖 Electron 或 JSON。它负责：
 
 - `ProjectAggregate = Project + Assets`；
-- `SceneNode` 四种判别类型；
+- `SceneNode` 七种判别类型；
 - ID 生成、全局唯一性和引用完整性；
-- 场景、对白、背景、人物和跳转操作；
+- 场景、对白语音、背景、人物、BGM、视频、选项和跳转操作；
 - 混合时间线原子删除与重排；
 - 入口场景和被跳转引用场景的保护规则；
 - no-op 判断和候选对象提交。
@@ -133,7 +134,10 @@ using SceneNode = std::variant<
     Dialogue,
     BackgroundNode,
     CharacterNode,
-    SceneJumpNode>;
+    SceneJumpNode,
+    BgmNode,
+    VideoNode,
+    ChoiceNode>;
 
 struct ProjectAggregate {
   Project project;
@@ -141,12 +145,15 @@ struct ProjectAggregate {
 };
 ```
 
-四种节点共享 `Scene.nodes` 的唯一顺序：
+七种节点共享 `Scene.nodes` 的唯一顺序：
 
-- `Dialogue`：玩家可见的对白停顿点；
+- `Dialogue`：玩家可见的对白停顿点，可选绑定一次性人物语音；
 - `BackgroundNode`：设置图片或显式切换为无背景；
 - `CharacterNode`：设置/清除某人物层；
-- `SceneJumpNode`：切换到稳定 Scene ID。
+- `SceneJumpNode`：切换到稳定 Scene ID；
+- `BgmNode`：循环播放或停止持续生效的背景音乐；
+- `VideoNode`：阻塞播放视频，结束或按 Enter 跳过后返回下一条时间线节点；
+- `ChoiceNode`：包含零个或多个稳定 ID 的选项；空节点跳过，非空节点等待玩家选择。
 
 Asset 只描述媒体文件，不保存“它是背景还是立绘”。用途由时间线节点引用决定，
 同一张图可以被不同场景以不同方式复用。
@@ -201,6 +208,10 @@ Blockly event
 画布根位置、缩放和滚动属于视图布局，单独保存在 Renderer 的场景布局 Map 中；
 它们不影响游戏执行顺序，也不进入 `project.vn.json`。
 
+ChoiceNode 在顶层剧情连接中占一个位置，ChoiceOption 则通过专用 Blockly statement
+connection 嵌套在容器内部。Option 不是独立 SceneNode；新增、修改、删除和内部
+重排分别转换成 `choice.option.*` 命令，并按 C++ 生成的稳定 Option ID 重新投影。
+
 ## 9. 项目文件夹和媒体
 
 ```text
@@ -216,21 +227,30 @@ Main 掌握项目根和源媒体路径，Renderer 只知道 `hasStorage`、文�
 公开 Asset `{id,type,displayName}`。
 
 保存采用“媒体先发布，manifest 最后原子替换”；未保存项目先使用窗口私有临时
-工作区。图片预览使用 `vn-asset://` capability URL，而不是 `file://`。
+工作区。图片预览以及音频/视频播放使用 `vn-asset://` capability URL，而不是
+`file://`；音频和视频支持安全的单段 Range 响应。
+
+当前 Writer 写 `fileVersion: 9`，Reader 支持 v1–v9；v9 新增严格序列化的
+ChoiceNode/ChoiceOption，空 options 数组也是合法项目数据。
 
 详见 [项目文件夹存储与媒体资源实现](./project-folder-storage.md)。
 
 ## 10. 游戏预览
 
 当前正式预览是 TypeScript 纯状态机：从 `entrySceneId` 开始，自动执行背景、
-人物和场景跳转，遇到对白时暂停。鼠标、Space 或 Enter 继续；Escape 退出。
+人物、BGM 和场景跳转，遇到对白时暂停；遇到非空 VideoNode 时进入阻塞播放，
+视频 ended 或按 Enter 跳过后才继续；遇到非空 ChoiceNode 时进入 `choosing`，
+点击选项后跳到其目标场景。空 ChoiceNode 直接跳过。
 
-跳转进入目标场景时清空上一场景人物层并加载目标场景初始背景。运行时使用
+场景跳转和选项跳转都会清空上一场景人物层并加载目标场景初始背景，同时保留
+BGM。运行时使用
 访问位置集合检测“没有对白可停留”的跳转循环。预览会话不写回 C++ Project、
 revision 或磁盘。
 
-详见 [游戏顺序预览](./game-preview-runtime.md) 与
-[场景跳转实现](./scene-jump-implementation.md)。
+详见 [游戏顺序预览](./game-preview-runtime.md)、
+[视频播放积木](./video-playback-block.md) 与
+[场景跳转实现](./scene-jump-implementation.md)，以及
+[选项分支实现](./choice-branch-implementation.md)。
 
 ## 11. 目录结构
 
@@ -297,8 +317,7 @@ C++ Backend，通过 `cmake --install` 放入 `engine/stage/backend`，Forge 再
 
 已完成的能力不等于完整游戏引擎。当前尚未完成：
 
-- 选择项、变量、条件分支和游戏存档；
-- 视频播放、Range streaming 和时间线视频节点；
+- 变量、条件表达式、选项可见性和游戏存档；
 - Undo/Redo；
 - 同一项目根的多窗口排他锁；
 - Blockly 布局持久化和未引用资源回收；

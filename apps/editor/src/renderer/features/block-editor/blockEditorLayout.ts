@@ -1,10 +1,7 @@
 import type * as Blockly from 'blockly';
 
 import type { SceneDocument } from '../../../shared/projectTypes';
-import { DIALOGUE_BLOCK_TYPE } from './blocks/dialogueBlock';
-import { BACKGROUND_BLOCK_TYPE } from './blocks/backgroundBlock';
-import { CHARACTER_BLOCK_TYPE } from './blocks/characterBlock';
-import { SCENE_JUMP_BLOCK_TYPE } from './blocks/sceneJumpBlock';
+import { isStoryBlockType } from './storyBlockTypes';
 
 export type WorkspacePoint = {
   x: number;
@@ -41,12 +38,7 @@ function findCompleteTimelineRoot(
   );
 
   for (const root of workspace.getTopBlocks(false)) {
-    if (
-      root.type !== DIALOGUE_BLOCK_TYPE &&
-      root.type !== BACKGROUND_BLOCK_TYPE &&
-      root.type !== CHARACTER_BLOCK_TYPE &&
-      root.type !== SCENE_JUMP_BLOCK_TYPE
-    ) {
+    if (!isStoryBlockType(root.type)) {
       continue;
     }
 

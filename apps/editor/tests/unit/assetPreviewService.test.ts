@@ -5,6 +5,7 @@ import {
   realpath,
   rm,
   symlink,
+  truncate,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -30,6 +31,38 @@ const MP4 = Buffer.from([
   0x69, 0x73, 0x6f, 0x6d,
   0x6d, 0x70, 0x34, 0x32,
 ]);
+
+const MP3 = Buffer.alloc(417);
+MP3.set([0xff, 0xfb, 0x90, 0x64]);
+
+const WAV = Buffer.alloc(48);
+WAV.write('RIFF', 0, 'ascii');
+WAV.writeUInt32LE(WAV.length - 8, 4);
+WAV.write('WAVE', 8, 'ascii');
+WAV.write('fmt ', 12, 'ascii');
+WAV.writeUInt32LE(16, 16);
+WAV.writeUInt16LE(1, 20);
+WAV.writeUInt16LE(1, 22);
+WAV.writeUInt32LE(8_000, 24);
+WAV.writeUInt32LE(16_000, 28);
+WAV.writeUInt16LE(2, 32);
+WAV.writeUInt16LE(16, 34);
+WAV.write('data', 36, 'ascii');
+WAV.writeUInt32LE(4, 40);
+
+const OPUS_PACKET = Buffer.alloc(19);
+OPUS_PACKET.write('OpusHead', 0, 'ascii');
+OPUS_PACKET[8] = 1;
+OPUS_PACKET[9] = 2;
+OPUS_PACKET.writeUInt32LE(48_000, 12);
+const OGG_OPUS = Buffer.alloc(27 + 1 + OPUS_PACKET.length);
+OGG_OPUS.write('OggS', 0, 'ascii');
+OGG_OPUS[4] = 0;
+OGG_OPUS[5] = 0x02;
+OGG_OPUS[14] = 1;
+OGG_OPUS[26] = 1;
+OGG_OPUS[27] = OPUS_PACKET.length;
+OPUS_PACKET.copy(OGG_OPUS, 28);
 
 function resultFor(assetId = 'asset-1'): EngineMutationResult {
   return {
@@ -60,6 +93,32 @@ function resultFor(assetId = 'asset-1'): EngineMutationResult {
       savedRevision: 1,
       isDirty: false,
     },
+  };
+}
+
+function audioResultFor(assetId = 'audio-1'): EngineMutationResult {
+  return {
+    ...resultFor(),
+    assets: [
+      {
+        id: assetId,
+        type: 'audio',
+        displayName: 'Theme',
+      },
+    ],
+  };
+}
+
+function videoResultFor(assetId = 'video-1'): EngineMutationResult {
+  return {
+    ...resultFor(),
+    assets: [
+      {
+        id: assetId,
+        type: 'video',
+        displayName: 'Opening',
+      },
+    ],
   };
 }
 
@@ -96,6 +155,71 @@ async function makeProject(
   return { root, projectFilePath, assetFilePath };
 }
 
+async function makeAudioProject(
+  extension: 'mp3' | 'ogg' | 'wav',
+  contents: Buffer,
+): Promise<{
+  root: string;
+  projectFilePath: string;
+  assetFilePath: string;
+}> {
+  const root = await mkdtemp(path.join(tmpdir(), 'vn-audio-test-'));
+  temporaryDirectories.push(root);
+  const projectFilePath = path.join(root, 'project.vn.json');
+  const relativePath = `assets/audio/audio-1.${extension}`;
+  const assetFilePath = path.join(root, relativePath);
+  await mkdir(path.dirname(assetFilePath), { recursive: true });
+  await writeFile(assetFilePath, contents);
+  await writeFile(
+    projectFilePath,
+    JSON.stringify({
+      format: 'vn-engine-project',
+      fileVersion: 7,
+      project: { id: 'project-1' },
+      assets: [
+        {
+          id: 'audio-1',
+          type: 'audio',
+          relativePath,
+          displayName: 'Theme',
+        },
+      ],
+    }),
+  );
+  return { root, projectFilePath, assetFilePath };
+}
+
+async function makeVideoProject(): Promise<{
+  root: string;
+  projectFilePath: string;
+  assetFilePath: string;
+}> {
+  const root = await mkdtemp(path.join(tmpdir(), 'vn-video-test-'));
+  temporaryDirectories.push(root);
+  const projectFilePath = path.join(root, 'project.vn.json');
+  const relativePath = 'assets/videos/video-1.mp4';
+  const assetFilePath = path.join(root, relativePath);
+  await mkdir(path.dirname(assetFilePath), { recursive: true });
+  await writeFile(assetFilePath, MP4);
+  await writeFile(
+    projectFilePath,
+    JSON.stringify({
+      format: 'vn-engine-project',
+      fileVersion: 7,
+      project: { id: 'project-1' },
+      assets: [
+        {
+          id: 'video-1',
+          type: 'video',
+          relativePath,
+          displayName: 'Opening',
+        },
+      ],
+    }),
+  );
+  return { root, projectFilePath, assetFilePath };
+}
+
 function makeService() {
   let handler: ((request: Request) => Promise<Response>) | undefined;
   const protocol = {
@@ -116,11 +240,15 @@ function makeService() {
   return {
     service,
     protocol,
-    request: (url: string, method = 'GET') => {
+    request: (
+      url: string,
+      method = 'GET',
+      headers?: HeadersInit,
+    ) => {
       if (!handler) {
         throw new Error('protocol handler was not installed');
       }
-      return handler(new Request(url, { method }));
+      return handler(new Request(url, { method, headers }));
     },
   };
 }
@@ -149,6 +277,7 @@ describe('AssetPreviewService', () => {
     );
     expect(url).not.toContain(projectFilePath);
     expect(service.getPreviewUrl('missing')).toBeNull();
+    expect(service.getMediaUrl('asset-1')).toBe(url);
 
     const response = await request(url as string);
     expect(response.status).toBe(200);
@@ -324,8 +453,8 @@ describe('AssetPreviewService', () => {
     });
   });
 
-  it('tracks a newly imported video in the private temporary manifest', async () => {
-    const { projectFilePath } = await makeProject();
+  it('serves a newly imported video before the temporary manifest is saved', async () => {
+    const { root, projectFilePath } = await makeProject();
     await writeFile(
       projectFilePath,
       JSON.stringify({
@@ -344,7 +473,15 @@ describe('AssetPreviewService', () => {
       },
     ];
     importedResult.assetId = 'video-new';
-    const { service } = makeService();
+    const importedFile = path.join(
+      root,
+      'assets',
+      'videos',
+      'video-new.mp4',
+    );
+    await mkdir(path.dirname(importedFile), { recursive: true });
+    await writeFile(importedFile, MP4);
+    const { service, request } = makeService();
     await service.activateProjectFile(projectFilePath, {
       ...importedResult,
       assets: [],
@@ -359,11 +496,85 @@ describe('AssetPreviewService', () => {
     ).toBe(true);
     expect(service.getPreviewUrl('video-new')).toBeNull();
 
+    const url = service.getMediaUrl('video-new');
+    expect(url).toMatch(
+      /^vn-asset:\/\/video\/[a-f0-9]{32}\/[a-f0-9]{32}$/,
+    );
+    await expect(request(url as string)).resolves.toMatchObject({
+      status: 200,
+    });
+
     // A following unsaved import can verify the private manifest still agrees
-    // with C++ even though video playback is deliberately not exposed yet.
+    // with C++ while preserving the issued media capability.
     await expect(
       service.activateTemporaryProject(projectFilePath, importedResult),
     ).resolves.toBe(true);
+  });
+
+  it('serves video through a path-free capability with bounded GET and HEAD ranges', async () => {
+    const { projectFilePath, assetFilePath } = await makeVideoProject();
+    const { service, request } = makeService();
+    await expect(
+      service.activateProjectFile(projectFilePath, videoResultFor()),
+    ).resolves.toBe(true);
+
+    expect(service.getPreviewUrl('video-1')).toBeNull();
+    const url = service.getMediaUrl('video-1');
+    expect(url).toMatch(
+      /^vn-asset:\/\/video\/[a-f0-9]{32}\/[a-f0-9]{32}$/,
+    );
+    expect(url).not.toContain(projectFilePath);
+    expect(url).not.toContain('video-1');
+
+    const partial = await request(url as string, 'GET', {
+      Range: 'bytes=4-11',
+    });
+    expect(partial.status).toBe(206);
+    expect(partial.headers.get('Content-Type')).toBe('video/mp4');
+    expect(partial.headers.get('Accept-Ranges')).toBe('bytes');
+    expect(partial.headers.get('Content-Range')).toBe(
+      `bytes 4-11/${MP4.length}`,
+    );
+    expect(partial.headers.get('Content-Length')).toBe('8');
+    expect(Buffer.from(await partial.arrayBuffer())).toEqual(
+      MP4.subarray(4, 12),
+    );
+
+    const head = await request(url as string, 'HEAD');
+    expect(head.status).toBe(200);
+    expect(head.body).toBeNull();
+    expect(head.headers.get('Content-Length')).toBe(String(MP4.length));
+    expect(head.headers.get('Accept-Ranges')).toBe('bytes');
+
+    await expect(
+      request((url as string).replace('://video/', '://audio/')),
+    ).resolves.toMatchObject({ status: 404 });
+    await writeFile(assetFilePath, Buffer.from('not video'));
+    await expect(request(url as string)).resolves.toMatchObject({
+      status: 404,
+    });
+  });
+
+  it('revokes temporary capabilities when the authoritative Asset set shrinks', async () => {
+    const { projectFilePath } = await makeProject();
+    const activeResult = resultFor();
+    const { service, request } = makeService();
+    await expect(
+      service.activateProjectFile(projectFilePath, activeResult),
+    ).resolves.toBe(true);
+    const oldUrl = service.getPreviewUrl('asset-1');
+    expect(oldUrl).not.toBeNull();
+
+    await expect(
+      service.activateTemporaryProject(projectFilePath, {
+        ...activeResult,
+        assets: [],
+      }),
+    ).resolves.toBe(false);
+    expect(service.getPreviewUrl('asset-1')).toBeNull();
+    await expect(request(oldUrl as string)).resolves.toMatchObject({
+      status: 404,
+    });
   });
 
   it('refuses a symlink anywhere in the asset path', async () => {
@@ -489,6 +700,183 @@ describe('AssetPreviewService', () => {
     await expect(
       service.prepareProjectFile(projectFilePath),
     ).rejects.toThrow('类型与文件内容不一致');
+  });
+
+  it.each([
+    { extension: 'mp3' as const, contents: MP3, mime: 'audio/mpeg' },
+    { extension: 'wav' as const, contents: WAV, mime: 'audio/wav' },
+    { extension: 'ogg' as const, contents: OGG_OPUS, mime: 'audio/ogg' },
+  ])(
+    'validates and serves .$extension audio as $mime',
+    async ({ extension, contents, mime }) => {
+      const { projectFilePath, assetFilePath } = await makeAudioProject(
+        extension,
+        contents,
+      );
+      const { service, request } = makeService();
+
+      await expect(
+        service.activateProjectFile(
+          projectFilePath,
+          audioResultFor(),
+        ),
+      ).resolves.toBe(true);
+      expect(service.getPreviewUrl('audio-1')).toBeNull();
+      const url = service.getMediaUrl('audio-1');
+      expect(url).toMatch(
+        /^vn-asset:\/\/audio\/[a-f0-9]{32}\/[a-f0-9]{32}$/,
+      );
+      expect(url).not.toContain(projectFilePath);
+      expect(url).not.toContain('audio-1');
+
+      const response = await request(url as string);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Content-Type')).toBe(mime);
+      expect(response.headers.get('Accept-Ranges')).toBe('bytes');
+      expect(response.headers.get('Cache-Control')).toBe('no-store');
+      expect(response.headers.get('X-Content-Type-Options')).toBe(
+        'nosniff',
+      );
+      expect(Buffer.from(await response.arrayBuffer())).toEqual(contents);
+
+      await writeFile(assetFilePath, Buffer.from('not audio'));
+      await expect(request(url as string)).resolves.toMatchObject({
+        status: 404,
+      });
+    },
+  );
+
+  it('supports bounded audio GET and HEAD ranges and rejects invalid ranges', async () => {
+    const { projectFilePath } = await makeAudioProject('wav', WAV);
+    const { service, request } = makeService();
+    await service.activateProjectFile(projectFilePath, audioResultFor());
+    const url = service.getMediaUrl('audio-1') as string;
+
+    const partial = await request(url, 'GET', { Range: 'bytes=4-11' });
+    expect(partial.status).toBe(206);
+    expect(partial.headers.get('Content-Range')).toBe(
+      `bytes 4-11/${WAV.length}`,
+    );
+    expect(partial.headers.get('Content-Length')).toBe('8');
+    expect(Buffer.from(await partial.arrayBuffer())).toEqual(
+      WAV.subarray(4, 12),
+    );
+
+    const suffix = await request(url, 'GET', { Range: 'bytes=-4' });
+    expect(suffix.status).toBe(206);
+    expect(Buffer.from(await suffix.arrayBuffer())).toEqual(
+      WAV.subarray(-4),
+    );
+
+    const head = await request(url, 'HEAD', { Range: 'bytes=0-3' });
+    expect(head.status).toBe(206);
+    expect(head.body).toBeNull();
+    expect(head.headers.get('Content-Length')).toBe('4');
+    expect(head.headers.get('Content-Range')).toBe(
+      `bytes 0-3/${WAV.length}`,
+    );
+
+    for (const range of [
+      'bytes=0-1,4-5',
+      `bytes=${WAV.length}-`,
+      'bytes=9-2',
+      'bytes=-0',
+      'bytes=999999999999999999999-',
+    ]) {
+      const response = await request(url, 'GET', { Range: range });
+      expect(response.status).toBe(416);
+      expect(response.headers.get('Content-Range')).toBe(
+        `bytes */${WAV.length}`,
+      );
+      expect(response.headers.get('Accept-Ranges')).toBe('bytes');
+    }
+  });
+
+  it('rejects audio extension spoofing, ID3-only files, and oversized audio', async () => {
+    const spoofed = await makeAudioProject('wav', MP3);
+    const { service } = makeService();
+    await expect(
+      service.prepareProjectFile(spoofed.projectFilePath),
+    ).rejects.toThrow('类型与文件内容不一致');
+
+    const id3Only = await makeAudioProject(
+      'mp3',
+      Buffer.from([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0, 0, 0, 0]),
+    );
+    await expect(
+      service.prepareProjectFile(id3Only.projectFilePath),
+    ).rejects.toThrow('类型与文件内容不一致');
+
+    const oversized = await makeAudioProject('mp3', MP3);
+    await truncate(oversized.assetFilePath, 512 * 1024 * 1024 + 1);
+    await expect(
+      service.prepareProjectFile(oversized.projectFilePath),
+    ).rejects.toThrow('有效的常规文件');
+  });
+
+  it('keeps audio capabilities type-bound, window-local, and path-free', async () => {
+    const { projectFilePath } = await makeAudioProject('mp3', MP3);
+    const firstWindow = makeService();
+    const secondWindow = makeService();
+    await firstWindow.service.activateProjectFile(
+      projectFilePath,
+      audioResultFor(),
+    );
+    await secondWindow.service.activateProjectFile(
+      projectFilePath,
+      audioResultFor(),
+    );
+    const url = firstWindow.service.getMediaUrl('audio-1') as string;
+
+    expect(secondWindow.service.getMediaUrl('audio-1')).not.toBe(url);
+    await expect(secondWindow.request(url)).resolves.toMatchObject({
+      status: 404,
+    });
+    await expect(
+      firstWindow.request(url.replace('://audio/', '://image/')),
+    ).resolves.toMatchObject({ status: 404 });
+    expect(firstWindow.service.getMediaUrl('../opaque-id')).toBeNull();
+  });
+
+  it('serves newly imported audio before the temporary manifest is saved', async () => {
+    const { root, projectFilePath } = await makeProject();
+    await writeFile(
+      projectFilePath,
+      JSON.stringify({
+        format: 'vn-engine-project',
+        fileVersion: 7,
+        project: { id: 'project-1' },
+        assets: [],
+      }),
+    );
+    const importedFile = path.join(
+      root,
+      'assets',
+      'audio',
+      'audio-new.mp3',
+    );
+    await mkdir(path.dirname(importedFile), { recursive: true });
+    await writeFile(importedFile, MP3);
+    const importedResult = audioResultFor('audio-new');
+    importedResult.assetId = 'audio-new';
+    const { service, request } = makeService();
+    await service.activateProjectFile(projectFilePath, {
+      ...importedResult,
+      assets: [],
+    });
+
+    expect(
+      service.registerImportedAsset(
+        projectFilePath,
+        '/native/source/theme.MP3',
+        importedResult,
+      ),
+    ).toBe(true);
+    const url = service.getMediaUrl('audio-new');
+    expect(url).not.toContain('audio-new');
+    await expect(request(url as string)).resolves.toMatchObject({
+      status: 200,
+    });
   });
 
   it('rejects a project when a manifest resource is missing', async () => {

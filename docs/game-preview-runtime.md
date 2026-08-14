@@ -11,9 +11,14 @@
 
 - 背景节点自动执行，不消耗玩家点击。
 - 人物立绘节点自动执行，不消耗玩家点击。
+- BGM 节点自动切换/停止循环音乐，不消耗玩家点击。
+- 空视频节点自动跳过；绑定视频的节点阻塞播放，ended 或按 Enter 后继续。
+- 空选项节点自动跳过；存在选项时显示居中选择框并等待玩家点击。
 - 遇到对白节点后显示对白并暂停。
+- 对白若绑定语音，会从头播放一次；推进时停止旧语音。
 - 玩家在游戏画面点击鼠标，继续执行到下一条对白。
 - 执行到场景跳转节点时进入目标场景，并继续自动扫描到下一条对白。
+- 玩家选择后进入该选项的目标场景；目标背景和人物重置，BGM 延续。
 - 到达场景末尾且没有跳转节点时显示“预览结束”，绝不根据 Scene 数组顺序隐式跳转。
 
 ## 技术栈
@@ -22,13 +27,16 @@
 | --- | --- | --- |
 | React 19 | 预览组件、会话 Hook 和输入状态 | 与编辑器 UI 共用组件和生命周期 |
 | TypeScript | 判别联合、纯状态机、`Map`/`Set` | 节点缩窄明确，输入输出容易单测 |
-| HTML/CSS | `VisualStage` 的背景、人物和对白分层 | 当前 2D 静态画面无需引入 Canvas/Pixi |
-| Electron | 复用 `vn-asset://` 图片能力 URL | 预览不需要新增本机路径接口 |
+| HTML/CSS | `VisualStage` 的背景、人物、对白、选项和视频分层 | 当前画面无需引入 Canvas/Pixi |
+| Electron | 复用 `vn-asset://` 图片/音频/视频能力 URL与 Range | 预览不需要新增本机路径接口 |
+| HTMLAudioElement | 独立 BGM/voice 播放通道 | BGM 循环和对白语音生命周期互不干扰 |
+| HTMLVideoElement | 阻塞式 MP4/WebM 播放 | 无进度条的沉浸式播放，ended、Enter 跳过、错误和清理生命周期明确 |
 | C++20 | 提供最新权威 Project 快照 | 预览只读，不在 Renderer 复制业务数据 |
-| Vitest | reducer、跳转、循环与输入规则测试 | 纯函数不需要启动整个 Electron 即可验证 |
+| Vitest | reducer、跳转、选项、循环与输入规则测试 | 纯函数不需要启动整个 Electron 即可验证 |
 
 面试时可以解释：当前预览是编辑器内的只读功能，所以先用 TypeScript 纯状态机
-实现；未来做独立 Player、变量和存档时，再把同一运行语义迁移到 C++ Runtime。
+实现。独立 Player 的第一阶段应先把这套 reducer 抽成 Editor/Player 共享包；
+只有在变量、存档、脚本与确定性回放变得复杂后，才需要评估迁移到 C++ Runtime。
 
 ## 核心边界
 
@@ -37,7 +45,7 @@ C++ Project（唯一剧情真相）
   → Renderer 获取只读快照
   → previewRuntime 逐节点归约
   → GamePreviewRuntime（一次临时播放会话）
-  → VisualStage（背景 / 立绘 / 对白）
+  → VisualStage（背景 / 立绘 / 对白 / 选项 / 视频）
 ```
 
 预览状态不是项目数据。退出预览后直接销毁，不写 C++、不改变 revision，也不改变编辑器当前选中节点。
@@ -46,12 +54,23 @@ C++ Project（唯一剧情真相）
 
 ```ts
 type GamePreviewRuntime = {
-  status: 'playing' | 'finished' | 'runtimeError';
+  status:
+    | 'playing'
+    | 'playingVideo'
+    | 'choosing'
+    | 'finished'
+    | 'runtimeError';
   sceneId: string;
   nextNodeIndex: number;
   backgroundAssetId: string | null;
+  bgmAssetId: string | null;
+  bgmSequence: number;
+  dialogueSequence: number;
+  videoAssetId: string | null;
+  videoSequence: number;
   characters: TimelineCharacterState[];
   dialogue: DialogueNode | null;
+  choices: ChoiceOption[];
   errorMessage?: string;
 };
 ```
@@ -63,18 +82,29 @@ type GamePreviewRuntime = {
 1. 从 `nextNodeIndex` 开始扫描。
 2. 背景节点修改当前背景后继续扫描。
 3. 立绘节点设置、替换或清除对应 layer 后继续扫描。
-4. 场景跳转节点切换 `sceneId`、把 index 设为 0、清空人物并载入目标场景初始背景。
-5. 使用 `Set<sceneId:index>` 检测自动节点形成的无对白循环。
-6. 遇到对白节点时保存对白，把 index 移到其后，然后返回等待玩家。
-7. 扫描到结尾且没有跳转时返回 `finished`。
+4. BGM 节点更新 BGM ID 和播放序号，之后继续扫描。
+5. 空 VideoNode 直接跳过；非空 VideoNode 增加 occurrence 序号并返回 `playingVideo`，index 已指向视频之后。
+6. 空 ChoiceNode 直接跳过；非空 ChoiceNode 返回 `choosing`，index 已指向选项节点之后。
+7. 场景跳转节点切换 `sceneId`、把 index 设为 0、清空人物并载入目标场景初始背景；BGM 保持。
+8. 使用 `Set<sceneId:index>` 检测自动节点形成的无对白/可选项循环。
+9. 遇到对白节点时保存对白并增加 occurrence 序号，把 index 移到其后，然后返回等待玩家。
+10. 视频 ended 或 Enter 跳过由 `completeVideo()` 从已保存的 index 继续扫描。
+11. `selectGamePreviewChoice()` 用 optionId 验证当前阻塞节点和目标场景，然后按场景跳转语义继续扫描。
+12. 扫描到结尾且没有跳转时返回 `finished`。
+
+选择跳转和 SceneJumpNode 共享视觉边界：目标场景使用自己的初始背景、清空上一
+场景人物层，同时保留跨场景 BGM。选择界面会停止上一句对白语音。
 
 ## 组件结构
 
 ```text
 renderer/features/game-preview/
-├── previewRuntime.ts     # 无 React/IPC 的纯状态机
+├── previewRuntime.ts     # 无 React/IPC 的纯状态机与选项分支
+├── previewAudioController.ts # 两个 HTMLAudioElement 与异步 URL 竞态
+├── usePreviewAudio.ts    # 将 runtime 期望状态同步为音频副作用
+├── PreviewVideo.tsx      # capability URL、HTMLVideoElement 和自然 ended
 ├── useGamePreview.ts     # 会话 start/advance/exit
-└── GamePreview.tsx       # 全窗口播放界面和输入处理
+└── GamePreview.tsx       # 全窗口播放、选项按钮和输入处理
 
 renderer/components/
 ├── VisualStage.tsx       # 表单预览和游戏预览共享的视觉舞台
@@ -87,7 +117,9 @@ renderer/components/
 背景 z=0
 人物 z=10+layer
 对白 z=30
-播放/退出控件 z=40+
+选项层 z=40
+阻塞视频 z=50
+全局退出控件 z=1040
 ```
 
 ## 启动事务
@@ -109,7 +141,9 @@ renderer/components/
 
 - 舞台 `pointerup`：进入下一条对白。
 - `Space` / `Enter`：进入下一条对白。
-- 忽略键盘长按的 `event.repeat`。
+- `playingVideo` 时鼠标点击和 Space 不推进；ended 或非长按 Enter 调用 `completeVideo()`。
+- `choosing` 时舞台点击、Space 和 Enter 不推进；只有点击选项按钮才调用 `selectChoice(optionId)`。
+- 对推进和视频跳过忽略键盘长按的 `event.repeat`；Escape 始终可退出。
 - `Escape` 或“退出预览”按钮：退出。
 - 控制按钮阻止事件冒泡，不能同时触发下一条对白。
 - 预览结束后点击不会重新开始，用户应退出后再次点击播放按钮。
@@ -118,11 +152,15 @@ renderer/components/
 
 - 逐字显示和“第一次点击补全文字”。
 - 自动播放计时。
-- 选项、变量和条件分支。
+- 变量、条件表达式、选项可见性和选项副作用。
 - 游戏存档/读档。
+- BGM 淡入淡出、音量自动化、波形和音效节点。
+- 视频裁剪、字幕、转码、淡入淡出和节点级音量。
 - 把运行状态写入 C++。
 
-当选择分支和变量加入后，应把同样的 reducer 语义迁移到 C++ Runtime；React 只负责发送玩家选择和渲染 C++ 返回的运行快照。
+独立 Player 的 MVP 应直接复用抽离后的 TypeScript reducer，保证编辑器预览与
+导出游戏语义一致。未来引入复杂变量、脚本、跨版本存档或确定性回放时，
+可再将同一语义下沉到 C++ RuntimeSession。
 
 ## 验收
 
@@ -138,5 +176,13 @@ renderer/components/
 10. 无对白跳转循环返回明确运行错误，不让 UI 卡死。
 11. `Escape` 与退出按钮可返回编辑器。
 12. 预览不改变 Project、revision、编辑选择或磁盘文件。
-13. 未保存项目和临时导入图片同样可预览。
-14. TypeScript、ESLint、Vitest、CTest 和生产打包通过。
+13. BGM 循环、显式停止、同曲重启和跨场景跳转持续正确。
+14. 对白语音播放一次，推进/结束/错误/退出会停止；循环回到同一对白会重播。
+15. 空视频节点自动跳过；非空视频节点阻塞播放，ended/Enter 后继续且同一视频再次出现会重播。
+16. 视频期间人物语音停止，BGM 暂停并在视频结束后从原进度恢复。
+17. 视频 capability 支持 MP4/WebM MIME、HEAD/GET、单段 Range 及跨项目失效。
+18. 未保存项目和临时导入图片/音频/视频同样可预览。
+19. 空 ChoiceNode 自动跳过；非空节点进入 `choosing` 且普通推进输入不穿透。
+20. 选项按钮固定 54px 高并整体垂直居中；数量增加只改变列表高度和坐标，超量时列表内部滚动。
+21. 点击选项按稳定 optionId 跳转，目标场景重置背景/人物但延续 BGM；坏引用进入明确错误。
+22. TypeScript、ESLint、Vitest、CTest 和生产打包通过。

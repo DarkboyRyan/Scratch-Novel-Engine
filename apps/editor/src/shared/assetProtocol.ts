@@ -14,7 +14,17 @@ export type AssetInvocation =
       params: Record<string, never>;
     }
   | {
+      action: 'import-audio';
+      params: Record<string, never>;
+    }
+  | {
       action: 'get-preview-url';
+      params: {
+        assetId: string;
+      };
+    }
+  | {
+      action: 'get-media-url';
       params: {
         assetId: string;
       };
@@ -31,13 +41,16 @@ export type ImportAssetResult =
 
 export type ImportImageResult = ImportAssetResult;
 export type ImportVideoResult = ImportAssetResult;
+export type ImportAudioResult = ImportAssetResult;
 
 export type AssetResponse = ImportAssetResult | string | null;
 
 export type VnAssetsApi = {
   importImage(): Promise<ImportImageResult>;
   importVideo(): Promise<ImportVideoResult>;
+  importAudio(): Promise<ImportAudioResult>;
   // The URL is an opaque, window-local capability. It never contains a host
   // path and becomes unusable when the window changes to another project.
   getPreviewUrl(assetId: string): Promise<string | null>;
+  getMediaUrl(assetId: string): Promise<string | null>;
 };

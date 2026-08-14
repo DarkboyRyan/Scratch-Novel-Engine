@@ -13,6 +13,9 @@ struct Dialogue {
   std::string id;
   std::string speaker;
   std::string text;
+  // A voice clip belongs to this one dialogue and is played once when the
+  // dialogue becomes active. nullopt means the dialogue has no voice clip.
+  std::optional<std::string> voice_asset_id;
 
   bool operator==(const Dialogue&) const = default;
 };
@@ -64,8 +67,54 @@ struct SceneJumpNode {
   bool operator==(const SceneJumpNode&) const = default;
 };
 
+// A BgmNode changes the persistent background-music state. A referenced
+// audio Asset starts/replaces looping music; nullopt explicitly stops it.
+// Music may continue across Scene jumps until another BgmNode is reached.
+struct BgmNode {
+  std::string id;
+  std::optional<std::string> asset_id;
+
+  bool operator==(const BgmNode&) const = default;
+};
+
+// A VideoNode pauses normal timeline advancement while its referenced video
+// is played. nullopt is an authoring placeholder: a newly inserted graphical
+// block may exist before the user drops a video Asset into it.
+struct VideoNode {
+  std::string id;
+  std::optional<std::string> asset_id;
+
+  bool operator==(const VideoNode&) const = default;
+};
+
+// One ChoiceNode is a blocking branch point in the playback timeline. An
+// empty options vector is a valid authoring placeholder and is skipped by the
+// preview. Each option owns a stable ID so it can be edited and reordered
+// without coupling persistence to its current array position.
+struct ChoiceOption {
+  std::string id;
+  std::string text;
+  std::string target_scene_id;
+
+  bool operator==(const ChoiceOption&) const = default;
+};
+
+struct ChoiceNode {
+  std::string id;
+  std::vector<ChoiceOption> options;
+
+  bool operator==(const ChoiceNode&) const = default;
+};
+
 using SceneNode =
-    std::variant<Dialogue, BackgroundNode, CharacterNode, SceneJumpNode>;
+    std::variant<
+        Dialogue,
+        BackgroundNode,
+        CharacterNode,
+        SceneJumpNode,
+        BgmNode,
+        VideoNode,
+        ChoiceNode>;
 
 // Character slots are authoring presets rather than z-order. Multiple
 // characters may intentionally share a slot; their order in SceneVisualState

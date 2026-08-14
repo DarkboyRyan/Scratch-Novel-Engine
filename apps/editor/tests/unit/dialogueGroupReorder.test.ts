@@ -18,6 +18,7 @@ function createScene(nodeIds: string[]): SceneDocument {
       type: 'dialogue',
       speaker: id,
       text: `Text ${id}`,
+      voiceAssetId: null,
     })),
   };
 }

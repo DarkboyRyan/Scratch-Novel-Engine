@@ -1,9 +1,7 @@
 import * as Blockly from 'blockly';
 
-import { DIALOGUE_BLOCK_TYPE } from './blocks/dialogueBlock';
-import { BACKGROUND_BLOCK_TYPE } from './blocks/backgroundBlock';
-import { CHARACTER_BLOCK_TYPE } from './blocks/characterBlock';
-import { SCENE_JUMP_BLOCK_TYPE } from './blocks/sceneJumpBlock';
+import { isStoryBlockType } from './storyBlockTypes';
+import { CHOICE_OPTION_BLOCK_TYPE } from './blocks/choiceBlock';
 
 type DeleteRequest = (draggedNodeId: string | null) => void;
 type PersistedNodeCheck = (nodeId: string) => boolean;
@@ -68,44 +66,42 @@ export class EngineTrashcan extends Blockly.Trashcan {
     return group;
   }
 
-  private isStoryBlock(
+  private isManagedBlock(
     draggable: Blockly.IDraggable,
   ): draggable is Blockly.BlockSvg {
     return (
       draggable instanceof Blockly.BlockSvg &&
-      (draggable.type === DIALOGUE_BLOCK_TYPE ||
-        draggable.type === BACKGROUND_BLOCK_TYPE ||
-        draggable.type === CHARACTER_BLOCK_TYPE ||
-        draggable.type === SCENE_JUMP_BLOCK_TYPE)
+      (isStoryBlockType(draggable.type) ||
+        draggable.type === CHOICE_OPTION_BLOCK_TYPE)
     );
   }
 
   override wouldDelete(draggable: Blockly.IDraggable): boolean {
-    const isStoryBlock = this.isStoryBlock(draggable);
-    this.updateWouldDelete_(isStoryBlock);
+    const isManagedBlock = this.isManagedBlock(draggable);
+    this.updateWouldDelete_(isManagedBlock);
 
     // 工具箱中的临时积木尚未进入 C++，可交给 Blockly 原生销毁；
     // 正式积木必须等待 backend-first 删除成功后重绘。
     return (
-      isStoryBlock &&
+      isManagedBlock &&
       !this.isPersistedNode(draggable.id)
     );
   }
 
   override shouldPreventMove(draggable: Blockly.IDraggable): boolean {
     return (
-      this.isStoryBlock(draggable) &&
+      this.isManagedBlock(draggable) &&
       this.isPersistedNode(draggable.id)
     );
   }
 
   override onDragEnter(draggable: Blockly.IDraggable): void {
     super.onDragEnter(draggable);
-    this.hasStoryBlockHover = this.isStoryBlock(draggable);
+    this.hasStoryBlockHover = this.isManagedBlock(draggable);
   }
 
   override onDragOver(draggable: Blockly.IDraggable): void {
-    this.hasStoryBlockHover = this.isStoryBlock(draggable);
+    this.hasStoryBlockHover = this.isManagedBlock(draggable);
     this.setLidOpen(this.hasStoryBlockHover);
   }
 
@@ -118,7 +114,7 @@ export class EngineTrashcan extends Blockly.Trashcan {
   override onDrop(draggable: Blockly.IDraggable): void {
     super.onDrop(draggable);
 
-    if (!this.isStoryBlock(draggable)) {
+    if (!this.isManagedBlock(draggable)) {
       return;
     }
 

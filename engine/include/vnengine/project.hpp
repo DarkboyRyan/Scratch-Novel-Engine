@@ -61,6 +61,24 @@ SceneJumpNode* find_scene_jump_node(Scene& scene, std::string_view node_id);
 const SceneJumpNode* find_scene_jump_node(
     const Scene& scene,
     std::string_view node_id);
+BgmNode* find_bgm_node(Scene& scene, std::string_view node_id);
+const BgmNode* find_bgm_node(
+    const Scene& scene,
+    std::string_view node_id);
+VideoNode* find_video_node(Scene& scene, std::string_view node_id);
+const VideoNode* find_video_node(
+    const Scene& scene,
+    std::string_view node_id);
+ChoiceNode* find_choice_node(Scene& scene, std::string_view node_id);
+const ChoiceNode* find_choice_node(
+    const Scene& scene,
+    std::string_view node_id);
+ChoiceOption* find_choice_option(
+    ChoiceNode& choice,
+    std::string_view option_id);
+const ChoiceOption* find_choice_option(
+    const ChoiceNode& choice,
+    std::string_view option_id);
 Asset* find_asset(
     ProjectAggregate& aggregate,
     std::string_view asset_id);
@@ -188,6 +206,171 @@ UpdateCharacterNodeResult update_character_node(
     CharacterSlot slot,
     int layer);
 
+enum class AddBgmNodeStatus {
+  added,
+  scene_not_found,
+  placement_conflict,
+  anchor_not_found,
+};
+
+struct AddBgmNodeResult {
+  AddBgmNodeStatus status;
+  std::optional<std::string> node_id;
+};
+
+// A new BGM node is an explicit stop command. Assigning an imported audio
+// Asset is a separate update operation.
+AddBgmNodeResult add_bgm_node(
+    ProjectAggregate& aggregate,
+    IdGenerator& ids,
+    std::string_view scene_id,
+    std::optional<std::string> after_node_id = std::nullopt,
+    std::optional<std::string> before_node_id = std::nullopt);
+
+enum class UpdateBgmNodeResult {
+  changed,
+  unchanged,
+  scene_not_found,
+  node_not_found,
+  asset_not_found,
+  asset_not_audio,
+};
+
+UpdateBgmNodeResult update_bgm_node(
+    ProjectAggregate& aggregate,
+    std::string_view scene_id,
+    std::string_view node_id,
+    std::optional<std::string> asset_id);
+
+enum class AddVideoNodeStatus {
+  added,
+  scene_not_found,
+  placement_conflict,
+  anchor_not_found,
+};
+
+struct AddVideoNodeResult {
+  AddVideoNodeStatus status;
+  std::optional<std::string> node_id;
+};
+
+// A new Video node starts empty so Blockly can insert a placeholder before a
+// video Asset is assigned through video.update.
+AddVideoNodeResult add_video_node(
+    ProjectAggregate& aggregate,
+    IdGenerator& ids,
+    std::string_view scene_id,
+    std::optional<std::string> after_node_id = std::nullopt,
+    std::optional<std::string> before_node_id = std::nullopt);
+
+enum class UpdateVideoNodeResult {
+  changed,
+  unchanged,
+  scene_not_found,
+  node_not_found,
+  asset_not_found,
+  asset_not_video,
+};
+
+UpdateVideoNodeResult update_video_node(
+    ProjectAggregate& aggregate,
+    std::string_view scene_id,
+    std::string_view node_id,
+    std::optional<std::string> asset_id);
+
+enum class AddChoiceNodeStatus {
+  added,
+  scene_not_found,
+  placement_conflict,
+  anchor_not_found,
+};
+
+struct AddChoiceNodeResult {
+  AddChoiceNodeStatus status;
+  std::optional<std::string> node_id;
+};
+
+// A new Choice node is intentionally empty. Options are independent child
+// entities created with add_choice_option.
+AddChoiceNodeResult add_choice_node(
+    Project& project,
+    IdGenerator& ids,
+    std::string_view scene_id,
+    std::optional<std::string> after_node_id = std::nullopt,
+    std::optional<std::string> before_node_id = std::nullopt);
+
+enum class AddChoiceOptionStatus {
+  added,
+  scene_not_found,
+  node_not_found,
+  text_required,
+  target_scene_not_found,
+  before_option_not_found,
+  id_generation_failed,
+};
+
+struct AddChoiceOptionResult {
+  AddChoiceOptionStatus status;
+  std::optional<std::string> option_id;
+};
+
+AddChoiceOptionResult add_choice_option(
+    Project& project,
+    IdGenerator& ids,
+    std::string_view scene_id,
+    std::string_view node_id,
+    std::string text,
+    std::string target_scene_id,
+    std::optional<std::string> before_option_id = std::nullopt);
+
+enum class UpdateChoiceOptionResult {
+  changed,
+  unchanged,
+  scene_not_found,
+  node_not_found,
+  option_not_found,
+  text_required,
+  target_scene_not_found,
+};
+
+UpdateChoiceOptionResult update_choice_option(
+    Project& project,
+    std::string_view scene_id,
+    std::string_view node_id,
+    std::string_view option_id,
+    std::string text,
+    std::string target_scene_id);
+
+enum class DeleteChoiceOptionResult {
+  changed,
+  scene_not_found,
+  node_not_found,
+  option_not_found,
+};
+
+DeleteChoiceOptionResult delete_choice_option(
+    Project& project,
+    std::string_view scene_id,
+    std::string_view node_id,
+    std::string_view option_id);
+
+enum class ReorderChoiceOptionResult {
+  changed,
+  unchanged,
+  scene_not_found,
+  node_not_found,
+  option_not_found,
+  before_option_not_found,
+  self_anchor,
+};
+
+ReorderChoiceOptionResult reorder_choice_option(
+    Project& project,
+    std::string_view scene_id,
+    std::string_view node_id,
+    std::string_view option_id,
+    std::optional<std::string> before_option_id);
+
 enum class AddSceneJumpNodeStatus {
   added,
   scene_not_found,
@@ -225,8 +408,8 @@ UpdateSceneJumpNodeResult update_scene_jump_node(
     std::string_view node_id,
     std::string target_scene_id);
 
-// Generic timeline ordering supports mixed Dialogue/BackgroundNode sequences.
-// A null before ID means the end of the Scene.
+// Generic timeline ordering supports every SceneNode variant, including
+// Choice nodes. A null before ID means the end of the Scene.
 bool reorder_scene_node(
     Project& project,
     std::string_view scene_id,
@@ -258,6 +441,21 @@ bool update_dialogue(
     std::string_view dialogue_id,
     std::string speaker,
     std::string text);
+
+enum class SetDialogueVoiceResult {
+  changed,
+  unchanged,
+  scene_not_found,
+  dialogue_not_found,
+  asset_not_found,
+  asset_not_audio,
+};
+
+SetDialogueVoiceResult set_dialogue_voice(
+    ProjectAggregate& aggregate,
+    std::string_view scene_id,
+    std::string_view dialogue_id,
+    std::optional<std::string> asset_id);
 bool delete_dialogue(
     Project& project,
     std::string_view scene_id,

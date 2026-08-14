@@ -8,6 +8,9 @@
 - [人物立绘](./character-portrait-implementation.md)
 - [游戏顺序预览](./game-preview-runtime.md)
 - [场景跳转](./scene-jump-implementation.md)
+- [语音与背景音乐](./audio-implementation.md)
+- [视频播放积木](./video-playback-block.md)
+- [选项分支](./choice-branch-implementation.md)
 
 ## 1. 30 秒项目介绍
 
@@ -19,25 +22,26 @@ JSON Lines 协议通信，而不是 HTTP。C++ 返回完整权威快照，表单
 
 项目目前支持：
 
-- 场景、对白、背景切换、人物立绘和显式场景跳转；
+- 场景、对白、背景切换、人物立绘、阻塞式视频、选项分支和显式场景跳转；
 - 表单编辑与 Blockly 图形化编辑；
 - 项目文件夹保存、打开和未保存状态；
-- PNG/JPEG/WebP 图片与 MP4/WebM 视频安全导入；
-- 正式顺序预览、鼠标/键盘推进和跳转循环检测；
+- PNG/JPEG/WebP 图片、MP4/WebM 视频与 MP3/WAV/Ogg 音频安全导入；
+- 对白语音和时间线 BGM，正式预览使用独立双音轨控制器；
+- 正式顺序预览、阻塞式视频/选项、鼠标/键盘推进和跳转循环检测；
 - 原子清单保存、IPC 权限收窄和真实 C++ 集成测试。
 
 ### 两分钟回答模板
 
 > 我做的是一个视觉小说桌面编辑器。界面层选 Electron、React 和 Blockly，
 > 因为它们适合复杂表单与可视化拖拽；剧情模型放在 C++20 Core 中，用
-> `std::variant` 表达对白、背景、人物和场景跳转四种节点。Renderer 不直接改
+> `std::variant` 表达对白、背景、人物、场景跳转、BGM、视频和选项七种节点。Renderer 不直接改
 > Project，而是经 contextBridge 和 Electron IPC 到 Main，再由 Main 通过 JSONL
 > 请求 C++；C++ 校验成功后返回完整快照，所以表单和 Blockly 不会产生两份真相。
 >
 > 文件层采用项目文件夹：文本在固定 `project.vn.json`，二进制媒体在 assets。
-> 图片和视频由 C++ 用文件句柄、magic bytes 和流式复制安全导入；保存时先发布
+> 图片、视频和音频由 C++ 用文件句柄、magic bytes 和流式复制安全导入；保存时先发布
 > 资源，最后原子替换 manifest，失败不会截断旧项目。Renderer 没有 Node 权限，
-> 也拿不到本机路径，图片通过带 capability token 的 `vn-asset://` 协议显示。
+> 也拿不到本机路径，图片、音频和视频通过带 capability token 的 `vn-asset://` 协议读取。
 > 测试上用 CTest 覆盖领域和文件事务，用 Vitest 覆盖 IPC、Blockly 和预览状态机，
 > 并有启动真实 C++ 子进程的 JSONL 集成测试。
 
@@ -55,7 +59,7 @@ JSON Lines 协议通信，而不是 HTTP。C++ 返回完整权威快照，表单
 | JSON | nlohmann/json 3.11.3 | 只用于 C++ Backend 的协议和项目文件边界 |
 | 进程通信 | Electron IPC + JSONL | Renderer→Main 使用 IPC；Main→C++ 使用带请求 ID 的逐行 JSON |
 | 文件系统 | Electron dialog、Node `fs`、C++ OS 文件 API | 项目目录、临时工作区、流式复制、fsync 和原子替换 |
-| 安全资源预览 | Electron 自定义 `vn-asset://` 协议 | 用 capability token 和 assetId 加载图片，不暴露本机路径 |
+| 安全资源读取 | Electron 自定义 `vn-asset://` 协议 | 用 capability token 加载图片/音频/视频，用 Range 播放音频和视频且不暴露路径 |
 | 前端构建 | Vite 5、Electron Forge 7、pnpm | Main/Preload/Renderer 构建与桌面应用打包 |
 | 自动测试 | Vitest 3、CTest | TS 单元/集成测试与 C++ Core/Backend/文件系统测试 |
 | 静态质量 | TypeScript typecheck、ESLint、编译器 warnings | 类型、代码规范和跨平台 C++ 警告检查 |
@@ -102,7 +106,10 @@ using SceneNode = std::variant<
     Dialogue,
     BackgroundNode,
     CharacterNode,
-    SceneJumpNode>;
+    SceneJumpNode,
+    BgmNode,
+    VideoNode,
+    ChoiceNode>;
 
 struct ProjectAggregate {
   Project project;
@@ -110,9 +117,12 @@ struct ProjectAggregate {
 };
 ```
 
-`std::variant` 表达“节点只能是四种类型之一”，避免用一个大对象加很多可空
+`std::variant` 表达“节点只能是七种类型之一”，避免用一个大对象加很多可空
 字段。`ProjectAggregate` 把 Project 和 Asset 清单放在同一个一致性边界中，
 因此背景或人物引用不存在的图片时，C++ 可以在提交前整体拒绝。
+
+ChoiceNode 内部使用 `std::vector<ChoiceOption>`；Option 有独立稳定 ID、非空文案
+和目标 Scene ID。它是父节点的子实体，不是第八种 SceneNode。
 
 面试回答重点：C++ 是业务真相，不是为了替代 React 渲染。它负责领域不变量、
 文件兼容和未来 Player/导出工具可复用的剧情数据。
@@ -186,16 +196,21 @@ React StrictMode 在开发环境会重复执行 effect。启动初始化使用 h
 
 使用技术：React 受控组件、TypeScript 判别联合、局部草稿、纯预览归约函数。
 
-左侧时间线同时展示对白、背景、人物和跳转。选中节点后根据 `node.type`
+左侧时间线同时展示对白、背景、人物、BGM、视频、选项和跳转。选中节点后根据 `node.type`
 显示不同检查器。输入中的内容先是 React 草稿，提交后才进入 C++。导航、保存、
 导入和模式切换都必须先 commit 草稿，失败则停止下一步操作。
+
+表单模式不会提供“+ 视频”，但会显示、修改、移动和删除由 Blockly 创建的
+VideoNode，确保两种编辑方式仍然读取同一条权威时间线。
+ChoiceNode 同样可以在表单时间线中查看、移动和删除，但选项内容与目标只读，
+创建和内部编辑集中在图形化模式。
 
 ### 4.6 Blockly 图形化编辑
 
 使用技术：Blockly 13、自定义 Block、动态 Toolbox、DragStrategy、Blockly
 事件、DOM Pointer Events、React 组件封装。
 
-C++ 快照会投影成对白、背景、人物和跳转积木。Blockly 不是第二个数据库：
+C++ 快照会投影成对白、背景、人物、BGM、视频、选项和跳转积木。Blockly 不是第二个数据库：
 新增、字段修改、删除和重排都会转换成 typed Engine 命令，然后等待 C++ 新快照
 重新投影。
 
@@ -205,6 +220,8 @@ C++ 快照会投影成对白、背景、人物和跳转积木。Blockly 不是�
 - 长按框选、多选组拖与 `timeline.reorderMany`；
 - Delete、Backspace 和自定义垃圾桶；
 - 图片拖入背景/人物积木的白色资源槽；
+- 音频拖入对白/BGM 槽，视频拖入 VideoNode 白色资源槽；
+- ChoiceNode 使用 statement input 包含专用连接类型的 ChoiceOption，支持内部字段编辑和重排；
 - 每场景独立保存画布根位置、缩放和滚动位置；
 - 较小连接吸附半径，只有靠近连接点才出现连接预览。
 
@@ -234,21 +251,24 @@ C++ 快照会投影成对白、背景、人物和跳转积木。Blockly 不是�
 未保存项目导入媒体时，每个窗口使用 Main 私有临时工作区。第一次保存才把
 资源和清单安全发布到正式项目文件夹。
 
-### 4.8 图片与视频导入
+当前 Writer 写 `fileVersion: 9`，Reader 支持 v1–v9。v9 新增 ChoiceNode 的
+严格嵌套 options；旧版本仍按各自能力读取，不能混入未来节点字段。
+
+### 4.8 图片、视频与音频导入
 
 使用技术：Electron file dialog、C++ OS 文件句柄、magic bytes、流式 I/O、
 no-follow/no-clobber、Asset ID。
 
-Renderer 只表达 `importImage()` 或 `importVideo()`，不传任何路径。Main 通过
+Renderer 只表达 `importImage()`、`importVideo()` 或 `importAudio()`，不传任何路径。Main 通过
 原生对话框得到源路径，再把 Main 私有路径交给 C++。
 
 C++ 检查常规文件、链接、大小、扩展名和文件头；在同一文件句柄上验证并流式
 复制，复制前后复核源快照。临时目标独占创建，正式发布禁止覆盖。
 
-图片支持 PNG/JPEG/WebP；视频当前支持 MP4/WebM 的安全导入、保存和重开，
-UI 暂未实现视频播放与 Range 流式响应。
+图片支持 PNG/JPEG/WebP；视频支持 MP4/WebM；音频支持 MP3/WAV/Ogg。
+三者都能安全导入、保存和重开。正式预览通过 Range 响应播放音频和视频。
 
-### 4.9 安全图片预览
+### 4.9 安全图片、音频与视频读取
 
 使用技术：Electron 自定义 protocol、capability token、每窗口独立 session、
 流式 Response、CSP。
@@ -257,13 +277,15 @@ React 获得的不是 `file://` 和磁盘路径，而是：
 
 ```text
 vn-asset://image/<project-generation-token>/<opaque-asset-token>
+vn-asset://audio/<project-generation-token>/<opaque-asset-token>
+vn-asset://video/<project-generation-token>/<opaque-asset-token>
 ```
 
-Main 只允许当前窗口、当前项目代际且存在于私有 manifest 的图片。切换项目会
-轮换 token，使旧 URL 自动失效。这样即使 Renderer 被注入，也不能把任意本机
-路径拼成可读取 URL。
+Main 只允许当前窗口、当前项目代际且存在于私有 manifest 的资源。音频和视频
+支持 HEAD、GET 和单段 Range 的 200/206/416 响应。切换项目会轮换 token，使旧
+URL 自动失效；Renderer 无法把任意本机路径拼成可读取 URL。
 
-### 4.10 背景、人物和场景跳转
+### 4.10 背景、人物、场景跳转和选项
 
 使用技术：C++ `std::variant`、TypeScript discriminated union、统一时间线、
 纯 reducer、Blockly 自定义积木。
@@ -271,20 +293,27 @@ Main 只允许当前窗口、当前项目代际且存在于私有 manifest 的�
 - 背景节点从当前位置开始生效，直到下一个背景节点；`assetId:null` 表示无背景。
 - 人物节点修改 1–10 中的一层，保存图片、左中右位置和 layer；高层渲染在前。
 - 场景跳转节点保存稳定 `targetSceneId`，不会根据 Scene 数组顺序隐式跳转。
+- BGM 节点切换或停止循环音乐；Dialogue 的 `voiceAssetId` 绑定一次性人物语音。
+- VideoNode 的空槽跳过；绑定视频后阻塞时间线，ended 或按 Enter 跳过才继续。
+- ChoiceNode 的空 options 跳过；非空时等待玩家点击，Option 保存稳定 ID、文案和目标 Scene ID。
 - 删除和重排都复用通用 `timeline.*`，保证混合节点操作是原子的。
 
 ### 4.11 正式游戏预览
 
 使用技术：React、TypeScript 纯函数状态机、`Map`/`Set`、DOM Pointer/Keyboard
-事件、共享 `VisualStage`。
+事件、共享 `VisualStage`、`HTMLAudioElement` 和 `HTMLVideoElement`。
 
-预览从 `entrySceneId` 开始。背景、人物和跳转是自动节点；对白是停顿节点。
-鼠标、Space 或 Enter 推进到下一条对白，Escape 退出。跳转进入目标场景时重置
-人物层并加载其初始背景；`Set<sceneId:index>` 检测没有对白可停留的自动跳转循环。
+预览从 `entrySceneId` 开始。背景、人物、BGM 和跳转是自动节点；对白是点击停顿点；
+非空 VideoNode 是媒体阻塞点。视频播放期间普通点击和 Space 不推进，只有
+ended 或非长按 Enter 才恢复扫描。非空 ChoiceNode 是选择阻塞点，渲染固定
+54px 高的居中矩形按钮；选项增加只扩展列表并调整纵坐标，超量时内部滚动。
+点击选项后按稳定 Option ID 跳转。跳转进入目标场景时重置人物层并加载其初始背景，
+同时保持 BGM；`Set<sceneId:index>` 检测没有可停留节点的自动跳转循环。
 
 预览状态是临时会话，不写回 Project、revision 或磁盘。当前先用 TS 纯状态机
-获得快速可测的编辑器预览；将来做独立游戏 Player、变量和分支时，可以把同一
-运行语义迁入 C++ Runtime。
+获得快速可测的编辑器预览；独立 Player 的 MVP 会复用抽离后的共享 TypeScript
+Runtime。等变量、脚本、跨版本存档或确定性回放变得复杂后，再评估把同一语义
+下沉到 C++ Runtime。
 
 ### 4.12 构建、打包和测试
 
@@ -350,8 +379,10 @@ ResourcePanel.importImage
   → 提交当前编辑草稿
   → 获取最新 C++ Project 快照
   → startGamePreview(entrySceneId)
-  → 自动归约背景/人物/跳转
-  → 停在对白
+  → 自动归约背景/人物/BGM/跳转
+  → 停在对白、阻塞视频或非空选项
+  → 视频 ended/Enter 后恢复扫描
+  → 选项点击后按 optionId 进入目标场景
   → 玩家输入后 advanceGamePreview
 ```
 
@@ -379,8 +410,8 @@ C++ 是唯一业务真相。完整快照让 React 直接替换旧状态，避免
 ### 如何保证 Renderer 不能任意读本机文件？
 
 Renderer 没有 Node 权限，只能调用 contextBridge 暴露的具名 API；路径由 Main
-的原生 dialog 产生，响应又经过白名单净化。图片预览使用带能力令牌的自定义
-协议和 opaque asset token，而不是 `file://` 或用户可拼接的绝对路径。
+的原生 dialog 产生，响应又经过白名单净化。图片、音频和视频使用带能力令牌的
+自定义协议和 opaque asset token，而不是 `file://` 或用户可拼接的绝对路径。
 
 ### 保存失败为什么不会损坏旧项目？
 
@@ -397,8 +428,9 @@ Blockly 是编辑视图。它的事件被翻译为 C++ 命令，成功后再用 
 ### 为什么预览状态机先写在 TypeScript？
 
 当前需求是编辑器内的只读预览，TS 纯函数便于快速迭代和用 Vitest 做输入输出测试，
-也不修改 Project。未来需要导出独立游戏、变量、存档和确定性回放时，再把相同语义
-迁入 C++ Runtime，让编辑器与 Player 共享实现。
+也不修改 Project。独立 Player 的 MVP 会先把 reducer 抽成 Editor/Player 共享的
+TypeScript Runtime；等变量、脚本、跨版本存档和确定性回放变得复杂后，再评估
+下沉到 C++ RuntimeSession。
 
 ### Promise 和 async/await 在项目里解决什么问题？
 
@@ -414,8 +446,10 @@ StrictMode 会在开发环境重复执行 effect。hook 使用实例级 `useRef`
 
 ### 当前项目还有哪些明确边界？
 
-- 视频已能安全导入、保存和重开，但还没有播放器与 Range streaming；
-- 正式预览已有背景、人物、对白和跳转，还没有选项、变量、条件与存档；
+- 视频已支持安全导入、VideoNode、Range streaming 与阻塞式正式预览；当前还没有裁剪、字幕或转码；
+- 音频已能安全导入并播放对白语音/BGM；当前还没有淡入淡出、波形和音效节点；
+- 正式预览已有背景、人物、对白、BGM、视频、选项和跳转；选项暂不支持变量、条件可见性或副作用；
+- 项目 Writer 为 v9、Reader 支持 v1–v9；v9 保存 ChoiceNode/ChoiceOption；
 - Blockly 布局目前是会话级视图状态，尚未持久化到 `.vnengine`；
 - 同一项目根的多窗口排他锁、Undo/Redo 和资源垃圾回收仍是后续工作。
 

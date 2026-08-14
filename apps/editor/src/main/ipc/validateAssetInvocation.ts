@@ -17,13 +17,15 @@ export function isAssetInvocation(
 
   if (
     value.action === 'import-image' ||
-    value.action === 'import-video'
+    value.action === 'import-video' ||
+    value.action === 'import-audio'
   ) {
     return Object.keys(value.params).length === 0;
   }
 
   return (
-    value.action === 'get-preview-url' &&
+    (value.action === 'get-preview-url' ||
+      value.action === 'get-media-url') &&
     Object.keys(value.params).length === 1 &&
     typeof value.params.assetId === 'string' &&
     value.params.assetId.length > 0

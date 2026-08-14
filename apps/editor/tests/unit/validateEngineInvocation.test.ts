@@ -266,6 +266,165 @@ describe('engine IPC validation', () => {
     })).toBe(false);
   });
 
+  it('validates dialogue voice and BGM commands with nullable audio IDs', () => {
+    for (const method of ['dialogue.setVoice', 'bgm.update']) {
+      for (const assetId of ['audio-1', null]) {
+        expect(isEngineInvocation({
+          method,
+          params: {
+            sceneId: 'scene-1',
+            nodeId: method === 'bgm.update' ? 'bgm-1' : 'dialogue-1',
+            assetId,
+          },
+        })).toBe(true);
+      }
+      expect(isEngineInvocation({
+        method,
+        params: {
+          sceneId: 'scene-1',
+          nodeId: 'node-1',
+          assetId: 7,
+        },
+      })).toBe(false);
+    }
+
+    expect(isEngineInvocation({
+      method: 'bgm.add',
+      params: { sceneId: 'scene-1', afterNodeId: 'dialogue-1' },
+    })).toBe(true);
+    expect(isEngineInvocation({
+      method: 'bgm.add',
+      params: {
+        sceneId: 'scene-1',
+        afterNodeId: 'a',
+        beforeNodeId: 'b',
+      },
+    })).toBe(false);
+  });
+
+  it('validates empty video creation and nullable video updates', () => {
+    for (const placement of [
+      {},
+      { afterNodeId: 'dialogue-1' },
+      { beforeNodeId: 'background-1' },
+      { afterNodeId: null },
+    ]) {
+      expect(isEngineInvocation({
+        method: 'video.add',
+        params: { sceneId: 'scene-1', ...placement },
+      })).toBe(true);
+    }
+
+    expect(isEngineInvocation({
+      method: 'video.add',
+      params: { sceneId: 'scene-1', assetId: 'video-1' },
+    })).toBe(false);
+    expect(isEngineInvocation({
+      method: 'video.add',
+      params: {
+        sceneId: 'scene-1',
+        afterNodeId: 'a',
+        beforeNodeId: 'b',
+      },
+    })).toBe(false);
+
+    for (const assetId of ['video-1', null]) {
+      expect(isEngineInvocation({
+        method: 'video.update',
+        params: { sceneId: 'scene-1', nodeId: 'video-node-1', assetId },
+      })).toBe(true);
+    }
+    expect(isEngineInvocation({
+      method: 'video.update',
+      params: { sceneId: 'scene-1', nodeId: 'video-node-1', assetId: 7 },
+    })).toBe(false);
+  });
+
+  it('validates choice containers and nested option mutations', () => {
+    expect(isEngineInvocation({
+      method: 'choice.add',
+      params: { sceneId: 'scene-1', afterNodeId: 'dialogue-1' },
+    })).toBe(true);
+    expect(isEngineInvocation({
+      method: 'choice.add',
+      params: {
+        sceneId: 'scene-1',
+        afterNodeId: 'dialogue-1',
+        beforeNodeId: 'video-1',
+      },
+    })).toBe(false);
+
+    expect(isEngineInvocation({
+      method: 'choice.option.add',
+      params: {
+        sceneId: 'scene-1',
+        nodeId: 'choice-1',
+        text: '打开门',
+        targetSceneId: 'scene-2',
+        beforeOptionId: null,
+      },
+    })).toBe(true);
+    expect(isEngineInvocation({
+      method: 'choice.option.update',
+      params: {
+        sceneId: 'scene-1',
+        nodeId: 'choice-1',
+        optionId: 'option-1',
+        text: '离开',
+        targetSceneId: 'scene-3',
+      },
+    })).toBe(true);
+    expect(isEngineInvocation({
+      method: 'choice.option.delete',
+      params: {
+        sceneId: 'scene-1',
+        nodeId: 'choice-1',
+        optionId: 'option-1',
+      },
+    })).toBe(true);
+    expect(isEngineInvocation({
+      method: 'choice.option.reorder',
+      params: {
+        sceneId: 'scene-1',
+        nodeId: 'choice-1',
+        optionId: 'option-2',
+        beforeOptionId: 'option-1',
+      },
+    })).toBe(true);
+
+    for (const invocation of [
+      {
+        method: 'choice.option.add',
+        params: {
+          sceneId: 'scene-1',
+          nodeId: 'choice-1',
+          text: 5,
+          targetSceneId: 'scene-2',
+        },
+      },
+      {
+        method: 'choice.option.update',
+        params: {
+          sceneId: 'scene-1',
+          nodeId: 'choice-1',
+          optionId: 'option-1',
+          text: '离开',
+          targetSceneId: null,
+        },
+      },
+      {
+        method: 'choice.option.reorder',
+        params: {
+          sceneId: 'scene-1',
+          nodeId: 'choice-1',
+          optionId: 'option-1',
+        },
+      },
+    ]) {
+      expect(isEngineInvocation(invocation)).toBe(false);
+    }
+  });
+
   it('requires a nullable or string anchor when reordering a background', () => {
     for (const beforeNodeId of [null, 'node-3']) {
       expect(

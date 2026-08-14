@@ -6,6 +6,8 @@ import { DIALOGUE_BLOCK_TYPE } from '../../src/renderer/features/block-editor/bl
 import { BACKGROUND_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/backgroundBlock';
 import { CHARACTER_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/characterBlock';
 import { SCENE_JUMP_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/sceneJumpBlock';
+import { BGM_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/bgmBlock';
+import { CHOICE_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/choiceBlock';
 import {
   collectDialogueFieldDrafts,
   getDialogueFieldUpdate,
@@ -24,12 +26,14 @@ const scene: SceneDocument = {
       type: 'dialogue',
       speaker: 'A',
       text: '第一句',
+      voiceAssetId: null,
     },
     {
       id: 'node-2',
       type: 'dialogue',
       speaker: 'B',
       text: '第二句',
+      voiceAssetId: null,
     },
   ],
 };
@@ -358,6 +362,68 @@ describe('getReorderedDialogueBlock', () => {
       ),
     ).toEqual({
       nodeId: 'character-1',
+      beforeNodeId: 'node-1',
+    });
+  });
+
+  it('reorders a persisted BGM node in the same timeline', () => {
+    const mixedScene: SceneDocument = {
+      ...scene,
+      nodes: [
+        scene.nodes[0],
+        { id: 'bgm-1', type: 'bgm', assetId: null },
+        scene.nodes[1],
+      ],
+    };
+    const block = {
+      ...createDialogueBlock('bgm-1', 'node-1'),
+      type: BGM_BLOCK_TYPE,
+    } as Blockly.BlockSvg;
+
+    expect(
+      getReorderedDialogueBlock(
+        createMoveEvent(block.id),
+        createWorkspace(block),
+        mixedScene,
+      ),
+    ).toEqual({
+      nodeId: 'bgm-1',
+      beforeNodeId: 'node-1',
+    });
+  });
+
+  it('reorders a Choice container as one timeline node', () => {
+    const mixedScene: SceneDocument = {
+      ...scene,
+      nodes: [
+        scene.nodes[0],
+        {
+          id: 'choice-1',
+          type: 'choice',
+          options: [
+            {
+              id: 'option-1',
+              text: '继续',
+              targetSceneId: 'scene-2',
+            },
+          ],
+        },
+        scene.nodes[1],
+      ],
+    };
+    const block = {
+      ...createDialogueBlock('choice-1', 'node-1'),
+      type: CHOICE_BLOCK_TYPE,
+    } as Blockly.BlockSvg;
+
+    expect(
+      getReorderedDialogueBlock(
+        createMoveEvent(block.id),
+        createWorkspace(block),
+        mixedScene,
+      ),
+    ).toEqual({
+      nodeId: 'choice-1',
       beforeNodeId: 'node-1',
     });
   });

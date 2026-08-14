@@ -182,6 +182,14 @@ export default function App() {
     await engine.importVideo();
   };
 
+  const handleImportAudio = async (): Promise<void> => {
+    if (!(await prepareCurrentEdits())) {
+      return;
+    }
+
+    await engine.importAudio();
+  };
+
   const handleSelectBackground = async (
     assetId: string | null,
   ): Promise<void> => {
@@ -272,9 +280,9 @@ export default function App() {
   if (!project || !scene) {
     return (
       <main className="engine-startup" role="status">
-        <strong>VN Engine Editor</strong>
+        <strong>Scratch Novel Engine</strong>
         <p>
-          {editor.engineMessage || '正在启动 C++ 后端并创建项目……'}
+          {editor.engineMessage || '正在启动……'}
         </p>
         {editor.engineMessage && (
           <button type="button" onClick={() => window.location.reload()}>
@@ -346,6 +354,7 @@ export default function App() {
         previewUrls={assetPreviewUrls}
         isBusy={engine.isBusy}
         onImportImage={handleImportImage}
+        onImportAudio={handleImportAudio}
         onImportVideo={handleImportVideo}
         onSelectBackground={handleSelectBackground}
       />
@@ -378,6 +387,16 @@ export default function App() {
           onCharacterUpdate={engine.updateCharacter}
           onSceneJumpAdd={engine.addSceneJump}
           onSceneJumpUpdate={engine.updateSceneJump}
+          onBgmAdd={engine.addBgm}
+          onBgmUpdate={engine.updateBgm}
+          onVideoAdd={engine.addVideo}
+          onVideoUpdate={engine.updateVideo}
+          onChoiceAdd={engine.addChoice}
+          onChoiceOptionAdd={engine.addChoiceOption}
+          onChoiceOptionUpdate={engine.updateChoiceOption}
+          onChoiceOptionDelete={engine.deleteChoiceOption}
+          onChoiceOptionReorder={engine.reorderChoiceOption}
+          onDialogueVoiceUpdate={engine.setDialogueVoice}
           onTimelineReorder={engine.reorderTimelineNode}
           onTimelineNodesReorder={engine.reorderTimelineNodes}
           onTimelineNodesDelete={engine.deleteTimelineNodes}
@@ -407,6 +426,8 @@ export default function App() {
           assets={engine.assets}
           previewUrls={assetPreviewUrls}
           onAdvance={gamePreview.advance}
+          onVideoComplete={gamePreview.completeVideo}
+          onChoiceSelect={gamePreview.selectChoice}
           onExit={gamePreview.exit}
         />
       ) : null}

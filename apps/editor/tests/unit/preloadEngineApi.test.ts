@@ -110,6 +110,98 @@ describe('preload background and timeline engine API', () => {
       'sceneJump.update',
     ],
     [
+      'setDialogueVoice',
+      {
+        sceneId: 'scene-1',
+        nodeId: 'dialogue-1',
+        assetId: 'voice-1',
+      },
+      'dialogue.setVoice',
+    ],
+    [
+      'addBgm',
+      {
+        sceneId: 'scene-1',
+        afterNodeId: 'dialogue-1',
+      },
+      'bgm.add',
+    ],
+    [
+      'updateBgm',
+      {
+        sceneId: 'scene-1',
+        nodeId: 'bgm-1',
+        assetId: null,
+      },
+      'bgm.update',
+    ],
+    [
+      'addVideo',
+      {
+        sceneId: 'scene-1',
+        afterNodeId: 'dialogue-1',
+      },
+      'video.add',
+    ],
+    [
+      'updateVideo',
+      {
+        sceneId: 'scene-1',
+        nodeId: 'video-node-1',
+        assetId: 'video-1',
+      },
+      'video.update',
+    ],
+    [
+      'addChoice',
+      {
+        sceneId: 'scene-1',
+        afterNodeId: 'dialogue-1',
+      },
+      'choice.add',
+    ],
+    [
+      'addChoiceOption',
+      {
+        sceneId: 'scene-1',
+        nodeId: 'choice-1',
+        text: '前往天台',
+        targetSceneId: 'scene-2',
+        beforeOptionId: null,
+      },
+      'choice.option.add',
+    ],
+    [
+      'updateChoiceOption',
+      {
+        sceneId: 'scene-1',
+        nodeId: 'choice-1',
+        optionId: 'option-1',
+        text: '留在教室',
+        targetSceneId: 'scene-3',
+      },
+      'choice.option.update',
+    ],
+    [
+      'deleteChoiceOption',
+      {
+        sceneId: 'scene-1',
+        nodeId: 'choice-1',
+        optionId: 'option-1',
+      },
+      'choice.option.delete',
+    ],
+    [
+      'reorderChoiceOption',
+      {
+        sceneId: 'scene-1',
+        nodeId: 'choice-1',
+        optionId: 'option-2',
+        beforeOptionId: 'option-1',
+      },
+      'choice.option.reorder',
+    ],
+    [
       'deleteTimelineNodes',
       {
         sceneId: 'scene-1',

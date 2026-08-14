@@ -15,15 +15,29 @@ import type {
   AddDialogueAction,
   AddCharacterAction,
   AddSceneJumpAction,
+  AddBgmAction,
+  AddVideoAction,
+  AddChoiceAction,
+  AddChoiceOptionAction,
   DeleteTimelineNodesAction,
+  DeleteChoiceOptionAction,
   ReorderTimelineNodeAction,
   ReorderTimelineNodesAction,
   UpdateBackgroundAction,
   UpdateDialogueAction,
   UpdateCharacterAction,
   UpdateSceneJumpAction,
+  UpdateBgmAction,
+  UpdateVideoAction,
+  UpdateChoiceOptionAction,
+  ReorderChoiceOptionAction,
+  SetDialogueVoiceAction,
 } from '../../hooks/useEngineProject';
-import { VN_IMAGE_ASSET_DRAG_TYPE } from '../assets/ResourcePanel';
+import {
+  VN_AUDIO_ASSET_DRAG_TYPE,
+  VN_IMAGE_ASSET_DRAG_TYPE,
+  VN_VIDEO_ASSET_DRAG_TYPE,
+} from '../assets/ResourcePanel';
 import {
   BACKGROUND_BLOCK_TYPE,
   registerBackgroundBlock,
@@ -39,6 +53,30 @@ import {
   DIALOGUE_BLOCK_TYPE,
   registerDialogueBlock,
 } from './blocks/dialogueBlock';
+import {
+  BGM_BLOCK_FIELDS,
+  BGM_BLOCK_TYPE,
+  registerBgmBlock,
+} from './blocks/bgmBlock';
+import {
+  VIDEO_BLOCK_FIELDS,
+  VIDEO_BLOCK_TYPE,
+  registerVideoBlock,
+} from './blocks/videoBlock';
+import {
+  CHOICE_BLOCK_TYPE,
+  CHOICE_OPTION_BLOCK_TYPE,
+  registerChoiceBlocks,
+  setChoiceOptionSceneOptions,
+} from './blocks/choiceBlock';
+import {
+  collectChoiceOptionFieldDrafts,
+  findChoiceOption,
+  getChoiceOptionFieldUpdate,
+  getNewChoiceOptionDropResolution,
+  getReorderedChoiceOptionBlock,
+  isChoiceOptionOutsideOwningChoice,
+} from './choiceBlockEvents';
 import {
   collectDialogueFieldDrafts,
   getDialogueFieldUpdate,
@@ -70,10 +108,31 @@ import {
   setSceneJumpBlockOptions,
 } from './blocks/sceneJumpBlock';
 import { getSceneJumpFieldUpdate } from './sceneJumpBlockEvents';
+import { STORY_BLOCK_TYPES } from './storyBlockTypes';
+import { installInlineZoomControlIcons } from './zoomControlIcons';
 
 // Blockly 默认值是 28，连接预览会在积木还离得较远时出现。
 // 12 个工作区单位要求连接口真正靠近后才进入吸附候选。
 const DIALOGUE_CONNECTION_SNAP_RADIUS = 12;
+
+function isPointInsideField(
+  block: Blockly.BlockSvg,
+  fieldName: string,
+  clientX: number,
+  clientY: number,
+): boolean {
+  const fieldRoot = block.getField(fieldName)?.getSvgRoot();
+  if (!fieldRoot) {
+    return false;
+  }
+  const rectangle = fieldRoot.getBoundingClientRect();
+  return (
+    clientX >= rectangle.left &&
+    clientX <= rectangle.right &&
+    clientY >= rectangle.top &&
+    clientY <= rectangle.bottom
+  );
+}
 
 type BlocklyWorkspaceProps = {
   scene: SceneDocument;
@@ -89,6 +148,16 @@ type BlocklyWorkspaceProps = {
   onCharacterUpdate: UpdateCharacterAction;
   onSceneJumpAdd: AddSceneJumpAction;
   onSceneJumpUpdate: UpdateSceneJumpAction;
+  onBgmAdd: AddBgmAction;
+  onBgmUpdate: UpdateBgmAction;
+  onVideoAdd: AddVideoAction;
+  onVideoUpdate: UpdateVideoAction;
+  onChoiceAdd: AddChoiceAction;
+  onChoiceOptionAdd: AddChoiceOptionAction;
+  onChoiceOptionUpdate: UpdateChoiceOptionAction;
+  onChoiceOptionDelete: DeleteChoiceOptionAction;
+  onChoiceOptionReorder: ReorderChoiceOptionAction;
+  onDialogueVoiceUpdate: SetDialogueVoiceAction;
   onTimelineNodesDelete: DeleteTimelineNodesAction;
   onTimelineReorder: ReorderTimelineNodeAction;
   onTimelineNodesReorder: ReorderTimelineNodesAction;
@@ -112,12 +181,11 @@ function setStoryBlocksInteractive(
   }
 
   const storyBlocks = [
-    DIALOGUE_BLOCK_TYPE,
-    BACKGROUND_BLOCK_TYPE,
-    CHARACTER_BLOCK_TYPE,
-    SCENE_JUMP_BLOCK_TYPE,
-  ]
-    .flatMap((type) => workspace.getBlocksByType(type, false));
+    ...STORY_BLOCK_TYPES.flatMap((type) =>
+      workspace.getBlocksByType(type, false),
+    ),
+    ...workspace.getBlocksByType(CHOICE_OPTION_BLOCK_TYPE, false),
+  ];
 
   for (const block of storyBlocks) {
     block.setEditable(interactive);
@@ -145,6 +213,16 @@ export const BlocklyWorkspace = forwardRef<
     onCharacterUpdate,
     onSceneJumpAdd,
     onSceneJumpUpdate,
+    onBgmAdd,
+    onBgmUpdate,
+    onVideoAdd,
+    onVideoUpdate,
+    onChoiceAdd,
+    onChoiceOptionAdd,
+    onChoiceOptionUpdate,
+    onChoiceOptionDelete,
+    onChoiceOptionReorder,
+    onDialogueVoiceUpdate,
     onTimelineNodesDelete,
     onTimelineReorder,
     onTimelineNodesReorder,
@@ -177,6 +255,16 @@ export const BlocklyWorkspace = forwardRef<
   const updateCharacterRef = useRef(onCharacterUpdate);
   const addSceneJumpRef = useRef(onSceneJumpAdd);
   const updateSceneJumpRef = useRef(onSceneJumpUpdate);
+  const addBgmRef = useRef(onBgmAdd);
+  const updateBgmRef = useRef(onBgmUpdate);
+  const addVideoRef = useRef(onVideoAdd);
+  const updateVideoRef = useRef(onVideoUpdate);
+  const addChoiceRef = useRef(onChoiceAdd);
+  const addChoiceOptionRef = useRef(onChoiceOptionAdd);
+  const updateChoiceOptionRef = useRef(onChoiceOptionUpdate);
+  const deleteChoiceOptionRef = useRef(onChoiceOptionDelete);
+  const reorderChoiceOptionRef = useRef(onChoiceOptionReorder);
+  const updateDialogueVoiceRef = useRef(onDialogueVoiceUpdate);
   const deleteTimelineNodesRef = useRef(onTimelineNodesDelete);
   const reorderTimelineRef = useRef(onTimelineReorder);
   const reorderTimelineNodesRef = useRef(onTimelineNodesReorder);
@@ -199,6 +287,16 @@ export const BlocklyWorkspace = forwardRef<
   updateCharacterRef.current = onCharacterUpdate;
   addSceneJumpRef.current = onSceneJumpAdd;
   updateSceneJumpRef.current = onSceneJumpUpdate;
+  addBgmRef.current = onBgmAdd;
+  updateBgmRef.current = onBgmUpdate;
+  addVideoRef.current = onVideoAdd;
+  updateVideoRef.current = onVideoUpdate;
+  addChoiceRef.current = onChoiceAdd;
+  addChoiceOptionRef.current = onChoiceOptionAdd;
+  updateChoiceOptionRef.current = onChoiceOptionUpdate;
+  deleteChoiceOptionRef.current = onChoiceOptionDelete;
+  reorderChoiceOptionRef.current = onChoiceOptionReorder;
+  updateDialogueVoiceRef.current = onDialogueVoiceUpdate;
   deleteTimelineNodesRef.current = onTimelineNodesDelete;
   reorderTimelineRef.current = onTimelineReorder;
   reorderTimelineNodesRef.current = onTimelineNodesReorder;
@@ -289,7 +387,8 @@ export const BlocklyWorkspace = forwardRef<
       scene: nextScene,
     };
     draftDirtyChangeRef.current(
-      collectDialogueFieldDrafts(workspace, nextScene).length > 0,
+      collectDialogueFieldDrafts(workspace, nextScene).length > 0 ||
+        collectChoiceOptionFieldDrafts(workspace, nextScene).length > 0,
     );
 
     // 保存经过内容边界夹紧后的实际视角值。
@@ -314,6 +413,10 @@ export const BlocklyWorkspace = forwardRef<
     registerDialogueBlock();
     registerBackgroundBlock();
     registerCharacterBlock();
+    registerBgmBlock();
+    registerVideoBlock();
+    setChoiceOptionSceneOptions(scenesRef.current);
+    registerChoiceBlocks();
     setSceneJumpBlockOptions(scenesRef.current, sceneRef.current.id);
     registerSceneJumpBlock();
     Blockly.config.snapRadius = DIALOGUE_CONNECTION_SNAP_RADIUS;
@@ -335,7 +438,7 @@ export const BlocklyWorkspace = forwardRef<
         (nodeId) =>
           sceneRef.current.nodes.some(
             (node) => node.id === nodeId,
-          ),
+          ) || findChoiceOption(sceneRef.current, nodeId) !== null,
       );
 
     const workspace = (() => {
@@ -370,6 +473,7 @@ export const BlocklyWorkspace = forwardRef<
     })();
 
     workspaceRef.current = workspace;
+    installInlineZoomControlIcons(workspace.getParentSvg());
 
     const resizeObserver = new ResizeObserver(() => {
       Blockly.svgResize(workspace);
@@ -448,8 +552,11 @@ export const BlocklyWorkspace = forwardRef<
 
     const handleAssetDragOver = (event: DragEvent) => {
       if (
-        !event.dataTransfer?.types.includes(
-          VN_IMAGE_ASSET_DRAG_TYPE,
+        !event.dataTransfer?.types.some(
+          (type) =>
+            type === VN_IMAGE_ASSET_DRAG_TYPE ||
+            type === VN_AUDIO_ASSET_DRAG_TYPE ||
+            type === VN_VIDEO_ASSET_DRAG_TYPE,
         ) ||
         isSavingRef.current ||
         externalBusyRef.current
@@ -462,25 +569,64 @@ export const BlocklyWorkspace = forwardRef<
     };
 
     const handleAssetDrop = (event: DragEvent) => {
-      const assetId = event.dataTransfer?.getData(
+      const imageAssetId = event.dataTransfer?.getData(
         VN_IMAGE_ASSET_DRAG_TYPE,
       );
+      const audioAssetId = event.dataTransfer?.getData(
+        VN_AUDIO_ASSET_DRAG_TYPE,
+      );
+      const videoAssetId = event.dataTransfer?.getData(
+        VN_VIDEO_ASSET_DRAG_TYPE,
+      );
+      const assetId = imageAssetId || audioAssetId || videoAssetId;
+      const assetType: AssetDocument['type'] | null = imageAssetId
+        ? 'image'
+        : audioAssetId
+          ? 'audio'
+          : videoAssetId
+            ? 'video'
+            : null;
       if (
         !assetId ||
+        !assetType ||
         isSavingRef.current ||
         externalBusyRef.current ||
         !assetsRef.current.some(
-          (asset) => asset.id === assetId && asset.type === 'image',
+          (asset) => asset.id === assetId && asset.type === assetType,
         )
       ) {
         return;
       }
 
-      const block = [BACKGROUND_BLOCK_TYPE, CHARACTER_BLOCK_TYPE]
+      const blockTypes =
+        assetType === 'image'
+          ? [BACKGROUND_BLOCK_TYPE, CHARACTER_BLOCK_TYPE]
+          : assetType === 'audio'
+            ? [DIALOGUE_BLOCK_TYPE, BGM_BLOCK_TYPE]
+            : [VIDEO_BLOCK_TYPE];
+      const block = blockTypes
         .flatMap((type) => workspace.getBlocksByType(type, false))
         .find((candidate) => {
           if (!(candidate instanceof Blockly.BlockSvg)) {
             return false;
+          }
+          if (assetType === 'audio') {
+            return isPointInsideField(
+              candidate,
+              candidate.type === DIALOGUE_BLOCK_TYPE
+                ? DIALOGUE_BLOCK_FIELDS.voiceAssetName
+                : BGM_BLOCK_FIELDS.assetName,
+              event.clientX,
+              event.clientY,
+            );
+          }
+          if (assetType === 'video') {
+            return isPointInsideField(
+              candidate,
+              VIDEO_BLOCK_FIELDS.assetName,
+              event.clientX,
+              event.clientY,
+            );
           }
           const rectangle = getBlockClientRectangle(
             candidate,
@@ -501,7 +647,12 @@ export const BlocklyWorkspace = forwardRef<
 
       if (
         !block ||
-        (node?.type !== 'background' && node?.type !== 'character')
+        !node ||
+        (assetType === 'image'
+          ? node.type !== 'background' && node.type !== 'character'
+          : assetType === 'audio'
+            ? node.type !== 'dialogue' && node.type !== 'bgm'
+            : node.type !== 'video')
       ) {
         return;
       }
@@ -510,7 +661,16 @@ export const BlocklyWorkspace = forwardRef<
       event.stopPropagation();
       selection.selectOnly(node.id);
 
-      if (node.assetId === assetId) {
+      const currentAssetId =
+        node.type === 'dialogue'
+          ? node.voiceAssetId
+          : node.type === 'bgm' ||
+              node.type === 'background' ||
+              node.type === 'character' ||
+              node.type === 'video'
+            ? node.assetId
+            : null;
+      if (currentAssetId === assetId) {
         return;
       }
 
@@ -521,13 +681,33 @@ export const BlocklyWorkspace = forwardRef<
               nodeId: node.id,
               assetId,
             })
-          : updateCharacterRef.current({
+          : node.type === 'character'
+            ? updateCharacterRef.current({
               sceneId: sceneRef.current.id,
               nodeId: node.id,
               assetId,
               slot: getCharacterBlockSlot(block),
               layer: getCharacterBlockLayer(block),
-            }),
+            })
+            : node.type === 'dialogue'
+              ? updateDialogueVoiceRef.current({
+                  sceneId: sceneRef.current.id,
+                  nodeId: node.id,
+                  assetId,
+                })
+              : node.type === 'bgm'
+                ? updateBgmRef.current({
+                    sceneId: sceneRef.current.id,
+                    nodeId: node.id,
+                    assetId,
+                  })
+                : node.type === 'video'
+                  ? updateVideoRef.current({
+                      sceneId: sceneRef.current.id,
+                      nodeId: node.id,
+                      assetId,
+                    })
+                  : Promise.resolve(false),
       );
     };
 
@@ -543,7 +723,13 @@ export const BlocklyWorkspace = forwardRef<
         workspace,
         currentScene,
       );
-      draftDirtyChangeRef.current(drafts.length > 0);
+      const choiceDrafts = collectChoiceOptionFieldDrafts(
+        workspace,
+        currentScene,
+      );
+      draftDirtyChangeRef.current(
+        drafts.length > 0 || choiceDrafts.length > 0,
+      );
 
       return saveWorkspaceMutation(async () => {
         // 字段值已在上方同步采集。关闭 WidgetDiv 时禁用事件，
@@ -568,6 +754,17 @@ export const BlocklyWorkspace = forwardRef<
           }
         }
 
+        for (const draft of choiceDrafts) {
+          const saved = await updateChoiceOptionRef.current({
+            sceneId: currentScene.id,
+            ...draft,
+          });
+
+          if (!saved) {
+            return false;
+          }
+        }
+
         return true;
       }, {
         keepLockedOnSuccess: true,
@@ -581,6 +778,7 @@ export const BlocklyWorkspace = forwardRef<
       sceneRef.current,
     );
     selectionRef.current = selection;
+    let selectedChoiceOptionId: string | null = null;
 
     const requestDelete = (draggedNodeId: string | null) => {
       if (isSavingRef.current || externalBusyRef.current) {
@@ -588,18 +786,41 @@ export const BlocklyWorkspace = forwardRef<
       }
 
       const currentScene = sceneRef.current;
+      const draggedOption = draggedNodeId
+        ? findChoiceOption(currentScene, draggedNodeId)
+        : null;
 
       if (
         draggedNodeId &&
         !currentScene.nodes.some(
           (node) => node.id === draggedNodeId,
-        )
+        ) &&
+        draggedOption === null
       ) {
         // 工具箱刚生成的临时 ID 不属于 C++ Project。
         return;
       }
 
       const selectedNodeIds = selection.getSelectedNodeIds();
+
+      const optionToDelete = draggedOption ?? (
+        draggedNodeId === null && selectedNodeIds.length === 0 &&
+          selectedChoiceOptionId
+          ? findChoiceOption(currentScene, selectedChoiceOptionId)
+          : null
+      );
+      if (optionToDelete) {
+        selectedChoiceOptionId = null;
+        void saveWorkspaceMutation(() =>
+          deleteChoiceOptionRef.current({
+            sceneId: currentScene.id,
+            nodeId: optionToDelete.node.id,
+            optionId: optionToDelete.option.id,
+          }),
+        );
+        return;
+      }
+
       const nodeIds = draggedNodeId
         ? selectedNodeIds.includes(draggedNodeId)
           ? selectedNodeIds
@@ -688,13 +909,14 @@ export const BlocklyWorkspace = forwardRef<
         !workspace.isDragging() &&
         !groupDrag.isActive() &&
         !Blockly.getFocusManager().ephemeralFocusTaken() &&
-        selection.getSelectedNodeIds().length > 0,
+        (selection.getSelectedNodeIds().length > 0 ||
+          selectedChoiceOptionId !== null),
       callback: (_shortcutWorkspace, event) => {
         event.preventDefault();
         requestDelete(null);
         return true;
       },
-      displayText: '删除选中的剧情节点',
+      displayText: '删除选中的剧情节点或分支选项',
     });
 
     const handleWorkspaceChange = (
@@ -710,7 +932,9 @@ export const BlocklyWorkspace = forwardRef<
         // 这个事件不写 C++，只报告 Renderer 草稿状态。
         draftDirtyChangeRef.current(
           collectDialogueFieldDrafts(workspace, currentScene)
-            .length > 0,
+            .length > 0 ||
+            collectChoiceOptionFieldDrafts(workspace, currentScene)
+              .length > 0,
         );
         return;
       }
@@ -718,6 +942,15 @@ export const BlocklyWorkspace = forwardRef<
       if (event.type === Blockly.Events.SELECTED) {
         const selectedEvent = event as Blockly.Events.Selected;
         const selectedNodeId = selectedEvent.newElementId;
+        const selectedOption = selectedNodeId
+          ? findChoiceOption(currentScene, selectedNodeId)
+          : null;
+
+        if (selectedOption) {
+          selection.selectOnly();
+          selectedChoiceOptionId = selectedOption.option.id;
+          return;
+        }
 
         // 只让正式对白改变业务选择。垃圾桶/工具箱获得焦点时可能
         // 发出 SELECTED(null)，但不应该把准备删除的多选清空。
@@ -727,6 +960,7 @@ export const BlocklyWorkspace = forwardRef<
             (node) => node.id === selectedNodeId,
           )
         ) {
+          selectedChoiceOptionId = null;
           selection.selectOnly(selectedNodeId);
         }
         return;
@@ -766,6 +1000,73 @@ export const BlocklyWorkspace = forwardRef<
           }),
         );
 
+        return;
+      }
+
+      const optionReorder = getReorderedChoiceOptionBlock(
+        event,
+        workspace,
+        currentScene,
+      );
+      if (optionReorder) {
+        void saveWorkspaceMutation(() =>
+          reorderChoiceOptionRef.current({
+            sceneId: currentScene.id,
+            ...optionReorder,
+          }),
+        );
+        return;
+      }
+
+      if (
+        isChoiceOptionOutsideOwningChoice(
+          event,
+          workspace,
+          currentScene,
+        )
+      ) {
+        // ChoiceOption 的稳定 ID 属于一个 ChoiceNode，不能通过画布拖动
+        // 偷偷换父节点。恢复权威快照，避免 UI 与 C++ 分叉。
+        void saveWorkspaceMutation(() => Promise.resolve(false));
+        return;
+      }
+
+      const newChoiceOptionDropResolution =
+        getNewChoiceOptionDropResolution(
+          event,
+          workspace,
+          currentScene,
+        );
+      if (newChoiceOptionDropResolution?.kind === 'rollback') {
+        // 清除落在画布空白、顶层剧情链或临时 Choice 容器中的新选项，
+        // 同时把可能被它拆开的正式剧情链恢复为 C++ 快照中的顺序。
+        void saveWorkspaceMutation(() => Promise.resolve(false));
+        return;
+      }
+      if (newChoiceOptionDropResolution?.kind === 'add') {
+        const {
+          block,
+          nodeId,
+          text,
+          targetSceneId,
+          beforeOptionId,
+        } = newChoiceOptionDropResolution.drop;
+        block.setMovable(false);
+        block.setDeletable(false);
+        block.setEditable(false);
+        block.contextMenu = false;
+
+        void saveWorkspaceMutation(() =>
+          targetSceneId
+            ? addChoiceOptionRef.current({
+                sceneId: currentScene.id,
+                nodeId,
+                text,
+                targetSceneId,
+                beforeOptionId,
+              })
+            : Promise.resolve(false),
+        );
         return;
       }
 
@@ -840,7 +1141,10 @@ export const BlocklyWorkspace = forwardRef<
         if (
           (block?.type === BACKGROUND_BLOCK_TYPE ||
             block?.type === CHARACTER_BLOCK_TYPE ||
-            block?.type === SCENE_JUMP_BLOCK_TYPE) &&
+            block?.type === SCENE_JUMP_BLOCK_TYPE ||
+            block?.type === BGM_BLOCK_TYPE ||
+            block?.type === VIDEO_BLOCK_TYPE ||
+            block?.type === CHOICE_BLOCK_TYPE) &&
           !alreadyExists &&
           moveEvent.reason?.includes('drag')
         ) {
@@ -876,20 +1180,35 @@ export const BlocklyWorkspace = forwardRef<
                       sceneId: currentScene.id,
                       beforeNodeId,
                     })
-                  : (() => {
-                      const targetSceneId = String(
-                        block.getFieldValue(
-                          SCENE_JUMP_BLOCK_FIELDS.targetScene,
-                        ) ?? '',
-                      );
-                      return targetSceneId
-                        ? addSceneJumpRef.current({
+                  : block.type === BGM_BLOCK_TYPE
+                    ? addBgmRef.current({
+                        sceneId: currentScene.id,
+                        beforeNodeId,
+                      })
+                    : block.type === VIDEO_BLOCK_TYPE
+                      ? addVideoRef.current({
+                          sceneId: currentScene.id,
+                          beforeNodeId,
+                        })
+                      : block.type === CHOICE_BLOCK_TYPE
+                        ? addChoiceRef.current({
                             sceneId: currentScene.id,
-                            targetSceneId,
                             beforeNodeId,
                           })
-                        : Promise.resolve(false);
-                    })(),
+                      : (() => {
+                        const targetSceneId = String(
+                          block.getFieldValue(
+                            SCENE_JUMP_BLOCK_FIELDS.targetScene,
+                          ) ?? '',
+                        );
+                        return targetSceneId
+                          ? addSceneJumpRef.current({
+                              sceneId: currentScene.id,
+                              targetSceneId,
+                              beforeNodeId,
+                            })
+                          : Promise.resolve(false);
+                      })(),
             );
             return;
           }
@@ -922,6 +1241,21 @@ export const BlocklyWorkspace = forwardRef<
           updateSceneJumpRef.current({
             sceneId: currentScene.id,
             ...sceneJumpUpdate,
+          }),
+        );
+        return;
+      }
+
+      const choiceOptionUpdate = getChoiceOptionFieldUpdate(
+        event,
+        workspace,
+        currentScene,
+      );
+      if (choiceOptionUpdate) {
+        void saveWorkspaceMutation(() =>
+          updateChoiceOptionRef.current({
+            sceneId: currentScene.id,
+            ...choiceOptionUpdate,
           }),
         );
         return;
@@ -991,6 +1325,7 @@ export const BlocklyWorkspace = forwardRef<
     // 场景切换或后端快照到达时，旧指针手势不能继续作用于新数据。
     groupDragRef.current?.cancel();
     setSceneJumpBlockOptions(scenes, scene.id);
+    setChoiceOptionSceneOptions(scenes);
     renderSceneSnapshot(scene, layoutKey);
 
     // 如果旧场景仍在保存，新投影也暂时不能编辑。
