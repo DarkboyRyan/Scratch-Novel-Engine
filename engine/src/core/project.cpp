@@ -47,6 +47,44 @@ bool is_valid_character_slot(const CharacterSlot slot) {
   return false;
 }
 
+bool project_contains_entity_id(
+    const Project& project,
+    const std::string_view candidate_id) {
+  if (project.id == candidate_id) {
+    return true;
+  }
+  for (const Scene& scene : project.scenes) {
+    if (scene.id == candidate_id) {
+      return true;
+    }
+    for (const CharacterVisualInstance& character :
+         scene.visuals.characters) {
+      if (character.id == candidate_id) {
+        return true;
+      }
+    }
+    for (const SceneNode& node : scene.nodes) {
+      if (std::visit(
+              [candidate_id](const auto& value) {
+                return value.id == candidate_id;
+              },
+              node)) {
+        return true;
+      }
+      const auto* choice = std::get_if<ChoiceNode>(&node);
+      if (choice == nullptr) {
+        continue;
+      }
+      for (const ChoiceOption& option : choice->options) {
+        if (option.id == candidate_id) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 }  // namespace
 
 RandomIdGenerator::RandomIdGenerator() : random_engine_(std::random_device{}()) {}
@@ -209,6 +247,66 @@ const SceneJumpNode* find_scene_jump_node(
   return node == nullptr ? nullptr : std::get_if<SceneJumpNode>(node);
 }
 
+BgmNode* find_bgm_node(Scene& scene, const std::string_view node_id) {
+  SceneNode* node = find_scene_node(scene, node_id);
+  return node == nullptr ? nullptr : std::get_if<BgmNode>(node);
+}
+
+const BgmNode* find_bgm_node(
+    const Scene& scene,
+    const std::string_view node_id) {
+  const SceneNode* node = find_scene_node(scene, node_id);
+  return node == nullptr ? nullptr : std::get_if<BgmNode>(node);
+}
+
+VideoNode* find_video_node(Scene& scene, const std::string_view node_id) {
+  SceneNode* node = find_scene_node(scene, node_id);
+  return node == nullptr ? nullptr : std::get_if<VideoNode>(node);
+}
+
+const VideoNode* find_video_node(
+    const Scene& scene,
+    const std::string_view node_id) {
+  const SceneNode* node = find_scene_node(scene, node_id);
+  return node == nullptr ? nullptr : std::get_if<VideoNode>(node);
+}
+
+ChoiceNode* find_choice_node(Scene& scene, const std::string_view node_id) {
+  SceneNode* node = find_scene_node(scene, node_id);
+  return node == nullptr ? nullptr : std::get_if<ChoiceNode>(node);
+}
+
+const ChoiceNode* find_choice_node(
+    const Scene& scene,
+    const std::string_view node_id) {
+  const SceneNode* node = find_scene_node(scene, node_id);
+  return node == nullptr ? nullptr : std::get_if<ChoiceNode>(node);
+}
+
+ChoiceOption* find_choice_option(
+    ChoiceNode& choice,
+    const std::string_view option_id) {
+  const auto iterator = std::find_if(
+      choice.options.begin(),
+      choice.options.end(),
+      [option_id](const ChoiceOption& option) {
+        return option.id == option_id;
+      });
+  return iterator == choice.options.end() ? nullptr : &*iterator;
+}
+
+const ChoiceOption* find_choice_option(
+    const ChoiceNode& choice,
+    const std::string_view option_id) {
+  const auto iterator = std::find_if(
+      choice.options.begin(),
+      choice.options.end(),
+      [option_id](const ChoiceOption& option) {
+        return option.id == option_id;
+      });
+  return iterator == choice.options.end() ? nullptr : &*iterator;
+}
+
 Asset* find_asset(
     ProjectAggregate& aggregate,
     const std::string_view asset_id) {
@@ -349,6 +447,16 @@ bool delete_scene(Project& project, const std::string_view scene_id) {
     for (const SceneNode& node : scene.nodes) {
       const auto* jump = std::get_if<SceneJumpNode>(&node);
       if (jump != nullptr && jump->target_scene_id == scene_id) {
+        return false;
+      }
+      const auto* choice = std::get_if<ChoiceNode>(&node);
+      if (choice != nullptr && scene.id != scene_id &&
+          std::any_of(
+              choice->options.begin(),
+              choice->options.end(),
+              [scene_id](const ChoiceOption& option) {
+                return option.target_scene_id == scene_id;
+              })) {
         return false;
       }
     }
@@ -552,6 +660,402 @@ UpdateCharacterNodeResult update_character_node(
   character->slot = slot;
   character->layer = layer;
   return UpdateCharacterNodeResult::changed;
+}
+
+AddBgmNodeResult add_bgm_node(
+    ProjectAggregate& aggregate,
+    IdGenerator& ids,
+    const std::string_view scene_id,
+    std::optional<std::string> after_node_id,
+    std::optional<std::string> before_node_id) {
+  Scene* scene = find_scene(aggregate.project, scene_id);
+  if (scene == nullptr) {
+    return {AddBgmNodeStatus::scene_not_found, std::nullopt};
+  }
+  if (after_node_id.has_value() && before_node_id.has_value()) {
+    return {AddBgmNodeStatus::placement_conflict, std::nullopt};
+  }
+
+  auto insertion_iterator = scene->nodes.end();
+  if (before_node_id.has_value()) {
+    insertion_iterator = std::find_if(
+        scene->nodes.begin(),
+        scene->nodes.end(),
+        [&before_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *before_node_id;
+        });
+    if (insertion_iterator == scene->nodes.end()) {
+      return {AddBgmNodeStatus::anchor_not_found, std::nullopt};
+    }
+  } else if (after_node_id.has_value()) {
+    const auto anchor = std::find_if(
+        scene->nodes.begin(),
+        scene->nodes.end(),
+        [&after_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *after_node_id;
+        });
+    if (anchor == scene->nodes.end()) {
+      return {AddBgmNodeStatus::anchor_not_found, std::nullopt};
+    }
+    insertion_iterator = std::next(anchor);
+  }
+
+  BgmNode bgm{
+      .id = ids.next(),
+      .asset_id = std::nullopt,
+  };
+  std::string created_id = bgm.id;
+  scene->nodes.insert(insertion_iterator, std::move(bgm));
+  return {AddBgmNodeStatus::added, std::move(created_id)};
+}
+
+UpdateBgmNodeResult update_bgm_node(
+    ProjectAggregate& aggregate,
+    const std::string_view scene_id,
+    const std::string_view node_id,
+    std::optional<std::string> asset_id) {
+  Scene* scene = find_scene(aggregate.project, scene_id);
+  if (scene == nullptr) {
+    return UpdateBgmNodeResult::scene_not_found;
+  }
+  BgmNode* bgm = find_bgm_node(*scene, node_id);
+  if (bgm == nullptr) {
+    return UpdateBgmNodeResult::node_not_found;
+  }
+  if (asset_id.has_value()) {
+    const Asset* asset = find_asset(aggregate, *asset_id);
+    if (asset == nullptr) {
+      return UpdateBgmNodeResult::asset_not_found;
+    }
+    if (asset->type != AssetType::audio) {
+      return UpdateBgmNodeResult::asset_not_audio;
+    }
+  }
+  if (bgm->asset_id == asset_id) {
+    return UpdateBgmNodeResult::unchanged;
+  }
+
+  bgm->asset_id = std::move(asset_id);
+  return UpdateBgmNodeResult::changed;
+}
+
+AddVideoNodeResult add_video_node(
+    ProjectAggregate& aggregate,
+    IdGenerator& ids,
+    const std::string_view scene_id,
+    std::optional<std::string> after_node_id,
+    std::optional<std::string> before_node_id) {
+  Scene* scene = find_scene(aggregate.project, scene_id);
+  if (scene == nullptr) {
+    return {AddVideoNodeStatus::scene_not_found, std::nullopt};
+  }
+  if (after_node_id.has_value() && before_node_id.has_value()) {
+    return {AddVideoNodeStatus::placement_conflict, std::nullopt};
+  }
+
+  auto insertion_iterator = scene->nodes.end();
+  if (before_node_id.has_value()) {
+    insertion_iterator = std::find_if(
+        scene->nodes.begin(),
+        scene->nodes.end(),
+        [&before_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *before_node_id;
+        });
+    if (insertion_iterator == scene->nodes.end()) {
+      return {AddVideoNodeStatus::anchor_not_found, std::nullopt};
+    }
+  } else if (after_node_id.has_value()) {
+    const auto anchor = std::find_if(
+        scene->nodes.begin(),
+        scene->nodes.end(),
+        [&after_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *after_node_id;
+        });
+    if (anchor == scene->nodes.end()) {
+      return {AddVideoNodeStatus::anchor_not_found, std::nullopt};
+    }
+    insertion_iterator = std::next(anchor);
+  }
+
+  VideoNode video{
+      .id = ids.next(),
+      .asset_id = std::nullopt,
+  };
+  std::string created_id = video.id;
+  scene->nodes.insert(insertion_iterator, std::move(video));
+  return {AddVideoNodeStatus::added, std::move(created_id)};
+}
+
+UpdateVideoNodeResult update_video_node(
+    ProjectAggregate& aggregate,
+    const std::string_view scene_id,
+    const std::string_view node_id,
+    std::optional<std::string> asset_id) {
+  Scene* scene = find_scene(aggregate.project, scene_id);
+  if (scene == nullptr) {
+    return UpdateVideoNodeResult::scene_not_found;
+  }
+  VideoNode* video = find_video_node(*scene, node_id);
+  if (video == nullptr) {
+    return UpdateVideoNodeResult::node_not_found;
+  }
+  if (asset_id.has_value()) {
+    const Asset* asset = find_asset(aggregate, *asset_id);
+    if (asset == nullptr) {
+      return UpdateVideoNodeResult::asset_not_found;
+    }
+    if (asset->type != AssetType::video) {
+      return UpdateVideoNodeResult::asset_not_video;
+    }
+  }
+  if (video->asset_id == asset_id) {
+    return UpdateVideoNodeResult::unchanged;
+  }
+
+  video->asset_id = std::move(asset_id);
+  return UpdateVideoNodeResult::changed;
+}
+
+AddChoiceNodeResult add_choice_node(
+    Project& project,
+    IdGenerator& ids,
+    const std::string_view scene_id,
+    std::optional<std::string> after_node_id,
+    std::optional<std::string> before_node_id) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return {AddChoiceNodeStatus::scene_not_found, std::nullopt};
+  }
+  if (after_node_id.has_value() && before_node_id.has_value()) {
+    return {AddChoiceNodeStatus::placement_conflict, std::nullopt};
+  }
+
+  auto insertion_iterator = scene->nodes.end();
+  if (before_node_id.has_value()) {
+    insertion_iterator = std::find_if(
+        scene->nodes.begin(),
+        scene->nodes.end(),
+        [&before_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *before_node_id;
+        });
+    if (insertion_iterator == scene->nodes.end()) {
+      return {AddChoiceNodeStatus::anchor_not_found, std::nullopt};
+    }
+  } else if (after_node_id.has_value()) {
+    const auto anchor = std::find_if(
+        scene->nodes.begin(),
+        scene->nodes.end(),
+        [&after_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *after_node_id;
+        });
+    if (anchor == scene->nodes.end()) {
+      return {AddChoiceNodeStatus::anchor_not_found, std::nullopt};
+    }
+    insertion_iterator = std::next(anchor);
+  }
+
+  ChoiceNode choice{
+      .id = ids.next(),
+      .options = {},
+  };
+  std::string created_id = choice.id;
+  scene->nodes.insert(insertion_iterator, std::move(choice));
+  return {AddChoiceNodeStatus::added, std::move(created_id)};
+}
+
+AddChoiceOptionResult add_choice_option(
+    Project& project,
+    IdGenerator& ids,
+    const std::string_view scene_id,
+    const std::string_view node_id,
+    std::string text,
+    std::string target_scene_id,
+    std::optional<std::string> before_option_id) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return {AddChoiceOptionStatus::scene_not_found, std::nullopt};
+  }
+  ChoiceNode* choice = find_choice_node(*scene, node_id);
+  if (choice == nullptr) {
+    return {AddChoiceOptionStatus::node_not_found, std::nullopt};
+  }
+
+  text = trim_ascii_whitespace(std::move(text));
+  if (text.empty()) {
+    return {AddChoiceOptionStatus::text_required, std::nullopt};
+  }
+  if (find_scene(project, target_scene_id) == nullptr) {
+    return {
+        AddChoiceOptionStatus::target_scene_not_found,
+        std::nullopt,
+    };
+  }
+
+  auto insertion_iterator = choice->options.end();
+  if (before_option_id.has_value()) {
+    insertion_iterator = std::find_if(
+        choice->options.begin(),
+        choice->options.end(),
+        [&before_option_id](const ChoiceOption& option) {
+          return option.id == *before_option_id;
+        });
+    if (insertion_iterator == choice->options.end()) {
+      return {
+          AddChoiceOptionStatus::before_option_not_found,
+          std::nullopt,
+      };
+    }
+  }
+
+  std::string option_id;
+  for (int attempt = 0; attempt < 32; ++attempt) {
+    std::string candidate = ids.next();
+    if (!candidate.empty() &&
+        !project_contains_entity_id(project, candidate)) {
+      option_id = std::move(candidate);
+      break;
+    }
+  }
+  if (option_id.empty()) {
+    return {
+        AddChoiceOptionStatus::id_generation_failed,
+        std::nullopt,
+    };
+  }
+
+  choice->options.insert(
+      insertion_iterator,
+      ChoiceOption{
+          .id = option_id,
+          .text = std::move(text),
+          .target_scene_id = std::move(target_scene_id),
+      });
+  return {AddChoiceOptionStatus::added, std::move(option_id)};
+}
+
+UpdateChoiceOptionResult update_choice_option(
+    Project& project,
+    const std::string_view scene_id,
+    const std::string_view node_id,
+    const std::string_view option_id,
+    std::string text,
+    std::string target_scene_id) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return UpdateChoiceOptionResult::scene_not_found;
+  }
+  ChoiceNode* choice = find_choice_node(*scene, node_id);
+  if (choice == nullptr) {
+    return UpdateChoiceOptionResult::node_not_found;
+  }
+  ChoiceOption* option = find_choice_option(*choice, option_id);
+  if (option == nullptr) {
+    return UpdateChoiceOptionResult::option_not_found;
+  }
+
+  text = trim_ascii_whitespace(std::move(text));
+  if (text.empty()) {
+    return UpdateChoiceOptionResult::text_required;
+  }
+  if (find_scene(project, target_scene_id) == nullptr) {
+    return UpdateChoiceOptionResult::target_scene_not_found;
+  }
+  if (option->text == text &&
+      option->target_scene_id == target_scene_id) {
+    return UpdateChoiceOptionResult::unchanged;
+  }
+
+  option->text = std::move(text);
+  option->target_scene_id = std::move(target_scene_id);
+  return UpdateChoiceOptionResult::changed;
+}
+
+DeleteChoiceOptionResult delete_choice_option(
+    Project& project,
+    const std::string_view scene_id,
+    const std::string_view node_id,
+    const std::string_view option_id) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return DeleteChoiceOptionResult::scene_not_found;
+  }
+  ChoiceNode* choice = find_choice_node(*scene, node_id);
+  if (choice == nullptr) {
+    return DeleteChoiceOptionResult::node_not_found;
+  }
+  const auto iterator = std::find_if(
+      choice->options.begin(),
+      choice->options.end(),
+      [option_id](const ChoiceOption& option) {
+        return option.id == option_id;
+      });
+  if (iterator == choice->options.end()) {
+    return DeleteChoiceOptionResult::option_not_found;
+  }
+
+  choice->options.erase(iterator);
+  return DeleteChoiceOptionResult::changed;
+}
+
+ReorderChoiceOptionResult reorder_choice_option(
+    Project& project,
+    const std::string_view scene_id,
+    const std::string_view node_id,
+    const std::string_view option_id,
+    std::optional<std::string> before_option_id) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return ReorderChoiceOptionResult::scene_not_found;
+  }
+  ChoiceNode* choice = find_choice_node(*scene, node_id);
+  if (choice == nullptr) {
+    return ReorderChoiceOptionResult::node_not_found;
+  }
+  if (find_choice_option(*choice, option_id) == nullptr) {
+    return ReorderChoiceOptionResult::option_not_found;
+  }
+  if (before_option_id == option_id) {
+    return ReorderChoiceOptionResult::self_anchor;
+  }
+  if (before_option_id.has_value() &&
+      find_choice_option(*choice, *before_option_id) == nullptr) {
+    return ReorderChoiceOptionResult::before_option_not_found;
+  }
+
+  std::vector<ChoiceOption> reordered;
+  reordered.reserve(choice->options.size());
+  std::optional<ChoiceOption> moving;
+  for (const ChoiceOption& option : choice->options) {
+    if (option.id == option_id) {
+      moving = option;
+    } else {
+      reordered.push_back(option);
+    }
+  }
+
+  auto insertion_iterator = reordered.end();
+  if (before_option_id.has_value()) {
+    insertion_iterator = std::find_if(
+        reordered.begin(),
+        reordered.end(),
+        [&before_option_id](const ChoiceOption& option) {
+          return option.id == *before_option_id;
+        });
+  }
+  reordered.insert(insertion_iterator, std::move(*moving));
+
+  if (std::equal(
+          choice->options.begin(),
+          choice->options.end(),
+          reordered.begin(),
+          [](const ChoiceOption& current, const ChoiceOption& next) {
+            return current.id == next.id;
+          })) {
+    return ReorderChoiceOptionResult::unchanged;
+  }
+
+  choice->options.swap(reordered);
+  return ReorderChoiceOptionResult::changed;
 }
 
 AddSceneJumpNodeResult add_scene_jump_node(
@@ -791,6 +1295,7 @@ std::optional<std::string> add_dialogue(
       .id = ids.next(),
       .speaker = std::move(speaker),
       .text = std::move(text),
+      .voice_asset_id = std::nullopt,
   };
   std::string created_id = dialogue.id;
 
@@ -823,6 +1328,36 @@ bool update_dialogue(
   dialogue->speaker = std::move(speaker);
   dialogue->text = std::move(text);
   return true;
+}
+
+SetDialogueVoiceResult set_dialogue_voice(
+    ProjectAggregate& aggregate,
+    const std::string_view scene_id,
+    const std::string_view dialogue_id,
+    std::optional<std::string> asset_id) {
+  Scene* scene = find_scene(aggregate.project, scene_id);
+  if (scene == nullptr) {
+    return SetDialogueVoiceResult::scene_not_found;
+  }
+  Dialogue* dialogue = find_dialogue(*scene, dialogue_id);
+  if (dialogue == nullptr) {
+    return SetDialogueVoiceResult::dialogue_not_found;
+  }
+  if (asset_id.has_value()) {
+    const Asset* asset = find_asset(aggregate, *asset_id);
+    if (asset == nullptr) {
+      return SetDialogueVoiceResult::asset_not_found;
+    }
+    if (asset->type != AssetType::audio) {
+      return SetDialogueVoiceResult::asset_not_audio;
+    }
+  }
+  if (dialogue->voice_asset_id == asset_id) {
+    return SetDialogueVoiceResult::unchanged;
+  }
+
+  dialogue->voice_asset_id = std::move(asset_id);
+  return SetDialogueVoiceResult::changed;
 }
 
 bool delete_dialogue(
@@ -1005,8 +1540,8 @@ std::optional<std::string> validate_project(const Project& project) {
     return "project must contain at least one scene";
   }
 
-  // Project, Scene, Dialogue, and visual-instance IDs share one namespace.
-  // Assets join the same namespace in validate_project_aggregate().
+  // Project, Scene, timeline-node, Choice-option, and visual-instance IDs
+  // share one namespace. Assets join it in validate_project_aggregate().
   std::unordered_set<std::string> ids{project.id};
   bool found_entry_scene = false;
 
@@ -1056,6 +1591,11 @@ std::optional<std::string> validate_project(const Project& project) {
           background->asset_id->empty()) {
         return "background node Asset ID must not be empty";
       }
+      if (const auto* dialogue = std::get_if<Dialogue>(&node);
+          dialogue != nullptr && dialogue->voice_asset_id.has_value() &&
+          dialogue->voice_asset_id->empty()) {
+        return "dialogue voice Asset ID must not be empty";
+      }
       if (const auto* character = std::get_if<CharacterNode>(&node);
           character != nullptr) {
         if (character->asset_id.has_value() && character->asset_id->empty()) {
@@ -1071,6 +1611,41 @@ std::optional<std::string> validate_project(const Project& project) {
       if (const auto* jump = std::get_if<SceneJumpNode>(&node);
           jump != nullptr && jump->target_scene_id.empty()) {
         return "scene jump target Scene ID must not be empty";
+      }
+      if (const auto* bgm = std::get_if<BgmNode>(&node);
+          bgm != nullptr && bgm->asset_id.has_value() &&
+          bgm->asset_id->empty()) {
+        return "BGM node Asset ID must not be empty";
+      }
+      if (const auto* video = std::get_if<VideoNode>(&node);
+          video != nullptr && video->asset_id.has_value() &&
+          video->asset_id->empty()) {
+        return "video node Asset ID must not be empty";
+      }
+      if (const auto* choice = std::get_if<ChoiceNode>(&node);
+          choice != nullptr) {
+        for (const ChoiceOption& option : choice->options) {
+          if (option.id.empty()) {
+            return "choice option ID must not be empty";
+          }
+          if (!ids.insert(option.id).second) {
+            return "entity IDs must be unique";
+          }
+          const std::string normalized_text =
+              trim_ascii_whitespace(option.text);
+          if (normalized_text.empty()) {
+            return "choice option text must not be empty";
+          }
+          if (normalized_text != option.text) {
+            return "choice option text must not have surrounding whitespace";
+          }
+          if (option.target_scene_id.empty()) {
+            return "choice option target Scene ID must not be empty";
+          }
+          if (find_scene(project, option.target_scene_id) == nullptr) {
+            return "choice option must reference an existing Scene";
+          }
+        }
       }
     }
   }
@@ -1137,6 +1712,12 @@ std::optional<std::string> validate_project_aggregate(
     }
     for (const SceneNode& node : scene.nodes) {
       ids.insert(std::string(scene_node_id(node)));
+      if (const auto* choice = std::get_if<ChoiceNode>(&node);
+          choice != nullptr) {
+        for (const ChoiceOption& option : choice->options) {
+          ids.insert(option.id);
+        }
+      }
     }
   }
 
@@ -1180,6 +1761,16 @@ std::optional<std::string> validate_project_aggregate(
     }
 
     for (const SceneNode& node : scene.nodes) {
+      if (const auto* dialogue = std::get_if<Dialogue>(&node);
+          dialogue != nullptr && dialogue->voice_asset_id.has_value()) {
+        const Asset* asset = find_asset(aggregate, *dialogue->voice_asset_id);
+        if (asset == nullptr) {
+          return "dialogue voice must reference an existing Asset";
+        }
+        if (asset->type != AssetType::audio) {
+          return "dialogue voice Asset must be audio";
+        }
+      }
       if (const auto* background = std::get_if<BackgroundNode>(&node);
           background != nullptr && background->asset_id.has_value()) {
         const Asset* asset = find_asset(aggregate, *background->asset_id);
@@ -1207,6 +1798,35 @@ std::optional<std::string> validate_project_aggregate(
         }
         if (find_scene(aggregate.project, jump->target_scene_id) == nullptr) {
           return "scene jump must reference an existing Scene";
+        }
+      }
+      if (const auto* bgm = std::get_if<BgmNode>(&node);
+          bgm != nullptr && bgm->asset_id.has_value()) {
+        const Asset* asset = find_asset(aggregate, *bgm->asset_id);
+        if (asset == nullptr) {
+          return "BGM node must reference an existing Asset";
+        }
+        if (asset->type != AssetType::audio) {
+          return "BGM node Asset must be audio";
+        }
+      }
+      if (const auto* video = std::get_if<VideoNode>(&node);
+          video != nullptr && video->asset_id.has_value()) {
+        const Asset* asset = find_asset(aggregate, *video->asset_id);
+        if (asset == nullptr) {
+          return "video node must reference an existing Asset";
+        }
+        if (asset->type != AssetType::video) {
+          return "video node Asset must be video";
+        }
+      }
+      if (const auto* choice = std::get_if<ChoiceNode>(&node);
+          choice != nullptr) {
+        for (const ChoiceOption& option : choice->options) {
+          if (find_scene(aggregate.project, option.target_scene_id) ==
+              nullptr) {
+            return "choice option must reference an existing Scene";
+          }
         }
       }
     }

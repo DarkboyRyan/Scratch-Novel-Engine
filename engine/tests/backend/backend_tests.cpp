@@ -69,6 +69,15 @@ std::string mp4_video_bytes() {
       reinterpret_cast<const char*>(bytes.data()), bytes.size());
 }
 
+std::string mp3_audio_bytes() {
+  std::string bytes(417, '\0');
+  bytes[0] = static_cast<char>(0xffU);
+  bytes[1] = static_cast<char>(0xfbU);
+  bytes[2] = static_cast<char>(0x90U);
+  bytes[3] = static_cast<char>(0x64U);
+  return bytes;
+}
+
 Json valid_document() {
   return {
       {"format", "vn-engine-project"},
@@ -149,6 +158,44 @@ Json migrated_v6_document() {
   return document;
 }
 
+Json migrated_to_v7(Json document) {
+  document["fileVersion"] = 7;
+  for (Json& scene : document["project"]["scenes"]) {
+    for (Json& node : scene["nodes"]) {
+      if (node.at("type") == "dialogue") {
+        node["voiceAssetId"] = nullptr;
+      }
+    }
+  }
+  return document;
+}
+
+Json migrated_v7_document() {
+  return migrated_to_v7(migrated_v6_document());
+}
+
+Json migrated_to_v8(Json document) {
+  document = migrated_to_v7(std::move(document));
+  document["fileVersion"] = 8;
+  return document;
+}
+
+Json migrated_v8_document() {
+  Json document = migrated_v7_document();
+  document["fileVersion"] = 8;
+  return document;
+}
+
+Json migrated_to_v9(Json document) {
+  document = migrated_to_v8(std::move(document));
+  document["fileVersion"] = 9;
+  return document;
+}
+
+Json migrated_v9_document() {
+  return migrated_to_v9(migrated_v8_document());
+}
+
 Json valid_v2_visual_document() {
   Json document = migrated_v2_document();
   document["project"]["scenes"][0]["visuals"] = {
@@ -209,7 +256,7 @@ void expect_file_error(
   throw std::runtime_error("expected ProjectFileError");
 }
 
-void reads_v1_and_writes_a_migrated_v6_document() {
+void reads_v1_and_writes_a_migrated_v9_document() {
   const Json source = valid_document();
   const vnengine::backend::ProjectFileDocument parsed =
       vnengine::backend::project_file_from_json(source);
@@ -220,6 +267,9 @@ void reads_v1_and_writes_a_migrated_v6_document() {
   CHECK(parsed.project.scenes[0].nodes.size() == 1);
   CHECK(std::get<vnengine::Dialogue>(
             parsed.project.scenes[0].nodes[0]).text == "你好");
+  CHECK(!std::get<vnengine::Dialogue>(
+             parsed.project.scenes[0].nodes[0])
+             .voice_asset_id.has_value());
   CHECK(!parsed.project.scenes[0].visuals.background_asset_id.has_value());
   CHECK(parsed.project.scenes[0].visuals.characters.empty());
   CHECK(parsed.assets.size() == 2);
@@ -227,7 +277,7 @@ void reads_v1_and_writes_a_migrated_v6_document() {
   CHECK(parsed.assets[1].type == vnengine::AssetType::video);
   CHECK(
       vnengine::backend::project_file_to_json(parsed) ==
-      migrated_v6_document());
+      migrated_v9_document());
 }
 
 void round_trips_v2_visuals_and_preserves_character_order() {
@@ -243,8 +293,7 @@ void round_trips_v2_visuals_and_preserves_character_order() {
   CHECK(visuals.characters[0].slot == vnengine::CharacterSlot::right);
   CHECK(visuals.characters[1].id == "visual-alice-front");
   CHECK(visuals.characters[1].slot == vnengine::CharacterSlot::left);
-  Json expected = source;
-  expected["fileVersion"] = 6;
+  Json expected = migrated_to_v9(source);
   CHECK(vnengine::backend::project_file_to_json(parsed) == expected);
 }
 
@@ -268,7 +317,7 @@ void rejects_unsupported_and_malformed_project_documents() {
   expect_file_error(document, Kind::unsupported_format);
 
   document = valid_document();
-  document["fileVersion"] = 7;
+  document["fileVersion"] = 10;
   expect_file_error(document, Kind::unsupported_format);
 
   document = valid_document();
@@ -416,12 +465,10 @@ void round_trips_v3_mixed_timeline_strictly() {
   CHECK(std::get<vnengine::BackgroundNode>(scene.nodes[1]).asset_id ==
         "asset-image-1");
   CHECK(std::holds_alternative<vnengine::Dialogue>(scene.nodes[2]));
-  Json migrated_source = source;
-  migrated_source["fileVersion"] = 6;
+  Json migrated_source = migrated_to_v9(source);
   CHECK(vnengine::backend::project_file_to_json(parsed) == migrated_source);
 
-  Json no_background_source = source;
-  no_background_source["fileVersion"] = 6;
+  Json no_background_source = migrated_to_v9(source);
   no_background_source["project"]["scenes"][0]["nodes"][1]["assetId"] =
       nullptr;
   const auto no_background =
@@ -434,7 +481,7 @@ void round_trips_v3_mixed_timeline_strictly() {
 
   const Json renderer = vnengine::backend::project_to_json(parsed.project);
   CHECK(renderer.at("scenes")[0].at("nodes") ==
-        source.at("project").at("scenes")[0].at("nodes"));
+        migrated_source.at("project").at("scenes")[0].at("nodes"));
 
   for (const std::string& missing : {"id", "type", "assetId"}) {
     Json malformed = source;
@@ -464,6 +511,225 @@ void round_trips_v3_mixed_timeline_strictly() {
   malformed = source;
   malformed["fileVersion"] = 2;
   expect_file_error(malformed, Kind::invalid_document);
+}
+
+void migrates_v1_through_v6_dialogues_to_null_voice() {
+  const std::vector<Json> legacy_documents{
+      valid_document(),
+      migrated_v2_document(),
+      migrated_v3_document(),
+      migrated_v4_document(),
+      migrated_v5_document(),
+      migrated_v6_document(),
+  };
+  for (const Json& legacy : legacy_documents) {
+    const auto parsed = vnengine::backend::project_file_from_json(legacy);
+    const auto& dialogue = std::get<vnengine::Dialogue>(
+        parsed.project.scenes[0].nodes[0]);
+    CHECK(!dialogue.voice_asset_id.has_value());
+    const Json migrated = vnengine::backend::project_file_to_json(parsed);
+    CHECK(migrated.at("fileVersion") == 9);
+    CHECK(migrated.at("project")
+              .at("scenes")[0]
+              .at("nodes")[0]
+              .at("voiceAssetId")
+              .is_null());
+  }
+}
+
+void round_trips_v7_audio_timeline_strictly() {
+  using Kind = vnengine::backend::ProjectFileErrorKind;
+  Json source = migrated_v7_document();
+  source["assets"].push_back({
+      {"id", "asset-audio-1"},
+      {"type", "audio"},
+      {"relativePath", "assets/audio/voice.mp3"},
+      {"displayName", "Alice voice"},
+  });
+  source["project"]["scenes"][0]["nodes"][0]["voiceAssetId"] =
+      "asset-audio-1";
+  source["project"]["scenes"][0]["nodes"].push_back({
+      {"id", "bgm-1"},
+      {"type", "bgm"},
+      {"assetId", "asset-audio-1"},
+  });
+
+  const auto parsed = vnengine::backend::project_file_from_json(source);
+  const auto& dialogue = std::get<vnengine::Dialogue>(
+      parsed.project.scenes[0].nodes[0]);
+  CHECK(dialogue.voice_asset_id == "asset-audio-1");
+  const auto& bgm = std::get<vnengine::BgmNode>(
+      parsed.project.scenes[0].nodes[1]);
+  CHECK(bgm.asset_id == "asset-audio-1");
+  Json migrated = source;
+  migrated["fileVersion"] = 9;
+  CHECK(vnengine::backend::project_file_to_json(parsed) == migrated);
+  CHECK(vnengine::backend::project_to_json(parsed.project)
+            .at("scenes")[0]
+            .at("nodes") ==
+        source.at("project").at("scenes")[0].at("nodes"));
+
+  Json malformed = source;
+  malformed["project"]["scenes"][0]["nodes"][0].erase("voiceAssetId");
+  expect_file_error(malformed, Kind::invalid_document);
+  malformed = source;
+  malformed["project"]["scenes"][0]["nodes"][0]["voiceAssetId"] = 7;
+  expect_file_error(malformed, Kind::invalid_document);
+  malformed = source;
+  malformed["project"]["scenes"][0]["nodes"][0]["voiceAssetId"] =
+      "asset-image-1";
+  expect_file_error(malformed, Kind::invalid_document);
+  malformed = source;
+  malformed["project"]["scenes"][0]["nodes"][1]["assetId"] =
+      "asset-image-1";
+  expect_file_error(malformed, Kind::invalid_document);
+  malformed = source;
+  malformed["project"]["scenes"][0]["nodes"][1]["unexpected"] = true;
+  expect_file_error(malformed, Kind::invalid_document);
+
+  Json legacy_with_bgm = migrated_v6_document();
+  legacy_with_bgm["project"]["scenes"][0]["nodes"].push_back({
+      {"id", "bgm-legacy"}, {"type", "bgm"}, {"assetId", nullptr}});
+  expect_file_error(legacy_with_bgm, Kind::unsupported_format);
+}
+
+void round_trips_v8_video_timeline_strictly() {
+  using Kind = vnengine::backend::ProjectFileErrorKind;
+  Json source = migrated_v8_document();
+  source["project"]["scenes"][0]["nodes"].push_back({
+      {"id", "video-1"},
+      {"type", "video"},
+      {"assetId", "asset-video-1"},
+  });
+
+  const auto parsed = vnengine::backend::project_file_from_json(source);
+  const auto& video = std::get<vnengine::VideoNode>(
+      parsed.project.scenes[0].nodes[1]);
+  CHECK(video.asset_id == "asset-video-1");
+  Json migrated = source;
+  migrated["fileVersion"] = 9;
+  CHECK(vnengine::backend::project_file_to_json(parsed) == migrated);
+  CHECK(vnengine::backend::project_to_json(parsed.project)
+            .at("scenes")[0]
+            .at("nodes") ==
+        source.at("project").at("scenes")[0].at("nodes"));
+
+  Json malformed = source;
+  malformed["project"]["scenes"][0]["nodes"][1].erase("assetId");
+  expect_file_error(malformed, Kind::invalid_document);
+  malformed = source;
+  malformed["project"]["scenes"][0]["nodes"][1]["assetId"] = 8;
+  expect_file_error(malformed, Kind::invalid_document);
+  malformed = source;
+  malformed["project"]["scenes"][0]["nodes"][1]["assetId"] =
+      "asset-image-1";
+  expect_file_error(malformed, Kind::invalid_document);
+  malformed = source;
+  malformed["project"]["scenes"][0]["nodes"][1]["unexpected"] = true;
+  expect_file_error(malformed, Kind::invalid_document);
+
+  Json legacy_with_video = migrated_v7_document();
+  legacy_with_video["project"]["scenes"][0]["nodes"].push_back({
+      {"id", "video-legacy"},
+      {"type", "video"},
+      {"assetId", nullptr},
+  });
+  expect_file_error(legacy_with_video, Kind::unsupported_format);
+}
+
+void round_trips_v9_choice_timeline_strictly() {
+  using Kind = vnengine::backend::ProjectFileErrorKind;
+  Json source = migrated_v9_document();
+  source["project"]["scenes"].push_back({
+      {"schemaVersion", 1},
+      {"id", "scene-2"},
+      {"name", "第二幕"},
+      {"visuals",
+       {{"backgroundAssetId", nullptr}, {"characters", Json::array()}}},
+      {"nodes", Json::array()},
+  });
+  source["project"]["scenes"][0]["nodes"].push_back({
+      {"id", "choice-1"},
+      {"type", "choice"},
+      {"options",
+       Json::array({
+           {
+               {"id", "option-1"},
+               {"text", "继续"},
+               {"targetSceneId", "scene-2"},
+           },
+           {
+               {"id", "option-2"},
+               {"text", "留下"},
+               {"targetSceneId", "scene-1"},
+           },
+       })},
+  });
+  source["project"]["scenes"][1]["nodes"].push_back({
+      {"id", "choice-empty"},
+      {"type", "choice"},
+      {"options", Json::array()},
+  });
+
+  const auto parsed = vnengine::backend::project_file_from_json(source);
+  const auto& choice = std::get<vnengine::ChoiceNode>(
+      parsed.project.scenes[0].nodes[1]);
+  CHECK(choice.options.size() == 2);
+  CHECK(choice.options[0].id == "option-1");
+  CHECK(choice.options[0].text == "继续");
+  CHECK(choice.options[0].target_scene_id == "scene-2");
+  CHECK(std::get<vnengine::ChoiceNode>(
+            parsed.project.scenes[1].nodes[0])
+            .options.empty());
+  CHECK(vnengine::backend::project_file_to_json(parsed) == source);
+  CHECK(vnengine::backend::project_to_json(parsed.project)
+            .at("scenes")[0]
+            .at("nodes")[1] ==
+        source.at("project").at("scenes")[0].at("nodes")[1]);
+
+  for (const std::string& missing : {"id", "type", "options"}) {
+    Json malformed = source;
+    malformed["project"]["scenes"][0]["nodes"][1].erase(missing);
+    expect_file_error(malformed, Kind::invalid_document);
+  }
+  for (const std::string& missing : {"id", "text", "targetSceneId"}) {
+    Json malformed = source;
+    malformed["project"]["scenes"][0]["nodes"][1]["options"][0].erase(
+        missing);
+    expect_file_error(malformed, Kind::invalid_document);
+  }
+
+  Json malformed = source;
+  malformed["project"]["scenes"][0]["nodes"][1]["options"] =
+      Json::object();
+  expect_file_error(malformed, Kind::invalid_document);
+  malformed = source;
+  malformed["project"]["scenes"][0]["nodes"][1]["unexpected"] = true;
+  expect_file_error(malformed, Kind::invalid_document);
+  malformed = source;
+  malformed["project"]["scenes"][0]["nodes"][1]["options"][0]
+           ["unexpected"] = true;
+  expect_file_error(malformed, Kind::invalid_document);
+  malformed = source;
+  malformed["project"]["scenes"][0]["nodes"][1]["options"][0]["text"] =
+      "  ";
+  expect_file_error(malformed, Kind::invalid_document);
+  malformed = source;
+  malformed["project"]["scenes"][0]["nodes"][1]["options"][0]
+           ["targetSceneId"] = "missing";
+  expect_file_error(malformed, Kind::invalid_document);
+  malformed = source;
+  malformed["project"]["scenes"][0]["nodes"][1]["options"][1]["id"] =
+      "option-1";
+  expect_file_error(malformed, Kind::invalid_document);
+
+  Json legacy_with_choice = migrated_v8_document();
+  legacy_with_choice["project"]["scenes"][0]["nodes"].push_back({
+      {"id", "choice-legacy"},
+      {"type", "choice"},
+      {"options", Json::array()},
+  });
+  expect_file_error(legacy_with_choice, Kind::unsupported_format);
 }
 
 class TemporaryDirectory final {
@@ -707,6 +973,57 @@ void imports_a_video_transactionally_without_exposing_paths() {
   expect_session(unchanged, 1, 1, false);
 }
 
+void imports_audio_transactionally_without_exposing_paths() {
+  TemporaryDirectory temporary;
+  const std::filesystem::path project_file =
+      temporary.path("project.vn.json");
+  const std::filesystem::path source = temporary.write(
+      "Alice Greeting.MP3", mp3_audio_bytes());
+
+  vnengine::backend::Backend backend;
+  static_cast<void>(request(
+      backend, 1, "project.create", {{"name", "音频导入"}}));
+  const Json initially_saved = request(
+      backend, 2, "project.save", {{"filePath", project_file.string()}});
+  expect_session(initially_saved, 0, 0, false);
+
+  const Json imported = request(
+      backend,
+      3,
+      "asset.import",
+      {
+          {"sourceFilePath", source.string()},
+          {"projectFilePath", project_file.string()},
+          {"kind", "audio"},
+      });
+  expect_session(imported, 1, 0, true);
+  const std::string asset_id =
+      imported.at("result").at("assetId").get<std::string>();
+  CHECK(imported.at("result").at("assets")[0] == Json({
+      {"id", asset_id},
+      {"type", "audio"},
+      {"displayName", "Alice Greeting"},
+  }));
+  CHECK(imported.dump().find(source.string()) == std::string::npos);
+  CHECK(imported.dump().find(project_file.string()) == std::string::npos);
+
+  const std::filesystem::path imported_file = temporary.root() /
+      "assets" / "audio" / (asset_id + ".mp3");
+  CHECK(std::filesystem::is_regular_file(imported_file));
+  CHECK(read_file(imported_file) == mp3_audio_bytes());
+  CHECK(Json::parse(read_file(project_file)).at("assets").empty());
+
+  const Json saved = request(
+      backend, 4, "project.save", {{"filePath", project_file.string()}});
+  expect_session(saved, 1, 1, false);
+  CHECK(Json::parse(read_file(project_file)).at("assets")[0] == Json({
+      {"id", asset_id},
+      {"type", "audio"},
+      {"relativePath", "assets/audio/" + asset_id + ".mp3"},
+      {"displayName", "Alice Greeting"},
+  }));
+}
+
 void rejects_unsafe_image_sources_without_mutating_document() {
   TemporaryDirectory temporary;
   const std::filesystem::path project_file =
@@ -911,7 +1228,7 @@ void sets_clears_and_persists_scene_backgrounds_atomically() {
       {{"filePath", target.string()}});
   expect_session(saved, 3, 3, false);
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 6);
+  CHECK(persisted.at("fileVersion") == 9);
   CHECK(persisted.at("project")
             .at("scenes")[0]
             .at("visuals")
@@ -1064,7 +1381,7 @@ void mutates_and_persists_mixed_background_timeline() {
       {{"filePath", target.string()}});
   expect_session(saved, 4, 4, false);
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 6);
+  CHECK(persisted.at("fileVersion") == 9);
   CHECK(persisted.at("project").at("scenes")[0].at("nodes") ==
         moved_nodes);
 
@@ -1190,7 +1507,7 @@ void saves_atomically_and_round_trips_assets() {
 
   const Json on_disk = Json::parse(read_file(target));
   CHECK(on_disk.at("format") == "vn-engine-project");
-  CHECK(on_disk.at("fileVersion") == 6);
+  CHECK(on_disk.at("fileVersion") == 9);
   CHECK(on_disk.at("project").at("name") == "保存后的项目");
   CHECK(on_disk.at("assets") == valid_document().at("assets"));
 
@@ -1243,7 +1560,7 @@ void backend_preserves_hidden_v2_visuals_across_mutation_and_save() {
   expect_session(saved, 1, 1, false);
 
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 6);
+  CHECK(persisted.at("fileVersion") == 9);
   CHECK(
       persisted.at("project").at("scenes")[0].at("visuals") ==
       source_document.at("project").at("scenes")[0].at("visuals"));
@@ -1268,9 +1585,9 @@ void failed_open_preserves_dirty_hidden_v2_aggregate() {
       "invalid-v3-timeline.vn.json", invalid_timeline_document.dump(2));
 
   Json future_document = valid_v2_visual_document();
-  future_document["fileVersion"] = 7;
+  future_document["fileVersion"] = 10;
   const std::filesystem::path future = temporary.write(
-      "future-v7.vn.json", future_document.dump(2));
+      "future-v9.vn.json", future_document.dump(2));
   const std::filesystem::path target =
       temporary.path("project.vn.json");
 
@@ -1324,7 +1641,7 @@ void failed_open_preserves_dirty_hidden_v2_aggregate() {
   expect_session(saved, 1, 1, false);
 
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 6);
+  CHECK(persisted.at("fileVersion") == 9);
   CHECK(persisted.at("project").at("name") == "失败后仍保留");
   CHECK(
       persisted.at("project").at("scenes")[0].at("visuals") ==
@@ -1536,7 +1853,7 @@ void mutates_and_persists_character_timeline() {
       {{"filePath", target.string()}});
   expect_session(saved, 2, 2, false);
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 6);
+  CHECK(persisted.at("fileVersion") == 9);
   CHECK(persisted.at("project")
             .at("scenes")[0]
             .at("nodes")[1]
@@ -1625,7 +1942,7 @@ void mutates_and_persists_scene_jump_timeline() {
   CHECK(saved.at("ok") == true);
   expect_session(saved, 1, 1, false);
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 6);
+  CHECK(persisted.at("fileVersion") == 9);
   CHECK(persisted.at("project")
             .at("scenes")[0]
             .at("nodes")[1]
@@ -1645,12 +1962,679 @@ void mutates_and_persists_scene_jump_timeline() {
             .at("type") == "sceneJump");
 }
 
+void mutates_and_persists_choice_timeline_transactionally() {
+  TemporaryDirectory temporary;
+  const std::filesystem::path target = temporary.path("project.vn.json");
+  vnengine::backend::Backend backend;
+
+  const Json created = request(
+      backend, 1, "project.create", {{"name", "Choice timeline"}});
+  expect_session(created, 0, std::nullopt, true);
+  const std::string first_scene_id =
+      created.at("result").at("sceneId").get<std::string>();
+  const Json second_scene = request(backend, 2, "scene.add");
+  expect_session(second_scene, 1, std::nullopt, true);
+  const std::string second_scene_id =
+      second_scene.at("result").at("sceneId").get<std::string>();
+
+  const Json dialogue = request(
+      backend,
+      3,
+      "dialogue.add",
+      {
+          {"sceneId", first_scene_id},
+          {"speaker", "Alice"},
+          {"text", "请选择"},
+      });
+  expect_session(dialogue, 2, std::nullopt, true);
+  const std::string dialogue_id =
+      dialogue.at("result").at("nodeId").get<std::string>();
+
+  const Json choice_added = request(
+      backend,
+      4,
+      "choice.add",
+      {{"sceneId", first_scene_id}, {"afterNodeId", dialogue_id}});
+  expect_session(choice_added, 3, std::nullopt, true);
+  const std::string choice_id =
+      choice_added.at("result").at("nodeId").get<std::string>();
+  CHECK(choice_added.at("result").at("sceneId") == first_scene_id);
+  CHECK(choice_added.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[1] == Json({
+                {"id", choice_id},
+                {"type", "choice"},
+                {"options", Json::array()},
+            }));
+
+  const Json first_option = request(
+      backend,
+      5,
+      "choice.option.add",
+      {
+          {"sceneId", first_scene_id},
+          {"nodeId", choice_id},
+          {"text", "  前往第二幕  "},
+          {"targetSceneId", second_scene_id},
+      });
+  expect_session(first_option, 4, std::nullopt, true);
+  const std::string first_option_id =
+      first_option.at("result").at("optionId").get<std::string>();
+  CHECK(first_option.at("result").at("sceneId") == first_scene_id);
+  CHECK(first_option.at("result").at("nodeId") == choice_id);
+  CHECK(first_option.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[1]
+            .at("options")[0]
+            .at("text") == "前往第二幕");
+
+  const Json second_option = request(
+      backend,
+      6,
+      "choice.option.add",
+      {
+          {"sceneId", first_scene_id},
+          {"nodeId", choice_id},
+          {"text", "留下"},
+          {"targetSceneId", first_scene_id},
+      });
+  expect_session(second_option, 5, std::nullopt, true);
+  const std::string second_option_id =
+      second_option.at("result").at("optionId").get<std::string>();
+  const Json third_option = request(
+      backend,
+      7,
+      "choice.option.add",
+      {
+          {"sceneId", first_scene_id},
+          {"nodeId", choice_id},
+          {"text", "重新考虑"},
+          {"targetSceneId", first_scene_id},
+          {"beforeOptionId", second_option_id},
+      });
+  expect_session(third_option, 6, std::nullopt, true);
+  const std::string third_option_id =
+      third_option.at("result").at("optionId").get<std::string>();
+  CHECK(third_option.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[1]
+            .at("options")[1]
+            .at("id") == third_option_id);
+
+  const Json unchanged = request(
+      backend,
+      8,
+      "choice.option.update",
+      {
+          {"sceneId", first_scene_id},
+          {"nodeId", choice_id},
+          {"optionId", first_option_id},
+          {"text", " 前往第二幕 "},
+          {"targetSceneId", second_scene_id},
+      });
+  expect_session(unchanged, 6, std::nullopt, true);
+
+  const Json empty_text = request(
+      backend,
+      9,
+      "choice.option.update",
+      {
+          {"sceneId", first_scene_id},
+          {"nodeId", choice_id},
+          {"optionId", first_option_id},
+          {"text", " \t "},
+          {"targetSceneId", first_scene_id},
+      });
+  CHECK(empty_text.at("ok") == false);
+  CHECK(empty_text.at("error").at("code") == "choice_text_required");
+  const Json missing_target = request(
+      backend,
+      10,
+      "choice.option.update",
+      {
+          {"sceneId", first_scene_id},
+          {"nodeId", choice_id},
+          {"optionId", first_option_id},
+          {"text", "无效"},
+          {"targetSceneId", "missing"},
+      });
+  CHECK(missing_target.at("ok") == false);
+  CHECK(missing_target.at("error").at("code") ==
+        "target_scene_not_found");
+  const Json after_failures = request(backend, 11, "project.get");
+  expect_session(after_failures, 6, std::nullopt, true);
+  CHECK(after_failures.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[1]
+            .at("options")[0]
+            .at("targetSceneId") == second_scene_id);
+
+  const Json updated = request(
+      backend,
+      12,
+      "choice.option.update",
+      {
+          {"sceneId", first_scene_id},
+          {"nodeId", choice_id},
+          {"optionId", first_option_id},
+          {"text", "进入第二幕"},
+          {"targetSceneId", second_scene_id},
+      });
+  expect_session(updated, 7, std::nullopt, true);
+  const Json reordered = request(
+      backend,
+      13,
+      "choice.option.reorder",
+      {
+          {"sceneId", first_scene_id},
+          {"nodeId", choice_id},
+          {"optionId", second_option_id},
+          {"beforeOptionId", first_option_id},
+      });
+  expect_session(reordered, 8, std::nullopt, true);
+  CHECK(reordered.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[1]
+            .at("options")[0]
+            .at("id") == second_option_id);
+  const Json reorder_noop = request(
+      backend,
+      14,
+      "choice.option.reorder",
+      {
+          {"sceneId", first_scene_id},
+          {"nodeId", choice_id},
+          {"optionId", second_option_id},
+          {"beforeOptionId", first_option_id},
+      });
+  expect_session(reorder_noop, 8, std::nullopt, true);
+
+  const Json delete_target = request(
+      backend, 15, "scene.delete", {{"sceneId", second_scene_id}});
+  CHECK(delete_target.at("ok") == false);
+  CHECK(delete_target.at("error").at("code") == "scene_in_use");
+  const Json option_deleted = request(
+      backend,
+      16,
+      "choice.option.delete",
+      {
+          {"sceneId", first_scene_id},
+          {"nodeId", choice_id},
+          {"optionId", first_option_id},
+      });
+  expect_session(option_deleted, 9, std::nullopt, true);
+  const Json missing_option = request(
+      backend,
+      17,
+      "choice.option.delete",
+      {
+          {"sceneId", first_scene_id},
+          {"nodeId", choice_id},
+          {"optionId", first_option_id},
+      });
+  CHECK(missing_option.at("ok") == false);
+  CHECK(missing_option.at("error").at("code") ==
+        "choice_option_not_found");
+
+  const Json timeline_reordered = request(
+      backend,
+      18,
+      "timeline.reorder",
+      {
+          {"sceneId", first_scene_id},
+          {"nodeId", choice_id},
+          {"beforeNodeId", dialogue_id},
+      });
+  expect_session(timeline_reordered, 10, std::nullopt, true);
+  const Json scene_deleted = request(
+      backend, 19, "scene.delete", {{"sceneId", second_scene_id}});
+  expect_session(scene_deleted, 11, std::nullopt, true);
+
+  const Json saved = request(
+      backend, 20, "project.save", {{"filePath", target.string()}});
+  expect_session(saved, 11, 11, false);
+  const Json persisted = Json::parse(read_file(target));
+  CHECK(persisted.at("fileVersion") == 9);
+  CHECK(persisted.at("project")
+            .at("scenes")[0]
+            .at("nodes")[0]
+            .at("type") == "choice");
+  CHECK(persisted.at("project")
+            .at("scenes")[0]
+            .at("nodes")[0]
+            .at("options") == Json::array({
+                {
+                    {"id", second_option_id},
+                    {"text", "留下"},
+                    {"targetSceneId", first_scene_id},
+                },
+                {
+                    {"id", third_option_id},
+                    {"text", "重新考虑"},
+                    {"targetSceneId", first_scene_id},
+                },
+            }));
+
+  vnengine::backend::Backend reopened_backend;
+  const Json reopened = request(
+      reopened_backend, 1, "project.open", open_params(target));
+  expect_session(reopened, 0, 0, false);
+  CHECK(reopened.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[0]
+            .at("options").size() == 2);
+}
+
+void mutates_and_persists_dialogue_voice_and_bgm() {
+  TemporaryDirectory temporary;
+  const std::filesystem::path target = temporary.path("project.vn.json");
+  const std::filesystem::path audio_source = temporary.write(
+      "Theme.mp3", mp3_audio_bytes());
+  const std::filesystem::path image_source = temporary.write(
+      "Poster.png", png_image_bytes());
+
+  vnengine::backend::Backend backend;
+  const Json created = request(
+      backend, 1, "project.create", {{"name", "Audio timeline"}});
+  const std::string scene_id =
+      created.at("result").at("sceneId").get<std::string>();
+  expect_session(created, 0, std::nullopt, true);
+  expect_session(
+      request(backend, 2, "project.save", {{"filePath", target.string()}}),
+      0,
+      0,
+      false);
+
+  const Json audio_import = request(
+      backend,
+      3,
+      "asset.import",
+      {{"kind", "audio"},
+       {"sourceFilePath", audio_source.string()},
+       {"projectFilePath", target.string()}});
+  expect_session(audio_import, 1, 0, true);
+  const std::string audio_id =
+      audio_import.at("result").at("assetId").get<std::string>();
+  const Json image_import = request(
+      backend,
+      4,
+      "asset.import",
+      {{"kind", "image"},
+       {"sourceFilePath", image_source.string()},
+       {"projectFilePath", target.string()}});
+  expect_session(image_import, 2, 0, true);
+  const std::string image_id =
+      image_import.at("result").at("assetId").get<std::string>();
+
+  const Json dialogue_added = request(
+      backend,
+      5,
+      "dialogue.add",
+      {{"sceneId", scene_id}, {"speaker", "Alice"}, {"text", "Hello"}});
+  expect_session(dialogue_added, 3, 0, true);
+  const std::string dialogue_id =
+      dialogue_added.at("result").at("nodeId").get<std::string>();
+  CHECK(dialogue_added.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[0]
+            .at("voiceAssetId")
+            .is_null());
+
+  const Json voice_set = request(
+      backend,
+      6,
+      "dialogue.setVoice",
+      {{"sceneId", scene_id}, {"nodeId", dialogue_id}, {"assetId", audio_id}});
+  expect_session(voice_set, 4, 0, true);
+  CHECK(voice_set.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[0]
+            .at("voiceAssetId") == audio_id);
+  expect_session(
+      request(
+          backend,
+          7,
+          "dialogue.setVoice",
+          {{"sceneId", scene_id},
+           {"nodeId", dialogue_id},
+           {"assetId", audio_id}}),
+      4,
+      0,
+      true);
+  const Json invalid_voice = request(
+      backend,
+      8,
+      "dialogue.setVoice",
+      {{"sceneId", scene_id}, {"nodeId", dialogue_id}, {"assetId", image_id}});
+  CHECK(invalid_voice.at("ok") == false);
+  CHECK(invalid_voice.at("error").at("code") == "asset_not_audio");
+  expect_session(
+      request(
+          backend,
+          9,
+          "dialogue.setVoice",
+          {{"sceneId", scene_id}, {"nodeId", dialogue_id}, {"assetId", nullptr}}),
+      5,
+      0,
+      true);
+  expect_session(
+      request(
+          backend,
+          10,
+          "dialogue.setVoice",
+          {{"sceneId", scene_id},
+           {"nodeId", dialogue_id},
+           {"assetId", audio_id}}),
+      6,
+      0,
+      true);
+
+  const Json bgm_added = request(
+      backend,
+      11,
+      "bgm.add",
+      {{"sceneId", scene_id}, {"afterNodeId", dialogue_id}});
+  expect_session(bgm_added, 7, 0, true);
+  const std::string bgm_id =
+      bgm_added.at("result").at("nodeId").get<std::string>();
+  CHECK(bgm_added.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[1] == Json({
+                {"id", bgm_id}, {"type", "bgm"}, {"assetId", nullptr}}));
+
+  expect_session(
+      request(
+          backend,
+          12,
+          "bgm.update",
+          {{"sceneId", scene_id}, {"nodeId", bgm_id}, {"assetId", audio_id}}),
+      8,
+      0,
+      true);
+  expect_session(
+      request(
+          backend,
+          13,
+          "bgm.update",
+          {{"sceneId", scene_id}, {"nodeId", bgm_id}, {"assetId", audio_id}}),
+      8,
+      0,
+      true);
+  const Json invalid_bgm = request(
+      backend,
+      14,
+      "bgm.update",
+      {{"sceneId", scene_id}, {"nodeId", bgm_id}, {"assetId", image_id}});
+  CHECK(invalid_bgm.at("ok") == false);
+  CHECK(invalid_bgm.at("error").at("code") == "asset_not_audio");
+  expect_session(
+      request(
+          backend,
+          15,
+          "bgm.update",
+          {{"sceneId", scene_id}, {"nodeId", bgm_id}, {"assetId", nullptr}}),
+      9,
+      0,
+      true);
+  expect_session(
+      request(
+          backend,
+          16,
+          "bgm.update",
+          {{"sceneId", scene_id}, {"nodeId", bgm_id}, {"assetId", audio_id}}),
+      10,
+      0,
+      true);
+
+  const Json reordered = request(
+      backend,
+      17,
+      "timeline.reorder",
+      {{"sceneId", scene_id},
+       {"nodeId", bgm_id},
+       {"beforeNodeId", dialogue_id}});
+  expect_session(reordered, 11, 0, true);
+  CHECK(reordered.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[0]
+            .at("type") == "bgm");
+
+  const Json saved = request(
+      backend, 18, "project.save", {{"filePath", target.string()}});
+  expect_session(saved, 11, 11, false);
+  const Json persisted = Json::parse(read_file(target));
+  CHECK(persisted.at("fileVersion") == 9);
+  CHECK(persisted.at("project")
+            .at("scenes")[0]
+            .at("nodes")[0]
+            .at("assetId") == audio_id);
+  CHECK(persisted.at("project")
+            .at("scenes")[0]
+            .at("nodes")[1]
+            .at("voiceAssetId") == audio_id);
+
+  vnengine::backend::Backend reopened_backend;
+  const Json reopened = request(
+      reopened_backend, 1, "project.open", open_params(target));
+  expect_session(reopened, 0, 0, false);
+  CHECK(reopened.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[0]
+            .at("type") == "bgm");
+  CHECK(reopened.at("result").at("assets")[0].at("type") == "audio");
+}
+
+void mutates_and_persists_video_timeline() {
+  TemporaryDirectory temporary;
+  const std::filesystem::path target = temporary.path("project.vn.json");
+  const std::filesystem::path video_source = temporary.write(
+      "Opening.mp4", mp4_video_bytes());
+  const std::filesystem::path image_source = temporary.write(
+      "Poster.png", png_image_bytes());
+
+  vnengine::backend::Backend backend;
+  const Json created = request(
+      backend, 1, "project.create", {{"name", "Video timeline"}});
+  const std::string scene_id =
+      created.at("result").at("sceneId").get<std::string>();
+  expect_session(created, 0, std::nullopt, true);
+  expect_session(
+      request(backend, 2, "project.save", {{"filePath", target.string()}}),
+      0,
+      0,
+      false);
+
+  const Json video_import = request(
+      backend,
+      3,
+      "asset.import",
+      {{"kind", "video"},
+       {"sourceFilePath", video_source.string()},
+       {"projectFilePath", target.string()}});
+  expect_session(video_import, 1, 0, true);
+  const std::string video_asset_id =
+      video_import.at("result").at("assetId").get<std::string>();
+  const Json image_import = request(
+      backend,
+      4,
+      "asset.import",
+      {{"kind", "image"},
+       {"sourceFilePath", image_source.string()},
+       {"projectFilePath", target.string()}});
+  expect_session(image_import, 2, 0, true);
+  const std::string image_asset_id =
+      image_import.at("result").at("assetId").get<std::string>();
+
+  const Json dialogue_added = request(
+      backend,
+      5,
+      "dialogue.add",
+      {{"sceneId", scene_id}, {"speaker", "Alice"}, {"text", "Opening"}});
+  expect_session(dialogue_added, 3, 0, true);
+  const std::string dialogue_id =
+      dialogue_added.at("result").at("nodeId").get<std::string>();
+
+  const Json video_added = request(
+      backend,
+      6,
+      "video.add",
+      {{"sceneId", scene_id}, {"afterNodeId", dialogue_id}});
+  expect_session(video_added, 4, 0, true);
+  const std::string video_node_id =
+      video_added.at("result").at("nodeId").get<std::string>();
+  CHECK(video_added.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[1] == Json({
+                {"id", video_node_id},
+                {"type", "video"},
+                {"assetId", nullptr},
+            }));
+
+  const Json invalid_add = request(
+      backend,
+      7,
+      "video.add",
+      {{"sceneId", scene_id}, {"assetId", video_asset_id}});
+  CHECK(invalid_add.at("ok") == false);
+  CHECK(invalid_add.at("error").at("code") == "invalid_params");
+  const Json missing_asset = request(
+      backend,
+      8,
+      "video.update",
+      {{"sceneId", scene_id},
+       {"nodeId", video_node_id},
+       {"assetId", "missing"}});
+  CHECK(missing_asset.at("ok") == false);
+  CHECK(missing_asset.at("error").at("code") == "asset_not_found");
+  const Json wrong_asset = request(
+      backend,
+      9,
+      "video.update",
+      {{"sceneId", scene_id},
+       {"nodeId", video_node_id},
+       {"assetId", image_asset_id}});
+  CHECK(wrong_asset.at("ok") == false);
+  CHECK(wrong_asset.at("error").at("code") == "asset_not_video");
+  const Json wrong_node = request(
+      backend,
+      10,
+      "video.update",
+      {{"sceneId", scene_id},
+       {"nodeId", dialogue_id},
+       {"assetId", video_asset_id}});
+  CHECK(wrong_node.at("ok") == false);
+  CHECK(wrong_node.at("error").at("code") == "video_node_not_found");
+  const Json after_failures = request(backend, 11, "project.get");
+  expect_session(after_failures, 4, 0, true);
+  CHECK(after_failures.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[1]
+            .at("assetId")
+            .is_null());
+
+  expect_session(
+      request(
+          backend,
+          12,
+          "video.update",
+          {{"sceneId", scene_id},
+           {"nodeId", video_node_id},
+           {"assetId", video_asset_id}}),
+      5,
+      0,
+      true);
+  expect_session(
+      request(
+          backend,
+          13,
+          "video.update",
+          {{"sceneId", scene_id},
+           {"nodeId", video_node_id},
+           {"assetId", video_asset_id}}),
+      5,
+      0,
+      true);
+  expect_session(
+      request(
+          backend,
+          14,
+          "video.update",
+          {{"sceneId", scene_id},
+           {"nodeId", video_node_id},
+           {"assetId", nullptr}}),
+      6,
+      0,
+      true);
+  expect_session(
+      request(
+          backend,
+          15,
+          "video.update",
+          {{"sceneId", scene_id},
+           {"nodeId", video_node_id},
+           {"assetId", video_asset_id}}),
+      7,
+      0,
+      true);
+
+  const Json reordered = request(
+      backend,
+      16,
+      "timeline.reorder",
+      {{"sceneId", scene_id},
+       {"nodeId", video_node_id},
+       {"beforeNodeId", dialogue_id}});
+  expect_session(reordered, 8, 0, true);
+  CHECK(reordered.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[0]
+            .at("type") == "video");
+
+  const Json saved = request(
+      backend, 17, "project.save", {{"filePath", target.string()}});
+  expect_session(saved, 8, 8, false);
+  const Json persisted = Json::parse(read_file(target));
+  CHECK(persisted.at("fileVersion") == 9);
+  CHECK(persisted.at("project")
+            .at("scenes")[0]
+            .at("nodes")[0] == Json({
+                {"id", video_node_id},
+                {"type", "video"},
+                {"assetId", video_asset_id},
+            }));
+
+  vnengine::backend::Backend reopened_backend;
+  const Json reopened = request(
+      reopened_backend, 1, "project.open", open_params(target));
+  expect_session(reopened, 0, 0, false);
+  CHECK(reopened.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[0]
+            .at("assetId") == video_asset_id);
+  CHECK(reopened.at("result").at("assets")[0].at("type") == "video");
+}
+
 }  // namespace
 
 int main() {
   const std::vector<std::pair<std::string, std::function<void()>>> tests{
-      {"reads v1 and writes a migrated v6 document",
-       reads_v1_and_writes_a_migrated_v6_document},
+      {"reads v1 and writes a migrated v9 document",
+       reads_v1_and_writes_a_migrated_v9_document},
       {"round trips v2 visuals and preserves character order",
        round_trips_v2_visuals_and_preserves_character_order},
       {"v1 reader rejects unversioned visual fields",
@@ -1661,12 +2645,22 @@ int main() {
        rejects_malformed_v2_visual_fields_strictly},
       {"round trips v3 mixed timeline strictly",
        round_trips_v3_mixed_timeline_strictly},
+      {"migrates v1 through v6 dialogues to null voice",
+       migrates_v1_through_v6_dialogues_to_null_voice},
+      {"round trips v7 audio timeline strictly",
+       round_trips_v7_audio_timeline_strictly},
+      {"round trips v8 video timeline strictly",
+       round_trips_v8_video_timeline_strictly},
+      {"round trips v9 choice timeline strictly",
+       round_trips_v9_choice_timeline_strictly},
       {"tracks real mutations and normalizes project names",
        tracks_real_mutations_and_normalizes_project_names},
       {"imports an image without exposing paths or autosaving manifest",
        imports_an_image_without_exposing_paths_or_autosaving_manifest},
       {"imports a video transactionally without exposing paths",
        imports_a_video_transactionally_without_exposing_paths},
+      {"imports audio transactionally without exposing paths",
+       imports_audio_transactionally_without_exposing_paths},
       {"rejects unsafe image sources without mutating document",
        rejects_unsafe_image_sources_without_mutating_document},
       {"sets clears and persists scene backgrounds atomically",
@@ -1691,6 +2685,12 @@ int main() {
        mutates_and_persists_character_timeline},
       {"mutates and persists scene jump timeline",
        mutates_and_persists_scene_jump_timeline},
+      {"mutates and persists choice timeline transactionally",
+       mutates_and_persists_choice_timeline_transactionally},
+      {"mutates and persists dialogue voice and BGM",
+       mutates_and_persists_dialogue_voice_and_bgm},
+      {"mutates and persists video timeline",
+       mutates_and_persists_video_timeline},
   };
 
   int failures = 0;

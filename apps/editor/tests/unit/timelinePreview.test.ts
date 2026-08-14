@@ -9,9 +9,21 @@ const scene: SceneDocument = {
   name: '场景 1',
   backgroundAssetId: 'initial',
   nodes: [
-    { id: 'd1', type: 'dialogue', speaker: 'A', text: 'one' },
+    {
+      id: 'd1',
+      type: 'dialogue',
+      speaker: 'A',
+      text: 'one',
+      voiceAssetId: null,
+    },
     { id: 'b1', type: 'background', assetId: 'forest' },
-    { id: 'd2', type: 'dialogue', speaker: 'B', text: 'two' },
+    {
+      id: 'd2',
+      type: 'dialogue',
+      speaker: 'B',
+      text: 'two',
+      voiceAssetId: null,
+    },
     {
       id: 'c1',
       type: 'character',
@@ -46,7 +58,13 @@ describe('deriveTimelinePreview', () => {
       nodes: [
         ...scene.nodes.slice(0, 3),
         { id: 'clear', type: 'background', assetId: null },
-        { id: 'd3', type: 'dialogue', speaker: 'C', text: 'three' },
+        {
+          id: 'd3',
+          type: 'dialogue',
+          speaker: 'C',
+          text: 'three',
+          voiceAssetId: null,
+        },
       ],
     };
 

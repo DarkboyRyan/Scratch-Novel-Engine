@@ -32,7 +32,10 @@ function isSceneNode(value: unknown): boolean {
     value.type !== 'dialogue' &&
     value.type !== 'background' &&
     value.type !== 'character' &&
-    value.type !== 'sceneJump'
+    value.type !== 'sceneJump' &&
+    value.type !== 'bgm' &&
+    value.type !== 'video' &&
+    value.type !== 'choice'
   ) {
     return false;
   }
@@ -40,7 +43,9 @@ function isSceneNode(value: unknown): boolean {
   if (value.type === 'dialogue') {
     return (
       typeof value.speaker === 'string' &&
-      typeof value.text === 'string'
+      typeof value.text === 'string' &&
+      (value.voiceAssetId === null ||
+        typeof value.voiceAssetId === 'string')
     );
   }
 
@@ -58,6 +63,17 @@ function isSceneNode(value: unknown): boolean {
 
   if (value.type === 'sceneJump') {
     return typeof value.targetSceneId === 'string';
+  }
+
+  if (value.type === 'choice') {
+    return (
+      Array.isArray(value.options) &&
+      value.options.every((option) =>
+        isObject(option) &&
+        typeof option.id === 'string' &&
+        typeof option.text === 'string' &&
+        typeof option.targetSceneId === 'string')
+    );
   }
 
   return value.assetId === null || typeof value.assetId === 'string';
@@ -127,11 +143,42 @@ function toPublicSceneNode(
     };
   }
 
+  if (value.type === 'bgm') {
+    return {
+      id: value.id as string,
+      type: 'bgm',
+      assetId: value.assetId as string | null,
+    };
+  }
+
+  if (value.type === 'video') {
+    return {
+      id: value.id as string,
+      type: 'video',
+      assetId: value.assetId as string | null,
+    };
+  }
+
+  if (value.type === 'choice') {
+    return {
+      id: value.id as string,
+      type: 'choice',
+      options: (value.options as Record<string, unknown>[]).map(
+        (option) => ({
+          id: option.id as string,
+          text: option.text as string,
+          targetSceneId: option.targetSceneId as string,
+        }),
+      ),
+    };
+  }
+
   return {
     id: value.id as string,
     type: 'dialogue',
     speaker: value.speaker as string,
     text: value.text as string,
+    voiceAssetId: value.voiceAssetId as string | null,
   };
 }
 
@@ -199,6 +246,8 @@ export function parseBackendResponse(line: string): BackendResponse {
         typeof value.result.sceneId !== 'string') ||
       (value.result.nodeId !== undefined &&
         typeof value.result.nodeId !== 'string') ||
+      (value.result.optionId !== undefined &&
+        typeof value.result.optionId !== 'string') ||
       (value.result.assetId !== undefined &&
         typeof value.result.assetId !== 'string')
     ) {
@@ -227,6 +276,9 @@ export function parseBackendResponse(line: string): BackendResponse {
     }
     if (typeof rawResult.nodeId === 'string') {
       result.nodeId = rawResult.nodeId;
+    }
+    if (typeof rawResult.optionId === 'string') {
+      result.optionId = rawResult.optionId;
     }
     if (typeof rawResult.assetId === 'string') {
       result.assetId = rawResult.assetId;

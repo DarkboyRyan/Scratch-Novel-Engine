@@ -7,11 +7,14 @@
 2. [当前架构](./architecture.md)：理解 Renderer、Preload、Main、C++ 和文件系统
    的职责边界。
 3. [项目文件夹与媒体资源](./project-folder-storage.md)：重点准备安全保存、路径隔离、
-   图片/视频导入。
+   图片/视频/音频导入与 capability 媒体读取。
 4. [人物立绘](./character-portrait-implementation.md)：重点准备 Asset/Node/PreviewState
    三层分离和人物 layer。
 5. [游戏顺序预览](./game-preview-runtime.md)：重点准备纯状态机和临时运行会话。
 6. [场景跳转](./scene-jump-implementation.md)：用作“一个功能如何贯穿全栈”的深挖案例。
+7. [语音与背景音乐](./audio-implementation.md)：音频导入、Dialogue 语音、BGM 时间线节点与安全播放。
+8. [视频播放积木](./video-playback-block.md)：Blockly 视频节点、阻塞式正式预览和安全 Range 播放。
+9. [选项分支](./choice-branch-implementation.md)：ChoiceNode 数据模型、Blockly 嵌套选项和正式预览分支。
 
 ## 当前真实技术栈
 

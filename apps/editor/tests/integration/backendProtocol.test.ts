@@ -784,4 +784,178 @@ describe('C++ JSONL backend', () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+
+  it('creates, edits, reorders, and deletes choice options through the real backend', async () => {
+    const projectResponse = await request('project.create', {
+      name: '选项分支协议测试',
+    });
+
+    if (!projectResponse.ok) {
+      throw new Error(projectResponse.error.message);
+    }
+
+    const entrySceneId =
+      projectResponse.result.project.entrySceneId;
+    const secondScene = await request('scene.add', {});
+    const thirdScene = await request('scene.add', {});
+
+    if (
+      !secondScene.ok ||
+      !secondScene.result.sceneId ||
+      !thirdScene.ok ||
+      !thirdScene.result.sceneId
+    ) {
+      throw new Error('C++ did not create target scenes for choice test');
+    }
+
+    const choiceResponse = await request('choice.add', {
+      sceneId: entrySceneId,
+    });
+
+    if (!choiceResponse.ok || !choiceResponse.result.nodeId) {
+      throw new Error('C++ did not create a choice node');
+    }
+
+    const choiceNodeId = choiceResponse.result.nodeId;
+    expect(
+      choiceResponse.result.project.scenes[0].nodes.find(
+        (node) => node.id === choiceNodeId,
+      ),
+    ).toEqual({
+      id: choiceNodeId,
+      type: 'choice',
+      options: [],
+    });
+
+    const firstOptionResponse = await request(
+      'choice.option.add',
+      {
+        sceneId: entrySceneId,
+        nodeId: choiceNodeId,
+        text: '  走向地下室  ',
+        targetSceneId: secondScene.result.sceneId,
+      },
+    );
+
+    if (
+      !firstOptionResponse.ok ||
+      !firstOptionResponse.result.optionId
+    ) {
+      throw new Error('C++ did not create the first choice option');
+    }
+
+    const firstOptionId = firstOptionResponse.result.optionId;
+    const secondOptionResponse = await request(
+      'choice.option.add',
+      {
+        sceneId: entrySceneId,
+        nodeId: choiceNodeId,
+        text: '留在原地',
+        targetSceneId: entrySceneId,
+        beforeOptionId: firstOptionId,
+      },
+    );
+
+    if (
+      !secondOptionResponse.ok ||
+      !secondOptionResponse.result.optionId
+    ) {
+      throw new Error('C++ did not create the second choice option');
+    }
+
+    const secondOptionId = secondOptionResponse.result.optionId;
+    const createdChoice =
+      secondOptionResponse.result.project.scenes
+        .find((scene) => scene.id === entrySceneId)
+        ?.nodes.find(
+          (node) => node.id === choiceNodeId && node.type === 'choice',
+        );
+
+    expect(createdChoice).toEqual({
+      id: choiceNodeId,
+      type: 'choice',
+      options: [
+        {
+          id: secondOptionId,
+          text: '留在原地',
+          targetSceneId: entrySceneId,
+        },
+        {
+          id: firstOptionId,
+          text: '走向地下室',
+          targetSceneId: secondScene.result.sceneId,
+        },
+      ],
+    });
+
+    const updated = await request('choice.option.update', {
+      sceneId: entrySceneId,
+      nodeId: choiceNodeId,
+      optionId: firstOptionId,
+      text: '前往天台',
+      targetSceneId: thirdScene.result.sceneId,
+    });
+    expect(updated.ok).toBe(true);
+
+    const reordered = await request('choice.option.reorder', {
+      sceneId: entrySceneId,
+      nodeId: choiceNodeId,
+      optionId: firstOptionId,
+      beforeOptionId: secondOptionId,
+    });
+
+    if (!reordered.ok) {
+      throw new Error(reordered.error.message);
+    }
+
+    const reorderedChoice = reordered.result.project.scenes
+      .find((scene) => scene.id === entrySceneId)
+      ?.nodes.find(
+        (node) => node.id === choiceNodeId && node.type === 'choice',
+      );
+    expect(
+      reorderedChoice?.type === 'choice'
+        ? reorderedChoice.options.map((option) => option.id)
+        : [],
+    ).toEqual([firstOptionId, secondOptionId]);
+
+    const invalidTarget = await request('choice.option.update', {
+      sceneId: entrySceneId,
+      nodeId: choiceNodeId,
+      optionId: secondOptionId,
+      text: '不存在的出口',
+      targetSceneId: 'missing-scene',
+    });
+    expect(invalidTarget).toMatchObject({
+      ok: false,
+      error: { code: 'target_scene_not_found' },
+    });
+
+    const deleted = await request('choice.option.delete', {
+      sceneId: entrySceneId,
+      nodeId: choiceNodeId,
+      optionId: secondOptionId,
+    });
+
+    if (!deleted.ok) {
+      throw new Error(deleted.error.message);
+    }
+
+    const finalChoice = deleted.result.project.scenes
+      .find((scene) => scene.id === entrySceneId)
+      ?.nodes.find(
+        (node) => node.id === choiceNodeId && node.type === 'choice',
+      );
+    expect(finalChoice).toEqual({
+      id: choiceNodeId,
+      type: 'choice',
+      options: [
+        {
+          id: firstOptionId,
+          text: '前往天台',
+          targetSceneId: thirdScene.result.sceneId,
+        },
+      ],
+    });
+  });
 });

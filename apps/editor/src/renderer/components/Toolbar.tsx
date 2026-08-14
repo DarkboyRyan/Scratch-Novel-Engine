@@ -68,7 +68,7 @@ export function Toolbar({
   return (
     <header className="toolbar">
       <div className="toolbar-main-row">
-        <strong>VN Engine Editor</strong>
+        <strong>Scratch Novel Engine</strong>
 
         <div className="project-file-actions" aria-label="项目文件操作">
           <button
@@ -149,7 +149,7 @@ export function Toolbar({
           aria-live="polite"
           title={engineMessage || undefined}
         >
-          {engineMessage || (isBusy ? 'C++ 处理中…' : 'C++ 已连接')}
+          {engineMessage || (isBusy ? '处理中…' : '已连接')}
         </span>
       </div>
 

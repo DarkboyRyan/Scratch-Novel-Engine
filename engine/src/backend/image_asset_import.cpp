@@ -31,7 +31,11 @@
 namespace vnengine::backend {
 namespace {
 
-constexpr std::size_t kMagicBytes = 64;
+// Ogg's first-page segment table may be larger than the image/video headers.
+// Keeping a bounded 4 KiB prefix allows useful codec validation without ever
+// loading the complete media file into memory.
+constexpr std::size_t kMagicBytes = 4096;
+constexpr std::size_t kAudioProbeBytes = 64U * 1024U;
 constexpr std::size_t kCopyBufferBytes = 64U * 1024U;
 
 enum class ImageKind {
@@ -40,7 +44,26 @@ enum class ImageKind {
   webp,
   mp4,
   webm,
+  mp3,
+  wav,
+  ogg,
 };
+
+std::uint16_t read_little_endian_u16(
+    const std::array<unsigned char, kMagicBytes>& bytes,
+    const std::size_t offset) {
+  return static_cast<std::uint16_t>(bytes[offset]) |
+      (static_cast<std::uint16_t>(bytes[offset + 1]) << 8U);
+}
+
+std::uint32_t read_little_endian_u32(
+    const std::array<unsigned char, kMagicBytes>& bytes,
+    const std::size_t offset) {
+  return static_cast<std::uint32_t>(bytes[offset]) |
+      (static_cast<std::uint32_t>(bytes[offset + 1]) << 8U) |
+      (static_cast<std::uint32_t>(bytes[offset + 2]) << 16U) |
+      (static_cast<std::uint32_t>(bytes[offset + 3]) << 24U);
+}
 
 std::uint32_t read_big_endian_u32(
     const std::array<unsigned char, kMagicBytes>& bytes,
@@ -201,6 +224,233 @@ bool valid_webm_header(
   return found_webm_doctype && offset == header_end;
 }
 
+std::optional<std::uint64_t> mpeg_audio_frame_length(
+    const unsigned char* bytes,
+    const std::size_t size) {
+  if (size < 4 || bytes[0] != 0xffU || (bytes[1] & 0xe0U) != 0xe0U) {
+    return std::nullopt;
+  }
+  const unsigned int version = (bytes[1] >> 3U) & 0x03U;
+  const unsigned int layer = (bytes[1] >> 1U) & 0x03U;
+  const unsigned int bitrate_index = (bytes[2] >> 4U) & 0x0fU;
+  const unsigned int sample_rate_index = (bytes[2] >> 2U) & 0x03U;
+  if (version == 1U || layer == 0U || bitrate_index == 0U ||
+      bitrate_index == 15U || sample_rate_index == 3U) {
+    return std::nullopt;
+  }
+
+  constexpr std::array<unsigned int, 15> mpeg1_layer1{
+      0, 32, 64, 96, 128, 160, 192, 224,
+      256, 288, 320, 352, 384, 416, 448};
+  constexpr std::array<unsigned int, 15> mpeg1_layer2{
+      0, 32, 48, 56, 64, 80, 96, 112,
+      128, 160, 192, 224, 256, 320, 384};
+  constexpr std::array<unsigned int, 15> mpeg1_layer3{
+      0, 32, 40, 48, 56, 64, 80, 96,
+      112, 128, 160, 192, 224, 256, 320};
+  constexpr std::array<unsigned int, 15> mpeg2_layer1{
+      0, 32, 48, 56, 64, 80, 96, 112,
+      128, 144, 160, 176, 192, 224, 256};
+  constexpr std::array<unsigned int, 15> mpeg2_layer23{
+      0, 8, 16, 24, 32, 40, 48, 56,
+      64, 80, 96, 112, 128, 144, 160};
+  constexpr std::array<unsigned int, 3> base_sample_rates{
+      44'100, 48'000, 32'000};
+
+  const bool is_mpeg1 = version == 3U;
+  const auto& bitrate_table = is_mpeg1
+      ? (layer == 3U ? mpeg1_layer1
+                     : (layer == 2U ? mpeg1_layer2 : mpeg1_layer3))
+      : (layer == 3U ? mpeg2_layer1 : mpeg2_layer23);
+  const std::uint64_t bitrate =
+      static_cast<std::uint64_t>(bitrate_table[bitrate_index]) * 1000U;
+  const unsigned int version_divisor = version == 3U ? 1U :
+      (version == 2U ? 2U : 4U);
+  const std::uint64_t sample_rate =
+      base_sample_rates[sample_rate_index] / version_divisor;
+  const unsigned int padding = (bytes[2] >> 1U) & 0x01U;
+
+  if (layer == 3U) {
+    return ((12U * bitrate) / sample_rate + padding) * 4U;
+  }
+  const std::uint64_t coefficient = layer == 1U && !is_mpeg1 ? 72U : 144U;
+  return (coefficient * bitrate) / sample_rate + padding;
+}
+
+std::optional<std::uint64_t> mp3_audio_offset(
+    const std::array<unsigned char, kMagicBytes>& bytes,
+    const std::size_t header_size,
+    const std::uintmax_t file_size) {
+  if (header_size >= 4 && mpeg_audio_frame_length(bytes.data(), 4)) {
+    return 0U;
+  }
+  if (header_size < 10 || bytes[0] != 'I' || bytes[1] != 'D' ||
+      bytes[2] != '3' || bytes[3] < 2U || bytes[3] > 4U ||
+      bytes[4] == 0xffU ||
+      (bytes[6] & 0x80U) != 0 || (bytes[7] & 0x80U) != 0 ||
+      (bytes[8] & 0x80U) != 0 || (bytes[9] & 0x80U) != 0) {
+    return std::nullopt;
+  }
+  const unsigned char reserved_flags = bytes[3] == 2U ? 0x3fU :
+      (bytes[3] == 3U ? 0x1fU : 0x0fU);
+  if ((bytes[5] & reserved_flags) != 0) {
+    return std::nullopt;
+  }
+  const std::uint32_t tag_size =
+      (static_cast<std::uint32_t>(bytes[6]) << 21U) |
+      (static_cast<std::uint32_t>(bytes[7]) << 14U) |
+      (static_cast<std::uint32_t>(bytes[8]) << 7U) |
+      static_cast<std::uint32_t>(bytes[9]);
+  const std::uint64_t frame_begin = 10U + tag_size +
+      ((bytes[3] == 4U && (bytes[5] & 0x10U) != 0) ? 10U : 0U);
+  if (frame_begin + 4U > file_size) {
+    return std::nullopt;
+  }
+  return frame_begin;
+}
+
+template <typename Reader>
+bool valid_mp3_source(
+    const std::array<unsigned char, kMagicBytes>& header,
+    const std::size_t header_size,
+    const std::uintmax_t file_size,
+    Reader&& read_at) {
+  const auto audio_offset = mp3_audio_offset(header, header_size, file_size);
+  if (!audio_offset.has_value()) {
+    return false;
+  }
+
+  std::array<unsigned char, kAudioProbeBytes> probe{};
+  const std::size_t probe_size = read_at(
+      *audio_offset,
+      probe.data(),
+      static_cast<std::size_t>(std::min<std::uintmax_t>(
+          probe.size(), file_size - *audio_offset)));
+  std::size_t frame_offset = 0;
+  while (frame_offset < probe_size && probe[frame_offset] == 0) {
+    ++frame_offset;
+  }
+  const auto frame_length = mpeg_audio_frame_length(
+      probe.data() + frame_offset, probe_size - frame_offset);
+  return frame_length.has_value() && *frame_length >= 24U &&
+      *audio_offset + frame_offset + *frame_length <= file_size;
+}
+
+bool valid_wav_header(
+    const std::array<unsigned char, kMagicBytes>& bytes,
+    const std::size_t header_size,
+    const std::uintmax_t file_size) {
+  if (header_size < 12 || bytes[0] != 'R' || bytes[1] != 'I' ||
+      bytes[2] != 'F' || bytes[3] != 'F' || bytes[8] != 'W' ||
+      bytes[9] != 'A' || bytes[10] != 'V' || bytes[11] != 'E') {
+    return false;
+  }
+  const std::uint64_t riff_end =
+      static_cast<std::uint64_t>(read_little_endian_u32(bytes, 4)) + 8U;
+  if (riff_end > file_size || riff_end < 36U) {
+    return false;
+  }
+
+  std::size_t offset = 12;
+  bool found_format = false;
+  bool found_data = false;
+  while (offset + 8 <= header_size && offset + 8 <= riff_end) {
+    const std::uint32_t chunk_size = read_little_endian_u32(bytes, offset + 4);
+    const std::uint64_t chunk_end =
+        static_cast<std::uint64_t>(offset) + 8U + chunk_size;
+    if (chunk_end > riff_end || chunk_end > file_size) {
+      return false;
+    }
+    if (bytes[offset] == 'f' && bytes[offset + 1] == 'm' &&
+        bytes[offset + 2] == 't' && bytes[offset + 3] == ' ') {
+      if (found_format || chunk_size < 16 || chunk_size > 1024 ||
+          offset + 24 > header_size) {
+        return false;
+      }
+      const std::uint16_t format = read_little_endian_u16(bytes, offset + 8);
+      const std::uint16_t channels = read_little_endian_u16(bytes, offset + 10);
+      const std::uint32_t sample_rate =
+          read_little_endian_u32(bytes, offset + 12);
+      const std::uint32_t byte_rate =
+          read_little_endian_u32(bytes, offset + 16);
+      const std::uint16_t block_align =
+          read_little_endian_u16(bytes, offset + 20);
+      const std::uint16_t bits_per_sample =
+          read_little_endian_u16(bytes, offset + 22);
+      const bool supported_format = format == 1U || format == 3U ||
+          format == 6U || format == 7U || format == 0xfffeU;
+      if (!supported_format || channels == 0 || sample_rate == 0 ||
+          byte_rate == 0 || block_align == 0 || bits_per_sample == 0) {
+        return false;
+      }
+      found_format = true;
+    } else if (bytes[offset] == 'd' && bytes[offset + 1] == 'a' &&
+               bytes[offset + 2] == 't' && bytes[offset + 3] == 'a') {
+      if (chunk_size == 0) {
+        return false;
+      }
+      found_data = true;
+    }
+    if (found_format && found_data) {
+      return true;
+    }
+    const std::uint64_t padded_end = chunk_end + (chunk_size & 1U);
+    if (padded_end > std::numeric_limits<std::size_t>::max()) {
+      return false;
+    }
+    offset = static_cast<std::size_t>(padded_end);
+  }
+  return false;
+}
+
+bool valid_ogg_audio_header(
+    const std::array<unsigned char, kMagicBytes>& bytes,
+    const std::size_t header_size) {
+  if (header_size < 28 || bytes[0] != 'O' || bytes[1] != 'g' ||
+      bytes[2] != 'g' || bytes[3] != 'S' || bytes[4] != 0 ||
+      (bytes[5] & 0x02U) == 0 ||
+      read_little_endian_u32(bytes, 18) != 0) {
+    return false;
+  }
+  const std::size_t segment_count = bytes[26];
+  if (segment_count == 0) {
+    return false;
+  }
+  const std::size_t payload_begin = 27U + segment_count;
+  if (payload_begin > header_size) {
+    return false;
+  }
+  std::size_t first_packet_size = 0;
+  bool packet_complete = false;
+  for (std::size_t index = 0; index < segment_count; ++index) {
+    first_packet_size += bytes[27 + index];
+    if (bytes[27 + index] < 255U) {
+      packet_complete = true;
+      break;
+    }
+  }
+  if (!packet_complete || first_packet_size == 0 ||
+      payload_begin + first_packet_size > header_size) {
+    return false;
+  }
+  constexpr std::array<unsigned char, 8> opus{
+      'O', 'p', 'u', 's', 'H', 'e', 'a', 'd'};
+  constexpr std::array<unsigned char, 7> vorbis{
+      0x01U, 'v', 'o', 'r', 'b', 'i', 's'};
+  const bool valid_opus = first_packet_size >= 19U &&
+      std::equal(opus.begin(), opus.end(), bytes.begin() + payload_begin) &&
+      bytes[payload_begin + 8] > 0U &&
+      (bytes[payload_begin + 8] & 0xf0U) == 0U &&
+      bytes[payload_begin + 9] > 0U;
+  const bool valid_vorbis = first_packet_size >= 30U &&
+      std::equal(vorbis.begin(), vorbis.end(), bytes.begin() + payload_begin) &&
+      read_little_endian_u32(bytes, payload_begin + 7) == 0U &&
+      bytes[payload_begin + 11] > 0U &&
+      read_little_endian_u32(bytes, payload_begin + 12) > 0U &&
+      (bytes[payload_begin + 29] & 0x01U) == 1U;
+  return valid_opus || valid_vorbis;
+}
+
 [[noreturn]] void fail(std::string message) {
   throw AssetImportError(std::move(message));
 }
@@ -255,6 +505,15 @@ ImageKind kind_for_extension(const std::string_view extension) {
   if (extension == ".webm") {
     return ImageKind::webm;
   }
+  if (extension == ".mp3") {
+    return ImageKind::mp3;
+  }
+  if (extension == ".wav") {
+    return ImageKind::wav;
+  }
+  if (extension == ".ogg") {
+    return ImageKind::ogg;
+  }
   fail("Asset source must use a supported extension");
 }
 
@@ -270,6 +529,12 @@ std::string canonical_extension(const ImageKind kind) {
       return ".mp4";
     case ImageKind::webm:
       return ".webm";
+    case ImageKind::mp3:
+      return ".mp3";
+    case ImageKind::wav:
+      return ".wav";
+    case ImageKind::ogg:
+      return ".ogg";
   }
   fail("Asset type is unsupported");
 }
@@ -315,6 +580,14 @@ bool magic_matches(
       return valid_mp4_header(bytes, size, file_size);
     case ImageKind::webm:
       return valid_webm_header(bytes, size, file_size);
+    case ImageKind::mp3:
+      // MP3 can place its first MPEG frame after a large ID3 tag. The caller
+      // validates it through the already-open source handle.
+      return false;
+    case ImageKind::wav:
+      return valid_wav_header(bytes, size, file_size);
+    case ImageKind::ogg:
+      return valid_ogg_audio_header(bytes, size);
   }
   return false;
 }
@@ -322,9 +595,18 @@ bool magic_matches(
 std::string destination_filename(
     const AssetImportPlan& plan,
     const AssetImportKind import_kind) {
-  const std::string_view prefix = import_kind == AssetImportKind::image
-      ? std::string_view("assets/images/")
-      : std::string_view("assets/videos/");
+  std::string_view prefix;
+  switch (import_kind) {
+    case AssetImportKind::image:
+      prefix = "assets/images/";
+      break;
+    case AssetImportKind::video:
+      prefix = "assets/videos/";
+      break;
+    case AssetImportKind::audio:
+      prefix = "assets/audio/";
+      break;
+  }
   if (!std::string_view(plan.relative_path).starts_with(prefix)) {
     fail("Asset destination is invalid");
   }
@@ -537,6 +819,28 @@ std::size_t read_header(
   return static_cast<std::size_t>(read);
 }
 
+std::size_t read_source_at(
+    const WindowsHandle& source,
+    const std::uint64_t offset,
+    unsigned char* output,
+    const std::size_t size) {
+  LARGE_INTEGER position{};
+  position.QuadPart = static_cast<LONGLONG>(offset);
+  if (!SetFilePointerEx(source.get(), position, nullptr, FILE_BEGIN)) {
+    fail("could not inspect Asset source");
+  }
+  DWORD read = 0;
+  const bool succeeded = ReadFile(
+      source.get(), output, static_cast<DWORD>(size), &read, nullptr) != 0;
+  LARGE_INTEGER beginning{};
+  const bool rewound =
+      SetFilePointerEx(source.get(), beginning, nullptr, FILE_BEGIN) != 0;
+  if (!succeeded || !rewound) {
+    fail("could not inspect Asset source");
+  }
+  return static_cast<std::size_t>(read);
+}
+
 std::filesystem::path create_temporary_file(
     const std::filesystem::path& images_directory,
     const std::string& destination,
@@ -714,6 +1018,32 @@ std::size_t read_header(
     fail("could not rewind Asset source");
   }
   return offset;
+}
+
+std::size_t read_source_at(
+    const PosixFile& source,
+    const std::uint64_t offset,
+    unsigned char* output,
+    const std::size_t size) {
+  std::size_t total = 0;
+  while (total < size) {
+    const ssize_t read = ::pread(
+        source.get(),
+        output + total,
+        size - total,
+        static_cast<off_t>(offset + total));
+    if (read < 0 && errno == EINTR) {
+      continue;
+    }
+    if (read < 0) {
+      fail("could not inspect Asset source");
+    }
+    if (read == 0) {
+      break;
+    }
+    total += static_cast<std::size_t>(read);
+  }
+  return total;
 }
 
 PosixFile open_safe_directory(const std::filesystem::path& path) {
@@ -936,14 +1266,33 @@ AssetImportPlan plan_asset_import(
   const ImageKind kind = kind_for_extension(original_extension);
   const bool is_image = kind == ImageKind::png || kind == ImageKind::jpeg ||
       kind == ImageKind::webp;
-  if ((import_kind == AssetImportKind::image) != is_image) {
-    fail(import_kind == AssetImportKind::image
-        ? "image source must use a PNG, JPEG, or WebP extension"
-        : "video source must use an MP4 or WebM extension");
+  const bool is_video = kind == ImageKind::mp4 || kind == ImageKind::webm;
+  const bool kind_matches =
+      (import_kind == AssetImportKind::image && is_image) ||
+      (import_kind == AssetImportKind::video && is_video) ||
+      (import_kind == AssetImportKind::audio && !is_image && !is_video);
+  if (!kind_matches) {
+    switch (import_kind) {
+      case AssetImportKind::image:
+        fail("image source must use a PNG, JPEG, or WebP extension");
+      case AssetImportKind::video:
+        fail("video source must use an MP4 or WebM extension");
+      case AssetImportKind::audio:
+        fail("audio source must use an MP3, WAV, or Ogg extension");
+    }
   }
-  const std::string_view directory = import_kind == AssetImportKind::image
-      ? std::string_view("assets/images/")
-      : std::string_view("assets/videos/");
+  std::string_view directory;
+  switch (import_kind) {
+    case AssetImportKind::image:
+      directory = "assets/images/";
+      break;
+    case AssetImportKind::video:
+      directory = "assets/videos/";
+      break;
+    case AssetImportKind::audio:
+      directory = "assets/audio/";
+      break;
+  }
   return AssetImportPlan{
       .relative_path = std::string(directory) + std::string(asset_id) +
           canonical_extension(kind),
@@ -966,6 +1315,13 @@ VideoAssetImportPlan plan_video_asset_import(
       source_file_path, asset_id, AssetImportKind::video);
 }
 
+AudioAssetImportPlan plan_audio_asset_import(
+    const std::string_view source_file_path,
+    const std::string_view asset_id) {
+  return plan_asset_import(
+      source_file_path, asset_id, AssetImportKind::audio);
+}
+
 void copy_asset_no_clobber(
     const std::filesystem::path& source,
     const std::filesystem::path& project_directory,
@@ -980,19 +1336,33 @@ void copy_asset_no_clobber(
   const ImageKind expected_kind = kind_for_extension(destination_extension);
   const bool is_image = expected_kind == ImageKind::png ||
       expected_kind == ImageKind::jpeg || expected_kind == ImageKind::webp;
-  if ((import_kind == AssetImportKind::image) != is_image) {
+  const bool is_video = expected_kind == ImageKind::mp4 ||
+      expected_kind == ImageKind::webm;
+  if (!((import_kind == AssetImportKind::image && is_image) ||
+        (import_kind == AssetImportKind::video && is_video) ||
+        (import_kind == AssetImportKind::audio && !is_image && !is_video))) {
     fail("Asset destination type is invalid");
   }
-  const std::string_view relative_directory =
-      import_kind == AssetImportKind::image
-      ? std::string_view("assets/images/")
-      : std::string_view("assets/videos/");
-  const char* directory_name =
-      import_kind == AssetImportKind::image ? "images" : "videos";
-  const std::uintmax_t maximum_bytes =
-      import_kind == AssetImportKind::image
-      ? kMaximumImportedImageBytes
-      : kMaximumImportedVideoBytes;
+  std::string_view relative_directory;
+  const char* directory_name = nullptr;
+  std::uintmax_t maximum_bytes = 0;
+  switch (import_kind) {
+    case AssetImportKind::image:
+      relative_directory = "assets/images/";
+      directory_name = "images";
+      maximum_bytes = kMaximumImportedImageBytes;
+      break;
+    case AssetImportKind::video:
+      relative_directory = "assets/videos/";
+      directory_name = "videos";
+      maximum_bytes = kMaximumImportedVideoBytes;
+      break;
+    case AssetImportKind::audio:
+      relative_directory = "assets/audio/";
+      directory_name = "audio";
+      maximum_bytes = kMaximumImportedAudioBytes;
+      break;
+  }
   const std::string expected_relative_path =
       std::string(relative_directory) +
       std::filesystem::path(destination).stem().string() +
@@ -1010,8 +1380,18 @@ void copy_asset_no_clobber(
   WindowsHandle source_file =
       open_safe_source(source, source_size, source_status, maximum_bytes);
   const std::size_t header_size = read_header(source_file, header);
-  if (!magic_matches(
-          expected_kind, header, header_size, source_size)) {
+  const bool contents_match = expected_kind == ImageKind::mp3
+      ? valid_mp3_source(
+            header,
+            header_size,
+            source_size,
+            [&](const std::uint64_t offset,
+                unsigned char* output,
+                const std::size_t size) {
+              return read_source_at(source_file, offset, output, size);
+            })
+      : magic_matches(expected_kind, header, header_size, source_size);
+  if (!contents_match) {
     fail("Asset contents do not match the selected file extension");
   }
 
@@ -1067,8 +1447,18 @@ void copy_asset_no_clobber(
       open_safe_source(source, source_status, maximum_bytes);
   source_size = static_cast<std::uintmax_t>(source_status.st_size);
   const std::size_t header_size = read_header(source_file, header);
-  if (!magic_matches(
-          expected_kind, header, header_size, source_size)) {
+  const bool contents_match = expected_kind == ImageKind::mp3
+      ? valid_mp3_source(
+            header,
+            header_size,
+            source_size,
+            [&](const std::uint64_t offset,
+                unsigned char* output,
+                const std::size_t size) {
+              return read_source_at(source_file, offset, output, size);
+            })
+      : magic_matches(expected_kind, header, header_size, source_size);
+  if (!contents_match) {
     fail("Asset contents do not match the selected file extension");
   }
 
@@ -1136,6 +1526,19 @@ void copy_video_asset_no_clobber(
       project_directory,
       plan,
       AssetImportKind::video,
+      before_publish);
+}
+
+void copy_audio_asset_no_clobber(
+    const std::filesystem::path& source,
+    const std::filesystem::path& project_directory,
+    const AudioAssetImportPlan& plan,
+    const ImageImportBeforePublishHook before_publish) {
+  copy_asset_no_clobber(
+      source,
+      project_directory,
+      plan,
+      AssetImportKind::audio,
       before_publish);
 }
 

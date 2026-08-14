@@ -113,6 +113,66 @@ std::string webm_bytes() {
       0x42U, 0x82U, 0x84U, 'w', 'e', 'b', 'm'});
 }
 
+std::string mp3_bytes() {
+  std::string result(417, '\0');
+  result[0] = static_cast<char>(0xffU);
+  result[1] = static_cast<char>(0xfbU);
+  result[2] = static_cast<char>(0x90U);
+  result[3] = static_cast<char>(0x64U);
+  return result;
+}
+
+std::string id3_mp3_bytes(const bool include_mpeg_frame) {
+  std::string result = bytes({
+      'I', 'D', '3', 4U, 0U, 0U, 0U, 0U, 39U, 8U});
+  result.append(5000, '\0');
+  result += include_mpeg_frame ? mp3_bytes() : std::string("NOPE");
+  return result;
+}
+
+std::string wav_bytes() {
+  return bytes({
+      'R', 'I', 'F', 'F', 40U, 0U, 0U, 0U,
+      'W', 'A', 'V', 'E', 'f', 'm', 't', ' ',
+      16U, 0U, 0U, 0U, 1U, 0U, 1U, 0U,
+      0x44U, 0xacU, 0U, 0U, 0x88U, 0x58U, 0x01U, 0U,
+      2U, 0U, 16U, 0U, 'd', 'a', 't', 'a',
+      4U, 0U, 0U, 0U, 0U, 0U, 0U, 0U});
+}
+
+std::string ogg_opus_bytes() {
+  std::string result = bytes({
+      'O', 'g', 'g', 'S', 0U, 0x02U,
+      0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U,
+      1U, 0U, 0U, 0U, 0U, 0U, 0U, 0U,
+      0U, 0U, 0U, 0U, 1U, 19U});
+  std::string packet(19, '\0');
+  packet.replace(0, 8, "OpusHead");
+  packet[8] = 1;
+  packet[9] = 2;
+  packet[12] = static_cast<char>(0x80U);
+  packet[13] = static_cast<char>(0xbbU);
+  result += packet;
+  return result;
+}
+
+std::string ogg_vorbis_bytes() {
+  std::string result = bytes({
+      'O', 'g', 'g', 'S', 0U, 0x02U,
+      0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U,
+      1U, 0U, 0U, 0U, 0U, 0U, 0U, 0U,
+      0U, 0U, 0U, 0U, 1U, 30U});
+  std::string packet(30, '\0');
+  packet[0] = 1;
+  packet.replace(1, 6, "vorbis");
+  packet[11] = 2;
+  packet[12] = static_cast<char>(0x80U);
+  packet[13] = static_cast<char>(0xbbU);
+  packet[29] = 1;
+  result += packet;
+  return result;
+}
+
 std::string read_file(const std::filesystem::path& path) {
   std::ifstream input(path, std::ios::binary);
   return std::string(
@@ -321,6 +381,130 @@ void rejects_mismatched_and_unsafe_video_sources() {
   check_no_temporary_files(project);
 }
 
+void plans_and_streams_supported_audio() {
+  TemporaryDirectory temporary;
+  const std::filesystem::path project =
+      temporary.make_directory("audio-project");
+
+  struct Fixture {
+    std::string filename;
+    std::string id;
+    std::string expected_extension;
+    std::string contents;
+  };
+  const std::vector<Fixture> fixtures{
+      {"Alice Voice.MP3", "voice-mp3", ".mp3", mp3_bytes()},
+      {"Tagged Voice.mp3", "voice-tagged", ".mp3", id3_mp3_bytes(true)},
+      {"Rain.WAV", "bgm-wav", ".wav", wav_bytes()},
+      {"Theme.ogg", "bgm-opus", ".ogg", ogg_opus_bytes()},
+      {"Ambience.OGG", "bgm-vorbis", ".ogg", ogg_vorbis_bytes()},
+  };
+
+  for (const Fixture& fixture : fixtures) {
+    const std::filesystem::path source = temporary.write(
+        fixture.filename, fixture.contents);
+    const auto plan = vnengine::backend::plan_audio_asset_import(
+        source.string(), fixture.id);
+    CHECK(plan.relative_path ==
+        "assets/audio/" + fixture.id + fixture.expected_extension);
+    CHECK(!plan.display_name.empty());
+    vnengine::backend::copy_audio_asset_no_clobber(
+        source, project, plan);
+
+    const std::filesystem::path target = project / "assets" / "audio" /
+        (fixture.id + fixture.expected_extension);
+    CHECK(std::filesystem::is_regular_file(target));
+    CHECK(read_file(target) == fixture.contents);
+    CHECK(read_file(source) == fixture.contents);
+  }
+  check_no_temporary_files(project);
+}
+
+void rejects_mismatched_and_unsafe_audio_sources() {
+  TemporaryDirectory temporary;
+  const std::filesystem::path project =
+      temporary.make_directory("audio-project");
+  const std::filesystem::path mismatch = temporary.write(
+      "mismatch.mp3", wav_bytes());
+  const auto mismatch_plan = vnengine::backend::plan_audio_asset_import(
+      mismatch.string(), "mismatch");
+  expect_import_error([&] {
+    vnengine::backend::copy_audio_asset_no_clobber(
+        mismatch, project, mismatch_plan);
+  });
+
+  for (const auto& [filename, contents] :
+       std::vector<std::pair<std::string, std::string>>{
+           {"truncated.mp3", bytes({0xffU, 0xfbU, 0x90U, 0x64U})},
+           {"id3-without-frame.mp3", id3_mp3_bytes(false)}}) {
+    const std::filesystem::path invalid = temporary.write(filename, contents);
+    const auto invalid_plan = vnengine::backend::plan_audio_asset_import(
+        invalid.string(),
+        filename.starts_with("truncated") ? "invalid-truncated" :
+                                             "invalid-id3");
+    expect_import_error([&] {
+      vnengine::backend::copy_audio_asset_no_clobber(
+          invalid, project, invalid_plan);
+    });
+  }
+
+  expect_import_error([&] {
+    static_cast<void>(vnengine::backend::plan_audio_asset_import(
+        (temporary.root() / "track.m4a").string(), "unsupported"));
+  });
+  expect_import_error([&] {
+    static_cast<void>(vnengine::backend::plan_asset_import(
+        (temporary.root() / "still.png").string(),
+        "wrong-kind",
+        vnengine::backend::AssetImportKind::audio));
+  });
+
+  const std::filesystem::path oversized = temporary.write(
+      "oversized.wav", wav_bytes());
+  std::filesystem::resize_file(
+      oversized,
+      vnengine::backend::kMaximumImportedAudioBytes + 1U);
+  const auto oversized_plan = vnengine::backend::plan_audio_asset_import(
+      oversized.string(), "oversized");
+  expect_import_error([&] {
+    vnengine::backend::copy_audio_asset_no_clobber(
+        oversized, project, oversized_plan);
+  });
+
+  const std::filesystem::path valid = temporary.write(
+      "valid.mp3", mp3_bytes());
+  std::error_code error;
+  const std::filesystem::path source_link = temporary.root() / "linked.mp3";
+  std::filesystem::create_symlink(valid, source_link, error);
+  if (!error) {
+    const auto link_plan = vnengine::backend::plan_audio_asset_import(
+        source_link.string(), "linked");
+    expect_import_error([&] {
+      vnengine::backend::copy_audio_asset_no_clobber(
+          source_link, project, link_plan);
+    });
+  }
+
+  CHECK(std::filesystem::create_directories(project / "assets" / "audio"));
+  const std::filesystem::path existing =
+      project / "assets" / "audio" / "collision.mp3";
+  const std::string sentinel = mp3_bytes() + "existing";
+  {
+    std::ofstream output(existing, std::ios::binary);
+    output.write(sentinel.data(), static_cast<std::streamsize>(sentinel.size()));
+  }
+  const auto collision_plan = vnengine::backend::plan_audio_asset_import(
+      valid.string(), "collision");
+  expect_import_error([&] {
+    vnengine::backend::copy_audio_asset_no_clobber(
+        valid, project, collision_plan);
+  });
+  CHECK(read_file(existing) == sentinel);
+  CHECK(!std::filesystem::exists(
+      project / "assets" / "audio" / "mismatch.mp3"));
+  check_no_temporary_files(project);
+}
+
 void streams_supported_images_and_preserves_sources() {
   TemporaryDirectory temporary;
   const std::filesystem::path project =
@@ -524,6 +708,10 @@ int main() {
        plans_and_streams_supported_videos},
       {"rejects mismatched and unsafe video sources",
        rejects_mismatched_and_unsafe_video_sources},
+      {"plans and streams supported audio",
+       plans_and_streams_supported_audio},
+      {"rejects mismatched and unsafe audio sources",
+       rejects_mismatched_and_unsafe_audio_sources},
       {"rejects malformed nonregular and oversized sources",
        rejects_malformed_nonregular_and_oversized_sources},
       {"rejects source and destination links",

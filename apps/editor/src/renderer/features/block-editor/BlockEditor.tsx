@@ -10,6 +10,11 @@ import type {
   AddDialogueAction,
   AddCharacterAction,
   AddSceneJumpAction,
+  AddBgmAction,
+  AddVideoAction,
+  AddChoiceAction,
+  AddChoiceOptionAction,
+  DeleteChoiceOptionAction,
   DeleteTimelineNodesAction,
   ReorderTimelineNodeAction,
   ReorderTimelineNodesAction,
@@ -17,6 +22,11 @@ import type {
   UpdateDialogueAction,
   UpdateCharacterAction,
   UpdateSceneJumpAction,
+  UpdateBgmAction,
+  UpdateVideoAction,
+  UpdateChoiceOptionAction,
+  ReorderChoiceOptionAction,
+  SetDialogueVoiceAction,
 } from '../../hooks/useEngineProject';
 
 import type {
@@ -46,6 +56,16 @@ type BlockEditorProps = {
   onCharacterUpdate: UpdateCharacterAction;
   onSceneJumpAdd: AddSceneJumpAction;
   onSceneJumpUpdate: UpdateSceneJumpAction;
+  onBgmAdd: AddBgmAction;
+  onBgmUpdate: UpdateBgmAction;
+  onVideoAdd: AddVideoAction;
+  onVideoUpdate: UpdateVideoAction;
+  onChoiceAdd: AddChoiceAction;
+  onChoiceOptionAdd: AddChoiceOptionAction;
+  onChoiceOptionUpdate: UpdateChoiceOptionAction;
+  onChoiceOptionDelete: DeleteChoiceOptionAction;
+  onChoiceOptionReorder: ReorderChoiceOptionAction;
+  onDialogueVoiceUpdate: SetDialogueVoiceAction;
   onTimelineReorder: ReorderTimelineNodeAction;
   onTimelineNodesReorder: ReorderTimelineNodesAction;
   onTimelineNodesDelete: DeleteTimelineNodesAction;
@@ -72,6 +92,16 @@ export const BlockEditor = forwardRef<
     onCharacterUpdate,
     onSceneJumpAdd,
     onSceneJumpUpdate,
+    onBgmAdd,
+    onBgmUpdate,
+    onVideoAdd,
+    onVideoUpdate,
+    onChoiceAdd,
+    onChoiceOptionAdd,
+    onChoiceOptionUpdate,
+    onChoiceOptionDelete,
+    onChoiceOptionReorder,
+    onDialogueVoiceUpdate,
     onTimelineReorder,
     onTimelineNodesReorder,
     onTimelineNodesDelete,
@@ -161,6 +191,16 @@ export const BlockEditor = forwardRef<
           onCharacterUpdate={onCharacterUpdate}
           onSceneJumpAdd={onSceneJumpAdd}
           onSceneJumpUpdate={onSceneJumpUpdate}
+          onBgmAdd={onBgmAdd}
+          onBgmUpdate={onBgmUpdate}
+          onVideoAdd={onVideoAdd}
+          onVideoUpdate={onVideoUpdate}
+          onChoiceAdd={onChoiceAdd}
+          onChoiceOptionAdd={onChoiceOptionAdd}
+          onChoiceOptionUpdate={onChoiceOptionUpdate}
+          onChoiceOptionDelete={onChoiceOptionDelete}
+          onChoiceOptionReorder={onChoiceOptionReorder}
+          onDialogueVoiceUpdate={onDialogueVoiceUpdate}
           onTimelineReorder={onTimelineReorder}
           onTimelineNodesReorder={onTimelineNodesReorder}
           onTimelineNodesDelete={onTimelineNodesDelete}

@@ -7,6 +7,8 @@ import {
   type SceneWorkspaceLayout,
 } from '../../src/renderer/features/block-editor/blockEditorLayout';
 import { DIALOGUE_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/dialogueBlock';
+import { BGM_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/bgmBlock';
+import { CHOICE_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/choiceBlock';
 import type { SceneDocument } from '../../src/shared/projectTypes';
 
 const scene: SceneDocument = {
@@ -20,12 +22,14 @@ const scene: SceneDocument = {
       type: 'dialogue',
       speaker: 'A',
       text: '第一句',
+      voiceAssetId: null,
     },
     {
       id: 'node-2',
       type: 'dialogue',
       speaker: 'B',
       text: '第二句',
+      voiceAssetId: null,
     },
   ],
 };
@@ -35,10 +39,11 @@ function createRootBlock(
   descendantIds: string[],
   x: number,
   y: number,
+  type = DIALOGUE_BLOCK_TYPE,
 ): Blockly.BlockSvg {
   const root = {
     id,
-    type: DIALOGUE_BLOCK_TYPE,
+    type,
     getDescendants: () =>
       descendantIds.map((descendantId) => ({ id: descendantId })),
     getRelativeToSurfaceXY: () => ({ x, y }),
@@ -134,6 +139,66 @@ describe('captureSceneWorkspaceLayout', () => {
         { preferredRoot: temporaryBlock },
       ).rootPosition,
     ).toEqual({ x: 520, y: 310 });
+  });
+
+  it('keeps the root position when a BGM node starts the timeline', () => {
+    const bgmScene: SceneDocument = {
+      ...scene,
+      nodes: [
+        { id: 'bgm-1', type: 'bgm', assetId: null },
+        ...scene.nodes,
+      ],
+    };
+    const root = createRootBlock(
+      'bgm-1',
+      ['bgm-1', 'node-1', 'node-2'],
+      360,
+      210,
+      BGM_BLOCK_TYPE,
+    );
+
+    expect(
+      captureSceneWorkspaceLayout(
+        bgmScene,
+        createWorkspace([root]),
+      ).rootPosition,
+    ).toEqual({ x: 360, y: 210 });
+  });
+
+  it('counts a Choice container as one top-level timeline node', () => {
+    const choiceScene: SceneDocument = {
+      ...scene,
+      nodes: [
+        {
+          id: 'choice-1',
+          type: 'choice',
+          options: [
+            {
+              id: 'option-1',
+              text: '继续',
+              targetSceneId: 'scene-1',
+            },
+          ],
+        },
+        ...scene.nodes,
+      ],
+    };
+    const root = createRootBlock(
+      'choice-1',
+      // getDescendants also contains the nested option, but layout completeness
+      // counts only IDs from Scene.nodes.
+      ['choice-1', 'option-1', 'node-1', 'node-2'],
+      410,
+      260,
+      CHOICE_BLOCK_TYPE,
+    );
+
+    expect(
+      captureSceneWorkspaceLayout(
+        choiceScene,
+        createWorkspace([root]),
+      ).rootPosition,
+    ).toEqual({ x: 410, y: 260 });
   });
 });
 

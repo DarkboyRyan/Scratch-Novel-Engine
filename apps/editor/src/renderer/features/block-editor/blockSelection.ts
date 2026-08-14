@@ -1,10 +1,7 @@
 import * as Blockly from 'blockly';
 
 import type { SceneDocument } from '../../../shared/projectTypes';
-import { DIALOGUE_BLOCK_TYPE } from './blocks/dialogueBlock';
-import { BACKGROUND_BLOCK_TYPE } from './blocks/backgroundBlock';
-import { CHARACTER_BLOCK_TYPE } from './blocks/characterBlock';
-import { SCENE_JUMP_BLOCK_TYPE } from './blocks/sceneJumpBlock';
+import { STORY_BLOCK_TYPES } from './storyBlockTypes';
 
 const LONG_PRESS_MS = 450;
 // Blockly 自己的鼠标手势阈值是 5px；这里略小，避免短拖结束后
@@ -93,12 +90,7 @@ export function createBlockSelectionController(
     new Set(scene.nodes.map((node) => node.id));
 
   const storyBlocks = () =>
-    [
-      DIALOGUE_BLOCK_TYPE,
-      BACKGROUND_BLOCK_TYPE,
-      CHARACTER_BLOCK_TYPE,
-      SCENE_JUMP_BLOCK_TYPE,
-    ]
+    STORY_BLOCK_TYPES
       .flatMap((type) => workspace.getBlocksByType(type, false))
       .filter(
         (block): block is Blockly.BlockSvg =>

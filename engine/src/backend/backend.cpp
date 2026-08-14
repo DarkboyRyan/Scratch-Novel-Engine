@@ -1,5 +1,6 @@
 #include "backend.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
@@ -134,7 +135,8 @@ Json success_response(
     const std::optional<std::uint64_t> saved_revision,
     const std::optional<std::string>& scene_id = std::nullopt,
     const std::optional<std::string>& node_id = std::nullopt,
-    const std::optional<std::string>& asset_id = std::nullopt) {
+    const std::optional<std::string>& asset_id = std::nullopt,
+    const std::optional<std::string>& option_id = std::nullopt) {
   Json result{
       {"project",
        aggregate.has_value()
@@ -163,6 +165,9 @@ Json success_response(
   }
   if (asset_id.has_value()) {
     result["assetId"] = *asset_id;
+  }
+  if (option_id.has_value()) {
+    result["optionId"] = *option_id;
   }
 
   return {
@@ -311,9 +316,11 @@ Json Backend::handle(const Json& request) {
       import_kind = AssetImportKind::image;
     } else if (kind == "video") {
       import_kind = AssetImportKind::video;
+    } else if (kind == "audio") {
+      import_kind = AssetImportKind::audio;
     } else {
       throw ProtocolError(
-          "invalid_params", "params.kind must be image or video");
+          "invalid_params", "params.kind must be image, video, or audio");
     }
 
     std::string asset_id;
@@ -340,11 +347,21 @@ Json Backend::handle(const Json& request) {
     // Once the no-clobber file publication succeeds, move assignment commits
     // this already-validated candidate without allocating or copying.
     ProjectAggregate candidate = current;
+    AssetType asset_type = AssetType::image;
+    switch (import_kind) {
+      case AssetImportKind::image:
+        asset_type = AssetType::image;
+        break;
+      case AssetImportKind::video:
+        asset_type = AssetType::video;
+        break;
+      case AssetImportKind::audio:
+        asset_type = AssetType::audio;
+        break;
+    }
     candidate.assets.push_back(Asset{
         .id = asset_id,
-        .type = import_kind == AssetImportKind::image
-            ? AssetType::image
-            : AssetType::video,
+        .type = asset_type,
         .relative_path = plan.relative_path,
         .display_name = plan.display_name,
     });
@@ -462,6 +479,17 @@ Json Backend::handle(const Json& request) {
         if (jump != nullptr && jump->target_scene_id == scene_id) {
           throw ProtocolError(
               "scene_in_use", "scene is referenced by a scene jump node");
+        }
+        const auto* choice = std::get_if<vnengine::ChoiceNode>(&node);
+        if (choice != nullptr && owner.id != scene_id &&
+            std::any_of(
+                choice->options.begin(),
+                choice->options.end(),
+                [&scene_id](const vnengine::ChoiceOption& option) {
+                  return option.target_scene_id == scene_id;
+                })) {
+          throw ProtocolError(
+              "scene_in_use", "scene is referenced by a choice option");
         }
       }
     }
@@ -689,6 +717,408 @@ Json Backend::handle(const Json& request) {
       case vnengine::UpdateCharacterNodeResult::invalid_layer:
         throw ProtocolError("invalid_params", "character node fields are invalid");
     }
+  } else if (method == "bgm.add") {
+    const std::string scene_id = required_string(params, "sceneId");
+    if (params.contains("assetId")) {
+      throw ProtocolError(
+          "invalid_params",
+          "bgm.add always creates a stop node; use bgm.update to assign audio");
+    }
+    std::optional<std::string> after_node_id;
+    if (params.contains("afterNodeId") &&
+        !params.at("afterNodeId").is_null()) {
+      after_node_id = required_string(params, "afterNodeId");
+    }
+    std::optional<std::string> before_node_id;
+    if (params.contains("beforeNodeId") &&
+        !params.at("beforeNodeId").is_null()) {
+      before_node_id = required_string(params, "beforeNodeId");
+    }
+
+    ProjectAggregate candidate = require_aggregate();
+    const vnengine::AddBgmNodeResult result = vnengine::add_bgm_node(
+        candidate,
+        ids_,
+        scene_id,
+        std::move(after_node_id),
+        std::move(before_node_id));
+    switch (result.status) {
+      case vnengine::AddBgmNodeStatus::added:
+        break;
+      case vnengine::AddBgmNodeStatus::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case vnengine::AddBgmNodeStatus::placement_conflict:
+        throw ProtocolError(
+            "bgm_placement_conflict",
+            "afterNodeId and beforeNodeId cannot both be provided");
+      case vnengine::AddBgmNodeStatus::anchor_not_found:
+        throw ProtocolError("node_not_found", "timeline anchor does not exist");
+    }
+    if (const auto violation = vnengine::validate_project_aggregate(candidate);
+        violation.has_value()) {
+      throw ProtocolError("internal_error", *violation);
+    }
+    require_aggregate() = std::move(candidate);
+    record_mutation(true);
+    return success_response(
+        request_id(request),
+        aggregate_,
+        revision_,
+        saved_revision_,
+        scene_id,
+        result.node_id);
+  } else if (method == "bgm.update") {
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::string node_id = required_string(params, "nodeId");
+    if (!params.contains("assetId") ||
+        (!params.at("assetId").is_null() &&
+         !params.at("assetId").is_string())) {
+      throw ProtocolError(
+          "invalid_params", "params.assetId must be a string or null");
+    }
+    std::optional<std::string> asset_id;
+    if (params.at("assetId").is_string()) {
+      asset_id = params.at("assetId").get<std::string>();
+    }
+    switch (vnengine::update_bgm_node(
+        require_aggregate(), scene_id, node_id, std::move(asset_id))) {
+      case vnengine::UpdateBgmNodeResult::changed:
+        changed = true;
+        break;
+      case vnengine::UpdateBgmNodeResult::unchanged:
+        changed = false;
+        break;
+      case vnengine::UpdateBgmNodeResult::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case vnengine::UpdateBgmNodeResult::node_not_found:
+        throw ProtocolError("bgm_node_not_found", "BGM node does not exist");
+      case vnengine::UpdateBgmNodeResult::asset_not_found:
+        throw ProtocolError("asset_not_found", "asset does not exist");
+      case vnengine::UpdateBgmNodeResult::asset_not_audio:
+        throw ProtocolError(
+            "asset_not_audio", "BGM node asset must be audio");
+    }
+  } else if (method == "video.add") {
+    const std::string scene_id = required_string(params, "sceneId");
+    if (params.contains("assetId")) {
+      throw ProtocolError(
+          "invalid_params",
+          "video.add always creates an empty node; use video.update to "
+          "assign video");
+    }
+    std::optional<std::string> after_node_id;
+    if (params.contains("afterNodeId") &&
+        !params.at("afterNodeId").is_null()) {
+      after_node_id = required_string(params, "afterNodeId");
+    }
+    std::optional<std::string> before_node_id;
+    if (params.contains("beforeNodeId") &&
+        !params.at("beforeNodeId").is_null()) {
+      before_node_id = required_string(params, "beforeNodeId");
+    }
+
+    ProjectAggregate candidate = require_aggregate();
+    const vnengine::AddVideoNodeResult result = vnengine::add_video_node(
+        candidate,
+        ids_,
+        scene_id,
+        std::move(after_node_id),
+        std::move(before_node_id));
+    switch (result.status) {
+      case vnengine::AddVideoNodeStatus::added:
+        break;
+      case vnengine::AddVideoNodeStatus::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case vnengine::AddVideoNodeStatus::placement_conflict:
+        throw ProtocolError(
+            "video_placement_conflict",
+            "afterNodeId and beforeNodeId cannot both be provided");
+      case vnengine::AddVideoNodeStatus::anchor_not_found:
+        throw ProtocolError("node_not_found", "timeline anchor does not exist");
+    }
+    if (const auto violation = vnengine::validate_project_aggregate(candidate);
+        violation.has_value()) {
+      throw ProtocolError("internal_error", *violation);
+    }
+    require_aggregate() = std::move(candidate);
+    record_mutation(true);
+    return success_response(
+        request_id(request),
+        aggregate_,
+        revision_,
+        saved_revision_,
+        scene_id,
+        result.node_id);
+  } else if (method == "video.update") {
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::string node_id = required_string(params, "nodeId");
+    if (!params.contains("assetId") ||
+        (!params.at("assetId").is_null() &&
+         !params.at("assetId").is_string())) {
+      throw ProtocolError(
+          "invalid_params", "params.assetId must be a string or null");
+    }
+    std::optional<std::string> asset_id;
+    if (params.at("assetId").is_string()) {
+      asset_id = params.at("assetId").get<std::string>();
+    }
+    switch (vnengine::update_video_node(
+        require_aggregate(), scene_id, node_id, std::move(asset_id))) {
+      case vnengine::UpdateVideoNodeResult::changed:
+        changed = true;
+        break;
+      case vnengine::UpdateVideoNodeResult::unchanged:
+        changed = false;
+        break;
+      case vnengine::UpdateVideoNodeResult::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case vnengine::UpdateVideoNodeResult::node_not_found:
+        throw ProtocolError(
+            "video_node_not_found", "video node does not exist");
+      case vnengine::UpdateVideoNodeResult::asset_not_found:
+        throw ProtocolError("asset_not_found", "asset does not exist");
+      case vnengine::UpdateVideoNodeResult::asset_not_video:
+        throw ProtocolError(
+            "asset_not_video", "video node asset must be video");
+    }
+  } else if (method == "choice.add") {
+    const std::string scene_id = required_string(params, "sceneId");
+    if (params.contains("options")) {
+      throw ProtocolError(
+          "invalid_params",
+          "choice.add always creates an empty node; use choice.option.add "
+          "to create options");
+    }
+    std::optional<std::string> after_node_id;
+    if (params.contains("afterNodeId") &&
+        !params.at("afterNodeId").is_null()) {
+      after_node_id = required_string(params, "afterNodeId");
+    }
+    std::optional<std::string> before_node_id;
+    if (params.contains("beforeNodeId") &&
+        !params.at("beforeNodeId").is_null()) {
+      before_node_id = required_string(params, "beforeNodeId");
+    }
+
+    ProjectAggregate candidate = require_aggregate();
+    const vnengine::AddChoiceNodeResult result = vnengine::add_choice_node(
+        candidate.project,
+        ids_,
+        scene_id,
+        std::move(after_node_id),
+        std::move(before_node_id));
+    switch (result.status) {
+      case vnengine::AddChoiceNodeStatus::added:
+        break;
+      case vnengine::AddChoiceNodeStatus::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case vnengine::AddChoiceNodeStatus::placement_conflict:
+        throw ProtocolError(
+            "choice_placement_conflict",
+            "afterNodeId and beforeNodeId cannot both be provided");
+      case vnengine::AddChoiceNodeStatus::anchor_not_found:
+        throw ProtocolError("node_not_found", "timeline anchor does not exist");
+    }
+    if (const auto violation = vnengine::validate_project_aggregate(candidate);
+        violation.has_value()) {
+      throw ProtocolError("internal_error", *violation);
+    }
+    require_aggregate() = std::move(candidate);
+    record_mutation(true);
+    return success_response(
+        request_id(request),
+        aggregate_,
+        revision_,
+        saved_revision_,
+        scene_id,
+        result.node_id);
+  } else if (method == "choice.option.add") {
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::string node_id = required_string(params, "nodeId");
+    std::optional<std::string> before_option_id;
+    if (params.contains("beforeOptionId") &&
+        !params.at("beforeOptionId").is_null()) {
+      before_option_id = required_string(params, "beforeOptionId");
+    }
+
+    ProjectAggregate candidate = require_aggregate();
+    const vnengine::AddChoiceOptionResult result =
+        vnengine::add_choice_option(
+            candidate.project,
+            ids_,
+            scene_id,
+            node_id,
+            required_string(params, "text"),
+            required_string(params, "targetSceneId"),
+            std::move(before_option_id));
+    switch (result.status) {
+      case vnengine::AddChoiceOptionStatus::added:
+        break;
+      case vnengine::AddChoiceOptionStatus::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case vnengine::AddChoiceOptionStatus::node_not_found:
+        throw ProtocolError(
+            "choice_node_not_found", "choice node does not exist");
+      case vnengine::AddChoiceOptionStatus::text_required:
+        throw ProtocolError(
+            "choice_text_required", "choice option text must not be empty");
+      case vnengine::AddChoiceOptionStatus::target_scene_not_found:
+        throw ProtocolError(
+            "target_scene_not_found", "target scene does not exist");
+      case vnengine::AddChoiceOptionStatus::before_option_not_found:
+        throw ProtocolError(
+            "choice_option_not_found", "choice option anchor does not exist");
+      case vnengine::AddChoiceOptionStatus::id_generation_failed:
+        throw ProtocolError(
+            "internal_error", "could not generate a unique choice option ID");
+    }
+    if (const auto violation = vnengine::validate_project_aggregate(candidate);
+        violation.has_value()) {
+      throw ProtocolError("internal_error", *violation);
+    }
+    require_aggregate() = std::move(candidate);
+    record_mutation(true);
+    return success_response(
+        request_id(request),
+        aggregate_,
+        revision_,
+        saved_revision_,
+        scene_id,
+        node_id,
+        std::nullopt,
+        result.option_id);
+  } else if (method == "choice.option.update") {
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::string node_id = required_string(params, "nodeId");
+    const std::string option_id = required_string(params, "optionId");
+    ProjectAggregate candidate = require_aggregate();
+    const vnengine::UpdateChoiceOptionResult result =
+        vnengine::update_choice_option(
+            candidate.project,
+            scene_id,
+            node_id,
+            option_id,
+            required_string(params, "text"),
+            required_string(params, "targetSceneId"));
+    switch (result) {
+      case vnengine::UpdateChoiceOptionResult::changed:
+        changed = true;
+        break;
+      case vnengine::UpdateChoiceOptionResult::unchanged:
+        changed = false;
+        break;
+      case vnengine::UpdateChoiceOptionResult::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case vnengine::UpdateChoiceOptionResult::node_not_found:
+        throw ProtocolError(
+            "choice_node_not_found", "choice node does not exist");
+      case vnengine::UpdateChoiceOptionResult::option_not_found:
+        throw ProtocolError(
+            "choice_option_not_found", "choice option does not exist");
+      case vnengine::UpdateChoiceOptionResult::text_required:
+        throw ProtocolError(
+            "choice_text_required", "choice option text must not be empty");
+      case vnengine::UpdateChoiceOptionResult::target_scene_not_found:
+        throw ProtocolError(
+            "target_scene_not_found", "target scene does not exist");
+    }
+    if (changed) {
+      if (const auto violation =
+              vnengine::validate_project_aggregate(candidate);
+          violation.has_value()) {
+        throw ProtocolError("internal_error", *violation);
+      }
+      require_aggregate() = std::move(candidate);
+    }
+    record_mutation(changed);
+    return success_response(
+        request_id(request), aggregate_, revision_, saved_revision_);
+  } else if (method == "choice.option.delete") {
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::string node_id = required_string(params, "nodeId");
+    const std::string option_id = required_string(params, "optionId");
+    ProjectAggregate candidate = require_aggregate();
+    const vnengine::DeleteChoiceOptionResult result =
+        vnengine::delete_choice_option(
+            candidate.project, scene_id, node_id, option_id);
+    switch (result) {
+      case vnengine::DeleteChoiceOptionResult::changed:
+        break;
+      case vnengine::DeleteChoiceOptionResult::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case vnengine::DeleteChoiceOptionResult::node_not_found:
+        throw ProtocolError(
+            "choice_node_not_found", "choice node does not exist");
+      case vnengine::DeleteChoiceOptionResult::option_not_found:
+        throw ProtocolError(
+            "choice_option_not_found", "choice option does not exist");
+    }
+    if (const auto violation = vnengine::validate_project_aggregate(candidate);
+        violation.has_value()) {
+      throw ProtocolError("internal_error", *violation);
+    }
+    require_aggregate() = std::move(candidate);
+    record_mutation(true);
+    return success_response(
+        request_id(request), aggregate_, revision_, saved_revision_);
+  } else if (method == "choice.option.reorder") {
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::string node_id = required_string(params, "nodeId");
+    const std::string option_id = required_string(params, "optionId");
+    if (!params.contains("beforeOptionId") ||
+        (!params.at("beforeOptionId").is_null() &&
+         !params.at("beforeOptionId").is_string())) {
+      throw ProtocolError(
+          "invalid_params",
+          "params.beforeOptionId must be a string or null");
+    }
+    std::optional<std::string> before_option_id;
+    if (params.at("beforeOptionId").is_string()) {
+      before_option_id = params.at("beforeOptionId").get<std::string>();
+    }
+
+    ProjectAggregate candidate = require_aggregate();
+    const vnengine::ReorderChoiceOptionResult result =
+        vnengine::reorder_choice_option(
+            candidate.project,
+            scene_id,
+            node_id,
+            option_id,
+            std::move(before_option_id));
+    switch (result) {
+      case vnengine::ReorderChoiceOptionResult::changed:
+        changed = true;
+        break;
+      case vnengine::ReorderChoiceOptionResult::unchanged:
+        changed = false;
+        break;
+      case vnengine::ReorderChoiceOptionResult::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case vnengine::ReorderChoiceOptionResult::node_not_found:
+        throw ProtocolError(
+            "choice_node_not_found", "choice node does not exist");
+      case vnengine::ReorderChoiceOptionResult::option_not_found:
+        throw ProtocolError(
+            "choice_option_not_found", "choice option does not exist");
+      case vnengine::ReorderChoiceOptionResult::before_option_not_found:
+        throw ProtocolError(
+            "choice_option_not_found", "choice option anchor does not exist");
+      case vnengine::ReorderChoiceOptionResult::self_anchor:
+        throw ProtocolError(
+            "invalid_params",
+            "params.beforeOptionId must differ from optionId");
+    }
+    if (changed) {
+      if (const auto violation =
+              vnengine::validate_project_aggregate(candidate);
+          violation.has_value()) {
+        throw ProtocolError("internal_error", *violation);
+      }
+      require_aggregate() = std::move(candidate);
+    }
+    record_mutation(changed);
+    return success_response(
+        request_id(request), aggregate_, revision_, saved_revision_);
   } else if (method == "sceneJump.add") {
     const std::string scene_id = required_string(params, "sceneId");
     const std::string target_scene_id =
@@ -943,6 +1373,37 @@ Json Backend::handle(const Json& request) {
           node_id,
           content->speaker,
           content->text);
+    }
+  } else if (method == "dialogue.setVoice") {
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::string node_id = required_string(params, "nodeId");
+    if (!params.contains("assetId") ||
+        (!params.at("assetId").is_null() &&
+         !params.at("assetId").is_string())) {
+      throw ProtocolError(
+          "invalid_params", "params.assetId must be a string or null");
+    }
+    std::optional<std::string> asset_id;
+    if (params.at("assetId").is_string()) {
+      asset_id = params.at("assetId").get<std::string>();
+    }
+    switch (vnengine::set_dialogue_voice(
+        require_aggregate(), scene_id, node_id, std::move(asset_id))) {
+      case vnengine::SetDialogueVoiceResult::changed:
+        changed = true;
+        break;
+      case vnengine::SetDialogueVoiceResult::unchanged:
+        changed = false;
+        break;
+      case vnengine::SetDialogueVoiceResult::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case vnengine::SetDialogueVoiceResult::dialogue_not_found:
+        throw ProtocolError("dialogue_not_found", "dialogue does not exist");
+      case vnengine::SetDialogueVoiceResult::asset_not_found:
+        throw ProtocolError("asset_not_found", "asset does not exist");
+      case vnengine::SetDialogueVoiceResult::asset_not_audio:
+        throw ProtocolError(
+            "asset_not_audio", "dialogue voice asset must be audio");
     }
   } else if (method == "dialogue.delete") {
     const std::string scene_id = required_string(params, "sceneId");

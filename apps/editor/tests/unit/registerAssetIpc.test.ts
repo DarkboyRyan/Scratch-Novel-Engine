@@ -71,6 +71,11 @@ function registerWithBackend(request = vi.fn()) {
         ? 'vn-asset://image/token/asset-1'
         : null,
     ),
+    getMediaUrl: vi.fn((assetId: string) =>
+      assetId === 'audio-1'
+        ? 'vn-asset://audio/token/audio-1'
+        : null,
+    ),
     activateTemporaryProject: vi.fn().mockResolvedValue(true),
     registerImportedAsset: vi.fn(() => true),
   };
@@ -156,6 +161,28 @@ describe('asset IPC', () => {
     ).resolves.toBeNull();
 
     expect(assetPreviewService.getPreviewUrl).toHaveBeenCalledTimes(2);
+    expect(request).not.toHaveBeenCalled();
+    expect(electronMocks.showOpenDialog).not.toHaveBeenCalled();
+  });
+
+  it('returns only an opaque media URL for a known audio asset ID', async () => {
+    const { handler, request, assetPreviewService } =
+      registerWithBackend();
+
+    await expect(
+      handler(trustedEvent(), {
+        action: 'get-media-url',
+        params: { assetId: 'audio-1' },
+      }),
+    ).resolves.toBe('vn-asset://audio/token/audio-1');
+    await expect(
+      handler(trustedEvent(), {
+        action: 'get-media-url',
+        params: { assetId: 'missing' },
+      }),
+    ).resolves.toBeNull();
+
+    expect(assetPreviewService.getMediaUrl).toHaveBeenCalledTimes(2);
     expect(request).not.toHaveBeenCalled();
     expect(electronMocks.showOpenDialog).not.toHaveBeenCalled();
   });
@@ -381,6 +408,60 @@ describe('asset IPC', () => {
       projectFilePath,
       sourceFilePath,
       expect.objectContaining({ assetId: 'video-1' }),
+    );
+  });
+
+  it('selects and imports MP3/WAV/Ogg audio without exposing native paths', async () => {
+    const projectRootPath = '/projects/story';
+    const projectFilePath = `${projectRootPath}/project.vn.json`;
+    const sourceFilePath = '/Users/example/Music/theme.ogg';
+    const audioResult: EngineMutationResult = {
+      ...projectResult,
+      assets: [
+        {
+          id: 'audio-1',
+          type: 'audio',
+          displayName: 'theme.ogg',
+        },
+      ],
+      assetId: 'audio-1',
+    };
+    electronMocks.showOpenDialog.mockResolvedValue({
+      canceled: false,
+      filePaths: [sourceFilePath],
+    });
+    const backendRequest = vi.fn().mockResolvedValue(audioResult);
+    const { handler, projectFileSession, assetPreviewService } =
+      registerWithBackend(backendRequest);
+    projectFileSession.markOpened(projectRootPath, projectResult.session);
+
+    const response = await handler(trustedEvent(), {
+      action: 'import-audio',
+      params: {},
+    });
+
+    expect(response).toEqual({ status: 'imported', result: audioResult });
+    expect(JSON.stringify(response)).not.toContain(sourceFilePath);
+    expect(JSON.stringify(response)).not.toContain(projectFilePath);
+    expect(electronMocks.showOpenDialog).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        title: '导入音频资源',
+        buttonLabel: '导入音频',
+        properties: ['openFile'],
+        filters: [
+          { name: '音频', extensions: ['mp3', 'wav', 'ogg'] },
+        ],
+      }),
+    );
+    expect(backendRequest).toHaveBeenLastCalledWith({
+      method: 'asset.import',
+      params: { kind: 'audio', sourceFilePath, projectFilePath },
+    });
+    expect(assetPreviewService.registerImportedAsset).toHaveBeenCalledWith(
+      projectFilePath,
+      sourceFilePath,
+      expect.objectContaining({ assetId: 'audio-1' }),
     );
   });
 

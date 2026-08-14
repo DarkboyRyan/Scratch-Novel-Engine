@@ -39,10 +39,22 @@ export function registerAssetIpc(
           invocation.params.assetId,
         );
       }
+      if (invocation.action === 'get-media-url') {
+        return context.assetPreviewService.getMediaUrl(
+          invocation.params.assetId,
+        );
+      }
 
-      const kind =
-        invocation.action === 'import-video' ? 'video' : 'image';
-      const noun = kind === 'video' ? '视频' : '图片';
+      const kind = invocation.action === 'import-video'
+        ? 'video'
+        : invocation.action === 'import-audio'
+          ? 'audio'
+          : 'image';
+      const noun = kind === 'video'
+        ? '视频'
+        : kind === 'audio'
+          ? '音频'
+          : '图片';
 
       return context.fileOperationCoordinator.runExclusive(
         async (): Promise<ImportAssetResult> => {
@@ -67,6 +79,11 @@ export function registerAssetIpc(
               filters: [
                 kind === 'video'
                   ? { name: '视频', extensions: ['mp4', 'webm'] }
+                  : kind === 'audio'
+                    ? {
+                        name: '音频',
+                        extensions: ['mp3', 'wav', 'ogg'],
+                      }
                   : {
                       name: '图片',
                       extensions: ['png', 'jpg', 'jpeg', 'webp'],
@@ -167,7 +184,7 @@ export function registerAssetIpc(
             )
           ) {
             // The import itself remains successful. Failing closed here means
-            // only that this image has no preview URL until the project is
+            // only that this asset has no media URL until the project is
             // reopened; no filesystem detail crosses into Renderer.
             console.error(
               '[asset-preview] imported asset was not added to the private preview manifest',

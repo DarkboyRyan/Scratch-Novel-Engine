@@ -13,7 +13,7 @@
 | 项目序列化 | C++20、nlohmann/json | 业务模型与磁盘格式由同一权威核心校验 |
 | 安全保存 | 临时文件、流式复制、flush/fsync、atomic rename | 失败时不截断或先删除旧 manifest |
 | 媒体导入 | C++ OS 文件句柄、magic bytes、no-follow/no-clobber | 防止链接逃逸、格式伪装和目标覆盖 |
-| 图片预览 | Electron `vn-asset://`、capability token、CSP | 不向 Renderer 暴露 `file://` 或本机路径 |
+| 媒体读取 | Electron `vn-asset://`、capability token、CSP、Range | 图片显示及音频/视频播放都不暴露 `file://` 或本机路径 |
 | 进程协议 | contextBridge、Electron IPC、JSONL | Renderer 只发无路径意图，Main/C++ 执行高权限操作 |
 | 测试 | Vitest、CTest、真实 C++ 集成 | 分别验证 IPC、存储事务、原子文件和媒体导入 |
 
@@ -32,15 +32,14 @@ VN Engine 的项目不再以用户手动选择的单个 JSON 文件为单位，�
 - “打开”只允许选择项目文件夹；
 - 固定读取项目文件夹中的 `project.vn.json`；
 - 对白、场景、背景切换、人物立绘和场景跳转保存在文本清单中；
-- 图片和视频保存在项目自己的资源目录中；
-- 未保存项目仍可以先导入图片和视频；
+- 图片、视频和音频保存在项目自己的资源目录中；
+- 未保存项目仍可以先导入图片、视频和音频；
 - 保存失败时，已经存在的项目仍然可以正常打开；
 - Renderer 不接触源文件路径、目标路径或资源相对路径；
 - 不提供旧版“选择任意 `.vn.json`”入口。
 
-本轮的视频闭环指“安全导入、出现在资源清单、随项目保存并在重开后恢复”。
-视频的时间轴播放和拖动进度条属于后续播放功能，需要在受控资源协议中支持
-HTTP Range，不和项目文件夹迁移混在同一个提交中。
+视频已经支持安全导入、VideoNode、带 Range 的阻塞式正式预览；音频支持对白
+语音、BGM 和带 Range 的正式预览播放。
 
 ## 2. 项目目录格式
 
@@ -68,7 +67,7 @@ HTTP Range，不和项目文件夹迁移混在同一个提交中。
 - Asset 元数据；
 - Asset 在项目文件夹内的相对路径。
 
-清单不包含图片或视频的二进制内容，也不保存本机绝对路径。
+清单不包含图片、视频或音频的二进制内容，也不保存本机绝对路径。
 
 ### 2.2 `assets/`
 
@@ -76,7 +75,7 @@ HTTP Range，不和项目文件夹迁移混在同一个提交中。
 
 - `assets/images/`：PNG、JPEG、WebP；
 - `assets/videos/`：MP4、WebM；
-- `assets/audio/`：为后续音频保留。
+- `assets/audio/`：MP3、WAV、Ogg；可作为对白语音或时间线 BGM。
 
 资源的磁盘文件名由 C++ 生成的 Asset ID 决定。用户原始文件名只作为
 `displayName` 保存，因此两个同名源文件不会相互覆盖。
@@ -117,6 +116,7 @@ openProject()
 saveProject()
 importImage()
 importVideo()
+importAudio()
 ```
 
 ## 4. 新建与首次保存
@@ -172,7 +172,7 @@ properties: ['openDirectory']
 2. Main 规范化并验证目录不是符号链接或特殊对象；
 3. Main 固定解析 `<目录>/project.vn.json`；
 4. AssetPreviewService 用 no-follow 句柄稳定读取一次清单，并校验每个
-   被引用的图片和视频文件；
+   被引用的图片、视频和音频文件；
 5. Main 将上一步的同一份 JSON 字节交给 C++，C++ 解析到临时
    `ProjectAggregate`，不再按路径第二次读取；
 6. C++ 完成 schema、节点引用和 Asset 引用校验；
@@ -193,7 +193,7 @@ Main 和 C++ 使用同一份稳定字节快照，避免文件在两次读取之�
 
 1. 提交当前表单或 Blockly 草稿；
 2. 等待已有 C++ mutation 队列完成；
-3. 把新增图片和视频发布为不可变 Asset 文件；
+3. 把新增图片、视频和音频发布为不可变 Asset 文件；
 4. flush/fsync 新资源；
 5. 在项目目录写 `project.vn.json.tmp-*`；
 6. flush/fsync 临时清单；
@@ -208,9 +208,9 @@ Main 和 C++ 使用同一份稳定字节快照，避免文件在两次读取之�
 资源发布成功、清单发布失败时，最多留下本次发布中的未引用资源，
 不会出现清单引用缺失文件。后续可以增加“清理未使用资源”功能回收孤立文件。
 
-## 7. 图片和视频导入
+## 7. 图片、视频和音频导入
 
-图片和视频使用同一条安全导入架构，但使用不同的格式验证规则。
+三类媒体使用同一条安全导入架构，但使用各自的格式验证规则。
 
 ```mermaid
 sequenceDiagram
@@ -219,7 +219,7 @@ sequenceDiagram
   participant CPP as C++ Backend
   participant Temp as 临时/项目资源目录
 
-  UI->>Main: importImage() 或 importVideo()
+  UI->>Main: importImage() / importVideo() / importAudio()
   Main->>Main: 原生文件选择器获得源路径
   Main->>CPP: asset.import(kind, sourceFilePath, projectFilePath)
   CPP->>CPP: no-follow 打开、stat、magic、大小检查
@@ -256,8 +256,10 @@ sequenceDiagram
 - 资源面板显示视频名称和类型；
 - 保存并重开项目后仍能恢复该 Asset。
 
-后续要播放视频时，`vn-asset://` 必须增加 `HEAD`、单段 Range、`206`、
-`Content-Range` 和 `Accept-Ranges: bytes`，不能直接向 `<video>` 返回本机路径。
+视频播放通过 `vn-asset://video/...` capability URL。Main 支持 `HEAD`、`GET`、
+单段 Range 的 `200/206`，以及非法或多段 Range 的 `416`，并返回准确的
+`Content-Range`、`Content-Length`、`Content-Type` 和 `Accept-Ranges: bytes`。
+Renderer 的 `<video>` 始终拿不到本机路径。
 
 ## 8. Main 私有会话与公开状态
 
@@ -352,16 +354,16 @@ ResourcePanel
 
 ### 媒体
 
-- 未保存项目可导入图片和视频；
-- 图片和视频使用不同资源目录；
+- 未保存项目可导入图片、视频和音频；
+- 三种媒体使用不同资源目录；
 - 错误扩展名、伪造 magic、目录、symlink、超限文件全部拒绝；
 - 导入失败不增加 Asset、不改变 revision；
-- 保存、关闭、选择项目文件夹重开后，图片和视频清单完全恢复；
+- 保存、关闭、选择项目文件夹重开后，全部媒体清单完全恢复；
 - Renderer IPC 和 DOM 中不出现本机资源路径。
 
 ### 回归
 
 - Cmd/Ctrl+S 仍走同一个安全保存流程；
-- 项目名、对白、背景、立绘、场景跳转功能不受影响；
+- 项目名、对白、语音、BGM、背景、立绘、场景跳转功能不受影响；
 - 图片拖入背景/立绘块仍然有效；
 - TypeScript、ESLint、Vitest、C++ CTest 和 Electron production package 全部通过。

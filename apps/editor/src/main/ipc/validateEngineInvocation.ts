@@ -66,10 +66,45 @@ export function isEngineInvocation(
           hasString('text'))
       );
     case 'background.add':
+    case 'bgm.add':
+    case 'video.add':
+    case 'choice.add':
       return (
         hasString('sceneId') &&
         params.assetId === undefined &&
         hasValidOptionalPlacement()
+      );
+    case 'choice.option.add':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        hasString('text') &&
+        hasString('targetSceneId') &&
+        (params.beforeOptionId === undefined ||
+          params.beforeOptionId === null ||
+          hasString('beforeOptionId'))
+      );
+    case 'choice.option.update':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        hasString('optionId') &&
+        hasString('text') &&
+        hasString('targetSceneId')
+      );
+    case 'choice.option.delete':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        hasString('optionId')
+      );
+    case 'choice.option.reorder':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        hasString('optionId') &&
+        (params.beforeOptionId === null ||
+          hasString('beforeOptionId'))
       );
     case 'background.update':
       return (
@@ -117,6 +152,14 @@ export function isEngineInvocation(
         hasString('sceneId') &&
         hasString('nodeId') &&
         hasString('targetSceneId')
+      );
+    case 'bgm.update':
+    case 'video.update':
+    case 'dialogue.setVoice':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        (params.assetId === null || hasString('assetId'))
       );
     case 'dialogue.update':
       return (

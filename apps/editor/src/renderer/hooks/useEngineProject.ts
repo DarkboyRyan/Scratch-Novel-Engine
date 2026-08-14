@@ -3,21 +3,31 @@ import { useEffect, useRef, useState } from 'react';
 import type { ImportAssetResult } from '../../shared/assetProtocol';
 import type {
   AddBackgroundParams,
+  AddBgmParams,
   AddCharacterParams,
+  AddChoiceOptionParams,
+  AddChoiceParams,
   AddDialogueParams,
   AddSceneJumpParams,
+  AddVideoParams,
   DeleteBackgroundParams,
   DeleteDialoguesParams,
+  DeleteChoiceOptionParams,
   EngineMutationResult,
   ReorderBackgroundParams,
   ReorderDialogueParams,
   ReorderDialoguesParams,
+  ReorderChoiceOptionParams,
+  SetDialogueVoiceParams,
   TimelineDeleteManyParams,
   TimelineReorderManyParams,
   TimelineReorderParams,
   UpdateBackgroundParams,
+  UpdateBgmParams,
   UpdateCharacterParams,
+  UpdateChoiceOptionParams,
   UpdateSceneJumpParams,
+  UpdateVideoParams,
 } from '../../shared/engineProtocol';
 import type {
   AssetDocument,
@@ -35,6 +45,10 @@ export type UpdateDialogueAction = (
   nodeId: string,
   speaker: string,
   text: string,
+) => Promise<boolean>;
+
+export type SetDialogueVoiceAction = (
+  params: SetDialogueVoiceParams,
 ) => Promise<boolean>;
 
 export type ReorderDialogueAction = (
@@ -71,6 +85,42 @@ export type AddSceneJumpAction = (
 
 export type UpdateSceneJumpAction = (
   params: UpdateSceneJumpParams,
+) => Promise<boolean>;
+
+export type AddBgmAction = (
+  params: AddBgmParams,
+) => Promise<boolean>;
+
+export type UpdateBgmAction = (
+  params: UpdateBgmParams,
+) => Promise<boolean>;
+
+export type AddVideoAction = (
+  params: AddVideoParams,
+) => Promise<boolean>;
+
+export type UpdateVideoAction = (
+  params: UpdateVideoParams,
+) => Promise<boolean>;
+
+export type AddChoiceAction = (
+  params: AddChoiceParams,
+) => Promise<boolean>;
+
+export type AddChoiceOptionAction = (
+  params: AddChoiceOptionParams,
+) => Promise<boolean>;
+
+export type UpdateChoiceOptionAction = (
+  params: UpdateChoiceOptionParams,
+) => Promise<boolean>;
+
+export type DeleteChoiceOptionAction = (
+  params: DeleteChoiceOptionParams,
+) => Promise<boolean>;
+
+export type ReorderChoiceOptionAction = (
+  params: ReorderChoiceOptionParams,
 ) => Promise<boolean>;
 
 export type DeleteBackgroundAction = (
@@ -301,6 +351,15 @@ export function useEngineProject() {
     return result !== null;
   }
 
+  async function setDialogueVoice(
+    params: SetDialogueVoiceParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.setDialogueVoice(params),
+    );
+    return result !== null;
+  }
+
   async function reorderDialogue(
     params: ReorderDialogueParams,
   ): Promise<boolean> {
@@ -413,6 +472,87 @@ export function useEngineProject() {
     }
     const result = await runEngineAction(() =>
       window.vnEngine.updateSceneJump(params),
+    );
+    return result !== null;
+  }
+
+  async function addBgm(
+    params: AddBgmParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.addBgm(params),
+    );
+    return result !== null;
+  }
+
+  async function updateBgm(
+    params: UpdateBgmParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.updateBgm(params),
+    );
+    return result !== null;
+  }
+
+  async function addVideo(
+    params: AddVideoParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.addVideo(params),
+    );
+    return result !== null;
+  }
+
+  async function updateVideo(
+    params: UpdateVideoParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.updateVideo(params),
+    );
+    return result !== null;
+  }
+
+  async function addChoice(
+    params: AddChoiceParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.addChoice(params),
+    );
+    return result !== null;
+  }
+
+  async function addChoiceOption(
+    params: AddChoiceOptionParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.addChoiceOption(params),
+    );
+    return result !== null;
+  }
+
+  async function updateChoiceOption(
+    params: UpdateChoiceOptionParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.updateChoiceOption(params),
+    );
+    return result !== null;
+  }
+
+  async function deleteChoiceOption(
+    params: DeleteChoiceOptionParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.deleteChoiceOption(params),
+    );
+    return result !== null;
+  }
+
+  async function reorderChoiceOption(
+    params: ReorderChoiceOptionParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      window.vnEngine.reorderChoiceOption(params),
     );
     return result !== null;
   }
@@ -610,6 +750,34 @@ export function useEngineProject() {
     }
   }
 
+  async function importAudio(): Promise<ImportAssetStatus> {
+    if (fileOperationInProgress.current) {
+      return 'failed';
+    }
+
+    fileOperationInProgress.current = true;
+    setIsFileOperating(true);
+    setEngineMessage('');
+
+    try {
+      await waitForEngineActions();
+      const outcome = await window.vnAssets.importAudio();
+
+      if (outcome.status === 'cancelled') {
+        return outcome.status;
+      }
+
+      applyResult(outcome.result);
+      return outcome.status;
+    } catch (error: unknown) {
+      setEngineMessage(readableError(error));
+      return 'failed';
+    } finally {
+      fileOperationInProgress.current = false;
+      setIsFileOperating(false);
+    }
+  }
+
   return {
     project,
     assets,
@@ -623,6 +791,7 @@ export function useEngineProject() {
     runEngineAction,
     addDialogue,
     updateDialogue,
+    setDialogueVoice,
     reorderDialogue,
     reorderDialogues,
     deleteDialogues,
@@ -634,6 +803,15 @@ export function useEngineProject() {
     updateCharacter,
     addSceneJump,
     updateSceneJump,
+    addBgm,
+    updateBgm,
+    addVideo,
+    updateVideo,
+    addChoice,
+    addChoiceOption,
+    updateChoiceOption,
+    deleteChoiceOption,
+    reorderChoiceOption,
     deleteTimelineNodes,
     reorderTimelineNode,
     reorderTimelineNodes,
@@ -642,6 +820,7 @@ export function useEngineProject() {
     saveProject,
     importImage,
     importVideo,
+    importAudio,
     renameProject,
     setSceneBackground,
     waitForEngineActions,

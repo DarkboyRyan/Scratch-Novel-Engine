@@ -42,6 +42,8 @@ export function ScenePanel({
   const [isSceneMenuOpen, setIsSceneMenuOpen] = useState(false);
   const sceneMenuRef = useRef<HTMLDivElement>(null);
   const imageAssets = assets.filter((asset) => asset.type === 'image');
+  const audioAssets = assets.filter((asset) => asset.type === 'audio');
+  const videoAssets = assets.filter((asset) => asset.type === 'video');
   const currentSceneNumber =
     project.scenes.findIndex((projectScene) => projectScene.id === scene.id) +
     1;
@@ -50,6 +52,16 @@ export function ScenePanel({
       ? '无背景'
       : imageAssets.find((asset) => asset.id === assetId)?.displayName ??
         '缺失图片';
+  const audioName = (assetId: string | null) =>
+    assetId === null
+      ? '停止背景音乐'
+      : audioAssets.find((asset) => asset.id === assetId)?.displayName ??
+        '缺失音频';
+  const videoName = (assetId: string | null) =>
+    assetId === null
+      ? '未选择视频'
+      : videoAssets.find((asset) => asset.id === assetId)?.displayName ??
+        '缺失视频';
 
   useEffect(() => {
     setIsSceneMenuOpen(false);
@@ -177,7 +189,13 @@ export function ScenePanel({
                   ? ' is-character-node'
                   : node.type === 'sceneJump'
                     ? ' is-scene-jump-node'
-                    : ''
+                    : node.type === 'bgm'
+                      ? ' is-bgm-node'
+                      : node.type === 'video'
+                        ? ' is-video-node'
+                        : node.type === 'choice'
+                          ? ' is-choice-node'
+                          : ''
             }`}
           >
             <button
@@ -215,7 +233,7 @@ export function ScenePanel({
                           : '右侧'}
                     </p>
                   </>
-                ) : (
+                ) : node.type === 'sceneJump' ? (
                   <>
                     <strong>跳转场景</strong>
                     <p>
@@ -228,6 +246,25 @@ export function ScenePanel({
                           ? `场景 ${targetIndex + 1}`
                           : '目标场景缺失';
                       })()}
+                    </p>
+                  </>
+                ) : node.type === 'bgm' ? (
+                  <>
+                    <strong>背景音乐</strong>
+                    <p>{audioName(node.assetId)}</p>
+                  </>
+                ) : node.type === 'video' ? (
+                  <>
+                    <strong>播放视频</strong>
+                    <p>{videoName(node.assetId)}</p>
+                  </>
+                ) : (
+                  <>
+                    <strong>场景选项</strong>
+                    <p>
+                      {node.options.length > 0
+                        ? `${node.options.length} 个选项`
+                        : '未添加选项（预览时跳过）'}
                     </p>
                   </>
                 )}

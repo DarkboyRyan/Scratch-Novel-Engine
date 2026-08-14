@@ -101,25 +101,45 @@ Json dialogue_to_json(const Dialogue& dialogue) {
       {"type", "dialogue"},
       {"speaker", dialogue.speaker},
       {"text", dialogue.text},
+      {"voiceAssetId",
+       dialogue.voice_asset_id.has_value() ? Json(*dialogue.voice_asset_id)
+                                           : Json(nullptr)},
   };
 }
 
 Dialogue dialogue_from_json(
     const Json& value,
-    const std::string& context) {
-  require_exact_fields(
-      value,
-      {"id", "type", "speaker", "text"},
-      context);
+    const std::string& context,
+    const int file_version) {
+  if (file_version >= 7) {
+    require_exact_fields(
+        value,
+        {"id", "type", "speaker", "text", "voiceAssetId"},
+        context);
+    if (!value.at("voiceAssetId").is_null() &&
+        !value.at("voiceAssetId").is_string()) {
+      invalid(context + ".voiceAssetId must be a string or null");
+    }
+  } else {
+    require_exact_fields(
+        value,
+        {"id", "type", "speaker", "text"},
+        context);
+  }
 
   if (require_string(value, "type", context) != "dialogue") {
     unsupported(context + ".type is not supported");
   }
 
+  std::optional<std::string> voice_asset_id;
+  if (file_version >= 7 && value.at("voiceAssetId").is_string()) {
+    voice_asset_id = value.at("voiceAssetId").get<std::string>();
+  }
   return Dialogue{
       .id = require_string(value, "id", context),
       .speaker = require_string(value, "speaker", context),
       .text = require_string(value, "text", context),
+      .voice_asset_id = std::move(voice_asset_id),
   };
 }
 
@@ -158,6 +178,44 @@ Json scene_jump_node_to_json(const SceneJumpNode& jump) {
   };
 }
 
+Json bgm_node_to_json(const BgmNode& bgm) {
+  return {
+      {"id", bgm.id},
+      {"type", "bgm"},
+      {"assetId",
+       bgm.asset_id.has_value() ? Json(*bgm.asset_id) : Json(nullptr)},
+  };
+}
+
+Json video_node_to_json(const VideoNode& video) {
+  return {
+      {"id", video.id},
+      {"type", "video"},
+      {"assetId",
+       video.asset_id.has_value() ? Json(*video.asset_id) : Json(nullptr)},
+  };
+}
+
+Json choice_option_to_json(const ChoiceOption& option) {
+  return {
+      {"id", option.id},
+      {"text", option.text},
+      {"targetSceneId", option.target_scene_id},
+  };
+}
+
+Json choice_node_to_json(const ChoiceNode& choice) {
+  Json options = Json::array();
+  for (const ChoiceOption& option : choice.options) {
+    options.push_back(choice_option_to_json(option));
+  }
+  return {
+      {"id", choice.id},
+      {"type", "choice"},
+      {"options", std::move(options)},
+  };
+}
+
 Json scene_node_to_json(const SceneNode& node) {
   return std::visit(
       [](const auto& value) -> Json {
@@ -168,8 +226,14 @@ Json scene_node_to_json(const SceneNode& node) {
           return background_node_to_json(value);
         } else if constexpr (std::is_same_v<Value, CharacterNode>) {
           return character_node_to_json(value);
-        } else {
+        } else if constexpr (std::is_same_v<Value, SceneJumpNode>) {
           return scene_jump_node_to_json(value);
+        } else if constexpr (std::is_same_v<Value, BgmNode>) {
+          return bgm_node_to_json(value);
+        } else if constexpr (std::is_same_v<Value, VideoNode>) {
+          return video_node_to_json(value);
+        } else {
+          return choice_node_to_json(value);
         }
       },
       node);
@@ -182,7 +246,7 @@ SceneNode scene_node_from_json(
   // File versions 1 and 2 defined Scene.nodes as dialogue-only. Keeping that
   // decoder strict prevents a v3 node from silently entering an older file.
   if (file_version < 3) {
-    return dialogue_from_json(value, context);
+    return dialogue_from_json(value, context, file_version);
   }
 
   if (!value.is_object()) {
@@ -197,7 +261,7 @@ SceneNode scene_node_from_json(
 
   const std::string type = value.at("type").get<std::string>();
   if (type == "dialogue") {
-    return dialogue_from_json(value, context);
+    return dialogue_from_json(value, context, file_version);
   }
   if (type == "background") {
     require_exact_fields(value, {"id", "type", "assetId"}, context);
@@ -256,6 +320,74 @@ SceneNode scene_node_from_json(
         .id = require_string(value, "id", context),
         .target_scene_id = require_string(value, "targetSceneId", context),
     };
+  }
+  if (type == "bgm") {
+    if (file_version < 7) {
+      unsupported(context + ".type is not supported before file version 7");
+    }
+    require_exact_fields(value, {"id", "type", "assetId"}, context);
+    const Json& asset_value = value.at("assetId");
+    if (!asset_value.is_null() && !asset_value.is_string()) {
+      invalid(context + ".assetId must be a string or null");
+    }
+    std::optional<std::string> asset_id;
+    if (asset_value.is_string()) {
+      asset_id = asset_value.get<std::string>();
+    }
+    return BgmNode{
+        .id = require_string(value, "id", context),
+        .asset_id = std::move(asset_id),
+    };
+  }
+  if (type == "video") {
+    if (file_version < 8) {
+      unsupported(context + ".type is not supported before file version 8");
+    }
+    require_exact_fields(value, {"id", "type", "assetId"}, context);
+    const Json& asset_value = value.at("assetId");
+    if (!asset_value.is_null() && !asset_value.is_string()) {
+      invalid(context + ".assetId must be a string or null");
+    }
+    std::optional<std::string> asset_id;
+    if (asset_value.is_string()) {
+      asset_id = asset_value.get<std::string>();
+    }
+    return VideoNode{
+        .id = require_string(value, "id", context),
+        .asset_id = std::move(asset_id),
+    };
+  }
+  if (type == "choice") {
+    if (file_version < 9) {
+      unsupported(context + ".type is not supported before file version 9");
+    }
+    require_exact_fields(value, {"id", "type", "options"}, context);
+    const Json& options_value = value.at("options");
+    if (!options_value.is_array()) {
+      invalid(context + ".options must be an array");
+    }
+
+    ChoiceNode choice{
+        .id = require_string(value, "id", context),
+        .options = {},
+    };
+    choice.options.reserve(options_value.size());
+    for (std::size_t index = 0; index < options_value.size(); ++index) {
+      const std::string option_context =
+          context + ".options[" + std::to_string(index) + "]";
+      const Json& option = options_value.at(index);
+      require_exact_fields(
+          option,
+          {"id", "text", "targetSceneId"},
+          option_context);
+      choice.options.push_back(ChoiceOption{
+          .id = require_string(option, "id", option_context),
+          .text = require_string(option, "text", option_context),
+          .target_scene_id =
+              require_string(option, "targetSceneId", option_context),
+      });
+    }
+    return choice;
   }
   unsupported(context + ".type is not supported");
 }

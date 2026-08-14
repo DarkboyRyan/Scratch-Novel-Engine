@@ -69,6 +69,24 @@ const importedVideoResult: EngineMutationResult = {
   assetId: 'video-1',
 };
 
+const importedAudioResult: EngineMutationResult = {
+  ...importedVideoResult,
+  assets: [
+    ...importedVideoResult.assets,
+    {
+      id: 'audio-1',
+      type: 'audio',
+      displayName: 'voice.mp3',
+    },
+  ],
+  session: {
+    revision: 5,
+    savedRevision: 2,
+    isDirty: true,
+  },
+  assetId: 'audio-1',
+};
+
 const backgroundResult: EngineMutationResult = {
   ...initialResult,
   project: {
@@ -111,6 +129,7 @@ describe('useEngineProject asset state', () => {
   let current: EngineProjectState | null;
   let importImage: ReturnType<typeof vi.fn>;
   let importVideo: ReturnType<typeof vi.fn>;
+  let importAudio: ReturnType<typeof vi.fn>;
   let addBackground: ReturnType<typeof vi.fn>;
   let updateBackground: ReturnType<typeof vi.fn>;
   let deleteBackground: ReturnType<typeof vi.fn>;
@@ -118,6 +137,13 @@ describe('useEngineProject asset state', () => {
   let deleteTimelineNodes: ReturnType<typeof vi.fn>;
   let reorderTimelineNode: ReturnType<typeof vi.fn>;
   let reorderTimelineNodes: ReturnType<typeof vi.fn>;
+  let addVideo: ReturnType<typeof vi.fn>;
+  let updateVideo: ReturnType<typeof vi.fn>;
+  let addChoice: ReturnType<typeof vi.fn>;
+  let addChoiceOption: ReturnType<typeof vi.fn>;
+  let updateChoiceOption: ReturnType<typeof vi.fn>;
+  let deleteChoiceOption: ReturnType<typeof vi.fn>;
+  let reorderChoiceOption: ReturnType<typeof vi.fn>;
 
   function Harness() {
     current = useEngineProject();
@@ -142,6 +168,10 @@ describe('useEngineProject asset state', () => {
       status: 'imported',
       result: importedVideoResult,
     });
+    importAudio = vi.fn().mockResolvedValue({
+      status: 'imported',
+      result: importedAudioResult,
+    });
     addBackground = vi.fn().mockResolvedValue(backgroundResult);
     updateBackground = vi.fn().mockResolvedValue(backgroundResult);
     deleteBackground = vi.fn().mockResolvedValue(backgroundResult);
@@ -149,6 +179,13 @@ describe('useEngineProject asset state', () => {
     deleteTimelineNodes = vi.fn().mockResolvedValue(backgroundResult);
     reorderTimelineNode = vi.fn().mockResolvedValue(backgroundResult);
     reorderTimelineNodes = vi.fn().mockResolvedValue(backgroundResult);
+    addVideo = vi.fn().mockResolvedValue(backgroundResult);
+    updateVideo = vi.fn().mockResolvedValue(backgroundResult);
+    addChoice = vi.fn().mockResolvedValue(backgroundResult);
+    addChoiceOption = vi.fn().mockResolvedValue(backgroundResult);
+    updateChoiceOption = vi.fn().mockResolvedValue(backgroundResult);
+    deleteChoiceOption = vi.fn().mockResolvedValue(backgroundResult);
+    reorderChoiceOption = vi.fn().mockResolvedValue(backgroundResult);
 
     exposeWindowApi(
       'vnEngine',
@@ -161,6 +198,13 @@ describe('useEngineProject asset state', () => {
         deleteTimelineNodes,
         reorderTimelineNode,
         reorderTimelineNodes,
+        addVideo,
+        updateVideo,
+        addChoice,
+        addChoiceOption,
+        updateChoiceOption,
+        deleteChoiceOption,
+        reorderChoiceOption,
       } as unknown as Window['vnEngine'],
     );
     exposeWindowApi(
@@ -175,7 +219,7 @@ describe('useEngineProject asset state', () => {
     );
     exposeWindowApi(
       'vnAssets',
-      { importImage, importVideo } as unknown as Window['vnAssets'],
+      { importImage, importVideo, importAudio } as unknown as Window['vnAssets'],
     );
   });
 
@@ -273,6 +317,22 @@ describe('useEngineProject asset state', () => {
     });
   });
 
+  it('applies an imported audio asset to the public resource list', async () => {
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(await current!.importAudio()).toBe('imported');
+    });
+
+    expect(importAudio).toHaveBeenCalledWith();
+    expect(current?.assets.at(-1)).toMatchObject({
+      type: 'audio',
+      displayName: 'voice.mp3',
+    });
+  });
+
   it('queues background actions through the typed engine API', async () => {
     await act(async () => {
       root.render(<Harness />);
@@ -331,6 +391,95 @@ describe('useEngineProject asset state', () => {
       assetId: 'asset-1',
     });
     expect(current?.session).toMatchObject(backgroundResult.session);
+  });
+
+  it('queues video-node actions through the typed engine API', async () => {
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(
+        await current!.addVideo({
+          sceneId: 'scene-1',
+          beforeNodeId: null,
+        }),
+      ).toBe(true);
+      expect(
+        await current!.updateVideo({
+          sceneId: 'scene-1',
+          nodeId: 'video-node-1',
+          assetId: 'video-1',
+        }),
+      ).toBe(true);
+    });
+
+    expect(addVideo).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      beforeNodeId: null,
+    });
+    expect(updateVideo).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      nodeId: 'video-node-1',
+      assetId: 'video-1',
+    });
+  });
+
+  it('queues choice container and nested option actions', async () => {
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    const option = {
+      sceneId: 'scene-1',
+      nodeId: 'choice-1',
+      optionId: 'option-1',
+    };
+    await act(async () => {
+      expect(await current!.addChoice({
+        sceneId: 'scene-1',
+        beforeNodeId: null,
+      })).toBe(true);
+      expect(await current!.addChoiceOption({
+        sceneId: option.sceneId,
+        nodeId: option.nodeId,
+        text: '去屋顶',
+        targetSceneId: 'scene-2',
+        beforeOptionId: null,
+      })).toBe(true);
+      expect(await current!.updateChoiceOption({
+        ...option,
+        text: '留在教室',
+        targetSceneId: 'scene-3',
+      })).toBe(true);
+      expect(await current!.reorderChoiceOption({
+        ...option,
+        beforeOptionId: null,
+      })).toBe(true);
+      expect(await current!.deleteChoiceOption(option)).toBe(true);
+    });
+
+    expect(addChoice).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      beforeNodeId: null,
+    });
+    expect(addChoiceOption).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      nodeId: 'choice-1',
+      text: '去屋顶',
+      targetSceneId: 'scene-2',
+      beforeOptionId: null,
+    });
+    expect(updateChoiceOption).toHaveBeenCalledWith({
+      ...option,
+      text: '留在教室',
+      targetSceneId: 'scene-3',
+    });
+    expect(reorderChoiceOption).toHaveBeenCalledWith({
+      ...option,
+      beforeOptionId: null,
+    });
+    expect(deleteChoiceOption).toHaveBeenCalledWith(option);
   });
 
   it('queues atomic mixed timeline actions through the typed engine API', async () => {

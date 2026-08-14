@@ -91,8 +91,24 @@ export function FormEditor({
               )
             : Promise.resolve()
         }
+        onBgmChange={(assetId) =>
+          editor.selectedBgm
+            ? editor.updateBgmNode(editor.selectedBgm, assetId)
+            : Promise.resolve()
+        }
+        onVideoChange={(assetId) =>
+          editor.selectedVideo
+            ? editor.updateVideoNode(editor.selectedVideo, assetId)
+            : Promise.resolve()
+        }
+        onDialogueVoiceChange={(assetId) =>
+          editor.selectedDialogue
+            ? editor.updateDialogueVoice(editor.selectedDialogue, assetId)
+            : Promise.resolve()
+        }
         onInsertDialogue={editor.insertEmptyDialogue}
         onInsertCharacter={editor.insertCharacter}
+        onInsertBgm={editor.insertBgm}
         onSubmit={editor.submitDialogue}
       />
     </>

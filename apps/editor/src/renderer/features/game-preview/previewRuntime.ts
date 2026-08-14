@@ -1,18 +1,70 @@
 import type {
+  ChoiceNode,
+  ChoiceOption,
   DialogueNode,
   ProjectDocument,
 } from '../../../shared/projectTypes';
 import type { TimelineCharacterState } from '../form-editor/timelinePreview';
 
 export type GamePreviewRuntime = {
-  status: 'playing' | 'finished' | 'runtimeError';
+  status:
+    | 'playing'
+    | 'playingVideo'
+    | 'choosing'
+    | 'finished'
+    | 'runtimeError';
   sceneId: string;
   nextNodeIndex: number;
   backgroundAssetId: string | null;
+  bgmAssetId: string | null;
+  bgmSequence: number;
+  dialogueSequence: number;
+  videoAssetId: string | null;
+  videoSequence: number;
   characters: TimelineCharacterState[];
   dialogue: DialogueNode | null;
+  choices: ChoiceOption[];
   errorMessage?: string;
 };
+
+function activeChoiceNode(
+  project: ProjectDocument,
+  current: GamePreviewRuntime,
+): ChoiceNode | null {
+  if (current.status !== 'choosing' || current.nextNodeIndex < 1) {
+    return null;
+  }
+
+  const scene = project.scenes.find(
+    (candidate) => candidate.id === current.sceneId,
+  );
+  const node = scene?.nodes[current.nextNodeIndex - 1];
+  return node?.type === 'choice' ? node : null;
+}
+
+// The runtime cursor already points immediately after the blocking ChoiceNode.
+// Deriving options from that cursor avoids duplicating authoring data inside
+// ephemeral preview state and keeps the session tied to one project snapshot.
+export function getGamePreviewChoices(
+  project: ProjectDocument,
+  current: GamePreviewRuntime,
+): readonly ChoiceOption[] {
+  return activeChoiceNode(project, current) ? current.choices : [];
+}
+
+function choiceRuntimeError(
+  current: GamePreviewRuntime,
+  errorMessage: string,
+): GamePreviewRuntime {
+  return {
+    ...current,
+    status: 'runtimeError',
+    videoAssetId: null,
+    dialogue: null,
+    choices: [],
+    errorMessage,
+  };
+}
 
 function orderedCharacters(
   charactersByLayer: Map<number, TimelineCharacterState>,
@@ -30,6 +82,10 @@ export function advanceGamePreview(
     current.characters.map((character) => [character.layer, character]),
   );
   let backgroundAssetId = current.backgroundAssetId;
+  let bgmAssetId = current.bgmAssetId;
+  let bgmSequence = current.bgmSequence;
+  const dialogueSequence = current.dialogueSequence;
+  let videoSequence = current.videoSequence;
   let sceneId = current.sceneId;
   let index = current.nextNodeIndex;
   const visitedPositions = new Set<string>();
@@ -38,10 +94,18 @@ export function advanceGamePreview(
     const scene = project.scenes.find((candidate) => candidate.id === sceneId);
     if (!scene) {
       return {
-        ...current,
         status: 'runtimeError',
         sceneId,
+        nextNodeIndex: index,
+        backgroundAssetId,
+        bgmAssetId,
+        bgmSequence,
+        dialogueSequence,
+        videoAssetId: null,
+        videoSequence,
+        characters: orderedCharacters(charactersByLayer),
         dialogue: null,
+        choices: [],
         errorMessage: '跳转的目标场景不存在',
       };
     }
@@ -51,8 +115,14 @@ export function advanceGamePreview(
         sceneId,
         nextNodeIndex: scene.nodes.length,
         backgroundAssetId,
+        bgmAssetId,
+        bgmSequence,
+        dialogueSequence,
+        videoAssetId: null,
+        videoSequence,
         characters: orderedCharacters(charactersByLayer),
         dialogue: null,
+        choices: [],
       };
     }
     const positionKey = `${sceneId}:${index}`;
@@ -62,9 +132,15 @@ export function advanceGamePreview(
         sceneId,
         nextNodeIndex: index,
         backgroundAssetId,
+        bgmAssetId,
+        bgmSequence,
+        dialogueSequence,
+        videoAssetId: null,
+        videoSequence,
         characters: orderedCharacters(charactersByLayer),
         dialogue: null,
-        errorMessage: '检测到没有对白可停留的场景跳转循环',
+        choices: [],
+        errorMessage: '检测到没有对白或可选项可停留的场景跳转循环',
       };
     }
     visitedPositions.add(positionKey);
@@ -87,16 +163,73 @@ export function advanceGamePreview(
       }
       continue;
     }
+    if (node.type === 'bgm') {
+      bgmAssetId = node.assetId;
+      bgmSequence += 1;
+      continue;
+    }
+    if (node.type === 'video') {
+      // An empty video slot is authoring data only and has no runtime effect.
+      // A concrete clip is a blocking timeline stop: only ended or the
+      // explicit Enter shortcut may advance from the incremented node index.
+      if (node.assetId === null) {
+        continue;
+      }
+      videoSequence += 1;
+      return {
+        status: 'playingVideo',
+        sceneId,
+        nextNodeIndex: index,
+        backgroundAssetId,
+        bgmAssetId,
+        bgmSequence,
+        dialogueSequence,
+        videoAssetId: node.assetId,
+        videoSequence,
+        characters: orderedCharacters(charactersByLayer),
+        dialogue: null,
+        choices: [],
+      };
+    }
+    if (node.type === 'choice') {
+      // An empty options block is an authoring placeholder and has no runtime
+      // effect. Once at least one option exists it becomes a blocking branch.
+      if (node.options.length === 0) {
+        continue;
+      }
+      return {
+        status: 'choosing',
+        sceneId,
+        nextNodeIndex: index,
+        backgroundAssetId,
+        bgmAssetId,
+        bgmSequence,
+        dialogueSequence,
+        videoAssetId: null,
+        videoSequence,
+        characters: orderedCharacters(charactersByLayer),
+        dialogue: null,
+        choices: node.options,
+      };
+    }
     if (node.type === 'sceneJump') {
       const target = project.scenes.find(
         (candidate) => candidate.id === node.targetSceneId,
       );
       if (!target) {
         return {
-          ...current,
           status: 'runtimeError',
           sceneId,
+          nextNodeIndex: index,
+          backgroundAssetId,
+          bgmAssetId,
+          bgmSequence,
+          dialogueSequence,
+          videoAssetId: null,
+          videoSequence,
+          characters: orderedCharacters(charactersByLayer),
           dialogue: null,
+          choices: [],
           errorMessage: '跳转的目标场景不存在',
         };
       }
@@ -112,10 +245,60 @@ export function advanceGamePreview(
       sceneId,
       nextNodeIndex: index,
       backgroundAssetId,
+      bgmAssetId,
+      bgmSequence,
+      dialogueSequence: dialogueSequence + 1,
+      videoAssetId: null,
+      videoSequence,
       characters: orderedCharacters(charactersByLayer),
       dialogue: node,
+      choices: [],
     };
   }
+}
+
+export function selectGamePreviewChoice(
+  project: ProjectDocument,
+  current: GamePreviewRuntime,
+  optionId: string,
+): GamePreviewRuntime {
+  if (current.status !== 'choosing') {
+    return current;
+  }
+
+  const choice = activeChoiceNode(project, current);
+  if (!choice) {
+    return choiceRuntimeError(current, '当前选项节点不存在');
+  }
+  const option = choice.options.find((candidate) => candidate.id === optionId);
+  if (!option) {
+    return choiceRuntimeError(current, '选择的选项不存在');
+  }
+  const target = project.scenes.find(
+    (candidate) => candidate.id === option.targetSceneId,
+  );
+  if (!target) {
+    return choiceRuntimeError(current, '选项跳转的目标场景不存在');
+  }
+
+  // Choice transitions share scene-jump semantics: the target begins with its
+  // own initial background and no inherited portraits. BGM is project-wide
+  // timeline state, so it intentionally keeps playing until a BGM node changes
+  // it. advanceGamePreview then applies target-scene nodes immediately.
+  return advanceGamePreview(project, {
+    status: 'playing',
+    sceneId: target.id,
+    nextNodeIndex: 0,
+    backgroundAssetId: target.backgroundAssetId,
+    bgmAssetId: current.bgmAssetId,
+    bgmSequence: current.bgmSequence,
+    dialogueSequence: current.dialogueSequence,
+    videoAssetId: null,
+    videoSequence: current.videoSequence,
+    characters: [],
+    dialogue: null,
+    choices: [],
+  });
 }
 
 export function startGamePreview(
@@ -133,7 +316,13 @@ export function startGamePreview(
     sceneId: scene.id,
     nextNodeIndex: 0,
     backgroundAssetId: scene.backgroundAssetId,
+    bgmAssetId: null,
+    bgmSequence: 0,
+    dialogueSequence: 0,
+    videoAssetId: null,
+    videoSequence: 0,
     characters: [],
     dialogue: null,
+    choices: [],
   });
 }

@@ -19,6 +19,7 @@ const validProject = {
           type: 'dialogue',
           speaker: 'Ryan',
           text: 'Hello',
+          voiceAssetId: null,
         },
         {
           id: 'background-1',
@@ -36,6 +37,27 @@ const validProject = {
           id: 'jump-1',
           type: 'sceneJump',
           targetSceneId: 'scene-2',
+        },
+        {
+          id: 'bgm-1',
+          type: 'bgm',
+          assetId: null,
+        },
+        {
+          id: 'video-1',
+          type: 'video',
+          assetId: 'video-asset-1',
+        },
+        {
+          id: 'choice-1',
+          type: 'choice',
+          options: [
+            {
+              id: 'option-1',
+              text: '去屋顶',
+              targetSceneId: 'scene-2',
+            },
+          ],
         },
       ],
     },
@@ -84,6 +106,15 @@ describe('backend response validation', () => {
     });
   });
 
+  it('accepts an optional generated choice option ID', () => {
+    expect(
+      parseBackendResponse(successResponse({ optionId: 'option-1' })),
+    ).toMatchObject({
+      ok: true,
+      result: { optionId: 'option-1' },
+    });
+  });
+
   it('accepts and sanitizes all public timeline node types', () => {
     const parsed = parseBackendResponse(
       successResponse({
@@ -104,6 +135,24 @@ describe('backend response validation', () => {
                   relativePath: 'assets/images/asset-1.png',
                 },
                 validProject.scenes[0].nodes[3],
+                validProject.scenes[0].nodes[4],
+                {
+                  ...validProject.scenes[0].nodes[5],
+                  relativePath: 'assets/videos/video-asset-1.mp4',
+                },
+                {
+                  id: 'choice-1',
+                  type: 'choice',
+                  privateChoiceMetadata: '/not/public',
+                  options: [
+                    {
+                      id: 'option-1',
+                      text: '去屋顶',
+                      targetSceneId: 'scene-2',
+                      privateTargetPath: '/not/public',
+                    },
+                  ],
+                },
               ],
             },
           ],
@@ -118,7 +167,11 @@ describe('backend response validation', () => {
           scenes: [
             {
               nodes: [
-                { type: 'dialogue', speaker: 'Ryan' },
+                {
+                  type: 'dialogue',
+                  speaker: 'Ryan',
+                  voiceAssetId: null,
+                },
                 { type: 'background', assetId: 'asset-1' },
                 {
                   type: 'character',
@@ -127,6 +180,18 @@ describe('backend response validation', () => {
                   layer: 3,
                 },
                 { type: 'sceneJump', targetSceneId: 'scene-2' },
+                { type: 'bgm', assetId: null },
+                { type: 'video', assetId: 'video-asset-1' },
+                {
+                  type: 'choice',
+                  options: [
+                    {
+                      id: 'option-1',
+                      text: '去屋顶',
+                      targetSceneId: 'scene-2',
+                    },
+                  ],
+                },
               ],
             },
           ],
@@ -135,6 +200,8 @@ describe('backend response validation', () => {
     });
     expect(JSON.stringify(parsed)).not.toContain('privateProjectPath');
     expect(JSON.stringify(parsed)).not.toContain('relativePath');
+    expect(JSON.stringify(parsed)).not.toContain('privateChoiceMetadata');
+    expect(JSON.stringify(parsed)).not.toContain('privateTargetPath');
   });
 
   it('accepts an explicit no-background timeline node', () => {
@@ -176,6 +243,77 @@ describe('backend response validation', () => {
         },
       },
     });
+  });
+
+  it('accepts an unassigned video node and rejects malformed video IDs', () => {
+    const parsed = parseBackendResponse(
+      successResponse({
+        project: {
+          ...validProject,
+          scenes: [
+            {
+              ...validProject.scenes[0],
+              nodes: [{ id: 'video-empty', type: 'video', assetId: null }],
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(parsed).toMatchObject({
+      ok: true,
+      result: {
+        project: {
+          scenes: [
+            {
+              nodes: [
+                { id: 'video-empty', type: 'video', assetId: null },
+              ],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(() =>
+      parseBackendResponse(
+        successResponse({
+          project: {
+            ...validProject,
+            scenes: [
+              {
+                ...validProject.scenes[0],
+                nodes: [{ id: 'video-bad', type: 'video', assetId: 7 }],
+              },
+            ],
+          },
+        }),
+      ),
+    ).toThrow('project');
+  });
+
+  it('rejects malformed nested choice options', () => {
+    for (const options of [
+      null,
+      [{ id: 'option-1', text: 7, targetSceneId: 'scene-2' }],
+      [{ id: 'option-1', text: '留下', targetSceneId: null }],
+    ]) {
+      expect(() =>
+        parseBackendResponse(
+          successResponse({
+            project: {
+              ...validProject,
+              scenes: [
+                {
+                  ...validProject.scenes[0],
+                  nodes: [{ id: 'choice-bad', type: 'choice', options }],
+                },
+              ],
+            },
+          }),
+        ),
+      ).toThrow('project');
+    }
   });
 
   it('strips backend-only paths and unknown result metadata', () => {
@@ -233,6 +371,7 @@ describe('backend response validation', () => {
   it.each([
     { sceneId: 4 },
     { nodeId: null },
+    { optionId: false },
     { assetId: false },
   ])('rejects malformed optional result IDs: %j', (overrides) => {
     expect(() =>

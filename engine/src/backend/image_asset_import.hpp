@@ -14,10 +14,13 @@ inline constexpr std::uintmax_t kMaximumImportedImageBytes =
     128U * 1024U * 1024U;
 inline constexpr std::uintmax_t kMaximumImportedVideoBytes =
     2U * 1024U * 1024U * 1024U;
+inline constexpr std::uintmax_t kMaximumImportedAudioBytes =
+    512U * 1024U * 1024U;
 
 enum class AssetImportKind {
   image,
   video,
+  audio,
 };
 
 struct AssetImportPlan {
@@ -27,6 +30,7 @@ struct AssetImportPlan {
 
 using ImageAssetImportPlan = AssetImportPlan;
 using VideoAssetImportPlan = AssetImportPlan;
+using AudioAssetImportPlan = AssetImportPlan;
 
 class AssetImportError final : public std::runtime_error {
  public:
@@ -45,6 +49,12 @@ ImageAssetImportPlan plan_image_asset_import(
 // destination is derived from the validated extension, never from renderer
 // supplied relative paths.
 VideoAssetImportPlan plan_video_asset_import(
+    std::string_view source_file_path,
+    std::string_view asset_id);
+
+// Audio imports accept MP3, RIFF/WAVE, and Ogg Vorbis/Opus. Files are copied
+// to assets/audio after the selected extension and binary signature agree.
+AudioAssetImportPlan plan_audio_asset_import(
     std::string_view source_file_path,
     std::string_view asset_id);
 
@@ -72,6 +82,12 @@ void copy_video_asset_no_clobber(
     const std::filesystem::path& source,
     const std::filesystem::path& project_directory,
     const VideoAssetImportPlan& plan,
+    ImageImportBeforePublishHook before_publish = nullptr);
+
+void copy_audio_asset_no_clobber(
+    const std::filesystem::path& source,
+    const std::filesystem::path& project_directory,
+    const AudioAssetImportPlan& plan,
     ImageImportBeforePublishHook before_publish = nullptr);
 
 void copy_asset_no_clobber(

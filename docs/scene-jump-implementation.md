@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | 节点模型 | C++20 `std::variant` | `SceneJumpNode` 成为真正的剧情节点，不是 UI 临时字段 |
 | 引用关系 | 稳定 Scene UUID、ProjectAggregate 校验 | 场景改名/排序不影响跳转，删除被引用场景会被拒绝 |
-| 文件格式 | nlohmann/json、严格 v6 Reader/Writer | 保存 `targetSceneId` 并兼容早期文件版本 |
+| 文件格式 | nlohmann/json、版本化严格 Reader/Writer | 跳转在 v6 引入；当前 v9 仍严格保存 `targetSceneId` |
 | 公共类型 | TypeScript discriminated union | React/Blockly 用 `node.type` 安全缩窄 |
 | 跨进程 | contextBridge、Electron IPC、JSONL | 请求逐层校验，C++ 返回完整权威快照 |
 | 图形化编辑 | Blockly 13 动态 Dropdown、自定义 Block | 场景列表变化时仍以 ID 绑定目标 |
@@ -222,7 +222,8 @@ v5 的严格格式只认识对白、背景和人物节点。若继续把新字�
 - 旧程序打开文件时不知道 `sceneJump` 是什么；
 - 文件声明自己是 v5，但实际结构已经不是 v5，版本号失去意义。
 
-因此 Writer 固定写 v6，Reader 仍接受 v1–v6：
+场景跳转功能完成时 Writer 固定写 v6，Reader 接受 v1–v6；之后音频升级为 v7、
+视频节点升级为 v8。完整现状见视频文档。v6 当时的演进关系是：
 
 ```text
 v1–v2：对白时间线
@@ -468,7 +469,8 @@ using SceneNode = std::variant<
 }
 ```
 
-Reader 接受 v1–v6，Writer 固定写 v6。Project/Scene `schemaVersion` 保持 1。
+这一阶段 Reader 接受 v1–v6、Writer 写 v6；当前 Reader 接受 v1–v9、Writer
+写 v9。Project/Scene `schemaVersion` 仍保持 1。
 
 ## C++ 命令
 

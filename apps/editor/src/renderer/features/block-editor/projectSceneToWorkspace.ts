@@ -20,7 +20,22 @@ import {
 import {
   DIALOGUE_BLOCK_FIELDS,
   DIALOGUE_BLOCK_TYPE,
+  setDialogueBlockVoice,
 } from './blocks/dialogueBlock';
+import {
+  BGM_BLOCK_TYPE,
+  setBgmBlockAsset,
+} from './blocks/bgmBlock';
+import {
+  VIDEO_BLOCK_TYPE,
+  setVideoBlockAsset,
+} from './blocks/videoBlock';
+import {
+  CHOICE_BLOCK_INPUTS,
+  CHOICE_BLOCK_TYPE,
+  CHOICE_OPTION_BLOCK_FIELDS,
+  CHOICE_OPTION_BLOCK_TYPE,
+} from './blocks/choiceBlock';
 import type { WorkspacePoint } from './blockEditorLayout';
 import { SingleDialogueBlockDragStrategy } from './singleDialogueBlockDragStrategy';
 
@@ -56,7 +71,13 @@ export function projectSceneToWorkspace(
             ? BACKGROUND_BLOCK_TYPE
             : node.type === 'character'
               ? CHARACTER_BLOCK_TYPE
-              : SCENE_JUMP_BLOCK_TYPE,
+              : node.type === 'sceneJump'
+                ? SCENE_JUMP_BLOCK_TYPE
+                : node.type === 'bgm'
+                  ? BGM_BLOCK_TYPE
+                  : node.type === 'video'
+                    ? VIDEO_BLOCK_TYPE
+                    : CHOICE_BLOCK_TYPE,
         node.id,
       );
 
@@ -80,6 +101,12 @@ export function projectSceneToWorkspace(
           node.text,
           DIALOGUE_BLOCK_FIELDS.text,
         );
+        const voiceName =
+          node.voiceAssetId === null
+            ? ''
+            : assets.find((asset) => asset.id === node.voiceAssetId)
+                ?.displayName ?? '缺失音频';
+        setDialogueBlockVoice(block, node.voiceAssetId, voiceName);
       } else if (node.type === 'background') {
         const name =
           node.assetId === null
@@ -96,14 +123,92 @@ export function projectSceneToWorkspace(
         setCharacterBlockAsset(block, node.assetId, name);
         block.setFieldValue(node.slot, CHARACTER_BLOCK_FIELDS.slot);
         block.setFieldValue(String(node.layer), CHARACTER_BLOCK_FIELDS.layer);
-      } else {
+      } else if (node.type === 'sceneJump') {
         block.setFieldValue(
           node.targetSceneId,
           SCENE_JUMP_BLOCK_FIELDS.targetScene,
         );
+      } else if (node.type === 'bgm') {
+        const name =
+          node.assetId === null
+            ? ''
+            : assets.find((asset) => asset.id === node.assetId)
+                ?.displayName ?? '缺失音频';
+        setBgmBlockAsset(block, node.assetId, name);
+      } else if (node.type === 'video') {
+        const name =
+          node.assetId === null
+            ? ''
+            : assets.find((asset) => asset.id === node.assetId)
+                ?.displayName ?? '缺失视频';
+        setVideoBlockAsset(block, node.assetId, name);
       }
 
       block.render();
+
+      if (node.type === 'choice') {
+        const optionBlocks = node.options.map((option) => {
+          const optionBlock = workspace.newBlock(
+            CHOICE_OPTION_BLOCK_TYPE,
+            option.id,
+          );
+          optionBlock.setMovable(true);
+          optionBlock.setDeletable(false);
+          optionBlock.setEditable(true);
+          optionBlock.contextMenu = false;
+          optionBlock.setDragStrategy(
+            new SingleDialogueBlockDragStrategy(optionBlock),
+          );
+          optionBlock.initSvg();
+          optionBlock.setFieldValue(
+            option.text,
+            CHOICE_OPTION_BLOCK_FIELDS.text,
+          );
+          optionBlock.setFieldValue(
+            option.targetSceneId,
+            CHOICE_OPTION_BLOCK_FIELDS.targetScene,
+          );
+          optionBlock.render();
+          return optionBlock;
+        });
+
+        for (
+          let index = optionBlocks.length - 2;
+          index >= 0;
+          index -= 1
+        ) {
+          const nextConnection = optionBlocks[index].nextConnection;
+          const previousConnection =
+            optionBlocks[index + 1].previousConnection;
+          if (!nextConnection || !previousConnection) {
+            throw new Error('选择分支积木缺少上下连接点');
+          }
+          const connected = nextConnection.connect(previousConnection);
+          if (!connected) {
+            throw new Error('无法连接选择分支积木');
+          }
+          Blockly.renderManagement.triggerQueuedRenders(workspace);
+        }
+
+        const firstOption = optionBlocks[0];
+        if (firstOption) {
+          const statementConnection = block.getInput(
+            CHOICE_BLOCK_INPUTS.options,
+          )?.connection;
+          const previousConnection = firstOption.previousConnection;
+          if (!statementConnection || !previousConnection) {
+            throw new Error('选择容器缺少选项连接点');
+          }
+          const connected = statementConnection.connect(
+            previousConnection,
+          );
+          if (!connected) {
+            throw new Error('无法把选择分支连接到选择容器');
+          }
+          Blockly.renderManagement.triggerQueuedRenders(workspace);
+        }
+      }
+
       blocks.push(block);
     }
 

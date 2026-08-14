@@ -3,6 +3,7 @@ import { useState } from 'react';
 import type { ProjectDocument } from '../../../shared/projectTypes';
 import {
   advanceGamePreview,
+  selectGamePreviewChoice,
   startGamePreview,
   type GamePreviewRuntime,
 } from './previewRuntime';
@@ -36,9 +37,37 @@ export function useGamePreview() {
     });
   }
 
+  function completeVideo(): void {
+    setSession((current) => {
+      if (!current || current.runtime.status !== 'playingVideo') {
+        return current;
+      }
+      return {
+        ...current,
+        runtime: advanceGamePreview(current.project, current.runtime),
+      };
+    });
+  }
+
+  function selectChoice(optionId: string): void {
+    setSession((current) => {
+      if (!current || current.runtime.status !== 'choosing') {
+        return current;
+      }
+      return {
+        ...current,
+        runtime: selectGamePreviewChoice(
+          current.project,
+          current.runtime,
+          optionId,
+        ),
+      };
+    });
+  }
+
   function exit(): void {
     setSession(null);
   }
 
-  return { session, start, advance, exit };
+  return { session, start, advance, completeVideo, selectChoice, exit };
 }
