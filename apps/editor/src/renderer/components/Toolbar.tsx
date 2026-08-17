@@ -1,8 +1,7 @@
 import { useEffect, useRef } from 'react';
 
+import type { EditorMode } from '../application/editorMode';
 import { projectSaveStatus } from '../projectSessionPresentation';
-
-export type EditorMode = 'form' | 'blocks';
 
 type ToolbarProps = {
   projectName: string;

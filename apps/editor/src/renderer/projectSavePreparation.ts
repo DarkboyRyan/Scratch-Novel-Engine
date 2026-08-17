@@ -1,4 +1,4 @@
-import type { EditorMode } from './components/Toolbar';
+import type { EditorMode } from './application/editorMode';
 
 type PrepareProjectSaveOptions = {
   editorMode: EditorMode;

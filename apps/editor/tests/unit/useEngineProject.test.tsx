@@ -4,6 +4,7 @@ import { act, StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { EditorPlatformGateway } from '../../src/renderer/application/editorPlatformGateway';
 import {
   useEngineProject,
   type EngineProjectState,
@@ -113,16 +114,6 @@ const backgroundResult: EngineMutationResult = {
   nodeId: 'background-1',
 };
 
-function exposeWindowApi<Key extends keyof Window>(
-  key: Key,
-  value: Window[Key],
-): void {
-  Object.defineProperty(window, key, {
-    configurable: true,
-    value,
-  });
-}
-
 describe('useEngineProject asset state', () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -144,9 +135,10 @@ describe('useEngineProject asset state', () => {
   let updateChoiceOption: ReturnType<typeof vi.fn>;
   let deleteChoiceOption: ReturnType<typeof vi.fn>;
   let reorderChoiceOption: ReturnType<typeof vi.fn>;
+  let platform: EditorPlatformGateway;
 
   function Harness() {
-    current = useEngineProject();
+    current = useEngineProject(platform);
     return null;
   }
 
@@ -187,9 +179,8 @@ describe('useEngineProject asset state', () => {
     deleteChoiceOption = vi.fn().mockResolvedValue(backgroundResult);
     reorderChoiceOption = vi.fn().mockResolvedValue(backgroundResult);
 
-    exposeWindowApi(
-      'vnEngine',
-      {
+    platform = {
+      engine: {
         ensureProject: vi.fn().mockResolvedValue(initialResult),
         addBackground,
         updateBackground,
@@ -205,22 +196,20 @@ describe('useEngineProject asset state', () => {
         updateChoiceOption,
         deleteChoiceOption,
         reorderChoiceOption,
-      } as unknown as Window['vnEngine'],
-    );
-    exposeWindowApi(
-      'vnProjectFiles',
-      {
+      } as unknown as EditorPlatformGateway['engine'],
+      projectFiles: {
         getSession: vi.fn().mockResolvedValue({
           hasStorage: true,
           projectFolderName: 'story',
           ...initialResult.session,
         }),
-      } as unknown as Window['vnProjectFiles'],
-    );
-    exposeWindowApi(
-      'vnAssets',
-      { importImage, importVideo, importAudio } as unknown as Window['vnAssets'],
-    );
+      } as unknown as EditorPlatformGateway['projectFiles'],
+      assets: {
+        importImage,
+        importVideo,
+        importAudio,
+      } as unknown as EditorPlatformGateway['assets'],
+    };
   });
 
   afterEach(async () => {
@@ -272,13 +261,13 @@ describe('useEngineProject asset state', () => {
     const ensureProject = vi
       .fn()
       .mockReturnValue(pendingInitialProject);
-    exposeWindowApi(
-      'vnEngine',
-      {
-        ...window.vnEngine,
+    platform = {
+      ...platform,
+      engine: {
+        ...platform.engine,
         ensureProject,
       },
-    );
+    };
 
     await act(async () => {
       root.render(

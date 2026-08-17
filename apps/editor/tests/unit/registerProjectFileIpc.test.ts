@@ -27,7 +27,7 @@ const storageMocks = vi.hoisted(() => ({
   })),
 }));
 
-vi.mock('../../src/main/project/ProjectStorageSession', () => ({
+vi.mock('../../src/main/project/ProjectPathPolicy', () => ({
   createProjectRootInParent: storageMocks.createProjectRootInParent,
   removeProjectRootIfEmpty: storageMocks.removeProjectRootIfEmpty,
   projectManifestPath: (rootPath: string) =>

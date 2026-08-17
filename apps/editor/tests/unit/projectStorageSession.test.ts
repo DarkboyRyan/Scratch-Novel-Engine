@@ -16,10 +16,10 @@ import {
   canonicalizeProjectRootPath,
   createProjectRootInParent,
   projectManifestPath,
-  ProjectStorageSession,
   resolveProjectManifestPath,
   validateProjectRootPath,
-} from '../../src/main/project/ProjectStorageSession';
+} from '../../src/main/project/ProjectPathPolicy';
+import { ProjectStorageSession } from '../../src/main/project/ProjectStorageSession';
 
 const temporaryDirectories: string[] = [];
 const activeSessions: ProjectStorageSession[] = [];

@@ -15,7 +15,7 @@
 #include <sys/stat.h>
 #endif
 
-#include "image_asset_import.hpp"
+#include "asset_import.hpp"
 
 namespace {
 

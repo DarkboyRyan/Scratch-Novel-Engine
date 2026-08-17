@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   createPreviewAudioController,
   type PreviewAudioElement,
-} from '../../src/renderer/features/game-preview/previewAudioController';
-import type { GamePreviewRuntime } from '../../src/renderer/features/game-preview/previewRuntime';
+} from '@vnengine/player-ui';
+import type { GameRuntime as GamePreviewRuntime } from '@vnengine/runtime';
 
 type MockAudio = PreviewAudioElement & {
   load: ReturnType<typeof vi.fn>;

@@ -4,7 +4,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { PreviewVideo } from '../../src/renderer/features/game-preview/PreviewVideo';
+import { PreviewVideo } from '@vnengine/player-ui';
 
 describe('PreviewVideo', () => {
   let container: HTMLDivElement;
@@ -24,10 +24,6 @@ describe('PreviewVideo', () => {
     document.body.append(container);
     root = createRoot(container);
     getMediaUrl = vi.fn();
-    Object.defineProperty(window, 'vnAssets', {
-      configurable: true,
-      value: { getMediaUrl } as unknown as Window['vnAssets'],
-    });
     play = vi.spyOn(HTMLMediaElement.prototype, 'play')
       .mockResolvedValue(undefined);
     pause = vi.spyOn(HTMLMediaElement.prototype, 'pause')
@@ -51,6 +47,7 @@ describe('PreviewVideo', () => {
         <PreviewVideo
           assetId="video-1"
           sequence={1}
+          resolveMediaUrl={getMediaUrl}
           onComplete={onComplete}
         />,
       );
@@ -90,6 +87,7 @@ describe('PreviewVideo', () => {
         <PreviewVideo
           assetId="missing-video"
           sequence={1}
+          resolveMediaUrl={getMediaUrl}
           onComplete={onComplete}
         />,
       );

@@ -1,14 +1,10 @@
-import type {
-  CharacterSlot,
-  SceneDocument,
-} from '../../../shared/projectTypes';
+import type { RuntimeCharacterState } from '@vnengine/runtime';
 
-export type TimelineCharacterState = {
-  nodeId: string;
-  assetId: string;
-  slot: CharacterSlot;
-  layer: number;
-};
+import type { SceneDocument } from '../../../shared/projectTypes';
+
+// Kept as an Editor-facing alias while both timeline preview and game runtime
+// share the platform-independent character state definition.
+export type TimelineCharacterState = RuntimeCharacterState;
 
 export type TimelinePreviewState = {
   backgroundAssetId: string | null;

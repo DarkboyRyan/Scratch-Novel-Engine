@@ -12,5 +12,87 @@
     "plugin:import/electron",
     "plugin:import/typescript"
   ],
-  "parser": "@typescript-eslint/parser"
+  "parser": "@typescript-eslint/parser",
+  "rules": {
+    "@typescript-eslint/consistent-type-imports": "error",
+    "import/no-cycle": "error"
+  },
+  "overrides": [
+    {
+      "files": ["src/renderer/**/*.{ts,tsx}"],
+      "rules": {
+        "import/no-nodejs-modules": "error",
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "electron",
+                "message": "Renderer code must use the typed Preload API."
+              }
+            ],
+            "patterns": [
+              {
+                "group": ["node:*", "**/main/**"],
+                "message": "Renderer code must not depend on Node or Electron Main."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/main/**/*.ts", "src/main.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/renderer/**"],
+                "message": "Electron Main must not depend on Renderer implementation."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/renderer/features/block-editor/**/*.{ts,tsx}"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "node:*",
+                  "**/main/**",
+                  "**/hooks/useEngineProject",
+                  "**/assets/ResourcePanel"
+                ],
+                "message": "Block Editor must depend on authoring ports and asset drag contracts."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/renderer/features/game-preview/previewRuntime.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/form-editor/**"],
+                "message": "The platform-independent runtime cannot depend on editor features."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
 }

@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 
+import type { EditorMode } from './application/editorMode';
+import {
+  resolveEditorAssetPreviewUrl,
+  resolveEditorMediaUrl,
+} from './application/editorMediaGateway';
+import { subscribeEditorProjectFileCommands } from './application/editorPlatformGateway';
 import { ErrorDialog } from './components/ErrorDialog';
 import { CreateProjectDialog } from './components/CreateProjectDialog';
-import { Toolbar, type EditorMode } from './components/Toolbar';
+import { Toolbar } from './components/Toolbar';
 import {
   BlockEditor,
   type BlockEditorHandle,
@@ -32,6 +38,7 @@ export default function App() {
     project?.id ?? null,
     engine.projectGeneration,
     engine.assets,
+    resolveEditorAssetPreviewUrl,
   );
   const [isRenamingProject, setIsRenamingProject] = useState(false);
   const [projectNameDraft, setProjectNameDraft] = useState('');
@@ -238,7 +245,7 @@ export default function App() {
       };
 
   useEffect(() => {
-    return window.vnProjectFiles.onCommand((command) => {
+    return subscribeEditorProjectFileCommands((command) => {
       if (command === 'new') {
         void latestActionsRef.current.create();
       } else if (command === 'open') {
@@ -425,6 +432,7 @@ export default function App() {
           session={gamePreview.session}
           assets={engine.assets}
           previewUrls={assetPreviewUrls}
+          resolveMediaUrl={resolveEditorMediaUrl}
           onAdvance={gamePreview.advance}
           onVideoComplete={gamePreview.completeVideo}
           onChoiceSelect={gamePreview.selectChoice}

@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 
 import type { AssetDocument } from '../../../shared/projectTypes';
+import type { AssetPreviewUrlResolver } from '../../application/mediaPort';
 
 export function useAssetPreviewUrls(
   projectId: string | null,
   projectGeneration: number,
   assets: AssetDocument[],
+  resolvePreviewUrl: AssetPreviewUrlResolver,
 ): Readonly<Record<string, string>> {
   const [previewUrls, setPreviewUrls] = useState<Record<string, string>>(
     {},
@@ -22,7 +24,7 @@ export function useAssetPreviewUrls(
 
     void Promise.all(
       assetIds.map(async (assetId) => {
-        const previewUrl = await window.vnAssets.getPreviewUrl(assetId);
+        const previewUrl = await resolvePreviewUrl(assetId);
         return [assetId, previewUrl] as const;
       }),
     )
@@ -51,7 +53,12 @@ export function useAssetPreviewUrls(
     return () => {
       isActive = false;
     };
-  }, [imageAssetIdsKey, projectGeneration, projectId]);
+  }, [
+    imageAssetIdsKey,
+    projectGeneration,
+    projectId,
+    resolvePreviewUrl,
+  ]);
 
   return previewUrls;
 }

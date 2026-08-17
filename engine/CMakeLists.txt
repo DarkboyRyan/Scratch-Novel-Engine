@@ -20,6 +20,8 @@ FetchContent_MakeAvailable(nlohmann_json)
 
 add_library(vn_engine_core
   src/core/project.cpp
+  src/core/project_queries.cpp
+  src/core/project_validation.cpp
 )
 
 target_include_directories(vn_engine_core
@@ -30,10 +32,11 @@ target_include_directories(vn_engine_core
 target_compile_features(vn_engine_core PUBLIC cxx_std_20)
 
 add_executable(vn_engine_backend
+  src/backend/asset_import.cpp
   src/backend/atomic_file.cpp
   src/backend/backend.cpp
-  src/backend/image_asset_import.cpp
   src/backend/main.cpp
+  src/backend/media_sniffer.cpp
   src/backend/serialization.cpp
 )
 
@@ -74,9 +77,10 @@ if(BUILD_TESTING)
 
   add_executable(vn_engine_backend_tests
     tests/backend/backend_tests.cpp
+    src/backend/asset_import.cpp
     src/backend/atomic_file.cpp
     src/backend/backend.cpp
-    src/backend/image_asset_import.cpp
+    src/backend/media_sniffer.cpp
     src/backend/serialization.cpp
   )
 
@@ -123,26 +127,27 @@ if(BUILD_TESTING)
     COMMAND vn_engine_atomic_file_tests
   )
 
-  add_executable(vn_engine_image_asset_import_tests
-    tests/backend/image_asset_import_tests.cpp
-    src/backend/image_asset_import.cpp
+  add_executable(vn_engine_asset_import_tests
+    tests/backend/asset_import_tests.cpp
+    src/backend/asset_import.cpp
+    src/backend/media_sniffer.cpp
   )
 
-  target_include_directories(vn_engine_image_asset_import_tests
+  target_include_directories(vn_engine_asset_import_tests
     PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/src/backend
   )
 
   if(CMAKE_CXX_COMPILER_ID MATCHES "AppleClang|Clang|GNU")
     target_compile_options(
-      vn_engine_image_asset_import_tests PRIVATE -Wall -Wextra -Wpedantic)
+      vn_engine_asset_import_tests PRIVATE -Wall -Wextra -Wpedantic)
   elseif(MSVC)
     target_compile_options(
-      vn_engine_image_asset_import_tests PRIVATE /W4 /permissive-)
+      vn_engine_asset_import_tests PRIVATE /W4 /permissive-)
   endif()
 
   add_test(
-    NAME vn_engine_image_asset_import_tests
-    COMMAND vn_engine_image_asset_import_tests
+    NAME vn_engine_asset_import_tests
+    COMMAND vn_engine_asset_import_tests
   )
 endif()

@@ -10,8 +10,8 @@ import type {
   SceneNode,
   VideoNode,
 } from '../../../shared/projectTypes';
+import type { FormEditorPort } from '../../application/authoringPorts';
 import { EMPTY_DIALOGUE_MESSAGE } from '../../editorMessages';
-import type { EngineProjectState } from '../../hooks/useEngineProject';
 
 // Controller hook 负责 Renderer 状态、选择规则以及调用 C++。
 // 组件只接收数据和事件，不直接知道 IPC 协议。
@@ -21,7 +21,8 @@ export function useFormEditor({
   engineMessage,
   setEngineMessage,
   runEngineAction,
-}: EngineProjectState) {
+  authoringCommands,
+}: FormEditorPort) {
   const [selectedSceneId, setSelectedSceneId] =
     useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] =
@@ -150,7 +151,7 @@ export function useFormEditor({
 
       if (selectedDialogue) {
         const result = await runEngineAction(() =>
-          window.vnEngine.updateDialogue(
+          authoringCommands.updateDialogue(
             scene.id,
             selectedDialogue.id,
             speaker,
@@ -168,7 +169,7 @@ export function useFormEditor({
       }
 
       const result = await runEngineAction(() =>
-        window.vnEngine.addDialogue({
+        authoringCommands.addDialogue({
           sceneId: scene.id,
           afterNodeId: null,
           speaker,
@@ -218,7 +219,7 @@ export function useFormEditor({
 
     // 不再由 React 计算“场景 N”或生成 ID；C++ 统一负责这些规则。
     const result = await runEngineAction(() =>
-      window.vnEngine.addScene(),
+      authoringCommands.addScene(),
     );
 
     if (!result?.sceneId) {
@@ -256,7 +257,7 @@ export function useFormEditor({
     }
 
     const result = await runEngineAction(() =>
-      window.vnEngine.addDialogue({
+      authoringCommands.addDialogue({
         sceneId: scene.id,
         afterNodeId: anchorNodeId,
       }),
@@ -285,7 +286,7 @@ export function useFormEditor({
     }
 
     const result = await runEngineAction(() =>
-      window.vnEngine.addBackground({
+      authoringCommands.addBackground({
         sceneId: scene.id,
         afterNodeId: anchorNodeId,
       }),
@@ -311,7 +312,7 @@ export function useFormEditor({
     }
 
     const result = await runEngineAction(() =>
-      window.vnEngine.addCharacter({
+      authoringCommands.addCharacter({
         sceneId: scene.id,
         afterNodeId: anchorNodeId,
       }),
@@ -340,7 +341,7 @@ export function useFormEditor({
     }
 
     const result = await runEngineAction(() =>
-      window.vnEngine.addSceneJump({
+      authoringCommands.addSceneJump({
         sceneId: scene.id,
         targetSceneId: targetScene.id,
         afterNodeId: anchorNodeId,
@@ -361,7 +362,7 @@ export function useFormEditor({
     }
 
     const result = await runEngineAction(() =>
-      window.vnEngine.addBgm({
+      authoringCommands.addBgm({
         sceneId: scene.id,
         afterNodeId: anchorNodeId,
       }),
@@ -383,7 +384,7 @@ export function useFormEditor({
     }
 
     await runEngineAction(() =>
-      window.vnEngine.updateBackground({
+      authoringCommands.updateBackground({
         sceneId: scene.id,
         nodeId: node.id,
         assetId,
@@ -409,7 +410,7 @@ export function useFormEditor({
     }
 
     await runEngineAction(() =>
-      window.vnEngine.updateCharacter({
+      authoringCommands.updateCharacter({
         sceneId: scene.id,
         nodeId: node.id,
         ...next,
@@ -425,7 +426,7 @@ export function useFormEditor({
       return;
     }
     await runEngineAction(() =>
-      window.vnEngine.updateSceneJump({
+      authoringCommands.updateSceneJump({
         sceneId: scene.id,
         nodeId: node.id,
         targetSceneId,
@@ -441,7 +442,7 @@ export function useFormEditor({
       return;
     }
     await runEngineAction(() =>
-      window.vnEngine.updateBgm({
+      authoringCommands.updateBgm({
         sceneId: scene.id,
         nodeId: node.id,
         assetId,
@@ -457,7 +458,7 @@ export function useFormEditor({
       return;
     }
     await runEngineAction(() =>
-      window.vnEngine.updateVideo({
+      authoringCommands.updateVideo({
         sceneId: scene.id,
         nodeId: node.id,
         assetId,
@@ -473,7 +474,7 @@ export function useFormEditor({
       return;
     }
     await runEngineAction(() =>
-      window.vnEngine.setDialogueVoice({
+      authoringCommands.setDialogueVoice({
         sceneId: scene.id,
         nodeId: node.id,
         assetId: voiceAssetId,
@@ -555,7 +556,7 @@ export function useFormEditor({
       remainingNodeIds[selectedIndex - 1];
 
     const result = await runEngineAction(() =>
-      window.vnEngine.deleteTimelineNodes({
+      authoringCommands.deleteTimelineNodes({
         sceneId: scene.id,
         nodeIds: [nodeId],
       }),
@@ -617,7 +618,7 @@ export function useFormEditor({
     }
 
     await runEngineAction(() =>
-      window.vnEngine.reorderTimelineNode({
+      authoringCommands.reorderTimelineNode({
         sceneId: scene.id,
         nodeId,
         beforeNodeId,

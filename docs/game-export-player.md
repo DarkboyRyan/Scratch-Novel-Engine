@@ -43,8 +43,9 @@ packages/
 engine/                      # 现有 C++20 领域模型、校验和导出编译器
 ```
 
-当前 [pnpm-workspace.yaml](../pnpm-workspace.yaml) 只包含 `apps/*`。创建共享包时需要
-再加入 `packages/*`，并让 Editor 和 Player 都从同一共享包导入运行逻辑。
+当前 [pnpm-workspace.yaml](../pnpm-workspace.yaml) 已包含 `apps/*` 和 `packages/*`；
+`@vnengine/runtime` 与 `@vnengine/player-ui` 已完成第一阶段抽取。下一步是在不把
+Editor IPC 带入 Player 的前提下创建 `apps/player`。
 
 ## 2. 当前编辑器预览与独立 Player 的区别
 
@@ -59,13 +60,17 @@ engine/                      # 现有 C++20 领域模型、校验和导出编译
 | 文件权限 | 可以选择项目和导入源文件 | 只能读取自己的游戏内容包 |
 | 发布形式 | VN Engine Editor | 某一款具体游戏或通用 VN Player |
 
-当前运行核心在
-[previewRuntime.ts](../apps/editor/src/renderer/features/game-preview/previewRuntime.ts)，
+当前运行核心已经迁到
+[packages/runtime](../packages/runtime)，Editor 的
+[previewRuntime.ts](../apps/editor/src/renderer/features/game-preview/previewRuntime.ts)
+仅保留兼容导出；
 React 会话在
 [useGamePreview.ts](../apps/editor/src/renderer/features/game-preview/useGamePreview.ts)，
-画面入口在
+共享舞台和媒体控制器已经迁到
+[packages/player-ui](../packages/player-ui)，编辑器画面入口仍是
 [GamePreview.tsx](../apps/editor/src/renderer/features/game-preview/GamePreview.tsx)。
-它们目前仍依赖 Editor 的类型、组件和资源 API，因此还不能单独打包运行。
+当前尚未完成的是 Player 独立窗口、只读内容加载和 Player 专属媒体服务，因此还不能
+单独打包运行。
 
 ### 2.1 哪些语义必须原样复用
 
@@ -503,7 +508,7 @@ DoD：
 - 空 Video/Choice、场景结束、跳转循环和坏引用都有明确期望；
 - 文档明确 authoring `fileVersion: 9` 与未来 `runtimeVersion: 1` 不相等。
 
-### 阶段 1：抽离 `packages/runtime` 和 `packages/player-ui`
+### 阶段 1：抽离 `packages/runtime` 和 `packages/player-ui`（已完成基础拆分）
 
 工作：移动纯状态机、共享 DTO、舞台和媒体控制器，Editor 保留薄适配层。
 

@@ -27,7 +27,7 @@ import type {
   UpdateChoiceOptionAction,
   ReorderChoiceOptionAction,
   SetDialogueVoiceAction,
-} from '../../hooks/useEngineProject';
+} from '../../application/authoringPorts';
 
 import type {
   ProjectDocument,

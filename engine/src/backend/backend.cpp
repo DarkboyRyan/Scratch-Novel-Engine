@@ -16,7 +16,7 @@
 #include <nlohmann/json.hpp>
 
 #include "atomic_file.hpp"
-#include "image_asset_import.hpp"
+#include "asset_import.hpp"
 #include "serialization.hpp"
 
 namespace vnengine::backend {

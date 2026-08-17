@@ -1,147 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
 
 import type { ImportAssetResult } from '../../shared/assetProtocol';
-import type {
-  AddBackgroundParams,
-  AddBgmParams,
-  AddCharacterParams,
-  AddChoiceOptionParams,
-  AddChoiceParams,
-  AddDialogueParams,
-  AddSceneJumpParams,
-  AddVideoParams,
-  DeleteBackgroundParams,
-  DeleteDialoguesParams,
-  DeleteChoiceOptionParams,
-  EngineMutationResult,
-  ReorderBackgroundParams,
-  ReorderDialogueParams,
-  ReorderDialoguesParams,
-  ReorderChoiceOptionParams,
-  SetDialogueVoiceParams,
-  TimelineDeleteManyParams,
-  TimelineReorderManyParams,
-  TimelineReorderParams,
-  UpdateBackgroundParams,
-  UpdateBgmParams,
-  UpdateCharacterParams,
-  UpdateChoiceOptionParams,
-  UpdateSceneJumpParams,
-  UpdateVideoParams,
-} from '../../shared/engineProtocol';
+import type { EngineMutationResult } from '../../shared/engineProtocol';
 import type {
   AssetDocument,
   ProjectDocument,
 } from '../../shared/projectTypes';
 import type { ProjectFileSessionSnapshot } from '../../shared/projectFileProtocol';
+import { createAuthoringActions } from '../application/createAuthoringActions';
+import {
+  getEditorPlatformGateway,
+  type EditorPlatformGateway,
+} from '../application/editorPlatformGateway';
 import { EMPTY_DIALOGUE_MESSAGE } from '../editorMessages';
 
-export type AddDialogueAction = (
-  params: AddDialogueParams,
-) => Promise<boolean>;
-
-export type UpdateDialogueAction = (
-  sceneId: string,
-  nodeId: string,
-  speaker: string,
-  text: string,
-) => Promise<boolean>;
-
-export type SetDialogueVoiceAction = (
-  params: SetDialogueVoiceParams,
-) => Promise<boolean>;
-
-export type ReorderDialogueAction = (
-  params: ReorderDialogueParams,
-) => Promise<boolean>;
-
-export type ReorderDialoguesAction = (
-  params: ReorderDialoguesParams,
-) => Promise<boolean>;
-
-export type DeleteDialoguesAction = (
-  params: DeleteDialoguesParams,
-) => Promise<boolean>;
-
-export type AddBackgroundAction = (
-  params: AddBackgroundParams,
-) => Promise<boolean>;
-
-export type UpdateBackgroundAction = (
-  params: UpdateBackgroundParams,
-) => Promise<boolean>;
-
-export type AddCharacterAction = (
-  params: AddCharacterParams,
-) => Promise<boolean>;
-
-export type UpdateCharacterAction = (
-  params: UpdateCharacterParams,
-) => Promise<boolean>;
-
-export type AddSceneJumpAction = (
-  params: AddSceneJumpParams,
-) => Promise<boolean>;
-
-export type UpdateSceneJumpAction = (
-  params: UpdateSceneJumpParams,
-) => Promise<boolean>;
-
-export type AddBgmAction = (
-  params: AddBgmParams,
-) => Promise<boolean>;
-
-export type UpdateBgmAction = (
-  params: UpdateBgmParams,
-) => Promise<boolean>;
-
-export type AddVideoAction = (
-  params: AddVideoParams,
-) => Promise<boolean>;
-
-export type UpdateVideoAction = (
-  params: UpdateVideoParams,
-) => Promise<boolean>;
-
-export type AddChoiceAction = (
-  params: AddChoiceParams,
-) => Promise<boolean>;
-
-export type AddChoiceOptionAction = (
-  params: AddChoiceOptionParams,
-) => Promise<boolean>;
-
-export type UpdateChoiceOptionAction = (
-  params: UpdateChoiceOptionParams,
-) => Promise<boolean>;
-
-export type DeleteChoiceOptionAction = (
-  params: DeleteChoiceOptionParams,
-) => Promise<boolean>;
-
-export type ReorderChoiceOptionAction = (
-  params: ReorderChoiceOptionParams,
-) => Promise<boolean>;
-
-export type DeleteBackgroundAction = (
-  params: DeleteBackgroundParams,
-) => Promise<boolean>;
-
-export type ReorderBackgroundAction = (
-  params: ReorderBackgroundParams,
-) => Promise<boolean>;
-
-export type DeleteTimelineNodesAction = (
-  params: TimelineDeleteManyParams,
-) => Promise<boolean>;
-
-export type ReorderTimelineNodeAction = (
-  params: TimelineReorderParams,
-) => Promise<boolean>;
-
-export type ReorderTimelineNodesAction = (
-  params: TimelineReorderManyParams,
-) => Promise<boolean>;
+// Transitional re-export for callers outside feature code. Renderer features
+// import the port definitions directly from application/authoringPorts.
+export type * from '../application/authoringPorts';
 
 export type OpenProjectStatus =
   | 'opened'
@@ -151,10 +26,12 @@ export type OpenProjectStatus =
 export type ImportAssetStatus = ImportAssetResult['status'] | 'failed';
 export type ImportImageStatus = ImportAssetStatus;
 
-function requestInitialProject(): Promise<EngineMutationResult> {
+function requestInitialProject(
+  platform: EditorPlatformGateway,
+): Promise<EngineMutationResult> {
   // 每个 BrowserWindow 都拥有独立后端；不可使用模块级 Promise，否则开发
   // StrictMode 或同一 Renderer 进程中的另一窗口可能读到错误项目。
-  return window.vnEngine.ensureProject();
+  return platform.engine.ensureProject();
 }
 
 function readableError(error: unknown): string {
@@ -194,7 +71,9 @@ function readableError(error: unknown): string {
 }
 
 // 这一层只协调“Project 快照 ↔ C++ API”，不知道当前选中了哪个节点。
-export function useEngineProject() {
+export function useEngineProject(
+  platform: EditorPlatformGateway = getEditorPlatformGateway(),
+) {
   const [project, setProject] =
     useState<ProjectDocument | null>(null);
   const [assets, setAssets] = useState<AssetDocument[]>([]);
@@ -250,8 +129,8 @@ export function useEngineProject() {
     let isActive = true;
 
     initializationRequest.current ??= Promise.all([
-      requestInitialProject(),
-      window.vnProjectFiles.getSession(),
+      requestInitialProject(platform),
+      platform.projectFiles.getSession(),
     ]);
 
     void initializationRequest.current
@@ -319,273 +198,17 @@ export function useEngineProject() {
   }
 
   async function getProjectSnapshot(): Promise<ProjectDocument | null> {
-    const result = await runEngineAction(() => window.vnEngine.getProject());
+    const result = await runEngineAction(() => platform.engine.getProject());
     return result?.project ?? null;
   }
 
-  async function addDialogue(
-    params: AddDialogueParams,
-  ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      window.vnEngine.addDialogue(params),
-    );
-
-    return result !== null;
-  }
-
-  async function updateDialogue(
-    sceneId: string,
-    nodeId: string,
-    speaker: string,
-    text: string,
-  ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      window.vnEngine.updateDialogue(
-        sceneId,
-        nodeId,
-        speaker,
-        text,
-      ),
-    );
-
-    return result !== null;
-  }
-
-  async function setDialogueVoice(
-    params: SetDialogueVoiceParams,
-  ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      window.vnEngine.setDialogueVoice(params),
-    );
-    return result !== null;
-  }
-
-  async function reorderDialogue(
-    params: ReorderDialogueParams,
-  ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      window.vnEngine.reorderDialogue(params),
-    );
-
-    return result !== null;
-  }
-
-  async function reorderDialogues(
-    params: ReorderDialoguesParams,
-  ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      window.vnEngine.reorderDialogues(params),
-    );
-
-    return result !== null;
-  }
-
-  async function deleteDialogues(
-    params: DeleteDialoguesParams,
-  ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      window.vnEngine.deleteDialogues(params),
-    );
-
-    return result !== null;
-  }
-
-  async function addBackground(
-    params: AddBackgroundParams,
-  ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      window.vnEngine.addBackground(params),
-    );
-
-    return result !== null;
-  }
-
-  async function updateBackground(
-    params: UpdateBackgroundParams,
-  ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      window.vnEngine.updateBackground(params),
-    );
-
-    return result !== null;
-  }
-
-  async function deleteBackground(
-    params: DeleteBackgroundParams,
-  ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      window.vnEngine.deleteBackground(params),
-    );
-
-    return result !== null;
-  }
-
-  async function reorderBackground(
-    params: ReorderBackgroundParams,
-  ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      window.vnEngine.reorderBackground(params),
-    );
-
-    return result !== null;
-  }
-
-  async function addCharacter(
-    params: AddCharacterParams,
-  ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      window.vnEngine.addCharacter(params),
-    );
-
-    return result !== null;
-  }
-
-  async function updateCharacter(
-    params: UpdateCharacterParams,
-  ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      window.vnEngine.updateCharacter(params),
-    );
-
-    return result !== null;
-  }
-
-  async function addSceneJump(
-    params: AddSceneJumpParams,
-  ): Promise<boolean> {
-    if (typeof window.vnEngine.addSceneJump !== 'function') {
+  const authoringActions = createAuthoringActions({
+    commands: platform.engine,
+    run: runEngineAction,
+    onSceneJumpUnavailable: () => {
       setEngineMessage('场景跳转模块尚未加载，请完全退出并重新启动编辑器');
-      return false;
-    }
-    const result = await runEngineAction(() =>
-      window.vnEngine.addSceneJump(params),
-    );
-    return result !== null;
-  }
-
-  async function updateSceneJump(
-    params: UpdateSceneJumpParams,
-  ): Promise<boolean> {
-    if (typeof window.vnEngine.updateSceneJump !== 'function') {
-      setEngineMessage('场景跳转模块尚未加载，请完全退出并重新启动编辑器');
-      return false;
-    }
-    const result = await runEngineAction(() =>
-      window.vnEngine.updateSceneJump(params),
-    );
-    return result !== null;
-  }
-
-  async function addBgm(
-    params: AddBgmParams,
-  ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      window.vnEngine.addBgm(params),
-    );
-    return result !== null;
-  }
-
-  async function updateBgm(
-    params: UpdateBgmParams,
-  ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      window.vnEngine.updateBgm(params),
-    );
-    return result !== null;
-  }
-
-  async function addVideo(
-    params: AddVideoParams,
-  ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      window.vnEngine.addVideo(params),
-    );
-    return result !== null;
-  }
-
-  async function updateVideo(
-    params: UpdateVideoParams,
-  ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      window.vnEngine.updateVideo(params),
-    );
-    return result !== null;
-  }
-
-  async function addChoice(
-    params: AddChoiceParams,
-  ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      window.vnEngine.addChoice(params),
-    );
-    return result !== null;
-  }
-
-  async function addChoiceOption(
-    params: AddChoiceOptionParams,
-  ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      window.vnEngine.addChoiceOption(params),
-    );
-    return result !== null;
-  }
-
-  async function updateChoiceOption(
-    params: UpdateChoiceOptionParams,
-  ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      window.vnEngine.updateChoiceOption(params),
-    );
-    return result !== null;
-  }
-
-  async function deleteChoiceOption(
-    params: DeleteChoiceOptionParams,
-  ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      window.vnEngine.deleteChoiceOption(params),
-    );
-    return result !== null;
-  }
-
-  async function reorderChoiceOption(
-    params: ReorderChoiceOptionParams,
-  ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      window.vnEngine.reorderChoiceOption(params),
-    );
-    return result !== null;
-  }
-
-  async function deleteTimelineNodes(
-    params: TimelineDeleteManyParams,
-  ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      window.vnEngine.deleteTimelineNodes(params),
-    );
-
-    return result !== null;
-  }
-
-  async function reorderTimelineNode(
-    params: TimelineReorderParams,
-  ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      window.vnEngine.reorderTimelineNode(params),
-    );
-
-    return result !== null;
-  }
-
-  async function reorderTimelineNodes(
-    params: TimelineReorderManyParams,
-  ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      window.vnEngine.reorderTimelineNodes(params),
-    );
-
-    return result !== null;
-  }
+    },
+  });
 
   async function createProject(name?: string): Promise<boolean> {
     if (fileOperationInProgress.current) {
@@ -597,7 +220,7 @@ export function useEngineProject() {
     setEngineMessage('');
 
     try {
-      await window.vnProjectFiles.createProject(name);
+      await platform.projectFiles.createProject(name);
       return true;
     } catch (error: unknown) {
       setEngineMessage(readableError(error));
@@ -619,7 +242,7 @@ export function useEngineProject() {
 
     try {
       await waitForEngineActions();
-      const outcome = await window.vnProjectFiles.openProject();
+      const outcome = await platform.projectFiles.openProject();
 
       if (outcome.cancelled) {
         return 'cancelled';
@@ -655,7 +278,7 @@ export function useEngineProject() {
         return false;
       }
       await waitForEngineActions();
-      const outcome = await window.vnProjectFiles.saveProject();
+      const outcome = await platform.projectFiles.saveProject();
 
       if (outcome.cancelled) {
         setSession(outcome.session);
@@ -679,7 +302,7 @@ export function useEngineProject() {
 
   async function renameProject(name: string): Promise<boolean> {
     const result = await runEngineAction(() =>
-      window.vnEngine.renameProject(name),
+      platform.engine.renameProject(name),
     );
     return result !== null;
   }
@@ -689,7 +312,7 @@ export function useEngineProject() {
     assetId: string | null,
   ): Promise<boolean> {
     const result = await runEngineAction(() =>
-      window.vnEngine.setSceneBackground(sceneId, assetId),
+      platform.engine.setSceneBackground(sceneId, assetId),
     );
     return result !== null;
   }
@@ -705,7 +328,7 @@ export function useEngineProject() {
 
     try {
       await waitForEngineActions();
-      const outcome = await window.vnAssets.importImage();
+      const outcome = await platform.assets.importImage();
 
       if (outcome.status === 'cancelled') {
         return outcome.status;
@@ -733,7 +356,7 @@ export function useEngineProject() {
 
     try {
       await waitForEngineActions();
-      const outcome = await window.vnAssets.importVideo();
+      const outcome = await platform.assets.importVideo();
 
       if (outcome.status === 'cancelled') {
         return outcome.status;
@@ -761,7 +384,7 @@ export function useEngineProject() {
 
     try {
       await waitForEngineActions();
-      const outcome = await window.vnAssets.importAudio();
+      const outcome = await platform.assets.importAudio();
 
       if (outcome.status === 'cancelled') {
         return outcome.status;
@@ -789,32 +412,8 @@ export function useEngineProject() {
     engineMessage,
     setEngineMessage,
     runEngineAction,
-    addDialogue,
-    updateDialogue,
-    setDialogueVoice,
-    reorderDialogue,
-    reorderDialogues,
-    deleteDialogues,
-    addBackground,
-    updateBackground,
-    deleteBackground,
-    reorderBackground,
-    addCharacter,
-    updateCharacter,
-    addSceneJump,
-    updateSceneJump,
-    addBgm,
-    updateBgm,
-    addVideo,
-    updateVideo,
-    addChoice,
-    addChoiceOption,
-    updateChoiceOption,
-    deleteChoiceOption,
-    reorderChoiceOption,
-    deleteTimelineNodes,
-    reorderTimelineNode,
-    reorderTimelineNodes,
+    authoringCommands: platform.engine,
+    ...authoringActions,
     createProject,
     openProject,
     saveProject,

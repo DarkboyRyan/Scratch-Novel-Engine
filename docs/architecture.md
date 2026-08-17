@@ -3,6 +3,9 @@
 > 面试版的技术选型、端到端调用链和常见问答见
 > [技术栈与面试讲解指南](./technical-stack-interview-guide.md)。本文侧重当前代码的
 > 分层和依赖方向。
+>
+> 导出前的最新模块拆分和依赖约束见
+> [代码结构整理与解耦](./code-organization-and-decoupling.md)。
 
 ## 1. 当前目标与完成能力
 
@@ -260,14 +263,22 @@ engine/
 │   ├── model.hpp
 │   └── project.hpp
 ├── src/
-│   ├── core/project.cpp
+│   ├── core/
+│   │   ├── project.cpp
+│   │   ├── project_queries.cpp
+│   │   └── project_validation.cpp
 │   └── backend/
 │       ├── backend.cpp/.hpp
 │       ├── serialization.cpp/.hpp
 │       ├── atomic_file.cpp/.hpp
-│       ├── image_asset_import.cpp/.hpp
+│       ├── asset_import.cpp/.hpp
+│       ├── media_sniffer.cpp/.hpp
 │       └── main.cpp
 └── tests/
+
+packages/
+├── runtime/                  # 无 React/DOM/Node/Electron 的纯剧情状态机
+└── player-ui/                # 可注入媒体 Gateway 的 React 舞台与音视频控制
 
 apps/editor/src/
 ├── main.ts
@@ -275,11 +286,13 @@ apps/editor/src/
 ├── main/
 │   ├── backend/
 │   ├── ipc/
-│   ├── project/
+│   ├── project/             # Workflow、PathPolicy、Publisher、Session
+│   ├── media/
 │   ├── assets/
 │   └── window/
 ├── renderer/
 │   ├── App.tsx
+│   ├── application/          # EditorMode、authoring ports 与平台 gateways
 │   ├── hooks/useEngineProject.ts
 │   ├── components/
 │   └── features/
@@ -295,8 +308,9 @@ apps/editor/src/
     └── global.d.ts
 ```
 
-依赖方向固定为 `shared ← main / preload / renderer`。`shared` 不导入 React、
-Electron 或 Node；Renderer 也不能导入 Main 实现。
+关键依赖方向是 `runtime ← player-ui ← apps/editor / apps/player`。Editor 的
+`shared` 继续承载 Electron IPC DTO，不能被独立 Player 当成模型包；Renderer 也不能
+导入 Main 实现。完整约束见[代码结构整理与解耦](./code-organization-and-decoupling.md)。
 
 ## 12. 构建、测试和打包
 

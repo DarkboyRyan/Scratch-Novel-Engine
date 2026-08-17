@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 import type { AssetDocument } from '../../../shared/projectTypes';
+import type { MediaUrlResolver } from '../../application/mediaPort';
 import { VisualStage, type PreviewCharacter } from '../../components/VisualStage';
 import { getGamePreviewChoices } from './previewRuntime';
 import type { GamePreviewSession } from './useGamePreview';
@@ -11,6 +12,7 @@ type GamePreviewProps = {
   session: GamePreviewSession;
   assets: AssetDocument[];
   previewUrls: Readonly<Record<string, string>>;
+  resolveMediaUrl: MediaUrlResolver;
   onAdvance: () => void;
   onVideoComplete: () => void;
   onChoiceSelect: (optionId: string) => void;
@@ -21,6 +23,7 @@ export function GamePreview({
   session,
   assets,
   previewUrls,
+  resolveMediaUrl,
   onAdvance,
   onVideoComplete,
   onChoiceSelect,
@@ -29,7 +32,7 @@ export function GamePreview({
   const rootRef = useRef<HTMLDivElement>(null);
   const { runtime } = session;
   const choices = getGamePreviewChoices(session.project, runtime);
-  usePreviewAudio(runtime);
+  usePreviewAudio(runtime, resolveMediaUrl);
   const backgroundAsset = runtime.backgroundAssetId
     ? assets.find((asset) => asset.id === runtime.backgroundAssetId) ?? null
     : null;
@@ -117,6 +120,7 @@ export function GamePreview({
           <PreviewVideo
             assetId={runtime.videoAssetId}
             sequence={runtime.videoSequence}
+            resolveMediaUrl={resolveMediaUrl}
             onComplete={onVideoComplete}
           />
         ) : null}

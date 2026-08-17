@@ -57,14 +57,6 @@ describe('GamePreview video input', () => {
     container = document.createElement('div');
     document.body.append(container);
     root = createRoot(container);
-    Object.defineProperty(window, 'vnAssets', {
-      configurable: true,
-      value: {
-        getMediaUrl: vi.fn().mockResolvedValue(
-          'vn-asset://video/token/asset-token',
-        ),
-      } as unknown as Window['vnAssets'],
-    });
     vi.spyOn(HTMLMediaElement.prototype, 'pause')
       .mockImplementation(() => {});
     vi.spyOn(HTMLMediaElement.prototype, 'load')
@@ -81,6 +73,9 @@ describe('GamePreview video input', () => {
     const onAdvance = vi.fn();
     const onVideoComplete = vi.fn();
     const onExit = vi.fn();
+    const resolveMediaUrl = vi.fn().mockResolvedValue(
+      'vn-asset://video/token/asset-token',
+    );
 
     await act(async () => {
       root.render(
@@ -88,6 +83,7 @@ describe('GamePreview video input', () => {
           session={session}
           assets={[]}
           previewUrls={{}}
+          resolveMediaUrl={resolveMediaUrl}
           onAdvance={onAdvance}
           onVideoComplete={onVideoComplete}
           onChoiceSelect={vi.fn()}

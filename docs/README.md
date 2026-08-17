@@ -8,6 +8,8 @@
 
 - [当前架构](./architecture.md)：Renderer、Preload、Electron Main、C++ Backend、
   C++ Core 与文件系统之间的职责和调用关系。
+- [代码结构整理与解耦](./code-organization-and-decoupling.md)：共享 Runtime、Player UI、
+  application ports、Main/C++ 媒体拆分和导出前的依赖边界。
 - [技术栈与面试讲解指南](./technical-stack-interview-guide.md)：项目介绍模板、技术栈、
   关键调用链和常见面试问题。
 
@@ -43,16 +45,18 @@
    总技术栈、四条调用链和常见问答。
 2. [当前架构](./architecture.md)：理解 Renderer、Preload、Main、C++ 和文件系统
    的职责边界。
-3. [项目文件夹与媒体资源](./project-folder-storage.md)：重点准备安全保存、路径隔离、
+3. [代码结构整理与解耦](./code-organization-and-decoupling.md)：理解如何把现有编辑器
+   拆成可被独立 Player 复用、但不泄露编辑权限的模块。
+4. [项目文件夹与媒体资源](./project-folder-storage.md)：重点准备安全保存、路径隔离、
    图片/视频/音频导入与 capability 媒体读取。
-4. [人物立绘](./character-portrait-implementation.md)：重点准备 Asset/Node/PreviewState
+5. [人物立绘](./character-portrait-implementation.md)：重点准备 Asset/Node/PreviewState
    三层分离和人物 layer。
-5. [游戏顺序预览](./game-preview-runtime.md)：重点准备纯状态机和临时运行会话。
-6. [场景跳转](./scene-jump-implementation.md)：用作“一个功能如何贯穿全栈”的深挖案例。
-7. [语音与背景音乐](./audio-implementation.md)：音频导入、Dialogue 语音、BGM 时间线节点与安全播放。
-8. [视频播放积木](./video-playback-block.md)：Blockly 视频节点、阻塞式正式预览和安全 Range 播放。
-9. [选项分支](./choice-branch-implementation.md)：ChoiceNode 数据模型、Blockly 嵌套选项和正式预览分支。
-10. [独立游戏 Player 与导出流程](./game-export-player.md)：最后理解编辑器预览、共享
+6. [游戏顺序预览](./game-preview-runtime.md)：重点准备纯状态机和临时运行会话。
+7. [场景跳转](./scene-jump-implementation.md)：用作“一个功能如何贯穿全栈”的深挖案例。
+8. [语音与背景音乐](./audio-implementation.md)：音频导入、Dialogue 语音、BGM 时间线节点与安全播放。
+9. [视频播放积木](./video-playback-block.md)：Blockly 视频节点、阻塞式正式预览和安全 Range 播放。
+10. [选项分支](./choice-branch-implementation.md)：ChoiceNode 数据模型、Blockly 嵌套选项和正式预览分支。
+11. [独立游戏 Player 与导出流程](./game-export-player.md)：最后理解编辑器预览、共享
     Runtime、独立 Player、内容包和平台桌面应用之间的关系。
 
 ## 当前真实技术栈

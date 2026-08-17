@@ -89,6 +89,7 @@ describe('GamePreview choices', () => {
           session={session}
           assets={[]}
           previewUrls={{}}
+          resolveMediaUrl={async () => null}
           onAdvance={onAdvance}
           onVideoComplete={vi.fn()}
           onChoiceSelect={onChoiceSelect}

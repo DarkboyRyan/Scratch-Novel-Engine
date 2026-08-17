@@ -8,6 +8,12 @@ importers:
 
   apps/editor:
     dependencies:
+      '@vnengine/player-ui':
+        specifier: workspace:*
+        version: link:../../packages/player-ui
+      '@vnengine/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
       blockly:
         specifier: 13.1.1
         version: 13.1.1(jsdom@27.4.0(supports-color@8.1.1))
@@ -81,6 +87,28 @@ importers:
       vitest:
         specifier: 3.2.7
         version: 3.2.7(@types/node@26.1.2)(jsdom@27.4.0(supports-color@8.1.1))(supports-color@8.1.1)(terser@5.49.1)
+
+  packages/player-ui:
+    dependencies:
+      '@vnengine/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      react:
+        specifier: '>=19'
+        version: 19.2.8
+    devDependencies:
+      '@types/react':
+        specifier: ^19.2.18
+        version: 19.2.18
+      typescript:
+        specifier: ~5.9.3
+        version: 5.9.3
+
+  packages/runtime:
+    devDependencies:
+      typescript:
+        specifier: ~5.9.3
+        version: 5.9.3
 
 packages:
 
@@ -316,7 +344,7 @@ packages:
     engines: {node: '>=22.12.0'}
 
   '@electron/node-gyp@https://codeload.github.com/electron/node-gyp/tar.gz/06b29aafb7708acef8b3669835c8a7857ebc92d2':
-    resolution: {gitHosted: true, tarball: https://codeload.github.com/electron/node-gyp/tar.gz/06b29aafb7708acef8b3669835c8a7857ebc92d2}
+    resolution: {gitHosted: true, integrity: sha512-MXgzlTDEEndJB3TBbvd5uFQO/8gaINo1Hfen8vef5rq/VHVPeB63uuv/uO5+8GFsAJ/rauu6XB79S6K4+aXc+w==, tarball: https://codeload.github.com/electron/node-gyp/tar.gz/06b29aafb7708acef8b3669835c8a7857ebc92d2}
     version: 10.2.0-electron.1
     engines: {node: '>=12.13.0'}
     hasBin: true
@@ -1026,6 +1054,7 @@ packages:
   '@xmldom/xmldom@0.9.10':
     resolution: {integrity: sha512-A9gOqLdi6cV4ibazAjcQufGj0B1y/vDqYrcuP6d/6x8P27gRS8643Dj9o1dEKtB6O7fwxb2FgBmJS2mX7gpvdw==}
     engines: {node: '>=14.6'}
+    deprecated: this version has critical issues, please update to the latest version
 
   '@xtuc/ieee754@1.2.0':
     resolution: {integrity: sha512-DX8nKgqcGwsc0eJSqYt5lwP4DH5FlHnmuWWBRy7X0NcaGR0ZtuyeESgMwTYVEtxmsNGY+qit4QYT/MIYTOTPeA==}

@@ -8,7 +8,7 @@
 
 namespace vnengine::backend {
 
-// Images are copied through a bounded stream; they are never embedded in the
+// Assets are copied through a bounded stream; they are never embedded in the
 // JSONL protocol or loaded into one large in-memory buffer.
 inline constexpr std::uintmax_t kMaximumImportedImageBytes =
     128U * 1024U * 1024U;
@@ -66,7 +66,8 @@ AssetImportPlan plan_asset_import(
 // Runs after a complete temporary copy has been flushed, immediately before
 // the no-clobber publication. Production callers omit this hook; tests use it
 // to prove rollback and temporary-file cleanup.
-using ImageImportBeforePublishHook = void (*)();
+using AssetImportBeforePublishHook = void (*)();
+using ImageImportBeforePublishHook = AssetImportBeforePublishHook;
 
 // Opens the source without following its final symlink/reparse point, checks
 // the regular-file size and magic bytes on that same OS handle, then streams
@@ -76,25 +77,25 @@ void copy_image_asset_no_clobber(
     const std::filesystem::path& source,
     const std::filesystem::path& project_directory,
     const ImageAssetImportPlan& plan,
-    ImageImportBeforePublishHook before_publish = nullptr);
+    AssetImportBeforePublishHook before_publish = nullptr);
 
 void copy_video_asset_no_clobber(
     const std::filesystem::path& source,
     const std::filesystem::path& project_directory,
     const VideoAssetImportPlan& plan,
-    ImageImportBeforePublishHook before_publish = nullptr);
+    AssetImportBeforePublishHook before_publish = nullptr);
 
 void copy_audio_asset_no_clobber(
     const std::filesystem::path& source,
     const std::filesystem::path& project_directory,
     const AudioAssetImportPlan& plan,
-    ImageImportBeforePublishHook before_publish = nullptr);
+    AssetImportBeforePublishHook before_publish = nullptr);
 
 void copy_asset_no_clobber(
     const std::filesystem::path& source,
     const std::filesystem::path& project_directory,
     const AssetImportPlan& plan,
     AssetImportKind kind,
-    ImageImportBeforePublishHook before_publish = nullptr);
+    AssetImportBeforePublishHook before_publish = nullptr);
 
 }  // namespace vnengine::backend

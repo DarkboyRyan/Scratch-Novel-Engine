@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  advanceGamePreview,
-  getGamePreviewChoices,
-  selectGamePreviewChoice,
-  startGamePreview,
-} from '../../src/renderer/features/game-preview/previewRuntime';
-import type { ProjectDocument } from '../../src/shared/projectTypes';
+  advanceGame as advanceGamePreview,
+  getChoices as getGamePreviewChoices,
+  selectChoice as selectGamePreviewChoice,
+  startGame as startGamePreview,
+  type ProjectDocument,
+} from '@vnengine/runtime';
 
 const project: ProjectDocument = {
   schemaVersion: 1,

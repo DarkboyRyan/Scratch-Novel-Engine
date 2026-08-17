@@ -32,12 +32,12 @@ import type {
   UpdateChoiceOptionAction,
   ReorderChoiceOptionAction,
   SetDialogueVoiceAction,
-} from '../../hooks/useEngineProject';
+} from '../../application/authoringPorts';
 import {
   VN_AUDIO_ASSET_DRAG_TYPE,
   VN_IMAGE_ASSET_DRAG_TYPE,
   VN_VIDEO_ASSET_DRAG_TYPE,
-} from '../assets/ResourcePanel';
+} from '../assets/assetDragTypes';
 import {
   BACKGROUND_BLOCK_TYPE,
   registerBackgroundBlock,

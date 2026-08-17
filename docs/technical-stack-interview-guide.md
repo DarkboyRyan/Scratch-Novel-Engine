@@ -52,6 +52,8 @@ JSON Lines 协议通信，而不是 HTTP。C++ 返回完整权威快照，表单
 | 桌面应用 | Electron 43 | 窗口、原生菜单、文件选择器、Main/Preload/Renderer 进程边界 |
 | UI | React 19、React DOM | 编辑器组件、状态协调、表单、资源条与预览界面 |
 | 前端语言 | TypeScript 5.9 | 判别联合、IPC DTO、编译期约束和纯状态机 |
+| 共享运行时 | pnpm workspace、`@vnengine/runtime` | 无 React/DOM/Node/Electron 的剧情 reducer，供 Editor 与未来 Player 复用 |
+| 播放器 UI 原语 | `@vnengine/player-ui`、React ports | 舞台、视频和双音轨控制；媒体 URL 由宿主 Gateway 注入 |
 | 图形化编辑 | Blockly 13.1 | 自定义剧情积木、连接、拖动、框选、重排和垃圾桶 |
 | 样式与画面 | HTML、CSS | 背景、立绘、对白框及编辑器布局；当前没有使用 Canvas/Pixi |
 | 本地业务核心 | C++20、STL | ProjectAggregate、领域规则、ID、revision 和事务性修改 |
@@ -320,6 +322,8 @@ Runtime。等变量、脚本、跨版本存档或确定性回放变得复杂后�
 使用技术：CMake、CTest、Vitest、TypeScript、ESLint、Vite、Electron Forge。
 
 - `vn_engine_core` 不依赖 Electron 和 JSON；
+- C++ 查询、验证、mutation 与媒体 sniff/文件发布分为独立编译单元；
+- TypeScript Runtime 在无 DOM/Node types 的独立 tsconfig 下通过；
 - `vn_engine_backend` 链接 Core 与 nlohmann/json；
 - Vitest 单测覆盖 IPC 校验、状态机、Blockly helper 和安全存储；
 - 集成测试会启动真实 C++ JSONL Backend；

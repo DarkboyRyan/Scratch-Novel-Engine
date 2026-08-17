@@ -15,7 +15,7 @@
 #include <nlohmann/json.hpp>
 
 #include "backend.hpp"
-#include "image_asset_import.hpp"
+#include "asset_import.hpp"
 #include "serialization.hpp"
 
 namespace {
