@@ -92,7 +92,9 @@ function registerWithBackend(request = vi.fn()) {
     backendSavePath: vi.fn(async (rootPath: string) =>
       `${rootPath}/project.vn.json`,
     ),
-    publishSavedProject: vi.fn().mockResolvedValue(undefined),
+    publishSavedProject: vi.fn().mockResolvedValue(
+      '{"format":"vn-engine-project"}',
+    ),
     completeSuccessfulSave: vi.fn().mockResolvedValue(undefined),
     discardTemporaryWorkspace: vi.fn().mockResolvedValue(undefined),
   };
@@ -184,7 +186,8 @@ describe('project folder IPC', () => {
       filePaths: [rootPath],
     });
     const request = vi.fn().mockResolvedValue(projectResult);
-    const { handler, assetPreviewService } = registerWithBackend(request);
+    const { handler, assetPreviewService, projectFileSession } =
+      registerWithBackend(request);
 
     await expect(
       handler(trustedEvent(), { action: 'open', params: {} }),
@@ -206,6 +209,9 @@ describe('project folder IPC', () => {
     expect(
       storageMocks.resolveProjectManifestPath,
     ).toHaveBeenCalledWith(rootPath);
+    expect(projectFileSession.getSavedManifestSha256()).toMatch(
+      /^[a-f0-9]{64}$/,
+    );
   });
 
   it('does not replace the current project when folder validation fails', async () => {
@@ -232,7 +238,7 @@ describe('project folder IPC', () => {
       filePaths: [parentPath],
     });
     const request = vi.fn().mockResolvedValue(projectResult);
-    const { handler, projectStorageSession } =
+    const { handler, projectStorageSession, projectFileSession } =
       registerWithBackend(request);
 
     await expect(
@@ -261,6 +267,9 @@ describe('project folder IPC', () => {
       `${rootPath}/project.vn.json`,
       rootPath,
       expect.any(Function),
+    );
+    expect(projectFileSession.getSavedManifestSha256()).toMatch(
+      /^[a-f0-9]{64}$/,
     );
   });
 

@@ -104,6 +104,7 @@ async function openProject(
   const session = context.projectFileSession.markOpened(
     projectRootPath,
     result.session,
+    preparedPreview.manifestContents,
   );
   updateWindowDocumentPresentation(
     context.editorWindow,
@@ -222,8 +223,10 @@ async function saveProject(
     await cleanFailedFirstSave();
     throw error;
   }
+  let publishedManifestContents: string;
   try {
-    await context.projectStorageSession.publishSavedProject(
+    publishedManifestContents =
+      await context.projectStorageSession.publishSavedProject(
       backendFilePath,
       projectRootPath,
       (manifestContents, targetRootPath) =>
@@ -231,7 +234,7 @@ async function saveProject(
           manifestContents,
           targetRootPath,
         ),
-    );
+      );
   } catch (error) {
     console.error('[project-storage] project publication failed', error);
     // The C++ working save may have succeeded, but the logical file session is
@@ -255,6 +258,7 @@ async function saveProject(
   const session = context.projectFileSession.markSaved(
     projectRootPath,
     result.session,
+    publishedManifestContents,
   );
   const publicResult = {
     ...result,

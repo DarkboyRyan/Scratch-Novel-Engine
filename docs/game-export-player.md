@@ -1,9 +1,13 @@
 # 独立游戏导出与 Player 技术路线
 
-> 本文既是后续开发设计，也是面试讲解材料。它描述的是**计划中的独立游戏
-> 导出能力**，不是已经完成的功能。当前仓库已经能把编辑器封装为桌面应用，
-> 也已经能在编辑器内部完整预览现有剧情，但还没有独立 Player、运行时内容包或
-> “导出游戏”按钮。
+> 本文既是实现记录，也是后续开发设计和面试讲解材料。截至 2026-08-18，
+> **阶段 0–5 已完成**：Editor 可以导出 runtime v1 `.vngame` 目录包，通用
+> Player 可以选择并运行它；macOS Editor 还可以通过内置的当前架构 Player 模板，
+> 在本机事务式组装每款游戏自己的 `.app`。阶段 6 的多平台 GitHub Actions、签名、
+> 公证和发布门禁代码已经落地，但仓库文件不能代替 GitHub 上的受保护 Environment、
+> Ruleset 和真实凭据配置，也还没有在 GitHub runner 与干净机器上完成一次正式验收。
+> 因此不能把“流水线存在”描述成“公开发行已验证”。
+> `.vngame` 双击文件关联和干净机器发行验收也仍未完成。
 
 相关现状可先阅读：
 
@@ -26,26 +30,30 @@
 └── Player          脱离编辑器运行导出的游戏
 ```
 
-当前预览已经完成了“执行剧情”的核心语义；独立 Player 需要补齐的是独立启动、
-只读内容加载、安全媒体服务、开始/暂停/结束界面、错误页以及平台打包外壳。
+当前预览已经完成了“执行剧情”的核心语义；第一版独立 Player 已补齐独立启动、
+只读内容加载、安全媒体服务、开始/暂停/结束界面和错误页。开发模式自动读取仓库内
+受控 fixture。packaged Player 有两种互斥模式：通用空壳由玩家主动选择 Editor
+导出的目录包；embedded Player 在启动时严格加载 `Resources/game`，并隐藏“打开
+其他游戏”入口。
 
 推荐的代码目录是：
 
 ```text
 apps/
-├── editor/                  # 当前编辑器
-└── player/                  # 新增：独立 Electron Player
+├── editor/                  # 编辑器、v9 保存和 runtime bundle 导出
+└── player/                  # 独立只读 Electron Player
 
 packages/
-├── runtime/                 # 新增：纯 TypeScript 剧情状态机与共享类型
-└── player-ui/               # 新增：React 舞台、音频、视频和选项组件
+├── runtime/                 # 纯 TypeScript 剧情状态机与共享类型
+└── player-ui/               # React 舞台、音频、视频和选项组件
 
-engine/                      # 现有 C++20 领域模型、校验和导出编译器
+engine/                      # C++20 领域模型、v9 校验、revision 与保存
 ```
 
 当前 [pnpm-workspace.yaml](../pnpm-workspace.yaml) 已包含 `apps/*` 和 `packages/*`；
-`@vnengine/runtime` 与 `@vnengine/player-ui` 已完成第一阶段抽取。下一步是在不把
-Editor IPC 带入 Player 的前提下创建 `apps/player`。
+`@vnengine/runtime`、`@vnengine/player-ui` 和只读 `apps/player` 已落地。Player
+没有链接 Editor IPC，也不启动 C++ 编辑后端；v9 → runtime v1 的严格编译和文件
+事务位于 Editor Main，而不是 C++ Core 或 Player Renderer。
 
 ## 2. 当前编辑器预览与独立 Player 的区别
 
@@ -69,10 +77,27 @@ React 会话在
 共享舞台和媒体控制器已经迁到
 [packages/player-ui](../packages/player-ui)，编辑器画面入口仍是
 [GamePreview.tsx](../apps/editor/src/renderer/features/game-preview/GamePreview.tsx)。
-当前尚未完成的是 Player 独立窗口、只读内容加载和 Player 专属媒体服务，因此还不能
-单独打包运行。
+独立窗口、只读内容加载、Player 专属媒体服务、Runtime Bundle 导出、通用换包与
+macOS 独立应用组装均已实现并通过本机自动测试。正式发布仍受平台证书、GitHub
+protected Environments/Rulesets、Environment Secrets、GitHub runner 和干净机器
+验收约束。
 
-### 2.1 哪些语义必须原样复用
+### 2.1 当前 Player 的只读 API
+
+Preload 只公开三个方法：
+
+```ts
+window.vnPlayer.loadGame();
+window.vnPlayer.openGame();
+window.vnPlayer.getMediaUrl(assetId);
+```
+
+`loadGame()` 读取当前已激活会话；`openGame()` 不接受路径，只请求 Main 打开原生
+`openDirectory` 选择器；`getMediaUrl()` 只接受 Asset ID。剧情 DTO 和公开资源 DTO
+可以进入 Renderer，路径、大小、hash 和 capability token 始终留在 Main。Player
+没有保存、导入、Renderer 指定路径或 C++ mutation API。
+
+### 2.2 哪些语义必须原样复用
 
 当前 Project Writer 写 `fileVersion: 9`，Reader 支持 v1–v9。C++ 的
 `SceneNode` 是以下七种类型：
@@ -100,12 +125,13 @@ React 会话在
 ```mermaid
 flowchart LR
   AUTHOR["作者项目<br/>project.vn.json v9 + assets"]
-  COMPILE["C++ 导出校验与编译"]
+  SAVE["C++ 保存并冻结 v9 revision"]
+  COMPILE["Editor Main 严格编译 runtime v1"]
   BUNDLE["Runtime Bundle<br/>game.json + manifest + assets"]
   PACKAGE["平台打包与签名"]
   APP["macOS / Windows / Linux 游戏"]
 
-  AUTHOR --> COMPILE --> BUNDLE --> PACKAGE --> APP
+  AUTHOR --> SAVE --> COMPILE --> BUNDLE --> PACKAGE --> APP
 ```
 
 ### 3.1 作者项目
@@ -126,8 +152,8 @@ flowchart LR
 
 ### 3.2 Runtime Bundle
 
-Runtime Bundle 是一次导出的不可变、平台无关内容包。建议第一版以目录形式生成，
-验证稳定后再增加 ZIP 或自定义 `.vngame` 容器：
+Runtime Bundle 是一次导出的不可变、平台无关内容包。当前 `.vngame` **严格是目录
+包**，不是单个 ZIP 文件，也不是已经注册到操作系统的 document package：
 
 ```text
 MyGame.vngame/
@@ -140,7 +166,7 @@ MyGame.vngame/
 ```
 
 `game.json` 只保存 Player 真正需要的只读剧情快照；`manifest.json` 保存构建身份、
-兼容版本和每个文件的完整性信息。建议为运行格式单独定义
+兼容版本和每个被剧情引用文件的完整性信息。运行格式单独使用
 `runtimeVersion: 1`，不要把它和作者项目 `fileVersion: 9` 绑定：
 
 ```json
@@ -156,7 +182,7 @@ MyGame.vngame/
 }
 ```
 
-建议的 `manifest.json` 形状：
+当前 `manifest.json` 形状：
 
 ```json
 {
@@ -172,10 +198,11 @@ MyGame.vngame/
     {
       "assetId": "asset-id",
       "type": "image",
+      "displayName": "背景.png",
       "path": "assets/images/asset-id.png",
       "mime": "image/png",
       "bytes": 123456,
-      "sha256": "..."
+      "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     }
   ]
 }
@@ -186,7 +213,7 @@ Capability URL 必须在 Player 每次启动时重新生成。
 
 ### 3.3 平台应用
 
-平台应用由 Player 程序与 Runtime Bundle 组合而成：
+当前“每个游戏一个应用”由 Player 程序与 Runtime Bundle 组合而成：
 
 ```text
 Player 程序代码（app.asar）
@@ -195,9 +222,12 @@ Player 程序代码（app.asar）
 = 某个独立游戏
 ```
 
-大媒体文件应位于 `app.asar` 外的只读 Resources 目录，便于流式读取和 Range
-响应。游戏内容必须在代码签名**之前**放入最终应用；对已经签名的 `.app` 或
-`.exe` 再注入资源会破坏签名。
+通用 packaged Player 不内嵌 fixture 或作者游戏，启动后让用户选择外部
+`.vngame`。单游戏应用则把同一份经过验证的 bundle 注入 `app.asar` 外的
+`Resources/game`；Player 检测到该目录后进入 embedded 模式。macOS Editor 本地
+组装始终先注入，再更新 `Info.plist`、执行 ad-hoc 签名并严格复验。Windows/Linux
+以及带正式品牌图标的产物，由对应平台 runner 用同一 metadata 重新运行 Forge；
+不能修改一份已经正式签名的应用。
 
 ## 4. 推荐总体调用链
 
@@ -206,46 +236,73 @@ sequenceDiagram
   participant User as 作者
   participant UI as Editor Renderer
   participant Main as Editor Main
-  participant CPP as C++ Core/Backend
+  participant CPP as C++ Backend
   participant Stage as Export Staging
-  participant Build as Player Build/CI
+  participant Player as 通用 Player
 
-  User->>UI: 点击“导出游戏”
+  User->>UI: 点击“导出”并选择内容包或独立应用
   UI->>UI: 提交项目名、表单和 Blockly 草稿
-  UI->>Main: exportGame()（不传入任意源路径）
-  Main->>CPP: 请求指定 revision 的权威导出快照
-  CPP->>CPP: 领域校验并生成规范化 runtime DTO
-  CPP-->>Main: runtime 数据 + 私有 Asset 清单
-  Main->>Stage: 流式复制、计算 hash、写 game.json
+  UI->>Main: saveProject()（首次保存可取消）
+  Main->>CPP: project.save 到安全工作位置
+  CPP-->>Main: 已保存 v9 + revision
+  Main->>Main: 发布 project.vn.json，确认 clean revision
+  UI->>Main: exportGame(mode + 安全 metadata，无路径）
+  Main->>CPP: project.get 核对同一 revision/project ID
+  Main->>Main: 稳定读取已保存 v9 并严格编译 runtime v1
+  Main->>Stage: 仅复制剧情引用资产，流式计算 SHA-256
   Main->>Stage: 最后写 manifest.json
-  Main->>Main: 重新打开并验证 staging
-  Main-->>UI: Runtime Bundle 导出成功
-  Stage->>Build: 与 Player 模板组合
-  Build->>Build: 测试、打包、签名、公证
-  Build-->>User: 平台游戏包 + SHA-256
+  Main->>Main: 复验 staging、源清单和当前 session
+  Main->>Stage: 同盘原子 rename 为 .vngame 目录
+  alt macOS 独立应用
+    Main->>Stage: 复制严格匹配的 Player 模板
+    Main->>Stage: 注入 Resources/game 和 metadata
+    Main->>Stage: 更新 Info.plist、ad-hoc sign + verify
+    Main->>Stage: 原子 rename 为最终 .app
+  end
+  Main-->>UI: 返回无路径产物名称
+  User->>Player: 选择游戏包
+  Player->>Player: 候选完整验证后才切换当前游戏
 ```
 
-Renderer 只能表达“导出”和用户选择的目标目录，不能构造项目根、资源相对路径
-或源文件路径。真实路径仍由 Main、项目存储会话和 C++ 的可信边界掌握，这与
-当前保存/导入设计一致。
+Renderer 只能表达导出模式以及应用名、严格 `x.y.z` 版本和 reverse-DNS
+Application ID，不能传目标目录、模板位置、项目根、资源相对路径或源文件路径。
+输出名称和位置来自 Main 的原生 `showSaveDialog`；Player Renderer 的 `openGame()`
+同样不传路径，目录来自 Player Main 的原生选择器。
+
+当前实现入口：
+
+- [Editor 导出编排](../apps/editor/src/main/export/ExportGameWorkflow.ts)
+- [v9 → runtime v1 严格编译](../apps/editor/src/main/export/AuthorProjectCompiler.ts)
+- [staging 与原子发布](../apps/editor/src/main/export/RuntimeBundleExporter.ts)
+- [独立应用事务组装](../apps/editor/src/main/export/StandaloneApplicationExporter.ts)
+- [Player 模板严格 Reader](../apps/editor/src/main/export/StandalonePlayerTemplate.ts)
+- [Player bundle 会话](../apps/player/src/main/content/PlayerBundleSession.ts)
+- [Player bundle Reader](../apps/player/src/main/content/PlayerBundleLoader.ts)
+- [Player 最小 IPC 契约](../apps/player/src/shared/playerProtocol.ts)
 
 ## 5. MVP 导出流程
 
-第一版建议只完成“当前 macOS 架构上的内部测试包”，但数据和边界从一开始就按
-跨平台设计。
+第一版先完成平台无关的 `.vngame` 目录包和通用 Player 打开流程。它和 Player ZIP、
+签名、公证及多平台发布是不同验收项。
 
 ### 5.1 冻结一次一致的项目版本
 
-1. 提交项目名、表单字段和活动 Blockly 字段；
+1. Renderer 提交项目名、表单字段和活动 Blockly 字段；
 2. 等待当前 Engine mutation Promise 队列排空；
-3. 获取 C++ 最新权威快照和 `revision`；
-4. 导出期间由窗口级协调器阻止打开、保存、导入和第二次导出；
-5. 把本次 `sourceRevision` 写入 manifest；
-6. 后续编辑只能影响下一次导出，不能改变正在生成的包。
+3. 调用既有项目保存流程；首次保存时先选择项目目录，取消则不开始导出；
+4. C++ 写出权威 v9，Main 发布完成后得到 `hasStorage=true`、`isDirty=false` 且
+   `savedRevision===revision`；Main 同时对这次实际发布的精确 manifest bytes 计算
+   SHA-256，只保存在窗口级文件会话中，不暴露给 Renderer；
+5. Renderer 发送无路径 `exportGame()`，Main 再强制检查相同条件并用 `project.get`
+   核对内存 Project 和已保存 revision；
+6. Main 稳定读取磁盘 `project.vn.json`，先核对保存时的可信 SHA-256，再由 TypeScript
+   `AuthorProjectCompiler` 严格编译 runtime v1；这里**没有新增 C++ export 命令**；
+7. `FileOperationCoordinator` 在 Main 侧串行化保存、编辑命令、导入和导出；导出结束前
+   还会复查源清单及 session 未变化；
+8. `sourceRevision` 写入 manifest，之后的编辑只会影响下一次导出。
 
-最简单的 MVP 可以要求项目先保存，再允许导出。当前架构也可以在后续支持未保存
-项目导出：资源已经位于窗口私有临时工作区，只需让 Main 从同一 Storage Session
-冻结并复制资源，而不是要求 Renderer 获得路径。
+当前版本不直接导出未保存项目。点击“导出”会主动经过保存流程，而不是从临时
+工作区绕过 v9 提交边界。
 
 ### 5.2 导出前预检
 
@@ -263,13 +320,13 @@ Renderer 只能表达“导出”和用户选择的目标目录，不能构造�
 - 输出目录位于源项目内部，可能造成递归复制；
 - 同名最终产物已存在且用户未明确选择新名字。
 
-以下问题建议作为警告，不应擅自改变当前运行语义：
+以下情况在当前语义中合法，不会阻止导出；当前还没有单独的 warning UI：
 
 - 从入口场景无法到达的场景；
 - 空 `VideoNode` 或空 `ChoiceNode`（当前语义是合法并自动跳过）；
 - 没有对白或选择可停留的自动跳转循环；
-- 未被任何节点引用的资源；
-- 单个媒体或整个游戏包体积过大；
+- 未被任何节点引用的资源（不会被复制进 runtime bundle）；
+- 未超过硬上限、但体积较大的媒体或游戏包；
 - 缺少图标、作者、版本或版权信息；
 - 应用未签名或未公证。
 
@@ -280,23 +337,66 @@ MP3/WAV/Ogg “通过导入”不等于其内部编码一定能在所有目标�
 
 ### 5.3 staging 事务
 
-导出不能直接向最终目录逐个覆盖文件。推荐事务是：
+导出不能直接向最终目录逐个覆盖文件。Runtime Bundle 当前使用同父目录 staging：
 
 ```text
 选择最终目标
-  → 在同一文件系统创建随机 staging 兄弟目录
-  → 写规范化 game.json 临时文件
-  → 用稳定文件句柄流式复制每个媒体，同时计算 SHA-256
+  → 在目标父目录取得操作系统 advisory lock
+  → 在同一父目录创建随机 staging 兄弟目录
+  → 严格读取已保存 v9 并写 runtime v1 game.json
+  → 仅对剧情引用媒体使用稳定句柄流式复制并计算 SHA-256
   → flush/fsync 文件与目录
   → 最后生成 manifest.json
   → 从磁盘重新打开，校验 JSON、大小和 hash
-  → 运行 Player smoke test
+  → 重新读取源清单并复查 frozen revision
   → 原子 rename 为最终目录（仅目标尚不存在时）
 ```
 
+独立 macOS 应用多一层发布事务。它不会在用户选择的 Desktop、iCloud 或其他
+FileProvider 目录里直接组装和签名 Electron 应用：
+
+```text
+取得最终目标的操作系统 advisory lock
+  → 在系统临时目录创建权限为 0700 的私有工作区
+  → 在私有工作区生成 Runtime Bundle、复制 Player、注入内容并完成 ad-hoc 签名
+  → 安全复制到目标父目录的随机 `.publishing` 兄弟目录
+  → 只移除 codesign 不接受的 FinderInfo/ResourceFork 扩展属性
+  → fsync 并执行两轮 `codesign --verify --deep --strict`
+  → 同父目录 rename 为最终 `.app`
+  → 在最终路径再次清理上述两类属性并执行两轮严格签名复验
+```
+
+这样 FileProvider 在复制过程中异步附加扩展属性时，不会污染私有组装和签名阶段；
+`provenance`、`quarantine` 等其他系统属性不会被粗暴清空。发布暂存、最终产物和私有
+工作区都记录目录身份，失败回滚只删除仍属于本次事务的 inode，不会误删后来出现在
+同一路径的文件。
+
+有些 Desktop/iCloud FileProvider 会在每次读取应用树后持续恢复 FinderInfo。原始
+`.app` 在这类目录里无法长期保持 strict codesign 有效，继续“清理后立即返回”会产生
+假成功。因此最终清理和首次严格校验后，生产代码会等待 500 ms，再在不清理属性的
+情况下执行第二次严格校验：若系统已回灌属性，本次产物按身份安全回滚，并向作者明确
+提示改存“下载”或其他本地非同步目录。真实项目已验证 Downloads 目标在返回两秒后仍
+能通过 deep/strict 校验，且不含 FinderInfo/ResourceFork。
+
+macOS 的 FileProvider 可能在保存后异步附加 `com.apple.provenance` 等扩展属性，只改变
+文件 `ctime` 而不改变内容。导出遇到这种 ctime-only 波动时，会完整重开并重读最多
+三次；只有每次内容都匹配“保存时记录的 manifest SHA-256”才继续。源媒体和 Player
+模板没有对应的保存时可信摘要，因此仍保持严格 ctime 校验；同 inode、同大小、伪造
+mtime 的字节改写也会被拒绝。生成中的 staging 文件则只按已知 JSON bytes 或资源
+SHA-256 做有限复验。
+
+macOS 使用继承文件描述符的 `lockf` 内核锁，Linux 使用同类 `flock`，Windows
+使用由目标文件身份派生的 Named Pipe owner。锁的真相是操作系统持有状态，不是
+隐藏文件是否存在：Main 被强制结束时，操作系统会随文件描述符或 Named Pipe 关闭
+而自动释放锁；下一次同名导出可立即复用遗留的锁载体，不使用 PID、文件年龄或
+超时猜测。正常结束则在仍持锁时核对 inode，先删除自己的锁路径，再释放系统锁，
+因此旧 owner 收尾不会误删后继进程的锁。
+
 这样失败时只清理本次随机 staging，不截断旧导出物，也不删除用户的任意目录。
-如果需要“覆盖导出”，更安全的第一版是生成带版本号的新目录；之后再设计带备份和
-恢复的 replace 事务。
+当前明确拒绝覆盖同名目标，也拒绝导出到源项目内部。可捕获失败会清理本次 staging
+和锁；强制终止时系统锁自动释放，遗留 staging 使用新 UUID 隔离；
+已有项目、已有内容包及未引用源资源不会被修改。无法证明归属的历史 staging 不会被
+通配扫描或自动删除，但 UUID 隔离保证它不会阻塞后续导出。
 
 ### 5.4 Runtime Bundle 验收
 
@@ -307,29 +407,40 @@ MP3/WAV/Ogg “通过导入”不等于其内部编码一定能在所有目标�
 - 每个 manifest 文件只对应一个安全相对路径；
 - 文件实际大小和 SHA-256 与 manifest 一致；
 - 没有绝对路径、临时 token、编辑器 revision 状态或本机用户名泄漏；
-- 用开发版 Player 打开后能够从入口场景运行到第一个阻塞点；
+- 用通用 Player 打开后能够从入口场景运行到第一个阻塞点；
 - 导出失败时原项目和已有导出物保持不变。
 
 ## 6. 独立 Player 的运行链
 
-Player 不应启动 Blockly、项目编辑 C++ Backend 或文件导入服务。推荐启动流程：
+Player 不启动 Blockly、项目编辑 C++ Backend 或文件导入服务。当前启动和换包流程：
 
 ```mermaid
 flowchart TD
   START["Player Main 启动"]
   SCHEME["在 app.ready 前注册媒体 scheme"]
-  LOAD["稳定读取 manifest.json 和 game.json"]
-  VERIFY["校验版本、路径、大小与 hash"]
   WINDOW["创建 sandboxed BrowserWindow"]
-  PRELOAD["Preload 暴露只读 Game API"]
-  TITLE["Renderer 显示标题/开始界面"]
+  MODE{"开发模式？"}
+  FIXTURE["自动加载受控 fixture"]
+  EMPTY["packaged 空壳"]
+  PICKER["openGame() 请求原生目录选择器"]
+  VERIFY["完整验证候选 game/manifest/媒体"]
+  COMMIT["成功后 commit 并轮换 capability token"]
+  TITLE["Renderer 显示标题页"]
   GESTURE["玩家点击开始，获得音频用户手势"]
   RUNTIME["Shared Runtime 从 entrySceneId 归约"]
   UI["Player UI 渲染背景/人物/对白/选项/视频"]
 
-  START --> SCHEME --> LOAD --> VERIFY --> WINDOW --> PRELOAD --> TITLE
+  START --> SCHEME --> WINDOW --> MODE
+  MODE -->|"是"| FIXTURE --> VERIFY
+  MODE -->|"否"| EMPTY --> PICKER --> VERIFY
+  VERIFY --> COMMIT --> TITLE
   TITLE --> GESTURE --> RUNTIME --> UI
 ```
+
+候选 bundle 会在临时对象中完成 exact fields、版本、ID/引用、路径、MIME、Magic
+Bytes、大小和 SHA-256 校验。只有全部成功后，`PlayerBundleSession` 才更新当前游戏并
+让媒体服务轮换 generation token；旧 URL 随即失效。取消、坏 hash 或过新版本不会
+破坏已经打开的旧游戏；若此前没有游戏，则维持 empty/error 页面并允许重新选择。
 
 Player 可以分成两层状态：
 
@@ -342,7 +453,7 @@ Player 可以分成两层状态：
 
 ### 6.1 共享 Runtime 的边界
 
-`packages/runtime` 应保持纯函数和平台无关：
+`packages/runtime` 已保持纯函数和平台无关：
 
 - 不依赖 React、Electron、Node 文件系统或 DOM；
 - 输入是冻结后的 Project/Runtime DTO 和玩家动作；
@@ -351,13 +462,13 @@ Player 可以分成两层状态：
 - 保留当前跳转、空节点、循环检测和阻塞节点语义；
 - 同一组 reducer 测试同时约束 Editor 预览和 Player。
 
-第一阶段可以把现有 `previewRuntime.ts` 与共享类型移动到这里，并在 Editor 留下
-薄适配层。若未来需要原生/WASM Runtime、复杂变量或跨语言存档，再为同一行为
+现有 `previewRuntime.ts` 已成为兼容导出，Editor 与 Player 直接复用共享包。若未来
+需要原生/WASM Runtime、复杂变量或跨语言存档，再为同一行为
 规范提供 C++ 实现；MVP 不必为了“独立”而立刻重写已经验证的 TypeScript 状态机。
 
 ### 6.2 `player-ui` 的边界
 
-`packages/player-ui` 负责可复用的 React 展示与媒体副作用：
+`packages/player-ui` 已负责可复用的 React 展示与媒体副作用：
 
 - 背景、人物分层和对白框；
 - 固定高度、按数量重排位置的 Galgame 选项；
@@ -373,11 +484,11 @@ Editor 可以给它套“退出预览”外壳，Player 可以给它套“暂停
 
 当前编辑器的
 [AssetPreviewService.ts](../apps/editor/src/main/assets/AssetPreviewService.ts)
-已经实现了值得复用的安全原则，但它包含编辑器项目切换和临时工作区语义，不能
-直接把整个类原封不动搬过去。应抽取公共的只读文件校验、MIME、Range 和响应逻辑，
-再实现 Player 专用服务。
+提供了安全原则；Player 已使用独立的 `PlayerMediaService`，没有复用编辑器项目
+切换和临时工作区权限。两端遵守相同安全要求，但媒体探测仍有重复实现；后续应抽取
+共享测试向量和更多无状态校验代码，防止规则漂移。
 
-建议使用独立 scheme，例如：
+Player 当前使用独立 scheme：
 
 ```text
 vn-game-asset://<bundle-generation-token>/<opaque-asset-token>
@@ -396,71 +507,270 @@ vn-game-asset://<bundle-generation-token>/<opaque-asset-token>
 - 正确返回 `200`、`206`、`416`、`Content-Type`、`Content-Length`、
   `Content-Range`、`Accept-Ranges: bytes`、`nosniff` 和 `no-store`；
 - 打开前后验证文件仍是 bundle 根下的普通文件，拒绝链接和路径逃逸；
-- 加载新游戏、重启会话或退出时轮换 token，使旧 URL 失效；
-- 错误只返回面向玩家的安全提示，日志不泄漏完整本机路径。
+- 成功加载新游戏时轮换 token，使旧 URL 失效；候选失败或取消时保留旧 token；
+- Renderer 只收到面向玩家的无路径提示；底层诊断可留在本机 Main 日志，但不得
+  自动上传或跨 IPC 返回。
 
 Player BrowserWindow 应继续保持 `contextIsolation: true`、
 `nodeIntegration: false`、`sandbox: true`，禁止外部导航和新窗口。Preload 只暴露
 具名只读方法，Main 对 IPC 来源和参数进行运行时校验。
 
-## 8. 两种发布路线
+当前 packaged Renderer 仍从 `file://.../app.asar` 启动，因此暂时保留 Electron 的
+file protocol 兼容 Fuse。后续应增加只服务 `app.asar` 静态文件的安全 app scheme，
+完成可见页面回归后再关闭该 Fuse；不能在仍使用 `file://` 时盲目关闭并接受白屏风险。
 
-### 8.1 通用 Player + 外部 `.vngame`（推荐先做）
+## 8. 当前操作方式与两种发布路线
+
+### 8.1 从 Editor 导出
+
+1. 打开需要测试的项目，点击顶部“导出”；
+2. 在导出弹层选择产物类型：`.vngame 内容包` 或 `独立游戏应用`；
+3. 独立应用模式填写应用名、严格三段版本（例如 `1.0.0`）和 reverse-DNS
+   Application ID（例如 `com.example.story`）。本地模板使用默认图标；正式自定义
+   图标由平台 CI 注入；
+4. Editor 提交当前表单/Blockly/项目名草稿并保存项目。若项目从未保存，先在原生
+   对话框创建项目目录；取消保存会终止导出；
+5. Main 再弹出原生保存对话框。目标必须不存在且不能位于源项目内部；Renderer
+   不传入或获得路径；
+6. 内容包模式得到 `.vngame` 目录，不要手动改成 JSON 或 ZIP；
+7. 当前 packaged macOS Editor 可得到同架构 `.app`。应用包含只读
+   `Contents/Resources/game`，使用模板默认图标和 ad-hoc 签名，适合本机/内部测试，
+   不等于 Developer ID 正式发行；
+8. Windows/Linux 的独立游戏不是由 macOS Editor 后处理可执行文件，而是调用
+   `player-game-build.yml`，在目标平台重新构建并注入正式 metadata、图标和签名。
+
+### 8.2 用通用 Player 打开
+
+1. 启动 packaged `VN Engine Player`，初始页不会内嵌开发 fixture；
+2. 点击“选择游戏包”，在原生目录选择器中选择整个 `MyGame.vngame` 目录；
+3. 验证成功后进入标题页，点击“开始游戏”；
+4. 标题页可点击“打开其他游戏”；候选无效或取消时，已经打开的游戏保持可用。
+
+开发命令 `pnpm --dir apps/player start` 会自动加载仓库 fixture，便于开发 Player UI；
+它不代表 packaged Player 会携带 fixture。
+
+macOS 目前不能通过双击 `.vngame` 自动唤起 Player，也没有 UTI/document package
+关联。目录包与 `openDirectory` 的交互必须先稳定，文件关联安排在后续阶段。
+
+### 8.3 通用 Player + 外部 `.vngame`
 
 ```text
 VN Player.app
 MyGame.vngame
 ```
 
-已签名的通用 Player 打开不同内容包。编辑器本地只需安全导出 Runtime Bundle，
-不需要在用户电脑上安装 pnpm、CMake、编译器或签名证书。这条路线最适合 MVP、
-内部测试和快速迭代，也不会因为注入新游戏内容而破坏 Player 签名。
+通用 Player 可以打开不同内容包。编辑器本地只需安全导出 Runtime Bundle，不需要
+在玩家电脑上运行 pnpm、CMake 或编译器。这条路线最适合 MVP 和内部测试，也避免
+为了更换游戏内容去修改 Player 应用本体。最终是否做到“测试者无需任何开发工具”，
+仍要以 packaged Player 的干净机器验证为准。
 
-### 8.2 每款游戏一个独立应用（最终产品体验）
+### 8.4 每款游戏一个独立应用（已实现，发行验证仍有边界）
 
 ```text
 My Game.app / My Game.exe
 ```
 
-CI 在签名前把 Runtime Bundle、名称、版本和图标注入 Player 模板，然后重新完成
-平台打包、签名和验证。这才是真正的一键独立游戏，但不能靠已安装编辑器随意修改
-一份已经签名的 Player 模板来完成。
+macOS Editor 内置由 generic Player 生成的、平台和架构严格匹配的模板。Main 先在
+系统私有工作区生成 Runtime Bundle，再安全复制模板、注入固定 `Resources/game` 与
+`vn-game-application.json`，更新 `Info.plist` 并完成 ad-hoc 签名。完整应用随后复制
+到目标同父目录的随机 publishing 目录，定向清理签名不兼容扩展属性并通过
+`codesign --verify --deep --strict` 后才原子改名；最终路径还会再次严格复验。
+
+本地组装不会把 Electron 应用内部整套可执行文件和 Helper 全部改名。它自定义外层
+`.app` 产物名，以及 `CFBundleDisplayName`、`CFBundleIdentifier`、
+`CFBundleShortVersionString` 和 `CFBundleVersion`；内部 `CFBundleName` 与
+`CFBundleExecutable` 保持模板值 `VN Engine Player`，从而继续匹配预构建的
+`VN Engine Player Helper*`。这是本地模板后处理的明确边界，不应描述成“应用内部
+已经完全品牌化重命名”。正式 Forge 构建则在打包前使用同一 metadata 生成整套平台
+应用。
+
+多平台正式产物使用可复用的
+[`player-game-build.yml`](../.github/workflows/player-game-build.yml)：调用方提供已验证
+bundle artifact、应用名、`x.y.z` 版本、Application ID 和可选制品前缀；对应输入名
+依次是 `bundle_artifact_name`、`product_name`、`version`、`app_bundle_id` 和
+`artifact_prefix`。各平台 runner
+在签名前用 Forge 重新注入内容、metadata 和图标。该 workflow 强制需要完整证书与
+图标 Environment Secrets，没有 unsigned fallback，也不接受 caller 传入或继承签名
+Secrets。它已经实现并接受静态/本机测试，但尚未用真实凭据在 GitHub runner 上完成
+正式执行。
+
+### 8.5 Player 模板与应用 metadata 契约
+
+macOS Editor 消费的模板位于 packaged resources 的
+`player-templates/darwin-<arch>`，结构为 exact manifest 加一个未注入游戏的 payload：
+
+```text
+darwin-arm64/
+├── player-template.json
+└── payload/
+    └── VN Engine Player.app/
+```
+
+manifest 声明 format/version、`platform`、`arch`、Player 版本、runtime compatibility、
+payload 根、应用入口以及以下固定相对路径：
+
+```text
+Contents/Resources/game
+Contents/Resources/vn-game-application.json
+Contents/Info.plist
+```
+
+Editor 写入的 `vn-game-application.json` 只含 format/configVersion、`productName`、
+`version`、`appBundleId`、默认图标标记、runtime build ID 和 Player 版本，不含源项目、
+模板或输出绝对路径。三项作者输入与 Forge 构建变量是一一对应的：
+
+| 导出弹层 | Forge/CI |
+| --- | --- |
+| 应用名称 | `VN_PLAYER_PRODUCT_NAME` |
+| `x.y.z` 版本 | `VN_PLAYER_VERSION` |
+| Application ID | `VN_PLAYER_APP_BUNDLE_ID` |
+| 已验证 bundle | `VN_PLAYER_EMBEDDED_GAME_DIR`（绝对且 basename 必须为 `game`） |
+| 正式平台图标 | `VN_PLAYER_ICON_PATH` |
+
+这保证 Editor 本地模板组装和 CI 原生重建不会发展成两套 metadata 规则。
+但“一套 metadata 规则”不表示两条路径做相同程度的二进制改名：Editor 本地路径遵守
+上一节的 Helper 兼容边界；formal workflow 从源码运行 Forge，才能在签名前生成完整
+平台 metadata 与品牌图标。
 
 ## 9. 打包、签名与 CI
 
-`apps/player` 应有自己的 Electron Main、Preload、Renderer、Forge 配置和
+`apps/player` 已有独立的 Electron Main、Preload、Renderer、Forge 配置和
 `package.json`，不要复用 Editor 的菜单、Blockly、C++ 编辑后端或导入 IPC。
 现有 Editor 打包配置可参考
 [forge.config.ts](../apps/editor/forge.config.ts)，但 Player 的资源目录、产品名和
 maker 配置应独立。
 
-推荐 CI matrix：
+仓库现有三条流水线：
+
+| Workflow | 触发方式 | 真实职责 | 当前验证边界 |
+| --- | --- | --- | --- |
+| [`player-ci.yml`](../.github/workflows/player-ci.yml) | PR、main、手动 | 三平台测试、通用/embedded 内部包、macOS Player 模板及 packaged Editor 模板检查 | 产物明确标记 internal；macOS 仅 ad-hoc，Windows/Linux 未正式签名 |
+| [`player-game-build.yml`](../.github/workflows/player-game-build.yml) | `workflow_call` | 从外部 `.vngame` artifact 构建每游戏三平台正式候选包 | job 绑定 `game-release` Environment；缺证书、图标或 Apple 公证 Secret 即失败；尚未用真实凭据在 GitHub runner 执行 |
+| [`player-release.yml`](../.github/workflows/player-release.yml) | `player-v*` tag | 构建、签名、公证通用 Player，核对完整 release set 后发布 | job 绑定 `player-release` Environment；preflight 缺任一 Secret 即停止；仓库当前没有一次真实正式发布证明 |
+
+流水线采用的 matrix：
 
 | Runner | 架构 | 产物 | 发布前要求 |
 | --- | --- | --- | --- |
-| macOS | arm64、x64（或 universal） | `.app` + ZIP/DMG | Developer ID 签名、Hardened Runtime、公证和 stapling |
-| Windows | x64 | Squirrel/MSIX/ZIP | 代码签名、安装/卸载和 SmartScreen 实机测试 |
-| Linux | x64 | `.deb`、`.rpm` 或 AppImage | 发行版兼容、桌面入口和依赖检查 |
+| macOS 15 | arm64 | notarized `.app` 的 ZIP | Developer ID 签名、Hardened Runtime、公证、stapling、Gatekeeper 校验和真实 Mach-O 架构校验 |
+| Windows latest | x64 | 应用目录 ZIP | Authenticode 签名、时间戳、PE 架构/metadata 校验；干净机仍要补安装与 SmartScreen 验收 |
+| Ubuntu latest | x64 | 应用目录 ZIP | ELF 架构、内容和品牌图标校验；发行版兼容与桌面安装仍属干净机验收 |
 
-原生平台包应在对应平台 runner 上构建，不假设一台 Mac 能可靠生成和验证所有系统
-产物。CI 典型步骤是：
+原生平台包在对应平台 runner 上构建，不假设一台 Mac 能可靠生成和验证所有系统
+产物。当前正式流水线步骤是：
 
 ```text
 锁定依赖
   → TypeScript/ESLint/Vitest
   → CTest 与导出集成测试
-  → 生成固定 fixture 的 Runtime Bundle
-  → Player package/make
-  → 启动最终包 smoke test
-  → 注入正式 metadata/icon
+  → 严格验证输入 metadata 与下载的 Runtime Bundle artifact
+  → 在签名前通过 Forge 注入 bundle、metadata 和平台图标
+  → 验证 embedded Player 不再暴露换包入口
   → 平台签名与公证
-  → 验证签名和安装
-  → 发布安装包、SHA-256、版本说明
+  → 验证签名、内容和平台产物
+  → 收集 SHA-256、build receipt 与制品
+  → 仅在全部平台成功后创建完整 release
 ```
 
-证书、notarization 密钥和时间戳服务凭据只放 CI Secret，不能进入仓库或导出包。
-内部测试可以先发未签名 ZIP，但必须明确说明 Gatekeeper/SmartScreen 提示；公开
-发行应以签名、公证和干净机器测试作为发布门槛。
+三条 workflow 使用的第三方 Action 都固定到完整 commit SHA，checkout 关闭
+`persist-credentials`。普通 `player-ci.yml` 只产出 `internal` 制品；正式通用 Player
+只接受严格 `player-v<version>` tag，并在创建 draft 前、创建后和公开前复核远端 tag
+object identity 与 peeled commit。发布脚本只回滚本次创建的 draft release ID，拒绝
+覆盖已有 Release。
+
+通用 Player 的最终公开资产集合恰好包含三平台 ZIP、`release-set.json`、
+`SHA256SUMS` 和 `SHA256SUMS.asc`。其中 `SHA256SUMS` 覆盖三份 ZIP **以及最终的**
+`release-set.json`，`SHA256SUMS.asc` 是该校验清单的 GPG detached signature；上传到
+draft 后，workflow 会重新下载全部远端资产，逐文件核对 SHA-256、复验 GPG 签名和
+整个 checksum manifest，全部通过才公开。
+
+### 9.1 上线前必须完成的 GitHub 外部配置
+
+以下设置不存储在 Git 仓库里，workflow YAML 也不能替代它们。第一次正式发布前，
+仓库管理员必须在 GitHub `Settings` 中逐项完成并留下可审计记录：
+
+| 外部对象 | 必须配置的策略 |
+| --- | --- |
+| `main` branch Ruleset | 禁止 force push/删除，要求 PR、必要 review 与 `player-ci` 等 required status checks；只允许获授权维护者合并 |
+| `refs/tags/player-v*` tag Ruleset | 限制创建者，禁止更新、force-move 和删除；tag 一旦指向获批 commit 就不得复用 |
+| `player-release` protected Environment | 配置 required reviewers，并把 deployment refs 限制为受保护的 `player-v*` tags；未通过审批不得读取发行凭据或进入正式发布 jobs |
+| `game-release` protected Environment | 配置 required reviewers，并把 deployment refs 限制为受保护的 `main`；拒绝任意 feature branch 调用正式签名。若未来改用专用游戏发行 tag，必须先新增同样不可变的 tag Ruleset，再单独审批放行该模式 |
+| GitHub Releases | 启用 immutable releases，或使用等价的组织/仓库规则禁止替换已发布资产、移动/复用 tag 和删除正式 Release |
+
+两个 Environment 都应启用“阻止自行审批”（若组织方案支持），reviewer 应是独立的
+发行维护者。Environment deployment rules 与 tag Ruleset 必须同时配置：workflow 中
+的多次 tag identity 复核属于纵深防御，不能代替 GitHub 服务端的不可变规则。
+
+签名、图标、公证和 GPG 私钥只能存放为 **Environment Secrets**，不能改成 repository
+Secrets，也不能由 reusable workflow caller 通过 `secrets: inherit` 或参数传入：
+
+| Environment | 必需 Secrets |
+| --- | --- |
+| `game-release` | `MACOS_CERTIFICATE_BASE64`、`MACOS_CERTIFICATE_PASSWORD`、`MACOS_SIGNING_IDENTITY`、`APPLE_ID`、`APPLE_APP_SPECIFIC_PASSWORD`、`APPLE_TEAM_ID`、`WINDOWS_CERTIFICATE_BASE64`、`WINDOWS_CERTIFICATE_PASSWORD`、`PLAYER_ICON_ICNS_BASE64`、`PLAYER_ICON_ICO_BASE64`、`PLAYER_ICON_PNG_BASE64` |
+| `player-release` | 上述 11 项，再加 `RELEASE_GPG_PRIVATE_KEY_BASE64`、`RELEASE_GPG_PASSPHRASE`、`RELEASE_GPG_FINGERPRINT` |
+
+Secrets 只在审批后的 Environment job 中解析，不能写入仓库、Runtime Bundle、构建
+回执或普通 CI artifact。正式轮换证书、图标或 GPG key 时，也要走同一 Environment
+审批与审计流程。
+
+### 9.2 当前实现与上线验收的分界
+
+workflow 文件、验证/签名脚本、完整 release-set gate 和上述 Environment 绑定都已
+实现；这只证明代码路径存在。当前仍缺少的验收证据是：在 GitHub 上实际配置两个
+protected Environments、reviewers、deployment rules、不可变 tag/release 规则和真实
+Environment Secrets 后，使用 GitHub runners 完成一次无降级 formal run，并在干净
+机器上验证安装、启动、图片/音频/视频、退出和卸载。完成这些之前，公开说法必须是
+“阶段 6 流水线实现完成，正式发行尚未验收”。
+
+### 9.3 正式构建的操作步骤
+
+每游戏三平台构建由同一次调用方 workflow 先上传一个经过验证的 `.vngame` artifact，
+再以 job 级 reusable workflow 调用执行；caller 只传非敏感 metadata，不传 Secrets：
+
+```yaml
+jobs:
+  signed-game:
+    uses: ./.github/workflows/player-game-build.yml
+    with:
+      bundle_artifact_name: my-game-runtime
+      product_name: My Game
+      version: 1.0.0
+      app_bundle_id: com.example.mygame
+      artifact_prefix: my-game
+```
+
+该 job 到达 `game-release` Environment 后等待 required reviewer；获批后才读取该
+Environment 的 11 项签名/图标 Secrets，并在三个 runner 上生成 release-candidate
+artifacts。调用者不能使用 `secrets: inherit` 绕过这个边界。
+
+通用 Player formal release 的操作顺序是：
+
+1. 先完成 [GitHub 外部配置](#91-上线前必须完成的-github-外部配置)，并在测试凭据
+   流程中确认 Environment reviewers、deployment rules 与 tag Ruleset 确实会阻断
+   未获批运行；
+2. 把 `apps/player/package.json` 的严格 `x.y.z` 版本与待发布 commit 合并到受保护
+   `main`，等待 required checks 全绿；
+3. 由获授权维护者创建一次性的 `player-v<x.y.z>` tag，使其指向该已批准 commit；
+   tag 必须与 package version 完全一致，不能移动旧 tag 重试；
+4. `player-release.yml` 被触发后，由 required reviewer 审批 `player-release`
+   Environment；preflight、三平台签名构建和 publish gate 依次执行；
+5. workflow 先创建本次 ID 对应的 draft，上传并重新下载校验完整 release set，最后
+   才将同一个 draft 公开；任一 gate 失败都不会发布部分平台集合；
+6. 发布后在独立干净机器下载三平台 ZIP、`release-set.json`、`SHA256SUMS` 和
+   `SHA256SUMS.asc`，复验 GPG/checksum，再完成安装、启动、媒体、退出和卸载验收。
+
+若步骤 3 之后发现问题，应修复代码并发布新版本/tag；不要移动既有 `player-v*` tag，
+也不要替换已公开 Release 的资产。
+
+macOS 内测建议把 Forge 输出定向到非 iCloud/FileProvider 同步目录，避免 Finder
+扩展属性在签名后污染 `.app`：
+
+```sh
+VN_PLAYER_OUT_DIR=/private/tmp/vn-player-out \
+  fnm exec --using=24 pnpm --dir apps/player package
+codesign --verify --deep --strict \
+  "/private/tmp/vn-player-out/VN Engine Player-darwin-arm64/VN Engine Player.app"
+```
 
 ## 10. 需要掌握的技术能力
 
@@ -470,24 +780,33 @@ maker 配置应独立。
 | React Hooks 与组件设计 | 舞台、标题页、暂停页、错误页 | 状态机与副作用分离 |
 | Electron Main/Preload/IPC | 文件权限、窗口和最小 API | Renderer 无 Node 权限，边界双重校验 |
 | Node 文件系统与流 | staging、复制、hash、fsync | 大文件不整体读入内存，失败可回滚 |
-| C++20 领域模型 | 权威快照、引用校验、规范化导出 | 作者格式和业务不变量只有一份真相 |
-| JSON Schema/手写严格 Reader | runtime/manifest 版本演进 | 作者 v9 与 runtime v1 独立升级 |
+| C++20 领域模型与保存 | 提交权威 v9 和冻结 revision | 导出复用既有保存边界，不伪造第二份 Project |
+| TypeScript 严格编译器 | 已保存 v9 → runtime v1 | 独立版本、exact fields、ID/引用和资源类型校验 |
+| 手写严格 Runtime Reader | Player 校验 game/manifest/媒体 | 候选先验证后 commit，旧会话不被失败输入破坏 |
 | 自定义 Protocol 与 HTTP Range | 安全加载本地图片、音频、视频 | 不暴露 `file://` 和绝对路径 |
 | Web Audio/HTML Media | BGM、voice、视频生命周期 | 用户手势、ended、暂停和竞态清理 |
 | SHA-256 与事务性文件发布 | 完整性、可复验导出和故障恢复 | manifest 最后提交，产物非半成品 |
-| Electron Forge | 平台应用和安装包 | `package` 与 `make`、asar 与 extraResource |
+| 严格 Player 模板契约 | macOS Editor 本地组装 `.app` | exact manifest、platform/arch、默认图标、固定 `Resources/game` |
+| Electron Forge | 平台应用和安装包 | 构建时 metadata、asar、extraResource 和签名前内容注入 |
 | 代码签名与供应链 | Gatekeeper、SmartScreen、发布可信度 | 内容必须先注入，再签名和公证 |
-| CI/CD 多平台矩阵 | 各系统真实构建和验收 | 不把跨平台支持等同于“代码里有 if” |
-| Vitest/CTest/Electron E2E | reducer、导出、协议、最终包 | 从纯函数到真实产物分层测试 |
+| GitHub Actions 可复用 workflow | 每游戏三平台构建与通用 Player 发布 | protected Environment、无 unsigned fallback、完整 release set 与 GPG checksum signature |
+| Vitest、CTest、Forge/CDP smoke | reducer、导出、协议和本机产物 | 区分单测、本机产物验证与干净机器发布验证 |
 
 ### 面试中的 30 秒回答
 
-> 编辑器预览和独立游戏不是两套剧情实现。我会先把当前 TypeScript 纯状态机与
-> React 舞台抽成 `runtime` 和 `player-ui`，让 Editor 与独立 Electron Player
-> 共用。导出时 C++ 从当前 v9 作者项目生成独立版本的只读 runtime bundle，Main
-> 在 staging 目录流式复制媒体、计算 SHA-256，并在最后提交 manifest。Player
-> 不带 Blockly 和可修改项目后端，只通过 capability protocol 与 Range 安全读取
-> bundle。最终由各平台 CI 组合 Player 和内容，再签名、公证并产出安装包。
+> 编辑器预览和独立游戏不是两套剧情实现：Editor 与 Player 共用纯 TypeScript
+> Runtime 和 React Player UI。导出前，Renderer 先提交草稿并经过既有 C++ 保存链
+> 固定 v9 与 revision；之后 Editor Main 严格读取磁盘 v9，在事务 staging 中编译
+> runtime v1，只复制剧情引用媒体并计算 SHA-256，最后原子 rename。独立应用先在
+> 系统私有工作区组装和签名，再通过目标侧 publishing、扩展属性清理和“等待后不再
+> 清理”的第二次签名复验发布；持续回灌 FinderInfo 的同步目录会安全回滚并提示改存
+> Downloads。通用 Player
+> 的 Renderer 只请求原生目录选择，不接触路径；Main 完整验证候选后才切换会话并
+> 轮换 capability token。独立应用模式在 macOS 使用严格匹配当前架构的 Player
+> 模板，注入 `Resources/game`，只更新外层名称、显示名、ID 和版本后再 ad-hoc 签名
+> 并复验；内部 Electron Helper 命名保持 generic。正式 Windows/Linux 与品牌图标
+> 则由可复用 GitHub Actions 在目标 runner 上重新构建。流水线代码已完成，但受保护
+> Environment、真实凭据 runner 执行和干净机器发布尚未实际验收。
 
 ### 为什么不直接复制当前预览页面
 
@@ -498,17 +817,18 @@ maker 配置应独立。
 
 ## 11. 分阶段开发与 Definition of Done
 
-### 阶段 0：冻结运行规范
+### 阶段 0：冻结运行规范（已完成）
 
 工作：把七类节点、输入规则、场景边界、音频/视频和错误语义写成可执行测试。
 
 DoD：
 
-- Editor 当前预览的 reducer 测试全部通过；
-- 空 Video/Choice、场景结束、跳转循环和坏引用都有明确期望；
-- 文档明确 authoring `fileVersion: 9` 与未来 `runtimeVersion: 1` 不相等。
+- `packages/runtime` 自己拥有可执行契约测试；
+- 背景、人物、BGM、语音、空/非空 Video、空/非空 Choice、显式跳转、场景结束、
+  重复对白 occurrence 和无对白跳转循环都有明确期望；
+- 文档明确 authoring `fileVersion: 9` 与独立 `runtimeVersion: 1` 不相等。
 
-### 阶段 1：抽离 `packages/runtime` 和 `packages/player-ui`（已完成基础拆分）
+### 阶段 1：抽离 `packages/runtime` 和 `packages/player-ui`（已完成）
 
 工作：移动纯状态机、共享 DTO、舞台和媒体控制器，Editor 保留薄适配层。
 
@@ -519,7 +839,7 @@ DoD：
 - Editor 和 Runtime 共用同一套测试，没有复制的 reducer；
 - 开发模式、生产 typecheck、Vitest、CTest 和 Editor 打包仍通过。
 
-### 阶段 2：创建独立 `apps/player`
+### 阶段 2：创建独立 `apps/player`（MVP 已完成）
 
 工作：用固定 fixture 建立 Player Main/Preload/Renderer、安全窗口和错误页。
 
@@ -529,76 +849,132 @@ DoD：
 - 能在没有 Editor 的情况下打开 fixture 并执行全部七类节点；
 - 标题页点击后音频可播放，视频和选择阻塞语义正确；
 - 损坏 fixture 显示明确错误而不是白屏或崩溃；
-- 打包后的 Player 在没有 Node、pnpm、CMake 的干净机器上启动。
+- 阶段 2 曾用 `Resources/game` fixture 验证只读 Player；阶段 4 已把 packaged
+  Player 改成不内嵌游戏的通用空壳，fixture 只在开发模式自动加载。
 
-### 阶段 3：实现 Runtime Bundle 导出
+当前 runtime v1 bundle 由两个严格 JSON 文件和媒体目录组成：
 
-工作：增加 C++ 导出快照/预检、Main staging 事务、manifest 和 Editor 导出入口。
+```text
+MyGame.vngame/
+├── game.json
+├── manifest.json
+└── assets/{images,audio,videos}/
+```
+
+Player Main 会在开发 fixture 激活前，或用户所选候选包 commit 前，验证 exact
+fields、版本、全局 ID、场景/资源引用、安全相对路径、MIME/扩展名/Magic Bytes、
+实际大小和 SHA-256，并拒绝 symlink、hardlink、路径逃逸和读取中变化。图片使用有界
+`GET`，音视频支持 `GET/HEAD` 和单段 Range。
+
+### 阶段 3：实现 Runtime Bundle 导出（已完成）
+
+工作：复用 C++ v9 保存边界，在 Editor Main 增加严格 v9→runtime v1 编译、staging
+事务、manifest 和无路径 Renderer 导出入口；不新增 C++ export 命令。
 
 DoD：
 
-- 点击导出前会提交草稿并冻结一个 revision；
-- 生成 `game.json`、`manifest.json` 和完整媒体目录；
+- 点击导出前提交草稿、等待 Engine queue、保存项目并冻结 clean revision；
+- Main 再读取已保存 v9 并核对 Project ID/revision，Renderer 不获得任何路径；
+- 生成 `game.json`、`manifest.json` 和仅包含剧情引用资产的媒体目录；
 - 每个文件大小、MIME 和 SHA-256 可复验；
-- 中途注入任一失败，源项目与旧导出物不变且不留下半成品；
-- Renderer 从未获得绝对资源路径；
-- 生成的 bundle 能被 Player 重新打开并通过 smoke test。
+- 同父目录内核 advisory lock、staging、fsync、源复查和原子 rename 覆盖成功路径；
+- 导出进程被强制终止后，内核自动释放锁，同名目标无需 TTL 即可再次导出；
+- 中途故障不会修改源项目或已有目标，并清理本次 staging；
+- Editor 全量测试及“Editor 导出 → Player 严格读取”跨端集成验证均已通过。
 
-### 阶段 4：通用 Player + `.vngame` 内部测试
+### 阶段 4：通用 Player + `.vngame` 目录选择（已完成）
 
-工作：内容包选择/关联、版本兼容提示、跨项目 token 失效和测试发布说明。
-
-DoD：
-
-- 同一 Player 能分别打开两个游戏且资源能力不串用；
-- bundle 损坏、版本过新、资源 hash 不一致时拒绝启动；
-- macOS Apple Silicon 首个测试 ZIP 可在干净设备离线运行；
-- 测试者不需要安装编辑器或任何开发工具。
-
-### 阶段 5：每款游戏一键生成独立应用
-
-工作：把 bundle、名称、版本和图标注入未签名 Player build，再完成平台签名。
+工作：packaged 空壳、原生 `openDirectory`、候选先验证后 commit、失败保留旧会话，
+以及成功换包后的 token 轮换。操作系统文件关联不属于本阶段。
 
 DoD：
 
-- 最终应用名称、图标和版本来自导出配置；
+- `openGame()` 不接受 Renderer 路径，只由 Main 原生选择 `.vngame` 目录；
+- 取消、坏 hash、过新版本或其他候选错误保留旧游戏；无旧游戏时维持 empty/error；
+- 成功切换后旧 capability URL 失效，同一 Player 可继续选择另一个游戏；
+- 开发模式自动加载 fixture，packaged 产物明确不含 `Resources/game`；
+- 当前 Mac 本机已验证 arm64 ZIP 生成、解压后
+  `codesign --verify --deep --strict`（ad-hoc 签名完整性）和空壳 DOM；
+  这不等于干净设备离线测试、Developer ID 正式签名或 Apple 公证；
+- macOS 双击、UTI/document package 关联延后实现。
+
+### 阶段 5：每款游戏一键生成独立应用（已完成）
+
+工作：导出弹层提供内容包/独立应用两种模式；macOS Editor 使用 packaged resources
+内当前平台与架构的 generic Player 模板，在系统私有事务目录中注入 bundle 和
+metadata 并重新签名，再经目标侧 publishing 复验后发布。embedded Player 启动后
+自动读取固定内容并禁用换包。
+
+DoD：
+
+- 应用名称、严格 `x.y.z` 版本和 Application ID 来自导出配置；macOS 本地组装明确
+  使用模板默认图标，自定义图标由正式 CI 注入；
+- macOS 本地只自定义外层 `.app` 名、`CFBundleDisplayName`、ID 和版本；内部
+  `CFBundleName`/`CFBundleExecutable` 保持 `VN Engine Player` 以匹配 Electron Helper；
 - 应用内部不包含 Editor、Blockly 或作者项目绝对路径；
-- 签名后不再修改应用内容；
-- 最终包通过安装、启动、音视频、退出和卸载 smoke test。
+- 模板 exact fields、platform/arch、注入路径、symlink/hardlink 和现有目标均严格校验；
+- 内容注入和 `Info.plist` 更新发生在 ad-hoc 签名前，签名后立即执行 deep/strict 验证；
+- 独立应用使用私有组装、目标侧 publishing、定向 xattr 清理和最终路径复验；持续
+  回灌 FinderInfo 的 FileProvider 目录会拒绝假成功，并提示选择本地非同步目录；
+- 失败按目录身份回滚私有工作区与 publishing，不覆盖既有目标；本机测试覆盖内容加载、
+  启动模式和事务故障点。
 
-### 阶段 6：多平台 CI 与正式发布
+### 阶段 6：多平台 CI 与正式发布（流水线实现完成，正式执行待外部配置与验收）
 
-工作：macOS/Windows/Linux runner、签名、公证、制品和版本发布流程。
+工作：macOS/Windows/Linux runner、签名、公证、制品、完整 release set 和版本发布
+流程。通用 Player 正式发布与每游戏 embedded build 使用独立 workflow。
 
 DoD：
 
-- 每个平台由对应 runner 构建并在对应系统验证；
-- 所有正式产物带版本、校验值和可追踪 build ID；
-- macOS 签名/公证验证、Windows 签名验证和 Linux 安装测试通过；
-- 发布失败不会把部分平台产物标记为完整版本。
+- 已实现三平台 matrix、严格输入验证、证书/图标 materialization、签名前注入、签名、
+  notarization、SHA-256、GPG checksum signature、build receipt、artifact 收集和全平台
+  release gate；最终 `SHA256SUMS` 同时覆盖三平台 ZIP 与 `release-set.json`；
+- 通用 Player 缺少任一 Secret 时在 preflight 停止；每游戏 workflow 缺材料时在
+  materialization/signing gate 停止；两者都不生成 unsigned 正式替代品；
+- **尚未满足的发布 DoD**：完成 [GitHub 外部配置](#91-上线前必须完成的-github-外部配置)，
+  在 GitHub runner 以真实 Environment Secrets 完成一次 macOS Developer ID + 公证、
+  Windows Authenticode、Linux 包验证，并在干净机器执行 smoke；
+- 在上述真实执行通过前，只能称“发布流水线实现完成”，不能称“正式多平台发行完成”。
 
 ## 12. 当前边界与暂不承诺的能力
 
-截至本文编写时，仓库的真实边界是：
+截至 2026-08-18，仓库的真实边界是：
 
-- 已有 Editor 内正式预览，但没有 `apps/player`；
-- 已有 v9 作者项目与七类时间线节点，但没有 runtime bundle 格式；
+- 已有 Editor 内正式预览和独立 `apps/player`；两者复用同一 Runtime/Player UI；
+- Editor 导出入口、严格 v9→runtime v1 编译器、只复制引用资产的 staging 发布事务
+  已完成并通过导出→Player 严格读取集成测试；
+- 已定义 runtime v1/manifest v1 严格 Reader；开发 fixture 与 Editor 导出的目录包
+  使用同一输入契约；
 - 已有图片 PNG/JPEG/WebP、音频 MP3/WAV/Ogg、视频 MP4/WebM 的安全导入；
-- 已有 Editor 专用 `vn-asset://` capability 与单段 Range；
-- 已有 Electron Forge 的 Editor 平台 maker 配置，但没有 Player Forge 配置；
-- 已经可以封装“编辑器桌面应用”，还不能导出“独立游戏桌面应用”；
-- 当前预览会话不保存游戏进度，也没有独立开始菜单或暂停菜单；
+- Editor 使用 `vn-asset://`；Player 使用隔离的 `vn-game-asset://` capability，
+  音视频均支持单段 Range；
+- Player 有独立 Forge 配置、开始页、暂停页、结束页和错误页；通用与 embedded 两种
+  packaged 启动模式已有测试。当前本机验证属于 internal/ad-hoc，不是 Developer ID
+  正式签名或 Apple 公证；
+- packaged Player 不携带 fixture；通过原生目录选择器打开 `.vngame`，候选失败不
+  覆盖旧游戏，成功后轮换媒体 token；
+- `.vngame` 当前是目录包，不是 ZIP，也没有 macOS 双击/UTI 文件关联；
+- macOS packaged Editor 能组装每游戏独立 `.app`；使用模板默认图标和 ad-hoc 签名，
+  适合内部测试。Windows/Linux 及正式品牌产物必须由目标平台 workflow 构建；
+- Player 暂不保存游戏进度；
+- 当前 Esc 暂停会停止音频，恢复后 BGM/voice 从头开始；macOS 的“退出游戏”按钮
+  当前只关闭窗口，进程生命周期和菜单行为仍需在正式 Player 中收口；
+- 开发 fixture 覆盖七类节点，但不携带真实二进制媒体；正式导出前还需补 packaged
+  图片/音频/视频端到端用例；
+- Player 与 Editor/C++ 的媒体探测现在行为对齐但仍有重复实现，后续应抽取共享
+  测试向量，防止三份校验规则漂移；
 - 还没有变量、条件表达式、存档/读档、历史回看、自动播放、快进、逐字显示、
   音量设置、媒体转码或自动更新；
-- Windows/Linux 代码路径不等于已完成实机发布验证；
-- macOS/Windows 的公开发行仍需要正式签名流程。
+- `player-ci.yml`、`player-game-build.yml` 和 `player-release.yml` 已实现，但 protected
+  Environments、不可变 tag/release 规则、真实凭据 GitHub runner 执行和干净机器 smoke
+  尚无完整验收记录；
+- macOS/Windows 的公开发行仍需要真实签名、公证/时间戳及干净机器验证。
 
-因此第一版合理目标不是一次完成商业发行平台，而是：
+当前下一里程碑不再是补导出代码，而是发布验收：
 
-> 在当前 macOS Apple Silicon 开发机上，从一个已保存的 v9 项目导出只读 Runtime
-> Bundle，并由独立 Player 完整执行现有七类节点；测试者无需安装 Editor、Node、
-> pnpm、CMake 或 C++ 编译器即可离线运行。之后再把同一内容包接入多平台 CI、
-> 独立游戏外壳和正式签名。
-
-这个边界能先验证最重要的架构判断：编辑器预览与最终游戏是否真正共享一套运行
-语义，以及导出过程能否在失败时保持项目和旧产物完整。
+> 按 [GitHub 外部配置](#91-上线前必须完成的-github-外部配置)建立保护边界，在对应
+> GitHub runner 完整执行通用 Player release 和
+> embedded game build，核验 Developer ID/公证、Authenticode/时间戳、Linux 制品、
+> GPG 签名的 checksums、`release-set.json` 与 build receipts，并在干净机器测试安装、
+> 启动、音视频、退出和卸载。
+> `.vngame` 双击关联、存档等产品能力仍是独立后续需求。

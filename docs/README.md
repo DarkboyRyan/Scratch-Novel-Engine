@@ -17,8 +17,10 @@
 
 - [项目文件夹与媒体资源](./project-folder-storage.md)：项目目录格式、安全保存、资源导入、
   capability URL 与媒体读取。
-- [独立游戏 Player 与导出流程](./game-export-player.md)：解释为什么编辑器预览不能直接作为
-  最终游戏，以及共享 Runtime、独立 Player、游戏内容包和桌面游戏打包的开发路线。
+- [独立游戏 Player 与导出流程](./game-export-player.md)：记录已完成的共享 Runtime 与
+  Player、v9→runtime v1 内容包、macOS 独立 `.app` 组装、embedded 模式和多平台
+  workflow；也列出 `player-release`/`game-release` protected Environments、不可变 tag/
+  Release 和 Environment Secrets 的上线配置，并区分“流水线已实现”与“正式发行尚未验收”。
 
 ### 剧情与编辑器功能
 
@@ -42,7 +44,7 @@
 ## 面试准备推荐顺序
 
 1. [技术栈与面试讲解指南](./technical-stack-interview-guide.md)：先掌握 30 秒介绍、
-   总技术栈、四条调用链和常见问答。
+   总技术栈、五条调用链和常见问答。
 2. [当前架构](./architecture.md)：理解 Renderer、Preload、Main、C++ 和文件系统
    的职责边界。
 3. [代码结构整理与解耦](./code-organization-and-decoupling.md)：理解如何把现有编辑器
@@ -57,12 +59,13 @@
 9. [视频播放积木](./video-playback-block.md)：Blockly 视频节点、阻塞式正式预览和安全 Range 播放。
 10. [选项分支](./choice-branch-implementation.md)：ChoiceNode 数据模型、Blockly 嵌套选项和正式预览分支。
 11. [独立游戏 Player 与导出流程](./game-export-player.md)：最后理解编辑器预览、共享
-    Runtime、独立 Player、内容包和平台桌面应用之间的关系。
+    Runtime、独立 Player、内容包、Player 模板、平台桌面应用及正式发布门禁之间的
+    关系。
 
 ## 当前真实技术栈
 
 Electron 43、React 19、TypeScript 5.9、Blockly 13、Vite 5、Electron Forge 7、
-C++20、CMake、nlohmann/json、Vitest 和 CTest。
+C++20、CMake、nlohmann/json、Vitest、Node Test、CTest 和 GitHub Actions。
 
 当前项目 Writer 固定写 `fileVersion: 9`，Reader 支持 v1–v9。`SceneNode` 目前有
 Dialogue、Background、Character、SceneJump、Bgm、Video 和 Choice 七种类型；

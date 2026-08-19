@@ -11,6 +11,7 @@
 - [语音与背景音乐](./audio-implementation.md)
 - [视频播放积木](./video-playback-block.md)
 - [选项分支](./choice-branch-implementation.md)
+- [独立游戏导出与 Player](./game-export-player.md)
 
 ## 1. 30 秒项目介绍
 
@@ -28,6 +29,9 @@ JSON Lines 协议通信，而不是 HTTP。C++ 返回完整权威快照，表单
 - PNG/JPEG/WebP 图片、MP4/WebM 视频与 MP3/WAV/Ogg 音频安全导入；
 - 对白语音和时间线 BGM，正式预览使用独立双音轨控制器；
 - 正式顺序预览、阻塞式视频/选项、鼠标/键盘推进和跳转循环检测；
+- 共享 Runtime/Player UI、v9→runtime v1 `.vngame` 目录导出和通用 Player；
+- macOS Editor 本地每游戏 `.app` 组装、embedded Player，以及通用/每游戏三平台
+  GitHub Actions 发布门禁；
 - 原子清单保存、IPC 权限收窄和真实 C++ 集成测试。
 
 ### 两分钟回答模板
@@ -44,6 +48,16 @@ JSON Lines 协议通信，而不是 HTTP。C++ 返回完整权威快照，表单
 > 也拿不到本机路径，图片、音频和视频通过带 capability token 的 `vn-asset://` 协议读取。
 > 测试上用 CTest 覆盖领域和文件事务，用 Vitest 覆盖 IPC、Blockly 和预览状态机，
 > 并有启动真实 C++ 子进程的 JSONL 集成测试。
+>
+> 游戏导出复用既有 C++ 保存链冻结 v9 和 revision；Editor Main 再严格编译
+> runtime v1，只复制引用媒体，并通过同盘 staging、SHA-256 和原子 rename 发布。
+> 通用 Player 通过 Main 原生目录选择器打开 `.vngame`，候选完整验证后才切换会话，
+> Renderer 始终拿不到路径。独立应用模式在 macOS 使用平台/架构严格匹配的 Player
+> 模板，先注入 `Resources/game`，再改显示名/ID/版本、ad-hoc 签名并复验；为兼容
+> Electron Helper，本地模板内部的 `CFBundleName`/`CFBundleExecutable` 仍保持
+> `VN Engine Player`。Windows/Linux 和正式图标/签名由目标 runner 的可复用 workflow
+> 重新构建。流水线代码已经完成，但受保护 Environment、真实凭据 runner 执行和
+> 干净机器正式发布尚未验收。
 
 ## 2. 技术栈总表
 
@@ -52,7 +66,7 @@ JSON Lines 协议通信，而不是 HTTP。C++ 返回完整权威快照，表单
 | 桌面应用 | Electron 43 | 窗口、原生菜单、文件选择器、Main/Preload/Renderer 进程边界 |
 | UI | React 19、React DOM | 编辑器组件、状态协调、表单、资源条与预览界面 |
 | 前端语言 | TypeScript 5.9 | 判别联合、IPC DTO、编译期约束和纯状态机 |
-| 共享运行时 | pnpm workspace、`@vnengine/runtime` | 无 React/DOM/Node/Electron 的剧情 reducer，供 Editor 与未来 Player 复用 |
+| 共享运行时 | pnpm workspace、`@vnengine/runtime` | 无 React/DOM/Node/Electron 的剧情 reducer，供 Editor 与 Player 复用 |
 | 播放器 UI 原语 | `@vnengine/player-ui`、React ports | 舞台、视频和双音轨控制；媒体 URL 由宿主 Gateway 注入 |
 | 图形化编辑 | Blockly 13.1 | 自定义剧情积木、连接、拖动、框选、重排和垃圾桶 |
 | 样式与画面 | HTML、CSS | 背景、立绘、对白框及编辑器布局；当前没有使用 Canvas/Pixi |
@@ -61,8 +75,12 @@ JSON Lines 协议通信，而不是 HTTP。C++ 返回完整权威快照，表单
 | JSON | nlohmann/json 3.11.3 | 只用于 C++ Backend 的协议和项目文件边界 |
 | 进程通信 | Electron IPC + JSONL | Renderer→Main 使用 IPC；Main→C++ 使用带请求 ID 的逐行 JSON |
 | 文件系统 | Electron dialog、Node `fs`、C++ OS 文件 API | 项目目录、临时工作区、流式复制、fsync 和原子替换 |
+| Runtime 导出 | TypeScript strict parser、Node streams、SHA-256 | 已保存 v9→runtime v1、只复制引用资产、staging 原子发布 |
 | 安全资源读取 | Electron 自定义 `vn-asset://` 协议 | 用 capability token 加载图片/音频/视频，用 Range 播放音频和视频且不暴露路径 |
-| 前端构建 | Vite 5、Electron Forge 7、pnpm | Main/Preload/Renderer 构建与桌面应用打包 |
+| 独立 Player | Electron、`vn-game-asset://`、原生目录选择器 | 候选先校验后 commit，成功换包轮换 token，失败保留旧包 |
+| 独立应用组装 | exact Player template、同盘 staging、`plutil`、`codesign` | macOS 先注入后签名，失败不覆盖已有应用 |
+| 前端构建 | Vite 5、Electron Forge 7、pnpm | 构建时 metadata/icon/extraResource 与通用、embedded 两种 Player |
+| 发布流水线 | GitHub Actions reusable workflow、protected Environment、build receipt、SHA-256/GPG | 三平台在原生 runner 构建；签名/图标/GPG key 只来自 Environment Secrets；缺正式凭据不允许 unsigned fallback |
 | 自动测试 | Vitest 3、CTest | TS 单元/集成测试与 C++ Core/Backend/文件系统测试 |
 | 静态质量 | TypeScript typecheck、ESLint、编译器 warnings | 类型、代码规范和跨平台 C++ 警告检查 |
 
@@ -81,7 +99,7 @@ flowchart LR
   CORE["C++20 Core"]
   FS["project.vn.json + assets"]
 
-  UI -->|"window.vnEngine / vnAssets / vnProjectFiles"| PRELOAD
+  UI -->|"window.vnEngine / vnAssets / vnProjectFiles / vnGameExport"| PRELOAD
   PRELOAD -->|"ipcRenderer.invoke"| MAIN
   MAIN -->|"严格校验后的命令"| CLIENT
   CLIENT -->|"stdin/stdout JSONL"| BACKEND
@@ -127,7 +145,7 @@ ChoiceNode 内部使用 `std::vector<ChoiceOption>`；Option 有独立稳定 ID�
 和目标 Scene ID。它是父节点的子实体，不是第八种 SceneNode。
 
 面试回答重点：C++ 是业务真相，不是为了替代 React 渲染。它负责领域不变量、
-文件兼容和未来 Player/导出工具可复用的剧情数据。
+文件兼容，以及独立 Player、导出工具和未来原生 Runtime 可复用的剧情数据。
 
 ### 4.2 C++ Backend 与 JSONL
 
@@ -312,14 +330,15 @@ ended 或非长按 Enter 才恢复扫描。非空 ChoiceNode 是选择阻塞点�
 点击选项后按稳定 Option ID 跳转。跳转进入目标场景时重置人物层并加载其初始背景，
 同时保持 BGM；`Set<sceneId:index>` 检测没有可停留节点的自动跳转循环。
 
-预览状态是临时会话，不写回 Project、revision 或磁盘。当前先用 TS 纯状态机
-获得快速可测的编辑器预览；独立 Player 的 MVP 会复用抽离后的共享 TypeScript
-Runtime。等变量、脚本、跨版本存档或确定性回放变得复杂后，再评估把同一语义
+预览状态是临时会话，不写回 Project、revision 或磁盘。Editor 与独立 Player 已
+复用抽离后的共享 TypeScript Runtime。等变量、脚本、跨版本存档或确定性回放变得
+复杂后，再评估把同一语义
 下沉到 C++ Runtime。
 
 ### 4.12 构建、打包和测试
 
-使用技术：CMake、CTest、Vitest、TypeScript、ESLint、Vite、Electron Forge。
+使用技术：CMake、CTest、Vitest、Node Test、TypeScript、ESLint、Vite、Electron
+Forge、GitHub Actions。
 
 - `vn_engine_core` 不依赖 Electron 和 JSON；
 - C++ 查询、验证、mutation 与媒体 sniff/文件发布分为独立编译单元；
@@ -330,9 +349,15 @@ Runtime。等变量、脚本、跨版本存档或确定性回放变得复杂后�
 - CTest 分别覆盖 Core、Backend、原子文件和媒体导入；
 - Release C++ 可执行文件通过 `cmake --install` 放入 `engine/stage/backend`；
 - Forge 用 `extraResource` 把它复制到 `Resources/backend`，因为可执行文件不能
-  从 `app.asar` 内直接运行。
+  从 `app.asar` 内直接运行；
+- macOS Editor package/make 会先生成 exact Player 模板并复制到
+  `Resources/player-templates`；CI 会复验模板不含预置 game/metadata；
+- 发布脚本负责输入校验、签名、公证、build receipt、checksums 和完整制品集合；
+  正式 workflow 缺任一 Environment Secret 都不会降级成 unsigned release；
+- 通用 Player 的 `SHA256SUMS` 同时覆盖三平台 ZIP 和最终 `release-set.json`，随后用
+  GPG detached signature 签名；所有第三方 Action 固定完整 commit SHA。
 
-## 5. 四条重点调用链
+## 5. 五条重点调用链
 
 ### 5.1 修改一个积木
 
@@ -390,6 +415,35 @@ ResourcePanel.importImage
   → 玩家输入后 advanceGamePreview
 ```
 
+### 5.5 导出内容包或独立游戏
+
+```text
+Editor 点击“导出”
+  → 弹层选择 .vngame 内容包或独立游戏应用
+  → 独立应用填写应用名、x.y.z 版本和 Application ID
+  → 提交项目名、表单和 Blockly 草稿
+  → 等待 Engine 队列并走既有 C++ 保存链
+  → Main 确认 clean/saved revision，稳定读取磁盘 v9
+  → TypeScript 严格编译 runtime v1，只复制剧情引用媒体
+  → 同盘 staging 计算 SHA-256、写 manifest 并复验
+  → 内容包：原子 rename 为 .vngame 目录
+  → 通用 Player：Main 原生选择并完整验证候选，成功才 commit/轮换 token
+  → macOS 独立应用：复制 strict Player 模板并注入 Resources/game
+  → 更新显示名/ID/版本，保留内部 VN Engine Player Helper 命名
+  → ad-hoc sign + deep/strict verify
+  → 原子 rename 为最终 .app；embedded Player 启动后禁止换包
+```
+
+Editor 和 Player 的 Renderer 都不指定或获得本机路径。导出失败不会发布半成品；
+打开候选失败或取消不会替换 Player 已经激活的旧游戏。
+
+正式 Windows/Linux 每游戏产物不会由 macOS Editor 修改现成可执行文件，而由
+`player-game-build.yml` 在对应 runner 用同一 metadata 与 bundle artifact 重新运行
+Forge，随后执行平台签名、验证、checksum 和 build receipt。workflow 已实现，
+但 GitHub 外部的 protected Environments/Rulesets、真实 Environment Secrets runner
+执行和干净机器 smoke 尚未完成正式验收。配置清单见
+[独立游戏导出文档](./game-export-player.md#91-上线前必须完成的-github-外部配置)。
+
 ## 6. 面试常见问题与回答
 
 ### 为什么选择 Electron + React + C++，而不是全部 TypeScript？
@@ -431,9 +485,9 @@ Blockly 是编辑视图。它的事件被翻译为 C++ 命令，成功后再用 
 
 ### 为什么预览状态机先写在 TypeScript？
 
-当前需求是编辑器内的只读预览，TS 纯函数便于快速迭代和用 Vitest 做输入输出测试，
-也不修改 Project。独立 Player 的 MVP 会先把 reducer 抽成 Editor/Player 共享的
-TypeScript Runtime；等变量、脚本、跨版本存档和确定性回放变得复杂后，再评估
+最初需求是编辑器内的只读预览，TS 纯函数便于快速迭代和用 Vitest 做输入输出测试，
+也不修改 Project；现在 reducer 已抽成 Editor/Player 共享的 TypeScript Runtime。
+等变量、脚本、跨版本存档和确定性回放变得复杂后，再评估
 下沉到 C++ RuntimeSession。
 
 ### Promise 和 async/await 在项目里解决什么问题？
@@ -454,11 +508,19 @@ StrictMode 会在开发环境重复执行 effect。hook 使用实例级 `useRef`
 - 音频已能安全导入并播放对白语音/BGM；当前还没有淡入淡出、波形和音效节点；
 - 正式预览已有背景、人物、对白、BGM、视频、选项和跳转；选项暂不支持变量、条件可见性或副作用；
 - 项目 Writer 为 v9、Reader 支持 v1–v9；v9 保存 ChoiceNode/ChoiceOption；
+- Editor 已完成 v9→runtime v1 内容包导出；packaged macOS Editor 还能通过 strict
+  当前架构模板事务式组装每游戏 `.app`，使用模板默认图标和 ad-hoc 签名；
+- packaged Player 支持通用选择器和固定 embedded 内容两种互斥模式；`.vngame`
+  双击关联仍未完成；
+- 三平台 internal CI、每游戏 reusable workflow 和通用 Player formal release workflow
+  已实现；`player-release`/`game-release` protected Environment、不可变 tag/release、
+  真实凭据 GitHub runner 执行和干净机器 smoke 尚无完整验收记录；
 - Blockly 布局目前是会话级视图状态，尚未持久化到 `.vnengine`；
 - 同一项目根的多窗口排他锁、Undo/Redo 和资源垃圾回收仍是后续工作。
 
-面试中应明确区分“已实现”和“计划实现”，不要把历史计划中的 PixiJS、Zod、
-Zustand、Playwright 或游戏导出描述成当前已经采用的技术。
+面试中应明确区分“实现了导出/流水线”与“完成了正式发行”。不要把历史计划中的
+PixiJS、Zod、Zustand 或 Playwright 描述成当前技术，也不要在没有 Environment
+审批记录、真实凭据 runner 记录和干净机结果时声称正式签名发布已经完成。
 
 ## 7. 常用验证命令
 
@@ -467,6 +529,10 @@ fnm exec --using=24 pnpm --dir apps/editor typecheck
 fnm exec --using=24 pnpm --dir apps/editor lint
 fnm exec --using=24 pnpm --dir apps/editor test
 fnm exec --using=24 pnpm --dir apps/editor package
+fnm exec --using=24 pnpm --dir packages/runtime test
+fnm exec --using=24 pnpm --dir apps/player test
+fnm exec --using=24 pnpm --dir apps/player package
+fnm exec --using=24 pnpm --dir apps/player test:release-tools
 ```
 
 `test` 会先构建 C++，运行 CTest，再运行 Vitest。面试中可以把测试策略概括为：

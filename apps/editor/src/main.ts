@@ -12,6 +12,7 @@ import {
 } from './main/createEditorWindow';
 import { registerAssetIpc } from './main/ipc/registerAssetIpc';
 import { registerEngineIpc } from './main/ipc/registerEngineIpc';
+import { registerExportIpc } from './main/ipc/registerExportIpc';
 import { registerProjectFileIpc } from './main/ipc/registerProjectFileIpc';
 import { installApplicationMenu } from './main/menu/installApplicationMenu';
 import { ProjectFileSession } from './main/project/ProjectFileSession';
@@ -121,6 +122,7 @@ async function openEditorWindow(
 
 registerEngineIpc(editorWindowContexts, trustedEditorLocations);
 registerAssetIpc(editorWindowContexts, trustedEditorLocations);
+registerExportIpc(editorWindowContexts, trustedEditorLocations);
 registerProjectFileIpc(
   editorWindowContexts,
   trustedEditorLocations,

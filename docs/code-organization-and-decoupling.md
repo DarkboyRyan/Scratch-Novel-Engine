@@ -1,7 +1,7 @@
 # 代码结构整理与解耦实施说明
 
-> 本文记录“开始独立 Player 和游戏导出前”的代码整理。它既说明当前已经完成的
-> 改动，也规定后续代码应遵守的依赖方向。游戏导出本身仍是下一阶段能力，详见
+> 本文记录“开始独立 Player 和游戏导出前”的代码整理。它既说明当时完成的改动，
+> 也规定后续代码应遵守的依赖方向；当前 Player 与导出已经沿这些边界接入，详见
 > [独立游戏导出与 Player 技术路线](./game-export-player.md)。
 
 ## 1. 为什么先整理结构
@@ -23,7 +23,7 @@ flowchart LR
   MODEL["@vnengine/runtime<br/>剧情 DTO + 纯状态机"]
   PLAYERUI["@vnengine/player-ui<br/>React 舞台 + 音视频控制"]
   EDITOR["apps/editor Renderer<br/>作者工具与组合层"]
-  PLAYER["apps/player<br/>未来独立游戏外壳"]
+  PLAYER["apps/player<br/>只读独立游戏外壳"]
   PRELOAD["Editor Preload"]
   MAIN["Editor Main<br/>IPC + workflows + adapters"]
   CPP["C++ Core / Backend"]
@@ -114,7 +114,7 @@ engine/src/core/
 - 不访问浏览器、文件系统或 Electron；
 - Editor 的旧路径仅保留兼容 re-export，避免一次性修改全部调用者。
 
-这使未来 Player 可以直接复用与编辑器预览相同的背景、立绘、BGM、视频、跳转和
+这使当前 Player 可以直接复用与编辑器预览相同的背景、立绘、BGM、视频、跳转和
 选项语义。
 
 ### 4.3 抽取 Player UI 原语
@@ -126,7 +126,7 @@ engine/src/core/
 type MediaUrlResolver = (assetId: string) => Promise<string | null>;
 ```
 
-Editor 注入自己的 capability URL gateway；未来 Player 会注入只读游戏包的媒体
+Editor 注入自己的 capability URL gateway；Player 注入只读 runtime bundle 的媒体
 gateway。两边共享展示和生命周期，但不共享 Electron 权限。
 
 ### 4.4 建立 Renderer application ports
@@ -231,9 +231,9 @@ references。目标是让 `runtime` 在没有 DOM/Node types 的 tsconfig 下独
 
 1. 继续把 `useEngineProject` 的 React state、串行 queue 与文件操作协调拆成小模块；
 2. 继续按领域机械拆分 C++ mutation，但不在同一提交改变规则；
-3. 为 `player-ui` 提供独立样式入口，再创建 `apps/player`；
-4. 把 Player 的只读媒体服务与 Editor 的可编辑媒体服务分开；
-5. 最后实现 runtime bundle 编译器和 Editor 导出按钮。
+3. 继续把 `player-ui` 样式从应用 CSS 中收敛成稳定样式入口；
+4. 扩展已经独立的 Player 媒体服务测试与跨平台验证；
+5. 继续消除 Editor/C++/Player 媒体探测的重复实现，并补跨平台与干净机器验证。
 
 每一步只移动一个边界，不同时做协议升级和 UI 行为修改。
 
@@ -265,5 +265,5 @@ git diff --check
 > 我先把编辑器中的剧情状态机抽成无平台依赖的 TypeScript Runtime，再把视觉舞台和
 > 音视频生命周期抽成通过媒体 Port 注入的 React Player UI。Electron Editor 只作为
 > 一种平台 Adapter；Main 的媒体策略与 capability 编排、C++ 的格式探测与安全文件发布
-> 也分别拆开。这样后续独立 Player 复用的是运行语义和 UI 原语，而不是复用编辑器的
+> 也分别拆开。现在独立 Player 复用的是运行语义和 UI 原语，而不是复用编辑器的
 > IPC、Blockly 或写权限。

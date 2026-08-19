@@ -1,5 +1,6 @@
 import type { VnAssetsApi } from '../../shared/assetProtocol';
 import type { VnEngineApi } from '../../shared/engineProtocol';
+import type { VnGameExportApi } from '../../shared/exportProtocol';
 import type {
   ProjectFileCommand,
   VnProjectFilesApi,
@@ -11,6 +12,7 @@ import type {
 export type EditorPlatformGateway = {
   assets: VnAssetsApi;
   engine: VnEngineApi;
+  gameExport: VnGameExportApi;
   projectFiles: VnProjectFilesApi;
 };
 
@@ -18,6 +20,7 @@ export function getEditorPlatformGateway(): EditorPlatformGateway {
   return {
     assets: window.vnAssets,
     engine: window.vnEngine,
+    gameExport: window.vnGameExport,
     projectFiles: window.vnProjectFiles,
   };
 }

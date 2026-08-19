@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
+import type { GameExportRequest } from '../shared/exportProtocol';
 import type { EditorMode } from './application/editorMode';
 import {
   resolveEditorAssetPreviewUrl,
@@ -155,6 +156,16 @@ export default function App() {
 
   const handleSaveProject = async () => {
     await engine.saveProject(prepareCurrentEdits);
+  };
+
+  const handleExportGame = async (
+    request: GameExportRequest,
+  ): Promise<void> => {
+    if (engine.isBusy || gamePreview.session) {
+      return;
+    }
+
+    await engine.exportGame(prepareCurrentEdits, request);
   };
 
   const handleStartPreview = async (): Promise<void> => {
@@ -335,11 +346,14 @@ export default function App() {
         isBusy={editor.isBusy}
         isDirty={isDirty}
         isSaving={engine.isSaving}
+        isExporting={engine.isExporting}
         engineMessage={editor.engineMessage}
+        operationMessage={engine.exportMessage}
         projectFolderName={engine.projectFolderName}
         onCreateProject={() => void handleCreateProject()}
         onOpenProject={() => void handleOpenProject()}
         onSaveProject={() => void handleSaveProject()}
+        onExportGame={(request) => void handleExportGame(request)}
         onBeginRenameProject={() => {
           setProjectNameDraft(project.name);
           setIsRenamingProject(true);

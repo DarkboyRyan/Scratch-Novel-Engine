@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { VnEngineApi } from '../../src/shared/engineProtocol';
+import type { VnGameExportApi } from '../../src/shared/exportProtocol';
 
 const electron = vi.hoisted(() => ({
   exposeInMainWorld: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock('electron', () => ({
 
 describe('preload background and timeline engine API', () => {
   let engine: VnEngineApi;
+  let gameExport: VnGameExportApi;
 
   beforeAll(async () => {
     await import('../../src/preload');
@@ -33,6 +35,14 @@ describe('preload background and timeline engine API', () => {
       throw new Error('preload did not expose vnEngine');
     }
     engine = exposure[1] as VnEngineApi;
+
+    const exportExposure = electron.exposeInMainWorld.mock.calls.find(
+      ([name]) => name === 'vnGameExport',
+    );
+    if (!exportExposure) {
+      throw new Error('preload did not expose vnGameExport');
+    }
+    gameExport = exportExposure[1] as VnGameExportApi;
   });
 
   beforeEach(() => {
@@ -245,4 +255,39 @@ describe('preload background and timeline engine API', () => {
       );
     },
   );
+
+  it('forwards pathless export options on its dedicated channel', async () => {
+    await gameExport.exportGame({ output: 'runtime-bundle' });
+
+    expect(electron.invoke).toHaveBeenCalledWith(
+      'vn-game-export:request',
+      { action: 'export', params: { output: 'runtime-bundle' } },
+    );
+  });
+
+  it('forwards standalone metadata without accepting an output path', async () => {
+    await gameExport.exportGame({
+      output: 'standalone-application',
+      application: {
+        name: 'Story',
+        version: '1.0.0',
+        applicationId: 'com.example.story',
+      },
+    });
+
+    expect(electron.invoke).toHaveBeenCalledWith(
+      'vn-game-export:request',
+      {
+        action: 'export',
+        params: {
+          output: 'standalone-application',
+          application: {
+            name: 'Story',
+            version: '1.0.0',
+            applicationId: 'com.example.story',
+          },
+        },
+      },
+    );
+  });
 });

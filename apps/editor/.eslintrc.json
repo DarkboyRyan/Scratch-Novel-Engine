@@ -42,6 +42,33 @@
       }
     },
     {
+      "files": ["src/preload.ts", "src/shared/**/*.{ts,tsx}"],
+      "rules": {
+        "import/no-nodejs-modules": ["error", { "allow": ["electron"] }],
+        "import/no-unresolved": [
+          "error",
+          { "ignore": ["^filenamify/browser$"] }
+        ],
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "filenamify",
+                "message": "Sandbox-safe shared code must use filenamify/browser."
+              }
+            ],
+            "patterns": [
+              {
+                "group": ["node:*"],
+                "message": "Preload/shared runtime code must not depend on Node built-ins."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "files": ["src/main/**/*.ts", "src/main.ts"],
       "rules": {
         "no-restricted-imports": [

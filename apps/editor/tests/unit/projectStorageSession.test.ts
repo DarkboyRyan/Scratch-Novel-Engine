@@ -110,9 +110,13 @@ describe('ProjectStorageSession', () => {
       '{"format":"vn-engine-project"}\n',
     );
 
-    await session.publishSavedProject(
+    const publishedManifest = await session.publishSavedProject(
       location.backendProjectFilePath,
       targetRoot,
+    );
+
+    expect(publishedManifest).toBe(
+      '{"format":"vn-engine-project"}\n',
     );
 
     await expect(readFile(targetFilePath, 'utf8')).resolves.toBe(

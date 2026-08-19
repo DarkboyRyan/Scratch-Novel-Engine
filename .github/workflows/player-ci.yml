@@ -1,0 +1,263 @@
+name: Player internal CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: player-internal-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: 'true'
+  PNPM_VERSION: 11.18.0
+
+jobs:
+  test-package:
+    name: Internal ${{ matrix.platform }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            platform: darwin
+            arch: arm64
+          - runner: windows-latest
+            platform: win32
+            arch: x64
+          - runner: ubuntu-latest
+            platform: linux
+            arch: x64
+
+    steps:
+      - name: Check out the exact commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Install Node.js from .node-version
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Verify runner architecture
+        shell: bash
+        run: >-
+          node -e "if (process.platform !== '${{ matrix.platform }}' || process.arch !== '${{ matrix.arch }}') throw new Error('Unexpected runner: ' + process.platform + '/' + process.arch)"
+
+      - name: Install the frozen workspace
+        run: pnpm install --frozen-lockfile
+
+      - name: Read Player metadata
+        shell: bash
+        run: |
+          VERSION="$(node -p "require('./apps/player/package.json').version")"
+          echo "PLAYER_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Test shared Runtime
+        run: pnpm --dir packages/runtime test
+
+      - name: Typecheck Player
+        run: pnpm --dir apps/player typecheck
+
+      - name: Lint Player
+        run: pnpm --dir apps/player lint
+
+      - name: Test Player and release tools
+        run: pnpm --dir apps/player test
+
+      - name: Typecheck Editor
+        run: pnpm --dir apps/editor typecheck
+
+      - name: Lint Editor
+        run: pnpm --dir apps/editor lint
+
+      - name: Build the Editor C++ engine tests
+        run: pnpm --dir apps/editor engine:build
+
+      - name: Test the Editor C++ engine on Windows
+        if: matrix.platform == 'win32'
+        run: ctest --test-dir engine/build -C Debug --output-on-failure
+
+      - name: Test the Editor C++ engine on macOS and Linux
+        if: matrix.platform != 'win32'
+        run: pnpm --dir apps/editor engine:test
+
+      - name: Test Editor TypeScript and export integration
+        run: pnpm --dir apps/editor exec vitest run
+
+      - name: Make generic internal Player
+        env:
+          VN_PLAYER_PRODUCT_NAME: ''
+          VN_PLAYER_VERSION: ''
+          VN_PLAYER_APP_BUNDLE_ID: ''
+          VN_PLAYER_ICON_PATH: ''
+          VN_PLAYER_EMBEDDED_GAME_DIR: ''
+          VN_PLAYER_OUT_DIR: ${{ runner.temp }}/player-generic-out
+        run: pnpm --dir apps/player make
+
+      - name: Verify generic package and internal signature class
+        shell: bash
+        run: |
+          node apps/player/scripts/verifyPlayerBuild.mjs \
+            --out-dir "${{ runner.temp }}/player-generic-out" \
+            --platform "${{ matrix.platform }}" \
+            --arch "${{ matrix.arch }}" \
+            --mode generic \
+            --classification internal \
+            --product "VN Engine Player" \
+            --version "$PLAYER_VERSION" \
+            --app-bundle-id com.vnengine.player \
+            --commit "${{ github.sha }}" \
+            --receipt "${{ runner.temp }}/generic-receipt.json"
+
+      - name: Locate generic Windows application for archive smoke
+        if: matrix.platform == 'win32'
+        id: generic_windows_application
+        shell: bash
+        run: >-
+          node apps/player/scripts/locatePlayerBuild.mjs
+          --out-dir "${{ runner.temp }}/player-generic-out"
+          --platform win32
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Smoke Windows archive with space-containing paths
+        if: matrix.platform == 'win32'
+        shell: bash
+        env:
+          PLAYER_APP_PATH: ${{ steps.generic_windows_application.outputs.app_path }}
+        run: |
+          node apps/player/scripts/archiveWindowsBuild.mjs \
+            --source "$PLAYER_APP_PATH" \
+            --output "${{ runner.temp }}/Windows Archive Smoke/Player Output.zip"
+
+      - name: Prepare controlled embedded game fixture
+        shell: bash
+        run: |
+          mkdir -p "${{ runner.temp }}/embedded-input"
+          node apps/player/scripts/prepareEmbeddedFixture.mjs \
+            --source apps/player/fixtures/game \
+            --target "${{ runner.temp }}/embedded-input/game"
+
+      - name: Prepare a deterministic Linux window icon fixture
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: >-
+          node -e "require('node:fs').writeFileSync(process.argv[1],Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=','base64'))"
+          "${{ runner.temp }}/vn-player-icon.png"
+
+      - name: Package embedded internal Player
+        env:
+          VN_PLAYER_PRODUCT_NAME: VN Engine Player CI Embedded
+          VN_PLAYER_VERSION: ${{ env.PLAYER_VERSION }}
+          VN_PLAYER_APP_BUNDLE_ID: com.vnengine.player.ci
+          VN_PLAYER_ICON_PATH: ${{ matrix.platform == 'linux' && format('{0}/vn-player-icon.png', runner.temp) || '' }}
+          VN_PLAYER_EMBEDDED_GAME_DIR: ${{ runner.temp }}/embedded-input/game
+          VN_PLAYER_OUT_DIR: ${{ runner.temp }}/player-embedded-out
+        run: pnpm --dir apps/player package
+
+      - name: Verify copied embedded content
+        shell: bash
+        env:
+          INTERNAL_ICON_PATH: ${{ matrix.platform == 'linux' && format('{0}/vn-player-icon.png', runner.temp) || '' }}
+        run: |
+          ICON_ARGUMENTS=()
+          if [[ -n "$INTERNAL_ICON_PATH" ]]; then
+            ICON_ARGUMENTS=(--icon "$INTERNAL_ICON_PATH")
+          fi
+          node apps/player/scripts/verifyPlayerBuild.mjs \
+            --out-dir "${{ runner.temp }}/player-embedded-out" \
+            --platform "${{ matrix.platform }}" \
+            --arch "${{ matrix.arch }}" \
+            --mode embedded \
+            --classification internal \
+            --product "VN Engine Player CI Embedded" \
+            --version "$PLAYER_VERSION" \
+            --app-bundle-id com.vnengine.player.ci \
+            "${ICON_ARGUMENTS[@]}" \
+            --commit "${{ github.sha }}" \
+            --receipt "${{ runner.temp }}/embedded-receipt.json"
+
+      - name: Stage the macOS Editor Player template
+        if: matrix.platform == 'darwin'
+        shell: bash
+        run: |
+          node apps/player/scripts/stagePlayerTemplate.mjs \
+            --out-dir "${{ runner.temp }}/player-generic-out" \
+            --output "${{ runner.temp }}/player-template-darwin-${{ matrix.arch }}" \
+            --arch "${{ matrix.arch }}" \
+            --version "$PLAYER_VERSION"
+          ditto -c -k --keepParent \
+            "${{ runner.temp }}/player-template-darwin-${{ matrix.arch }}" \
+            "${{ runner.temp }}/player-generic-out/make/player-template-darwin-${{ matrix.arch }}-$PLAYER_VERSION.zip"
+
+      - name: Collect internal maker artifacts and SHA-256
+        shell: bash
+        run: |
+          node apps/player/scripts/collectPlayerArtifacts.mjs \
+            --input "${{ runner.temp }}/player-generic-out/make" \
+            --output "${{ runner.temp }}/internal-artifacts" \
+            --receipt "${{ runner.temp }}/generic-receipt.json" \
+            --classification internal \
+            --platform "${{ matrix.platform }}" \
+            --arch "${{ matrix.arch }}" \
+            --version "$PLAYER_VERSION" \
+            --commit "${{ github.sha }}"
+          node -e "require('node:fs').copyFileSync(process.argv[1], process.argv[2])" \
+            "${{ runner.temp }}/embedded-receipt.json" \
+            "${{ runner.temp }}/internal-artifacts/embedded-build-receipt-${{ matrix.platform }}-${{ matrix.arch }}.json"
+
+      - name: Package macOS Editor through the integrated template staging command
+        if: matrix.platform == 'darwin'
+        env:
+          VN_PLAYER_PRODUCT_NAME: ''
+          VN_PLAYER_VERSION: ''
+          VN_PLAYER_APP_BUNDLE_ID: ''
+          VN_PLAYER_ICON_PATH: ''
+          VN_PLAYER_EMBEDDED_GAME_DIR: ''
+          VN_PLAYER_OUT_DIR: ''
+          VN_EDITOR_OUT_DIR: ${{ runner.temp }}/editor-package-out
+        run: pnpm --dir apps/editor package
+
+      - name: Verify packaged Editor contains the exact generic Player template
+        if: matrix.platform == 'darwin'
+        shell: bash
+        run: |
+          node apps/player/scripts/verifyPackagedEditorTemplate.mjs \
+            --out-dir "${{ runner.temp }}/editor-package-out" \
+            --arch "${{ matrix.arch }}" \
+            --player-version "$PLAYER_VERSION"
+
+      - name: Mark artifact as internal-only
+        shell: bash
+        run: |
+          {
+            echo "## Internal Player artifact: ${{ matrix.platform }}-${{ matrix.arch }}"
+            echo ""
+            echo "This artifact is **not a public release**. macOS is ad-hoc signed; Windows/Linux are unsigned or not platform-signed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload internal-only artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: internal-player-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.sha }}
+          path: ${{ runner.temp }}/internal-artifacts
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

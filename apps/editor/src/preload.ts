@@ -13,6 +13,12 @@ import {
   type VnEngineApi,
 } from './shared/engineProtocol';
 import {
+  type ExportGameInvocation,
+  type ExportGameResult,
+  type VnGameExportApi,
+} from './shared/exportProtocol';
+import { EXPORT_GAME_IPC_CHANNEL } from './shared/exportIpcChannel';
+import {
   PROJECT_FILE_COMMAND_CHANNEL,
   PROJECT_FILE_IPC_CHANNEL,
   type CreateProjectWindowResult,
@@ -35,6 +41,12 @@ function invokeAsset(
   return ipcRenderer.invoke(ASSET_IPC_CHANNEL, invocation) as Promise<
     ImportAssetResult | string | null
   >;
+}
+
+function invokeGameExport(
+  invocation: ExportGameInvocation,
+): Promise<ExportGameResult> {
+  return ipcRenderer.invoke(EXPORT_GAME_IPC_CHANNEL, invocation);
 }
 
 const vnAssets: VnAssetsApi = {
@@ -269,6 +281,12 @@ const vnProjectFiles: VnProjectFilesApi = {
   },
 };
 
+const vnGameExport: VnGameExportApi = {
+  exportGame: (request) =>
+    invokeGameExport({ action: 'export', params: request }),
+};
+
 contextBridge.exposeInMainWorld('vnAssets', vnAssets);
 contextBridge.exposeInMainWorld('vnEngine', vnEngine);
 contextBridge.exposeInMainWorld('vnProjectFiles', vnProjectFiles);
+contextBridge.exposeInMainWorld('vnGameExport', vnGameExport);

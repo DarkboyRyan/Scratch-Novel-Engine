@@ -3,6 +3,10 @@ import { useEffect, useRef, useState } from 'react';
 import type { ImportAssetResult } from '../../shared/assetProtocol';
 import type { EngineMutationResult } from '../../shared/engineProtocol';
 import type {
+  ExportGameCompletedResult,
+  GameExportRequest,
+} from '../../shared/exportProtocol';
+import type {
   AssetDocument,
   ProjectDocument,
 } from '../../shared/projectTypes';
@@ -25,6 +29,7 @@ export type OpenProjectStatus =
 
 export type ImportAssetStatus = ImportAssetResult['status'] | 'failed';
 export type ImportImageStatus = ImportAssetStatus;
+export type ExportGameStatus = 'exported' | 'cancelled' | 'failed';
 
 function requestInitialProject(
   platform: EditorPlatformGateway,
@@ -92,6 +97,8 @@ export function useEngineProject(
     isDirty: true,
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportMessage, setExportMessage] = useState('');
   const fileOperationInProgress = useRef(false);
   const engineActionQueue = useRef<Promise<void>>(Promise.resolve());
   const initializationRequest = useRef<Promise<[
@@ -102,7 +109,8 @@ export function useEngineProject(
     isInitializing ||
     pendingEngineActions > 0 ||
     isFileOperating ||
-    isSaving;
+    isSaving ||
+    isExporting;
 
   function applyResult(
     result: EngineMutationResult,
@@ -177,6 +185,7 @@ export function useEngineProject(
     setPendingEngineActions((current) => current + 1);
     engineActionQueue.current = engineActionQueue.current.then(async () => {
       setEngineMessage('');
+      setExportMessage('');
 
       try {
         const result = await action();
@@ -218,6 +227,7 @@ export function useEngineProject(
     fileOperationInProgress.current = true;
     setIsFileOperating(true);
     setEngineMessage('');
+    setExportMessage('');
 
     try {
       await platform.projectFiles.createProject(name);
@@ -239,6 +249,7 @@ export function useEngineProject(
     fileOperationInProgress.current = true;
     setIsFileOperating(true);
     setEngineMessage('');
+    setExportMessage('');
 
     try {
       await waitForEngineActions();
@@ -272,6 +283,7 @@ export function useEngineProject(
     fileOperationInProgress.current = true;
     setIsSaving(true);
     setEngineMessage('');
+    setExportMessage('');
 
     try {
       if (prepare && !(await prepare())) {
@@ -300,6 +312,74 @@ export function useEngineProject(
     }
   }
 
+  async function exportGame(
+    prepare?: () => Promise<boolean>,
+    request: GameExportRequest = { output: 'runtime-bundle' },
+  ): Promise<ExportGameStatus> {
+    if (fileOperationInProgress.current) {
+      return 'failed';
+    }
+
+    fileOperationInProgress.current = true;
+    setIsExporting(true);
+    setEngineMessage('');
+    setExportMessage('');
+
+    try {
+      // 导出必须来自一次已提交、已保存的权威 revision。即使项目当前看似
+      // clean，也再次走保存边界，让首次保存和媒体发布使用同一条安全流程。
+      if (prepare && !(await prepare())) {
+        return 'failed';
+      }
+
+      await waitForEngineActions();
+      setIsSaving(true);
+      const saveOutcome = await platform.projectFiles.saveProject();
+      setIsSaving(false);
+
+      if (saveOutcome.cancelled) {
+        setSession(saveOutcome.session);
+        setExportMessage('已取消保存，未开始导出');
+        return 'cancelled';
+      }
+
+      applyResult(saveOutcome.result, saveOutcome.session);
+      setProjectGeneration((current) => current + 1);
+
+      const savedSession = {
+        ...saveOutcome.session,
+        ...saveOutcome.result.session,
+      };
+      if (
+        !savedSession.hasStorage ||
+        savedSession.isDirty ||
+        savedSession.savedRevision !== savedSession.revision
+      ) {
+        throw new Error('项目尚未完整保存，无法导出游戏');
+      }
+
+      const outcome = await platform.gameExport.exportGame(request);
+      if (outcome.cancelled) {
+        setExportMessage('已取消导出');
+        return 'cancelled';
+      }
+
+      if (outcome.sourceRevision !== savedSession.revision) {
+        throw new Error('导出版本与已保存项目不一致，请重试');
+      }
+
+      setExportMessage(exportCompletedMessage(outcome));
+      return 'exported';
+    } catch (error: unknown) {
+      setEngineMessage(readableError(error));
+      return 'failed';
+    } finally {
+      fileOperationInProgress.current = false;
+      setIsSaving(false);
+      setIsExporting(false);
+    }
+  }
+
   async function renameProject(name: string): Promise<boolean> {
     const result = await runEngineAction(() =>
       platform.engine.renameProject(name),
@@ -325,6 +405,7 @@ export function useEngineProject(
     fileOperationInProgress.current = true;
     setIsFileOperating(true);
     setEngineMessage('');
+    setExportMessage('');
 
     try {
       await waitForEngineActions();
@@ -353,6 +434,7 @@ export function useEngineProject(
     fileOperationInProgress.current = true;
     setIsFileOperating(true);
     setEngineMessage('');
+    setExportMessage('');
 
     try {
       await waitForEngineActions();
@@ -381,6 +463,7 @@ export function useEngineProject(
     fileOperationInProgress.current = true;
     setIsFileOperating(true);
     setEngineMessage('');
+    setExportMessage('');
 
     try {
       await waitForEngineActions();
@@ -408,8 +491,10 @@ export function useEngineProject(
     projectFolderName: session.projectFolderName,
     session,
     isSaving,
+    isExporting,
     isBusy,
     engineMessage,
+    exportMessage,
     setEngineMessage,
     runEngineAction,
     authoringCommands: platform.engine,
@@ -417,6 +502,7 @@ export function useEngineProject(
     createProject,
     openProject,
     saveProject,
+    exportGame,
     importImage,
     importVideo,
     importAudio,
@@ -425,6 +511,13 @@ export function useEngineProject(
     waitForEngineActions,
     getProjectSnapshot,
   };
+}
+
+function exportCompletedMessage(
+  outcome: ExportGameCompletedResult,
+): string {
+  const kind = outcome.output === 'standalone-application' ? '独立应用' : '内容包';
+  return `已导出${kind} ${outcome.artifactName}（${outcome.assetCount} 项资源）`;
 }
 
 export type EngineProjectState = ReturnType<typeof useEngineProject>;

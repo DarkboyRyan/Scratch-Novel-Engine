@@ -1,0 +1,603 @@
+name: Player formal release
+
+on:
+  push:
+    tags:
+      - player-v*
+
+permissions:
+  contents: read
+
+concurrency:
+  group: player-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CI: 'true'
+  PNPM_VERSION: 11.18.0
+
+jobs:
+  preflight:
+    name: Require the complete release credential set
+    runs-on: ubuntu-latest
+    environment: player-release
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.preflight.outputs.version }}
+      tag: ${{ steps.preflight.outputs.tag }}
+      commit: ${{ steps.preflight.outputs.commit }}
+      tag_object_type: ${{ steps.tag_ref.outputs.object_type }}
+      tag_object_sha: ${{ steps.tag_ref.outputs.object_sha }}
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install Node.js from .node-version
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+
+      - name: Validate tag and every formal-release secret
+        id: preflight
+        env:
+          RELEASE_TAG_INPUT: ${{ github.ref_name }}
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          PLAYER_ICON_ICNS_BASE64: ${{ secrets.PLAYER_ICON_ICNS_BASE64 }}
+          PLAYER_ICON_ICO_BASE64: ${{ secrets.PLAYER_ICON_ICO_BASE64 }}
+          PLAYER_ICON_PNG_BASE64: ${{ secrets.PLAYER_ICON_PNG_BASE64 }}
+          RELEASE_GPG_PRIVATE_KEY_BASE64: ${{ secrets.RELEASE_GPG_PRIVATE_KEY_BASE64 }}
+          RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+          RELEASE_GPG_FINGERPRINT: ${{ secrets.RELEASE_GPG_FINGERPRINT }}
+        run: >-
+          node apps/player/scripts/verifyReleasePrerequisites.mjs
+          --package apps/player/package.json
+          --tag "$RELEASE_TAG_INPUT"
+          --commit "${{ github.sha }}"
+
+      - name: State the no-fallback release policy
+        shell: bash
+        run: |
+          {
+            echo "## Formal Player release preflight passed"
+            echo ""
+            echo "No unsigned fallback is permitted in this workflow. Missing credentials stop before any release build or GitHub Release is created."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Capture the exact remote tag object identity
+        id: tag_ref
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.preflight.outputs.tag }}
+        run: |
+          TAG_OBJECT="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" --jq '.object | [.type, .sha] | @tsv')"
+          IFS=$'\t' read -r OBJECT_TYPE OBJECT_SHA <<< "$TAG_OBJECT"
+          if [[ "$OBJECT_TYPE" != "tag" && "$OBJECT_TYPE" != "commit" ]]; then
+            echo "Unsupported release tag object type" >&2
+            exit 1
+          fi
+          [[ "$OBJECT_SHA" =~ ^[a-f0-9]{40}$ ]] || {
+            echo "Invalid release tag object SHA" >&2
+            exit 1
+          }
+          echo "object_type=$OBJECT_TYPE" >> "$GITHUB_OUTPUT"
+          echo "object_sha=$OBJECT_SHA" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Signed ${{ matrix.platform }}-${{ matrix.arch }}
+    needs: preflight
+    runs-on: ${{ matrix.runner }}
+    environment: player-release
+    timeout-minutes: 90
+    env:
+      PLAYER_RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
+      PLAYER_RELEASE_COMMIT: ${{ needs.preflight.outputs.commit }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            platform: darwin
+            arch: arm64
+            icon_extension: icns
+            icon_file: player.icns
+          - runner: windows-latest
+            platform: win32
+            arch: x64
+            icon_extension: ico
+            icon_file: player.ico
+          - runner: ubuntu-latest
+            platform: linux
+            arch: x64
+            icon_extension: png
+            icon_file: vn-player-icon.png
+
+    steps:
+      - name: Check out the exact tagged commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Install Node.js from .node-version
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Verify runner architecture
+        shell: bash
+        run: >-
+          node -e "if (process.platform !== '${{ matrix.platform }}' || process.arch !== '${{ matrix.arch }}') throw new Error('Unexpected runner: ' + process.platform + '/' + process.arch)"
+
+      - name: Install the frozen workspace
+        run: pnpm install --frozen-lockfile
+
+      - name: Re-run release-gating tests
+        run: |
+          pnpm --dir packages/runtime test
+          pnpm --dir apps/player typecheck
+          pnpm --dir apps/player lint
+          pnpm --dir apps/player test
+          pnpm --dir apps/editor typecheck
+          pnpm --dir apps/editor lint
+          pnpm --dir apps/editor engine:build
+
+      - name: Re-run Editor C++ tests on Windows
+        if: matrix.platform == 'win32'
+        run: ctest --test-dir engine/build -C Debug --output-on-failure
+
+      - name: Re-run Editor C++ tests on macOS and Linux
+        if: matrix.platform != 'win32'
+        run: pnpm --dir apps/editor engine:test
+
+      - name: Re-run Editor TypeScript and export integration tests
+        run: pnpm --dir apps/editor exec vitest run
+
+      - name: Materialize the platform brand icon
+        shell: bash
+        env:
+          PLAYER_ICON_BASE64: ${{ matrix.platform == 'darwin' && secrets.PLAYER_ICON_ICNS_BASE64 || matrix.platform == 'win32' && secrets.PLAYER_ICON_ICO_BASE64 || secrets.PLAYER_ICON_PNG_BASE64 }}
+        run: >-
+          node apps/player/scripts/materializeSecretFile.mjs
+          --environment PLAYER_ICON_BASE64
+          --output "${{ runner.temp }}/${{ matrix.icon_file }}"
+
+      - name: Materialize the platform signing certificate
+        if: matrix.platform != 'linux'
+        shell: bash
+        env:
+          SIGNING_CERTIFICATE_BASE64: ${{ matrix.platform == 'darwin' && secrets.MACOS_CERTIFICATE_BASE64 || secrets.WINDOWS_CERTIFICATE_BASE64 }}
+        run: >-
+          node apps/player/scripts/materializeSecretFile.mjs
+          --environment SIGNING_CERTIFICATE_BASE64
+          --output "${{ runner.temp }}/player-signing.${{ matrix.platform == 'darwin' && 'p12' || 'pfx' }}"
+
+      - name: Import Developer ID certificate into an ephemeral keychain
+        if: matrix.platform == 'darwin'
+        shell: bash
+        env:
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="${{ runner.temp }}/player-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "${{ runner.temp }}/player-signing.p12" \
+            -k "$KEYCHAIN_PATH" \
+            -P "$CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+
+      - name: Package branded generic Player before signing
+        env:
+          VN_PLAYER_PRODUCT_NAME: VN Engine Player
+          VN_PLAYER_VERSION: ${{ needs.preflight.outputs.version }}
+          VN_PLAYER_APP_BUNDLE_ID: com.vnengine.player
+          VN_PLAYER_ICON_PATH: ${{ runner.temp }}/${{ matrix.icon_file }}
+          VN_PLAYER_EMBEDDED_GAME_DIR: ''
+          VN_PLAYER_OUT_DIR: ${{ runner.temp }}/player-release-out
+        run: pnpm --dir apps/player package
+
+      - name: Locate the one packaged application
+        id: application
+        shell: bash
+        run: >-
+          node apps/player/scripts/locatePlayerBuild.mjs
+          --out-dir "${{ runner.temp }}/player-release-out"
+          --platform "${{ matrix.platform }}"
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Apply Developer ID hardened-runtime signature
+        if: matrix.platform == 'darwin'
+        shell: bash
+        env:
+          PLAYER_APP_PATH: ${{ steps.application.outputs.app_path }}
+          PLAYER_SIGNING_CERTIFICATE_PATH: ${{ runner.temp }}/player-signing.p12
+          PLAYER_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          PLAYER_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          PLAYER_SIGNING_KEYCHAIN: ${{ runner.temp }}/player-signing.keychain-db
+        run: >-
+          node apps/player/scripts/signPlayerBuild.mjs
+          --platform darwin
+          --app "$PLAYER_APP_PATH"
+
+      - name: Notarize and staple the macOS application
+        if: matrix.platform == 'darwin'
+        shell: bash
+        env:
+          PLAYER_APP_PATH: ${{ steps.application.outputs.app_path }}
+          NOTARY_APPLE_ID: ${{ secrets.APPLE_ID }}
+          NOTARY_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          NOTARY_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          ditto -c -k --keepParent \
+            "$PLAYER_APP_PATH" \
+            "${{ runner.temp }}/notary-submission.zip"
+          xcrun notarytool submit "${{ runner.temp }}/notary-submission.zip" \
+            --apple-id "$NOTARY_APPLE_ID" \
+            --password "$NOTARY_PASSWORD" \
+            --team-id "$NOTARY_TEAM_ID" \
+            --wait
+          xcrun stapler staple "$PLAYER_APP_PATH"
+
+      - name: Apply Windows Authenticode signature and timestamp
+        if: matrix.platform == 'win32'
+        shell: bash
+        env:
+          PLAYER_APP_PATH: ${{ steps.application.outputs.app_path }}
+          PLAYER_SIGNING_CERTIFICATE_PATH: ${{ runner.temp }}/player-signing.pfx
+          PLAYER_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: >-
+          node apps/player/scripts/signPlayerBuild.mjs
+          --platform win32
+          --app "$PLAYER_APP_PATH"
+
+      - name: Verify the signed package and platform release gate
+        shell: bash
+        env:
+          PLAYER_ICON_PATH: ${{ runner.temp }}/${{ matrix.icon_file }}
+        run: |
+          node apps/player/scripts/verifyPlayerBuild.mjs \
+            --out-dir "${{ runner.temp }}/player-release-out" \
+            --platform "${{ matrix.platform }}" \
+            --arch "${{ matrix.arch }}" \
+            --mode generic \
+            --classification release \
+            --product "VN Engine Player" \
+            --version "$PLAYER_RELEASE_VERSION" \
+            --app-bundle-id com.vnengine.player \
+            --icon "$PLAYER_ICON_PATH" \
+            --commit "$PLAYER_RELEASE_COMMIT" \
+            --receipt "${{ runner.temp }}/release-receipt.json"
+
+      - name: Archive notarized macOS application
+        if: matrix.platform == 'darwin'
+        shell: bash
+        env:
+          PLAYER_APP_PATH: ${{ steps.application.outputs.app_path }}
+        run: |
+          mkdir -p "${{ runner.temp }}/signed-input"
+          ditto -c -k --keepParent \
+            "$PLAYER_APP_PATH" \
+            "${{ runner.temp }}/signed-input/VN-Engine-Player-darwin-${{ matrix.arch }}-$PLAYER_RELEASE_VERSION.zip"
+
+      - name: Archive signed Windows application
+        if: matrix.platform == 'win32'
+        shell: bash
+        env:
+          PLAYER_APP_PATH: ${{ steps.application.outputs.app_path }}
+        run: |
+          node apps/player/scripts/archiveWindowsBuild.mjs \
+            --source "$PLAYER_APP_PATH" \
+            --output "${{ runner.temp }}/signed-input/VN-Engine-Player-win32-${{ matrix.arch }}-$PLAYER_RELEASE_VERSION.zip"
+
+      - name: Archive Linux application
+        if: matrix.platform == 'linux'
+        shell: bash
+        env:
+          PLAYER_APP_PATH: ${{ steps.application.outputs.app_path }}
+        run: |
+          mkdir -p "${{ runner.temp }}/signed-input"
+          APP_PARENT="$(dirname "$PLAYER_APP_PATH")"
+          APP_NAME="$(basename "$PLAYER_APP_PATH")"
+          if [[ "$APP_NAME" == "." || "$APP_NAME" == ".." || "$APP_NAME" == */* ]]; then
+            echo "Unsafe packaged application basename" >&2
+            exit 1
+          fi
+          cd "$APP_PARENT"
+          zip -qry \
+            "${{ runner.temp }}/signed-input/VN-Engine-Player-linux-${{ matrix.arch }}-$PLAYER_RELEASE_VERSION.zip" \
+            "./$APP_NAME"
+
+      - name: Collect one formal platform artifact and SHA-256
+        shell: bash
+        run: |
+          node apps/player/scripts/collectPlayerArtifacts.mjs \
+            --input "${{ runner.temp }}/signed-input" \
+            --output "${{ runner.temp }}/release-candidate" \
+            --receipt "${{ runner.temp }}/release-receipt.json" \
+            --classification release \
+            --platform "${{ matrix.platform }}" \
+            --arch "${{ matrix.arch }}" \
+            --version "$PLAYER_RELEASE_VERSION" \
+            --commit "$PLAYER_RELEASE_COMMIT"
+
+      - name: Remove signing material before third-party artifact upload
+        shell: bash
+        run: |
+          if [[ "${{ matrix.platform }}" == "darwin" ]]; then
+            security delete-keychain "${{ runner.temp }}/player-signing.keychain-db" 2>/dev/null || true
+          fi
+          node -e "const fs=require('node:fs'); for (const file of process.argv.slice(1)) fs.rmSync(file,{force:true})" \
+            "${{ runner.temp }}/player-signing.p12" \
+            "${{ runner.temp }}/player-signing.pfx" \
+            "${{ runner.temp }}/${{ matrix.icon_file }}" \
+            "${{ runner.temp }}/notary-submission.zip"
+
+      - name: Upload verified release candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-player-${{ matrix.platform }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/release-candidate
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+      - name: Remove ephemeral signing material
+        if: always()
+        shell: bash
+        run: |
+          if [[ "${{ matrix.platform }}" == "darwin" ]]; then
+            security delete-keychain "${{ runner.temp }}/player-signing.keychain-db" 2>/dev/null || true
+          fi
+          node -e "const fs=require('node:fs'); for (const file of process.argv.slice(1)) fs.rmSync(file,{force:true})" \
+            "${{ runner.temp }}/player-signing.p12" \
+            "${{ runner.temp }}/player-signing.pfx" \
+            "${{ runner.temp }}/${{ matrix.icon_file }}" \
+            "${{ runner.temp }}/notary-submission.zip"
+
+  publish:
+    name: Publish only the complete three-platform release
+    needs:
+      - preflight
+      - build
+    runs-on: ubuntu-latest
+    environment: player-release
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      PLAYER_RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
+      PLAYER_RELEASE_COMMIT: ${{ needs.preflight.outputs.commit }}
+    steps:
+      - name: Check out the exact tagged commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install Node.js from .node-version
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+
+      - name: Download every platform candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: release-player-*
+          path: ${{ runner.temp }}/release-candidates
+          merge-multiple: true
+
+      - name: Verify the complete release set and combined SHA-256 manifest
+        shell: bash
+        run: |
+          node apps/player/scripts/verifyReleaseSet.mjs \
+            --input "${{ runner.temp }}/release-candidates" \
+            --output "${{ runner.temp }}/publish" \
+            --version "$PLAYER_RELEASE_VERSION" \
+            --commit "$PLAYER_RELEASE_COMMIT"
+
+      - name: Sign the combined checksum manifest with the release GPG key
+        shell: bash
+        env:
+          RELEASE_GPG_PRIVATE_KEY_BASE64: ${{ secrets.RELEASE_GPG_PRIVATE_KEY_BASE64 }}
+          RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+          RELEASE_GPG_FINGERPRINT: ${{ secrets.RELEASE_GPG_FINGERPRINT }}
+        run: |
+          export GNUPGHOME="${{ runner.temp }}/gnupg"
+          mkdir -m 700 "$GNUPGHOME"
+          node apps/player/scripts/materializeSecretFile.mjs \
+            --environment RELEASE_GPG_PRIVATE_KEY_BASE64 \
+            --output "${{ runner.temp }}/release-signing-key.asc"
+          gpg --batch --import "${{ runner.temp }}/release-signing-key.asc"
+          ACTUAL_FINGERPRINT="$(gpg --batch --with-colons --fingerprint "$RELEASE_GPG_FINGERPRINT" | awk -F: '$1 == "fpr" { print $10; exit }')"
+          if [[ "${ACTUAL_FINGERPRINT^^}" != "${RELEASE_GPG_FINGERPRINT^^}" ]]; then
+            echo "Imported GPG fingerprint does not match RELEASE_GPG_FINGERPRINT" >&2
+            exit 1
+          fi
+          gpg --batch --yes --armor --detach-sign \
+            --pinentry-mode loopback \
+            --passphrase "$RELEASE_GPG_PASSPHRASE" \
+            --local-user "$RELEASE_GPG_FINGERPRINT" \
+            --output "${{ runner.temp }}/publish/SHA256SUMS.asc" \
+            "${{ runner.temp }}/publish/SHA256SUMS"
+          gpg --batch --verify \
+            "${{ runner.temp }}/publish/SHA256SUMS.asc" \
+            "${{ runner.temp }}/publish/SHA256SUMS"
+          gpg --batch --armor --export "$RELEASE_GPG_FINGERPRINT" > \
+            "${{ runner.temp }}/release-signing-public-key.asc"
+
+      - name: Remove GPG private key material before publishing
+        if: always()
+        shell: bash
+        run: |
+          node -e "const fs=require('node:fs'); for (const file of process.argv.slice(1)) fs.rmSync(file,{recursive:true,force:true})" \
+            "${{ runner.temp }}/release-signing-key.asc" \
+            "${{ runner.temp }}/gnupg"
+
+      - name: Create a draft, upload all assets, then publish atomically
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.preflight.outputs.tag }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+          EXPECTED_COMMIT: ${{ needs.preflight.outputs.commit }}
+          EXPECTED_TAG_OBJECT_TYPE: ${{ needs.preflight.outputs.tag_object_type }}
+          EXPECTED_TAG_OBJECT_SHA: ${{ needs.preflight.outputs.tag_object_sha }}
+          PUBLISH_DIR: ${{ runner.temp }}/publish
+        run: |
+          CREATED_DRAFT=false
+          CREATED_RELEASE_ID=''
+          rollback_draft() {
+            status=$?
+            trap - EXIT
+            if [[ "$status" -ne 0 && "$CREATED_DRAFT" == "true" ]]; then
+              release_state="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${CREATED_RELEASE_ID}" --jq '[.draft, .tag_name, .target_commitish] | @tsv' 2>/dev/null || true)"
+              if [[ "$release_state" == $'true\t'"$TAG"$'\t'"$EXPECTED_COMMIT" ]]; then
+                gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${CREATED_RELEASE_ID}" >/dev/null || true
+              fi
+            fi
+            exit "$status"
+          }
+          verify_remote_tag_commit() {
+            local object_type object_sha iteration remote_tag_object
+            remote_tag_object="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" --jq '.object | [.type, .sha] | @tsv')"
+            if [[ "$remote_tag_object" != "$EXPECTED_TAG_OBJECT_TYPE"$'\t'"$EXPECTED_TAG_OBJECT_SHA" ]]; then
+              echo "Remote release tag object identity changed after preflight" >&2
+              return 1
+            fi
+            object_type="$EXPECTED_TAG_OBJECT_TYPE"
+            object_sha="$EXPECTED_TAG_OBJECT_SHA"
+            for iteration in {1..8}; do
+              if [[ "$object_type" == "commit" ]]; then
+                [[ "$object_sha" == "$EXPECTED_COMMIT" ]] || {
+                  echo "Remote release tag no longer resolves to the preflight commit" >&2
+                  return 1
+                }
+                return 0
+              fi
+              [[ "$object_type" == "tag" ]] || {
+                echo "Remote release ref has an unsupported object type" >&2
+                return 1
+              }
+              object_type="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${object_sha}" --jq '.object.type')"
+              object_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${object_sha}" --jq '.object.sha')"
+            done
+            echo "Remote release tag annotation chain is too deep" >&2
+            return 1
+          }
+          verify_created_draft() {
+            local release_state tag_release_id
+            release_state="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${CREATED_RELEASE_ID}" --jq '[.id, .draft, .tag_name, .target_commitish] | @tsv')"
+            if [[ "$release_state" != "$CREATED_RELEASE_ID"$'\ttrue\t'"$TAG"$'\t'"$EXPECTED_COMMIT" ]]; then
+              echo "Created draft release identity changed" >&2
+              return 1
+            fi
+            tag_release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq '.id')"
+            if [[ "$tag_release_id" != "$CREATED_RELEASE_ID" ]]; then
+              echo "Release tag no longer resolves to this run's draft" >&2
+              return 1
+            fi
+          }
+          trap rollback_draft EXIT
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; refusing to overwrite it" >&2
+            exit 1
+          fi
+          verify_remote_tag_commit
+          {
+            echo "VN Engine Player $VERSION"
+            echo ""
+            echo "This formal release contains all three verified platforms. macOS is Developer ID signed, notarized, and stapled; Windows is Authenticode signed and timestamped; checksums are GPG signed."
+          } > "${{ runner.temp }}/release-notes.md"
+          node -e "const fs=require('node:fs'); fs.writeFileSync(process.argv[1], JSON.stringify({tag_name:process.env.TAG,target_commitish:process.env.EXPECTED_COMMIT,name:'VN Engine Player '+process.env.VERSION,body:fs.readFileSync(process.argv[2],'utf8'),draft:true,prerelease:false}))" \
+            "${{ runner.temp }}/release-create.json" \
+            "${{ runner.temp }}/release-notes.md"
+          CREATED_RELEASE_ID="$(gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/releases" \
+            --input "${{ runner.temp }}/release-create.json" \
+            --jq '.id')"
+          [[ "$CREATED_RELEASE_ID" =~ ^[0-9]+$ ]] || {
+            echo "Draft release ID is invalid" >&2
+            exit 1
+          }
+          CREATED_DRAFT=true
+          verify_remote_tag_commit
+          verify_created_draft
+          gh release upload "$TAG" \
+            "$PUBLISH_DIR"/*.zip \
+            "$PUBLISH_DIR/SHA256SUMS" \
+            "$PUBLISH_DIR/SHA256SUMS.asc" \
+            "$PUBLISH_DIR/release-set.json"
+          EXPECTED_NAMES="$(find "$PUBLISH_DIR" -maxdepth 1 -type f -print | sed 's#^.*/##' | LC_ALL=C sort)"
+          REMOTE_NAMES="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq '.assets[].name' | LC_ALL=C sort)"
+          if [[ "$REMOTE_NAMES" != "$EXPECTED_NAMES" ]]; then
+            echo "Draft release assets do not match the verified local release set" >&2
+            exit 1
+          fi
+          verify_created_draft
+          REMOTE_DIR="${{ runner.temp }}/remote-release-assets"
+          mkdir -p "$REMOTE_DIR"
+          gh release download "$TAG" --dir "$REMOTE_DIR"
+          while IFS= read -r asset_name; do
+            local_hash="$(sha256sum "$PUBLISH_DIR/$asset_name" | awk '{print $1}')"
+            remote_hash="$(sha256sum "$REMOTE_DIR/$asset_name" | awk '{print $1}')"
+            if [[ "$local_hash" != "$remote_hash" ]]; then
+              echo "Remote draft asset digest mismatch: $asset_name" >&2
+              exit 1
+            fi
+          done <<< "$EXPECTED_NAMES"
+          export GNUPGHOME="${{ runner.temp }}/release-public-verify-gnupg"
+          mkdir -m 700 "$GNUPGHOME"
+          gpg --batch --import "${{ runner.temp }}/release-signing-public-key.asc"
+          gpg --batch --verify \
+            "$REMOTE_DIR/SHA256SUMS.asc" \
+            "$REMOTE_DIR/SHA256SUMS"
+          (cd "$REMOTE_DIR" && sha256sum --strict --check SHA256SUMS)
+          rm -rf "$GNUPGHOME" "$REMOTE_DIR"
+          rm -f "${{ runner.temp }}/release-signing-public-key.asc"
+          verify_remote_tag_commit
+          verify_created_draft
+          PUBLISHED_RELEASE="$(gh api \
+            --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/releases/${CREATED_RELEASE_ID}" \
+            -F draft=false \
+            -f make_latest=true \
+            --jq '[.id, .draft, .tag_name] | @tsv')"
+          if [[ "$PUBLISHED_RELEASE" != "$CREATED_RELEASE_ID"$'\tfalse\t'"$TAG" ]]; then
+            echo "GitHub did not confirm publication of this run's exact draft" >&2
+            exit 1
+          fi
+          CREATED_DRAFT=false
+          trap - EXIT
+
+      - name: Record the completed release gate
+        shell: bash
+        run: |
+          {
+            echo "## Formal Player release published"
+            echo ""
+            echo "All three platform jobs, platform signatures, notarization, SHA-256 verification, and GPG checksum signing passed before the draft became public."
+          } >> "$GITHUB_STEP_SUMMARY"

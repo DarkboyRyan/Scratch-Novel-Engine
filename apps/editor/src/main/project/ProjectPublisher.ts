@@ -361,17 +361,42 @@ async function atomicPublishManifest(
   }
 }
 
+async function readStableManifestBytes(filePath: string): Promise<Buffer> {
+  const noFollow = constants.O_NOFOLLOW ?? 0;
+  const manifest = await open(
+    filePath,
+    constants.O_RDONLY | noFollow,
+  );
+  try {
+    const before = await manifest.stat();
+    if (
+      !before.isFile() ||
+      before.nlink !== 1 ||
+      before.size > MAX_PROJECT_FILE_BYTES
+    ) {
+      throw new Error('后端项目文件不可安全校验');
+    }
+    const manifestBytes = await manifest.readFile();
+    if (!sameSnapshot(before, await manifest.stat())) {
+      throw new Error('后端项目文件在校验时发生了变化');
+    }
+    return manifestBytes;
+  } finally {
+    await manifest.close();
+  }
+}
+
 // targetProjectRootPath is canonicalized and checked against the owning
 // session's private workspace before this transaction starts.
 export async function publishProjectSnapshot(
   backendProjectFilePath: string,
   targetProjectRootPath: string,
   validateBeforeCommit?: ValidateProjectSnapshot,
-): Promise<void> {
+): Promise<string> {
   const backendPath = path.resolve(backendProjectFilePath);
   const targetPath = projectManifestPath(targetProjectRootPath);
   if (backendPath === targetPath) {
-    return;
+    return (await readStableManifestBytes(backendPath)).toString('utf8');
   }
 
   const rollback: PublishRollback = {
@@ -421,28 +446,7 @@ export async function publishProjectSnapshot(
     // Validate the exact manifest snapshot against the final target root
     // before replacing the old commit marker. This catches an Asset that
     // was deleted or swapped after import but before Save.
-    const noFollow = constants.O_NOFOLLOW ?? 0;
-    const backendManifest = await open(
-      backendPath,
-      constants.O_RDONLY | noFollow,
-    );
-    let manifestBytes: Buffer;
-    try {
-      const before = await backendManifest.stat();
-      if (
-        !before.isFile() ||
-        before.nlink !== 1 ||
-        before.size > MAX_PROJECT_FILE_BYTES
-      ) {
-        throw new Error('后端项目文件不可安全校验');
-      }
-      manifestBytes = await backendManifest.readFile();
-      if (!sameSnapshot(before, await backendManifest.stat())) {
-        throw new Error('后端项目文件在校验时发生了变化');
-      }
-    } finally {
-      await backendManifest.close();
-    }
+    const manifestBytes = await readStableManifestBytes(backendPath);
     if (validateBeforeCommit) {
       await validateBeforeCommit(
         manifestBytes.toString('utf8'),
@@ -454,6 +458,7 @@ export async function publishProjectSnapshot(
     // binary is durable at the target. A failed manifest publish removes
     // only files created by this attempt and leaves the workspace intact.
     await atomicPublishManifest(manifestBytes, targetPath);
+    return manifestBytes.toString('utf8');
   } catch (error) {
     await rollbackPublishedAssets(rollback);
     throw error;

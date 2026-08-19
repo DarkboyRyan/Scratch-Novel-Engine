@@ -12,10 +12,10 @@
     "engine:configure:release": "cmake -S ../../engine -B ../../engine/build-release -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF",
     "engine:build:release": "pnpm run engine:configure:release && cmake --build ../../engine/build-release --config Release --target vn_engine_backend --parallel",
     "engine:stage:release": "pnpm run engine:build:release && cmake --install ../../engine/build-release --config Release --prefix ../../engine/stage/backend",
-    "start": "pnpm run engine:build && electron-forge start",
-    "package": "pnpm run engine:stage:release && electron-forge package",
-    "make": "pnpm run engine:stage:release && electron-forge make",
-    "publish": "pnpm run engine:stage:release && electron-forge publish",
+    "start": "pnpm run engine:build && node ../player/scripts/runEditorWithPlayerTemplate.mjs --command start",
+    "package": "pnpm run engine:stage:release && node ../player/scripts/runEditorWithPlayerTemplate.mjs --command package",
+    "make": "pnpm run engine:stage:release && node ../player/scripts/runEditorWithPlayerTemplate.mjs --command make",
+    "publish": "pnpm run engine:stage:release && node ../player/scripts/runEditorWithPlayerTemplate.mjs --command publish",
     "lint": "eslint --ext .ts,.tsx .",
     "typecheck": "tsc --noEmit",
     "test": "pnpm run engine:build && pnpm run engine:test && vitest run",
@@ -54,6 +54,7 @@
     "@vnengine/runtime": "workspace:*",
     "blockly": "13.1.1",
     "electron-squirrel-startup": "1.0.1",
+    "filenamify": "4.3.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   }

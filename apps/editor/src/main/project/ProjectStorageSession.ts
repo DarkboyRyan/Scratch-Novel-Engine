@@ -102,12 +102,12 @@ export class ProjectStorageSession {
     backendProjectFilePath: string,
     targetProjectRootPath: string,
     validateBeforeCommit?: ValidateProjectSnapshot,
-  ): Promise<void> {
+  ): Promise<string> {
     const targetRootPath = await canonicalizeProjectRootPath(
       targetProjectRootPath,
     );
     this.assertTargetOutsideTemporaryWorkspace(targetRootPath);
-    await publishProjectSnapshot(
+    return publishProjectSnapshot(
       backendProjectFilePath,
       targetRootPath,
       validateBeforeCommit,

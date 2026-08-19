@@ -1,5 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
+import {
+  standaloneApplicationMetadataError,
+  type GameExportRequest,
+} from '../../shared/exportProtocol';
 import type { EditorMode } from '../application/editorMode';
 import { projectSaveStatus } from '../projectSessionPresentation';
 
@@ -11,17 +16,30 @@ type ToolbarProps = {
   isBusy: boolean;
   isDirty: boolean;
   isSaving: boolean;
+  isExporting: boolean;
   engineMessage: string;
+  operationMessage: string;
   projectFolderName: string | null;
   onCreateProject: () => void;
   onOpenProject: () => void;
   onSaveProject: () => void;
+  onExportGame: (request: GameExportRequest) => void;
   onBeginRenameProject: () => void;
   onProjectNameDraftChange: (name: string) => void;
   onCommitProjectName: () => Promise<boolean>;
   onCancelProjectName: () => void;
   onEditorModeChange: (mode: EditorMode) => void;
 };
+
+function defaultApplicationId(projectName: string): string {
+  const suffix = projectName
+    .normalize('NFKD')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, '-')
+    .replace(/^-+|-+$/gu, '')
+    .slice(0, 48);
+  return `com.vnengine.${suffix.length > 0 ? suffix : 'game'}`;
+}
 
 export function Toolbar({
   projectName,
@@ -31,11 +49,14 @@ export function Toolbar({
   isBusy,
   isDirty,
   isSaving,
+  isExporting,
   engineMessage,
+  operationMessage,
   projectFolderName,
   onCreateProject,
   onOpenProject,
   onSaveProject,
+  onExportGame,
   onBeginRenameProject,
   onProjectNameDraftChange,
   onCommitProjectName,
@@ -43,6 +64,16 @@ export function Toolbar({
   onEditorModeChange,
 }: ToolbarProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
+  const [exportOutput, setExportOutput] = useState<GameExportRequest['output']>(
+    'runtime-bundle',
+  );
+  const [applicationName, setApplicationName] = useState(projectName);
+  const [applicationVersion, setApplicationVersion] = useState('1.0.0');
+  const [applicationId, setApplicationId] = useState(
+    defaultApplicationId(projectName),
+  );
+  const [exportConfigurationError, setExportConfigurationError] = useState('');
 
   function preserveRenameDraftFocus(
     event: React.MouseEvent<HTMLButtonElement>,
@@ -61,6 +92,35 @@ export function Toolbar({
       inputRef.current?.select();
     }
   }, [isRenamingProject]);
+
+  useEffect(() => {
+    if (!isExportDialogOpen) {
+      setApplicationName(projectName);
+      setApplicationId(defaultApplicationId(projectName));
+    }
+  }, [isExportDialogOpen, projectName]);
+
+  function submitExportConfiguration(): void {
+    if (exportOutput === 'runtime-bundle') {
+      setIsExportDialogOpen(false);
+      setExportConfigurationError('');
+      onExportGame({ output: 'runtime-bundle' });
+      return;
+    }
+    const application = {
+      name: applicationName,
+      version: applicationVersion,
+      applicationId,
+    };
+    const error = standaloneApplicationMetadataError(application);
+    if (error !== null) {
+      setExportConfigurationError(error);
+      return;
+    }
+    setIsExportDialogOpen(false);
+    setExportConfigurationError('');
+    onExportGame({ output: 'standalone-application', application });
+  }
 
   const saveStatus = projectSaveStatus(isSaving, isDirty);
 
@@ -94,7 +154,112 @@ export function Toolbar({
           >
             保存
           </button>
+          <button
+            type="button"
+            disabled={isBusy}
+            onMouseDown={preserveRenameDraftFocus}
+            onClick={() => {
+              setExportConfigurationError('');
+              setIsExportDialogOpen(true);
+            }}
+          >
+            {isExporting ? '导出中…' : '导出'}
+          </button>
         </div>
+
+        {isExportDialogOpen
+          ? createPortal(
+              <div
+            className="export-dialog-backdrop"
+            role="presentation"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) {
+                setIsExportDialogOpen(false);
+              }
+            }}
+          >
+            <section
+              className="export-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="export-dialog-title"
+            >
+              <h2 id="export-dialog-title">导出</h2>
+              <label>
+                <span>产物类型</span>
+                <select
+                  aria-label="产物类型"
+                  value={exportOutput}
+                  onChange={(event) => {
+                    setExportOutput(
+                      event.target.value as GameExportRequest['output'],
+                    );
+                    setExportConfigurationError('');
+                  }}
+                >
+                  <option value="runtime-bundle">.vngame 内容包</option>
+                  <option value="standalone-application">独立游戏应用</option>
+                </select>
+              </label>
+
+              {exportOutput === 'standalone-application' ? (
+                <div className="export-application-fields">
+                  <label>
+                    <span>应用名称</span>
+                    <input
+                      aria-label="应用名称"
+                      value={applicationName}
+                      maxLength={80}
+                      onChange={(event) => setApplicationName(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>版本</span>
+                    <input
+                      aria-label="应用版本"
+                      value={applicationVersion}
+                      maxLength={32}
+                      onChange={(event) => setApplicationVersion(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>Application ID</span>
+                    <input
+                      aria-label="Application ID"
+                      value={applicationId}
+                      maxLength={155}
+                      spellCheck={false}
+                      onChange={(event) => setApplicationId(event.target.value)}
+                    />
+                  </label>
+                  <p className="export-dialog-note">
+                    当前本地组装仅支持 macOS，并使用 Player 模板默认图标。
+                    Windows/Linux、自定义图标和正式签名由对应平台 CI 完成。
+                  </p>
+                </div>
+              ) : null}
+
+              {exportConfigurationError ? (
+                <p className="export-dialog-error" role="alert">
+                  {exportConfigurationError}
+                </p>
+              ) : null}
+              <div className="export-dialog-actions">
+                <button
+                  type="button"
+                  onClick={() => setIsExportDialogOpen(false)}
+                >
+                  取消
+                </button>
+                <button type="button" onClick={submitExportConfiguration}>
+                  导出
+                </button>
+              </div>
+            </section>
+              </div>,
+              document.body,
+            )
+          : null}
 
         <div
           className="toolbar-project-name"
@@ -146,9 +311,11 @@ export function Toolbar({
         <span
           className={engineMessage ? 'engine-error' : 'engine-ready'}
           aria-live="polite"
-          title={engineMessage || undefined}
+          title={engineMessage || operationMessage || undefined}
         >
-          {engineMessage || (isBusy ? '处理中…' : '已连接')}
+          {engineMessage ||
+            operationMessage ||
+            (isBusy ? '处理中…' : '已连接')}
         </span>
       </div>
 

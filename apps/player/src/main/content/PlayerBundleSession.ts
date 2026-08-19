@@ -1,0 +1,199 @@
+import path from 'node:path';
+
+import type {
+  PlayerGameData,
+  PlayerLoadResult,
+  PlayerMode,
+  PlayerOpenResult,
+} from '../../shared/playerProtocol';
+import type { PlayerMediaService } from '../media/PlayerMediaService';
+import {
+  loadRuntimeBundle,
+  type LoadedRuntimeBundle,
+} from './PlayerBundleLoader';
+
+export const PLAYER_BUNDLE_SUFFIX = '.vngame';
+export const PLAYER_BUNDLE_LOAD_ERROR =
+  '游戏内容包无效、已损坏或版本不受支持';
+export const PLAYER_BUNDLE_SELECTION_ERROR = '无法打开游戏内容包选择器';
+export const PLAYER_EMBEDDED_OPEN_ERROR = '当前是只读单游戏应用';
+
+type BundleLoader = (bundleRoot: string) => Promise<LoadedRuntimeBundle>;
+type BundleSelector = () => Promise<string | null>;
+type ErrorReporter = (
+  operation: 'development-fixture' | 'select-bundle' | 'validate-bundle',
+  error: unknown,
+) => void;
+
+function isVnGameBundleDirectory(candidatePath: string): boolean {
+  const name = path.basename(path.normalize(candidatePath));
+  return (
+    name.length > PLAYER_BUNDLE_SUFFIX.length &&
+    name.endsWith(PLAYER_BUNDLE_SUFFIX)
+  );
+}
+
+/**
+ * Owns one Player window's active immutable bundle.
+ *
+ * A candidate is fully validated before activateBundle() commits it. Failed
+ * or canceled selections therefore preserve the previous loaded, empty or
+ * startup-error state. A successful commit rotates the media generation
+ * token and invalidates every URL issued for the previous bundle.
+ */
+export class PlayerBundleSession {
+  private game: PlayerGameData | null = null;
+  private loadError: string | null = null;
+  private pendingOpen: Promise<PlayerOpenResult> | null = null;
+  private disposed = false;
+
+  constructor(
+    private readonly mediaService: PlayerMediaService,
+    private readonly selectBundle: BundleSelector,
+    private readonly loadBundle: BundleLoader = loadRuntimeBundle,
+    private readonly reportError: ErrorReporter = () => {},
+    private readonly mode: PlayerMode = 'generic',
+  ) {}
+
+  async loadDevelopmentFixture(bundleRoot: string): Promise<void> {
+    try {
+      const bundle = await this.loadBundle(bundleRoot);
+      if (this.disposed) {
+        return;
+      }
+      this.commit(bundle);
+    } catch (error) {
+      this.reportError('development-fixture', error);
+      if (!this.disposed) {
+        this.mediaService.clearBundle();
+        this.game = null;
+        this.loadError = PLAYER_BUNDLE_LOAD_ERROR;
+      }
+    }
+  }
+
+  /**
+   * Loads the immutable Resources/game bundle used by a packaged single-game
+   * application. Validation completes before commit, exactly like an external
+   * candidate, but failure becomes the application's terminal load state.
+   */
+  async loadEmbeddedGame(bundleRoot: string): Promise<void> {
+    if (this.mode !== 'embedded') {
+      throw new Error('Embedded game loading requires embedded Player mode');
+    }
+    try {
+      const bundle = await this.loadBundle(bundleRoot);
+      if (this.disposed) {
+        return;
+      }
+      this.commit(bundle);
+    } catch (error) {
+      this.reportError('validate-bundle', error);
+      if (!this.disposed) {
+        this.mediaService.clearBundle();
+        this.game = null;
+        this.loadError = PLAYER_BUNDLE_LOAD_ERROR;
+      }
+    }
+  }
+
+  loadGame(): PlayerLoadResult {
+    if (this.game !== null) {
+      return { status: 'loaded', mode: this.mode, game: this.game };
+    }
+    if (this.loadError !== null) {
+      return { status: 'error', mode: this.mode, error: this.loadError };
+    }
+    return { status: 'empty', mode: this.mode };
+  }
+
+  openGame(): Promise<PlayerOpenResult> {
+    if (this.mode === 'embedded') {
+      return Promise.resolve({
+        status: 'rejected',
+        error: PLAYER_EMBEDDED_OPEN_ERROR,
+      });
+    }
+    if (this.disposed) {
+      return Promise.resolve({
+        status: 'rejected',
+        error: PLAYER_BUNDLE_SELECTION_ERROR,
+      });
+    }
+    if (this.pendingOpen !== null) {
+      return this.pendingOpen;
+    }
+
+    const operation = this.performOpen().finally(() => {
+      if (this.pendingOpen === operation) {
+        this.pendingOpen = null;
+      }
+    });
+    this.pendingOpen = operation;
+    return operation;
+  }
+
+  getMediaUrl(assetId: string): string | null {
+    return this.mediaService.getMediaUrl(assetId);
+  }
+
+  dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
+    this.mediaService.dispose();
+    this.game = null;
+    this.loadError = null;
+  }
+
+  private async performOpen(): Promise<PlayerOpenResult> {
+    let selectedPath: string | null;
+    try {
+      selectedPath = await this.selectBundle();
+    } catch (error) {
+      this.reportError('select-bundle', error);
+      return this.reject(PLAYER_BUNDLE_SELECTION_ERROR);
+    }
+
+    if (this.disposed) {
+      return {
+        status: 'rejected',
+        error: PLAYER_BUNDLE_SELECTION_ERROR,
+      };
+    }
+    if (selectedPath === null) {
+      return { status: 'canceled' };
+    }
+    if (!isVnGameBundleDirectory(selectedPath)) {
+      return this.reject(`请选择名称以 ${PLAYER_BUNDLE_SUFFIX} 结尾的目录包`);
+    }
+
+    let bundle: LoadedRuntimeBundle;
+    try {
+      bundle = await this.loadBundle(selectedPath);
+    } catch (error) {
+      this.reportError('validate-bundle', error);
+      return this.reject(PLAYER_BUNDLE_LOAD_ERROR);
+    }
+
+    if (this.disposed) {
+      return {
+        status: 'rejected',
+        error: PLAYER_BUNDLE_SELECTION_ERROR,
+      };
+    }
+    this.commit(bundle);
+    return { status: 'opened', game: bundle.game };
+  }
+
+  private commit(bundle: LoadedRuntimeBundle): void {
+    this.mediaService.activateBundle(bundle);
+    this.game = bundle.game;
+    this.loadError = null;
+  }
+
+  private reject(error: string): PlayerOpenResult {
+    return { status: 'rejected', error };
+  }
+}

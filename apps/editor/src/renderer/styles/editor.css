@@ -102,6 +102,88 @@
   opacity: 0.5;
 }
 
+.export-dialog-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  padding: 24px;
+  background: rgb(20 25 35 / 42%);
+  place-items: center;
+}
+
+.export-dialog {
+  display: grid;
+  width: min(440px, 100%);
+  gap: 14px;
+  padding: 22px;
+  color: var(--text);
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 18px 60px rgb(18 25 38 / 24%);
+}
+
+.export-dialog h2,
+.export-dialog p {
+  margin: 0;
+}
+
+.export-dialog label,
+.export-application-fields {
+  display: grid;
+  gap: 7px;
+}
+
+.export-application-fields {
+  gap: 12px;
+}
+
+.export-dialog input,
+.export-dialog select {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 9px;
+  color: var(--text);
+  background: #ffffff;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+}
+
+.export-dialog .export-dialog-note {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.export-dialog .export-dialog-error {
+  color: var(--danger, #b42318);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.export-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.export-dialog-actions button {
+  min-width: 72px;
+  padding: 7px 12px;
+  cursor: pointer;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.export-dialog-actions button:last-child {
+  color: #ffffff;
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
 .toolbar-project-name {
   display: inline-flex;
   align-items: center;

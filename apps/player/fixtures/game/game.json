@@ -1,0 +1,99 @@
+{
+  "format": "vn-engine-runtime",
+  "runtimeVersion": 1,
+  "game": {
+    "id": "development-player-fixture",
+    "title": "VN Engine Player 演示",
+    "entrySceneId": "scene-entry"
+  },
+  "scenes": [
+    {
+      "schemaVersion": 1,
+      "id": "scene-entry",
+      "name": "开始",
+      "backgroundAssetId": null,
+      "nodes": [
+        {
+          "id": "background-clear",
+          "type": "background",
+          "assetId": null
+        },
+        {
+          "id": "character-clear",
+          "type": "character",
+          "assetId": null,
+          "slot": "center",
+          "layer": 1
+        },
+        {
+          "id": "bgm-stop",
+          "type": "bgm",
+          "assetId": null
+        },
+        {
+          "id": "dialogue-welcome",
+          "type": "dialogue",
+          "speaker": "旁白",
+          "text": "这是独立 Player 的只读运行时演示。",
+          "voiceAssetId": null
+        },
+        {
+          "id": "video-empty",
+          "type": "video",
+          "assetId": null
+        },
+        {
+          "id": "choice-route",
+          "type": "choice",
+          "options": [
+            {
+              "id": "choice-continue",
+              "text": "继续演示",
+              "targetSceneId": "scene-target"
+            },
+            {
+              "id": "choice-finish",
+              "text": "直接结束",
+              "targetSceneId": "scene-ending"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "schemaVersion": 1,
+      "id": "scene-target",
+      "name": "跳转演示",
+      "backgroundAssetId": null,
+      "nodes": [
+        {
+          "id": "dialogue-target",
+          "type": "dialogue",
+          "speaker": "旁白",
+          "text": "选项已经进入目标场景，下一步执行场景跳转。",
+          "voiceAssetId": null
+        },
+        {
+          "id": "jump-ending",
+          "type": "sceneJump",
+          "targetSceneId": "scene-ending"
+        }
+      ]
+    },
+    {
+      "schemaVersion": 1,
+      "id": "scene-ending",
+      "name": "结束",
+      "backgroundAssetId": null,
+      "nodes": [
+        {
+          "id": "dialogue-ending",
+          "type": "dialogue",
+          "speaker": "旁白",
+          "text": "共享 Runtime 已在独立 Player 中完成运行。",
+          "voiceAssetId": null
+        }
+      ]
+    }
+  ]
+}

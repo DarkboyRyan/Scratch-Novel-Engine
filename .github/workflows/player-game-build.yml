@@ -1,0 +1,331 @@
+name: Reusable signed embedded game build
+
+on:
+  workflow_call:
+    inputs:
+      bundle_artifact_name:
+        description: Artifact containing exactly one verified .vngame directory (or its flattened contents)
+        required: true
+        type: string
+      product_name:
+        description: Cross-platform application display name
+        required: true
+        type: string
+      version:
+        description: Strict x.y.z application version
+        required: true
+        type: string
+      app_bundle_id:
+        description: Unique reverse-DNS application identifier
+        required: true
+        type: string
+      artifact_prefix:
+        description: Safe prefix for the three uploaded release-candidate artifacts
+        required: false
+        default: game-player
+        type: string
+permissions:
+  contents: read
+
+env:
+  CI: 'true'
+  PNPM_VERSION: 11.18.0
+
+jobs:
+  build:
+    name: Embedded ${{ matrix.platform }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    environment: game-release
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            platform: darwin
+            arch: arm64
+            icon_extension: icns
+            icon_file: game-icon.icns
+          - runner: windows-latest
+            platform: win32
+            arch: x64
+            icon_extension: ico
+            icon_file: game-icon.ico
+          - runner: ubuntu-latest
+            platform: linux
+            arch: x64
+            icon_extension: png
+            icon_file: vn-player-icon.png
+
+    steps:
+      - name: Check out the exact caller commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Install Node.js from .node-version
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Verify runner architecture
+        shell: bash
+        run: >-
+          node -e "if (process.platform !== '${{ matrix.platform }}' || process.arch !== '${{ matrix.arch }}') throw new Error('Unexpected runner: ' + process.platform + '/' + process.arch)"
+
+      - name: Install the frozen workspace
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate untrusted callable metadata before shell use
+        env:
+          GAME_PRODUCT_NAME: ${{ inputs.product_name }}
+          GAME_VERSION: ${{ inputs.version }}
+          GAME_APP_BUNDLE_ID: ${{ inputs.app_bundle_id }}
+          GAME_ARTIFACT_PREFIX: ${{ inputs.artifact_prefix }}
+        run: node apps/player/scripts/verifyGameBuildInputs.mjs
+
+      - name: Download the caller's runtime bundle artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ inputs.bundle_artifact_name }}
+          path: ${{ runner.temp }}/bundle-artifact
+
+      - name: Strictly validate and stage the downloaded .vngame
+        shell: bash
+        run: |
+          mkdir -p "${{ runner.temp }}/embedded-input"
+          node apps/player/scripts/prepareEmbeddedArtifact.mjs \
+            --input "${{ runner.temp }}/bundle-artifact" \
+            --target "${{ runner.temp }}/embedded-input/game"
+
+      - name: Test Runtime and Player before the independent game build
+        run: |
+          pnpm --dir packages/runtime test
+          pnpm --dir apps/player typecheck
+          pnpm --dir apps/player lint
+          pnpm --dir apps/player test
+
+      - name: Materialize the required platform brand icon
+        shell: bash
+        env:
+          PLAYER_ICON_BASE64: ${{ matrix.platform == 'darwin' && secrets.PLAYER_ICON_ICNS_BASE64 || matrix.platform == 'win32' && secrets.PLAYER_ICON_ICO_BASE64 || secrets.PLAYER_ICON_PNG_BASE64 }}
+        run: >-
+          node apps/player/scripts/materializeSecretFile.mjs
+          --environment PLAYER_ICON_BASE64
+          --output "${{ runner.temp }}/${{ matrix.icon_file }}"
+
+      - name: Materialize the required platform signing certificate
+        if: matrix.platform != 'linux'
+        shell: bash
+        env:
+          SIGNING_CERTIFICATE_BASE64: ${{ matrix.platform == 'darwin' && secrets.MACOS_CERTIFICATE_BASE64 || secrets.WINDOWS_CERTIFICATE_BASE64 }}
+        run: >-
+          node apps/player/scripts/materializeSecretFile.mjs
+          --environment SIGNING_CERTIFICATE_BASE64
+          --output "${{ runner.temp }}/game-signing.${{ matrix.platform == 'darwin' && 'p12' || 'pfx' }}"
+
+      - name: Import Developer ID certificate into an ephemeral keychain
+        if: matrix.platform == 'darwin'
+        shell: bash
+        env:
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="${{ runner.temp }}/game-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "${{ runner.temp }}/game-signing.p12" \
+            -k "$KEYCHAIN_PATH" \
+            -P "$CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+
+      - name: Package the validated bundle before platform signing
+        env:
+          VN_PLAYER_PRODUCT_NAME: ${{ inputs.product_name }}
+          VN_PLAYER_VERSION: ${{ inputs.version }}
+          VN_PLAYER_APP_BUNDLE_ID: ${{ inputs.app_bundle_id }}
+          VN_PLAYER_ICON_PATH: ${{ runner.temp }}/${{ matrix.icon_file }}
+          VN_PLAYER_EMBEDDED_GAME_DIR: ${{ runner.temp }}/embedded-input/game
+          VN_PLAYER_OUT_DIR: ${{ runner.temp }}/embedded-release-out
+        run: pnpm --dir apps/player package
+
+      - name: Locate the one packaged application
+        id: application
+        shell: bash
+        run: >-
+          node apps/player/scripts/locatePlayerBuild.mjs
+          --out-dir "${{ runner.temp }}/embedded-release-out"
+          --platform "${{ matrix.platform }}"
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Apply Developer ID hardened-runtime signature
+        if: matrix.platform == 'darwin'
+        shell: bash
+        env:
+          PLAYER_APP_PATH: ${{ steps.application.outputs.app_path }}
+          PLAYER_SIGNING_CERTIFICATE_PATH: ${{ runner.temp }}/game-signing.p12
+          PLAYER_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          PLAYER_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          PLAYER_SIGNING_KEYCHAIN: ${{ runner.temp }}/game-signing.keychain-db
+        run: >-
+          node apps/player/scripts/signPlayerBuild.mjs
+          --platform darwin
+          --app "$PLAYER_APP_PATH"
+
+      - name: Notarize and staple the embedded macOS application
+        if: matrix.platform == 'darwin'
+        shell: bash
+        env:
+          PLAYER_APP_PATH: ${{ steps.application.outputs.app_path }}
+          NOTARY_APPLE_ID: ${{ secrets.APPLE_ID }}
+          NOTARY_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          NOTARY_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          ditto -c -k --keepParent \
+            "$PLAYER_APP_PATH" \
+            "${{ runner.temp }}/embedded-notary-submission.zip"
+          xcrun notarytool submit "${{ runner.temp }}/embedded-notary-submission.zip" \
+            --apple-id "$NOTARY_APPLE_ID" \
+            --password "$NOTARY_PASSWORD" \
+            --team-id "$NOTARY_TEAM_ID" \
+            --wait
+          xcrun stapler staple "$PLAYER_APP_PATH"
+
+      - name: Apply Windows Authenticode signature and timestamp
+        if: matrix.platform == 'win32'
+        shell: bash
+        env:
+          PLAYER_APP_PATH: ${{ steps.application.outputs.app_path }}
+          PLAYER_SIGNING_CERTIFICATE_PATH: ${{ runner.temp }}/game-signing.pfx
+          PLAYER_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: >-
+          node apps/player/scripts/signPlayerBuild.mjs
+          --platform win32
+          --app "$PLAYER_APP_PATH"
+
+      - name: Verify embedded content and formal platform signature gate
+        shell: bash
+        env:
+          GAME_APP_BUNDLE_ID: ${{ inputs.app_bundle_id }}
+          GAME_PRODUCT_NAME: ${{ inputs.product_name }}
+          GAME_VERSION: ${{ inputs.version }}
+          PLAYER_ICON_PATH: ${{ runner.temp }}/${{ matrix.icon_file }}
+        run: |
+          node apps/player/scripts/verifyPlayerBuild.mjs \
+            --out-dir "${{ runner.temp }}/embedded-release-out" \
+            --platform "${{ matrix.platform }}" \
+            --arch "${{ matrix.arch }}" \
+            --mode embedded \
+            --classification release \
+            "--product=$GAME_PRODUCT_NAME" \
+            --version "$GAME_VERSION" \
+            --app-bundle-id "$GAME_APP_BUNDLE_ID" \
+            --icon "$PLAYER_ICON_PATH" \
+            --commit "${{ github.sha }}" \
+            --receipt "${{ runner.temp }}/embedded-release-receipt.json"
+
+      - name: Archive notarized macOS game
+        if: matrix.platform == 'darwin'
+        shell: bash
+        env:
+          GAME_VERSION: ${{ inputs.version }}
+          PLAYER_APP_PATH: ${{ steps.application.outputs.app_path }}
+        run: |
+          mkdir -p "${{ runner.temp }}/signed-input"
+          ditto -c -k --keepParent \
+            "$PLAYER_APP_PATH" \
+            "${{ runner.temp }}/signed-input/Game-Player-darwin-${{ matrix.arch }}-$GAME_VERSION.zip"
+
+      - name: Archive signed Windows game
+        if: matrix.platform == 'win32'
+        shell: bash
+        env:
+          GAME_VERSION: ${{ inputs.version }}
+          PLAYER_APP_PATH: ${{ steps.application.outputs.app_path }}
+        run: |
+          node apps/player/scripts/archiveWindowsBuild.mjs \
+            --source "$PLAYER_APP_PATH" \
+            --output "${{ runner.temp }}/signed-input/Game-Player-win32-${{ matrix.arch }}-$GAME_VERSION.zip"
+
+      - name: Archive Linux game
+        if: matrix.platform == 'linux'
+        shell: bash
+        env:
+          GAME_VERSION: ${{ inputs.version }}
+          PLAYER_APP_PATH: ${{ steps.application.outputs.app_path }}
+        run: |
+          mkdir -p "${{ runner.temp }}/signed-input"
+          APP_PARENT="$(dirname "$PLAYER_APP_PATH")"
+          APP_NAME="$(basename "$PLAYER_APP_PATH")"
+          if [[ "$APP_NAME" == "." || "$APP_NAME" == ".." || "$APP_NAME" == */* ]]; then
+            echo "Unsafe packaged application basename" >&2
+            exit 1
+          fi
+          cd "$APP_PARENT"
+          zip -qry \
+            "${{ runner.temp }}/signed-input/Game-Player-linux-${{ matrix.arch }}-$GAME_VERSION.zip" \
+            "./$APP_NAME"
+
+      - name: Collect signed embedded game candidate and SHA-256
+        shell: bash
+        env:
+          GAME_VERSION: ${{ inputs.version }}
+        run: |
+          node apps/player/scripts/collectPlayerArtifacts.mjs \
+            --input "${{ runner.temp }}/signed-input" \
+            --output "${{ runner.temp }}/embedded-release-candidate" \
+            --receipt "${{ runner.temp }}/embedded-release-receipt.json" \
+            --classification release \
+            --platform "${{ matrix.platform }}" \
+            --arch "${{ matrix.arch }}" \
+            --version "$GAME_VERSION" \
+            --commit "${{ github.sha }}"
+
+      - name: Remove signing material before third-party artifact upload
+        shell: bash
+        run: |
+          if [[ "${{ matrix.platform }}" == "darwin" ]]; then
+            security delete-keychain "${{ runner.temp }}/game-signing.keychain-db" 2>/dev/null || true
+          fi
+          node -e "const fs=require('node:fs'); for (const file of process.argv.slice(1)) fs.rmSync(file,{force:true})" \
+            "${{ runner.temp }}/game-signing.p12" \
+            "${{ runner.temp }}/game-signing.pfx" \
+            "${{ runner.temp }}/${{ matrix.icon_file }}" \
+            "${{ runner.temp }}/embedded-notary-submission.zip"
+
+      - name: Upload callable workflow result
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ inputs.artifact_prefix }}-${{ matrix.platform }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/embedded-release-candidate
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+      - name: Remove ephemeral signing material
+        if: always()
+        shell: bash
+        run: |
+          if [[ "${{ matrix.platform }}" == "darwin" ]]; then
+            security delete-keychain "${{ runner.temp }}/game-signing.keychain-db" 2>/dev/null || true
+          fi
+          node -e "const fs=require('node:fs'); for (const file of process.argv.slice(1)) fs.rmSync(file,{force:true})" \
+            "${{ runner.temp }}/game-signing.p12" \
+            "${{ runner.temp }}/game-signing.pfx" \
+            "${{ runner.temp }}/${{ matrix.icon_file }}" \
+            "${{ runner.temp }}/embedded-notary-submission.zip"

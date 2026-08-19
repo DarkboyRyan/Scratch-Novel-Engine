@@ -1,0 +1,11 @@
+{
+  "format": "vn-engine-runtime-manifest",
+  "manifestVersion": 1,
+  "buildId": "development-player-fixture-v1",
+  "projectId": "development-player-fixture",
+  "sourceRevision": 0,
+  "runtimeVersion": 1,
+  "playerCompatibility": ">=1 <2",
+  "createdAt": "2026-08-18T00:00:00.000Z",
+  "files": []
+}

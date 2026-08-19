@@ -135,6 +135,8 @@ describe('useEngineProject asset state', () => {
   let updateChoiceOption: ReturnType<typeof vi.fn>;
   let deleteChoiceOption: ReturnType<typeof vi.fn>;
   let reorderChoiceOption: ReturnType<typeof vi.fn>;
+  let saveProject: ReturnType<typeof vi.fn>;
+  let exportGame: ReturnType<typeof vi.fn>;
   let platform: EditorPlatformGateway;
 
   function Harness() {
@@ -178,6 +180,22 @@ describe('useEngineProject asset state', () => {
     updateChoiceOption = vi.fn().mockResolvedValue(backgroundResult);
     deleteChoiceOption = vi.fn().mockResolvedValue(backgroundResult);
     reorderChoiceOption = vi.fn().mockResolvedValue(backgroundResult);
+    saveProject = vi.fn().mockResolvedValue({
+      cancelled: false,
+      result: initialResult,
+      session: {
+        hasStorage: true,
+        projectFolderName: 'story',
+        ...initialResult.session,
+      },
+    });
+    exportGame = vi.fn().mockResolvedValue({
+      cancelled: false,
+      output: 'runtime-bundle',
+      artifactName: 'Initial story.vngame',
+      sourceRevision: 2,
+      assetCount: 0,
+    });
 
     platform = {
       engine: {
@@ -203,12 +221,16 @@ describe('useEngineProject asset state', () => {
           projectFolderName: 'story',
           ...initialResult.session,
         }),
+        saveProject,
       } as unknown as EditorPlatformGateway['projectFiles'],
       assets: {
         importImage,
         importVideo,
         importAudio,
       } as unknown as EditorPlatformGateway['assets'],
+      gameExport: {
+        exportGame,
+      },
     };
   });
 
@@ -320,6 +342,188 @@ describe('useEngineProject asset state', () => {
       type: 'audio',
       displayName: 'voice.mp3',
     });
+  });
+
+  it('commits, saves, and exports one clean persisted revision', async () => {
+    const order: string[] = [];
+    const prepare = vi.fn(async () => {
+      order.push('prepare');
+      return true;
+    });
+    saveProject.mockImplementation(async () => {
+      order.push('save');
+      return {
+        cancelled: false,
+        result: initialResult,
+        session: {
+          hasStorage: true,
+          projectFolderName: 'story',
+          ...initialResult.session,
+        },
+      };
+    });
+    exportGame.mockImplementation(async () => {
+      order.push('export');
+      return {
+        cancelled: false,
+        output: 'runtime-bundle',
+        artifactName: 'Initial story.vngame',
+        sourceRevision: 2,
+        assetCount: 0,
+      };
+    });
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(await current!.exportGame(prepare)).toBe('exported');
+    });
+
+    expect(order).toEqual(['prepare', 'save', 'export']);
+    expect(exportGame).toHaveBeenCalledWith({ output: 'runtime-bundle' });
+    expect(current?.isExporting).toBe(false);
+    expect(current?.isBusy).toBe(false);
+    expect(current?.exportMessage).toBe(
+      '已导出内容包 Initial story.vngame（0 项资源）',
+    );
+  });
+
+  it('does not invoke export when first save is cancelled', async () => {
+    saveProject.mockResolvedValue({
+      cancelled: true,
+      session: {
+        hasStorage: false,
+        projectFolderName: null,
+        revision: 2,
+        savedRevision: null,
+        isDirty: true,
+      },
+    });
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(await current!.exportGame(async () => true)).toBe('cancelled');
+    });
+
+    expect(exportGame).not.toHaveBeenCalled();
+    expect(current?.exportMessage).toBe('已取消保存，未开始导出');
+    expect(current?.isBusy).toBe(false);
+  });
+
+  it('refuses to export a save result that is still dirty', async () => {
+    const dirtyResult: EngineMutationResult = {
+      ...initialResult,
+      session: {
+        revision: 3,
+        savedRevision: 2,
+        isDirty: true,
+      },
+    };
+    saveProject.mockResolvedValue({
+      cancelled: false,
+      result: dirtyResult,
+      session: {
+        hasStorage: true,
+        projectFolderName: 'story',
+        ...dirtyResult.session,
+      },
+    });
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(await current!.exportGame(async () => true)).toBe('failed');
+    });
+
+    expect(exportGame).not.toHaveBeenCalled();
+    expect(current?.engineMessage).toBe('项目尚未完整保存，无法导出游戏');
+    expect(current?.isBusy).toBe(false);
+  });
+
+  it('reports an export-dialog cancellation without exposing a path', async () => {
+    exportGame.mockResolvedValue({ cancelled: true });
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(await current!.exportGame(async () => true)).toBe('cancelled');
+    });
+
+    expect(exportGame).toHaveBeenCalledWith({ output: 'runtime-bundle' });
+    expect(current?.exportMessage).toBe('已取消导出');
+    expect(current?.engineMessage).toBe('');
+  });
+
+  it('reports an export failure and always releases the busy state', async () => {
+    exportGame.mockRejectedValue(new Error('运行时内容包写入失败'));
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(await current!.exportGame(async () => true)).toBe('failed');
+    });
+
+    expect(current?.engineMessage).toBe('运行时内容包写入失败');
+    expect(current?.exportMessage).toBe('');
+    expect(current?.isExporting).toBe(false);
+    expect(current?.isBusy).toBe(false);
+  });
+
+  it('keeps every file action busy until the export request settles', async () => {
+    let resolveExport: (
+      result: Awaited<ReturnType<EditorPlatformGateway['gameExport']['exportGame']>>,
+    ) => void = () => {};
+    let markExportStarted: () => void = () => {};
+    const exportStarted = new Promise<void>((resolve) => {
+      markExportStarted = resolve;
+    });
+    const pendingExport = new Promise<
+      Awaited<ReturnType<EditorPlatformGateway['gameExport']['exportGame']>>
+    >((resolve) => {
+      resolveExport = resolve;
+    });
+    exportGame.mockImplementation(() => {
+      markExportStarted();
+      return pendingExport;
+    });
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    let result: Promise<unknown> = Promise.resolve();
+    await act(async () => {
+      result = current!.exportGame(async () => true);
+      await exportStarted;
+    });
+
+    expect(current?.isExporting).toBe(true);
+    expect(current?.isBusy).toBe(true);
+
+    await act(async () => {
+      resolveExport({
+        cancelled: false,
+        output: 'runtime-bundle',
+        artifactName: 'Initial story.vngame',
+        sourceRevision: 2,
+        assetCount: 0,
+      });
+      await result;
+    });
+
+    expect(current?.isExporting).toBe(false);
+    expect(current?.isBusy).toBe(false);
   });
 
   it('queues background actions through the typed engine API', async () => {
