@@ -30,8 +30,8 @@ JSON Lines 协议通信，而不是 HTTP。C++ 返回完整权威快照，表单
 - 对白语音和时间线 BGM，正式预览使用独立双音轨控制器；
 - 正式顺序预览、阻塞式视频/选项、鼠标/键盘推进和跳转循环检测；
 - 共享 Runtime/Player UI、v9→runtime v1 `.vngame` 目录导出和通用 Player；
-- macOS Editor 本地每游戏 `.app` 组装、embedded Player，以及通用/每游戏三平台
-  GitHub Actions 发布门禁；
+- macOS Editor 本地每游戏 `*-macOS.zip` 导出（内含唯一已签名 `.app`）、embedded
+  Player，以及通用/每游戏三平台 GitHub Actions 发布门禁；
 - 原子清单保存、IPC 权限收窄和真实 C++ 集成测试。
 
 ### 两分钟回答模板
@@ -53,7 +53,9 @@ JSON Lines 协议通信，而不是 HTTP。C++ 返回完整权威快照，表单
 > runtime v1，只复制引用媒体，并通过同盘 staging、SHA-256 和原子 rename 发布。
 > 通用 Player 通过 Main 原生目录选择器打开 `.vngame`，候选完整验证后才切换会话，
 > Renderer 始终拿不到路径。独立应用模式在 macOS 使用平台/架构严格匹配的 Player
-> 模板，先注入 `Resources/game`，再改显示名/ID/版本、ad-hoc 签名并复验；为兼容
+> 模板，先在私有目录注入 `Resources/game`，再改显示名/ID/版本、ad-hoc 签名；随后
+> 用 `ditto` 生成 `*-macOS.zip`，在另一私有目录解压并复验唯一 `.app` 的签名，最后
+> 以单个文件、无覆盖方式发布。为兼容
 > Electron Helper，本地模板内部的 `CFBundleName`/`CFBundleExecutable` 仍保持
 > `VN Engine Player`。Windows/Linux 和正式图标/签名由目标 runner 的可复用 workflow
 > 重新构建。流水线代码已经完成，但受保护 Environment、真实凭据 runner 执行和
@@ -78,7 +80,7 @@ JSON Lines 协议通信，而不是 HTTP。C++ 返回完整权威快照，表单
 | Runtime 导出 | TypeScript strict parser、Node streams、SHA-256 | 已保存 v9→runtime v1、只复制引用资产、staging 原子发布 |
 | 安全资源读取 | Electron 自定义 `vn-asset://` 协议 | 用 capability token 加载图片/音频/视频，用 Range 播放音频和视频且不暴露路径 |
 | 独立 Player | Electron、`vn-game-asset://`、原生目录选择器 | 候选先校验后 commit，成功换包轮换 token，失败保留旧包 |
-| 独立应用组装 | exact Player template、同盘 staging、`plutil`、`codesign` | macOS 先注入后签名，失败不覆盖已有应用 |
+| 独立应用导出 | exact Player template、私有 staging、`plutil`、`codesign`、`ditto` | macOS 先组装/签名，再 ZIP、私有解压验签，失败不覆盖已有 ZIP |
 | 前端构建 | Vite 5、Electron Forge 7、pnpm | 构建时 metadata/icon/extraResource 与通用、embedded 两种 Player |
 | 发布流水线 | GitHub Actions reusable workflow、protected Environment、build receipt、SHA-256/GPG | 三平台在原生 runner 构建；签名/图标/GPG key 只来自 Environment Secrets；缺正式凭据不允许 unsigned fallback |
 | 自动测试 | Vitest 3、CTest | TS 单元/集成测试与 C++ Core/Backend/文件系统测试 |
@@ -428,14 +430,16 @@ Editor 点击“导出”
   → 同盘 staging 计算 SHA-256、写 manifest 并复验
   → 内容包：原子 rename 为 .vngame 目录
   → 通用 Player：Main 原生选择并完整验证候选，成功才 commit/轮换 token
-  → macOS 独立应用：复制 strict Player 模板并注入 Resources/game
+  → macOS 独立应用：在私有目录复制 strict Player 模板并注入 Resources/game
   → 更新显示名/ID/版本，保留内部 VN Engine Player Helper 命名
   → ad-hoc sign + deep/strict verify
-  → 原子 rename 为最终 .app；embedded Player 启动后禁止换包
+  → ditto 生成 *-macOS.zip，再私有解压并复验唯一 .app
+  → 以单个普通文件、无覆盖方式发布 ZIP；embedded Player 启动后禁止换包
 ```
 
 Editor 和 Player 的 Renderer 都不指定或获得本机路径。导出失败不会发布半成品；
-打开候选失败或取消不会替换 Player 已经激活的旧游戏。
+打开候选失败或取消不会替换 Player 已经激活的旧游戏。`.vngame` 仍是目录包；目标
+FileProvider 目录只接触最终 ZIP，不直接接触签名后的 `.app` 树。
 
 正式 Windows/Linux 每游戏产物不会由 macOS Editor 修改现成可执行文件，而由
 `player-game-build.yml` 在对应 runner 用同一 metadata 与 bundle artifact 重新运行
@@ -509,7 +513,8 @@ StrictMode 会在开发环境重复执行 effect。hook 使用实例级 `useRef`
 - 正式预览已有背景、人物、对白、BGM、视频、选项和跳转；选项暂不支持变量、条件可见性或副作用；
 - 项目 Writer 为 v9、Reader 支持 v1–v9；v9 保存 ChoiceNode/ChoiceOption；
 - Editor 已完成 v9→runtime v1 内容包导出；packaged macOS Editor 还能通过 strict
-  当前架构模板事务式组装每游戏 `.app`，使用模板默认图标和 ad-hoc 签名；
+  当前架构模板事务式导出每游戏 `*-macOS.zip`，其中只有一个使用模板默认图标和
+  ad-hoc 签名的 `.app`；ad-hoc 产物只适合本机或内部测试；
 - packaged Player 支持通用选择器和固定 embedded 内容两种互斥模式；`.vngame`
   双击关联仍未完成；
 - 三平台 internal CI、每游戏 reusable workflow 和通用 Player formal release workflow

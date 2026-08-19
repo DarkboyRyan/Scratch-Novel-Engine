@@ -4,6 +4,7 @@ import { once } from 'node:events';
 import type { Stats } from 'node:fs';
 import {
   chmod,
+  cp,
   link,
   mkdtemp,
   mkdir,
@@ -11,7 +12,6 @@ import {
   readFile,
   realpath,
   readdir,
-  rename,
   rm,
   stat,
   symlink,
@@ -20,11 +20,13 @@ import {
   writeFile,
   type FileHandle,
 } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { build as buildViteBundle } from 'vite';
 
 import {
   exportStandaloneApplication,
@@ -44,6 +46,77 @@ const runtimeMocks = vi.hoisted(() => ({
 }));
 
 const execFileAsync = promisify(execFile);
+
+function pickleUInt32(value: number): Buffer {
+  const pickle = Buffer.alloc(8);
+  pickle.writeUInt32LE(4, 0);
+  pickle.writeUInt32LE(value, 4);
+  return pickle;
+}
+
+function pickleString(value: string): Buffer {
+  const bytes = Buffer.from(value, 'utf8');
+  const paddedLength = Math.ceil(bytes.length / 4) * 4;
+  const payloadLength = 4 + paddedLength;
+  const pickle = Buffer.alloc(4 + payloadLength);
+  pickle.writeUInt32LE(payloadLength, 0);
+  pickle.writeInt32LE(bytes.length, 4);
+  bytes.copy(pickle, 8);
+  return pickle;
+}
+
+function asarIntegrity(contents: Buffer) {
+  const sha256 = createHash('sha256').update(contents).digest('hex');
+  return {
+    algorithm: 'SHA256',
+    hash: sha256,
+    blockSize: 4 * 1024 * 1024,
+    blocks: [sha256],
+  };
+}
+
+async function writeMinimalVirtualizedAsar(filePath: string): Promise<void> {
+  const virtualMain = Buffer.from(
+    'export const virtualAsarTrap = true;\n',
+    'utf8',
+  );
+  const packageJson = Buffer.from(
+    `${JSON.stringify({ name: 'asar-contract', version: '1.0.0' })}\n`,
+    'utf8',
+  );
+  const header = {
+    files: {
+      '.vite': {
+        files: {
+          build: {
+            files: {
+              'main.js': {
+                size: virtualMain.length,
+                offset: '0',
+                integrity: asarIntegrity(virtualMain),
+              },
+            },
+          },
+        },
+      },
+      'package.json': {
+        size: packageJson.length,
+        offset: String(virtualMain.length),
+        integrity: asarIntegrity(packageJson),
+      },
+    },
+  };
+  const headerPickle = pickleString(JSON.stringify(header));
+  await writeFile(
+    filePath,
+    Buffer.concat([
+      pickleUInt32(headerPickle.length),
+      headerPickle,
+      virtualMain,
+      packageJson,
+    ]),
+  );
+}
 
 vi.mock('../../src/main/export/RuntimeBundleExporter', () => ({
   exportRuntimeBundle: runtimeMocks.exportRuntimeBundle,
@@ -68,7 +141,18 @@ const project = {
 const sourceManifestContents = JSON.stringify({
   format: 'vn-engine-project',
   fileVersion: 9,
-  project,
+  project: {
+    ...project,
+    scenes: [
+      {
+        schemaVersion: 1,
+        id: 'scene-1',
+        name: 'Scene 1',
+        visuals: { backgroundAssetId: null, characters: [] },
+        nodes: [],
+      },
+    ],
+  },
   assets: [],
 });
 
@@ -186,7 +270,10 @@ describe.runIf(process.platform === 'darwin')('standalone application exporter',
   }
 
   function artifactPath(root: string, name = 'Story'): string {
-    return path.join(root, process.platform === 'darwin' ? `${name}.app` : name);
+    return path.join(
+      root,
+      process.platform === 'darwin' ? `${name}-macOS.zip` : name,
+    );
   }
 
   function exportLockPath(root: string, name = 'Story'): string {
@@ -198,6 +285,7 @@ describe.runIf(process.platform === 'darwin')('standalone application exporter',
     templateRoot: string,
     overrides: Record<string, unknown> = {},
   ) {
+    let archivedApplicationPath = '';
     return {
       sourceProjectRootPath: path.join(root, 'source'),
       targetArtifactPath: artifactPath(root),
@@ -215,6 +303,22 @@ describe.runIf(process.platform === 'darwin')('standalone application exporter',
       },
       finalizeApplication: vi.fn().mockResolvedValue(undefined),
       preparePublishedArtifact: vi.fn().mockResolvedValue(undefined),
+      archiveApplication: vi.fn(
+        async (applicationPath: string, archivePath: string) => {
+          archivedApplicationPath = applicationPath;
+          await writeFile(archivePath, 'fake-standalone-zip');
+        },
+      ),
+      extractApplicationArchive: vi.fn(
+        async (_archivePath: string, extractionRootPath: string) => {
+          await cp(
+            archivedApplicationPath,
+            path.join(extractionRootPath, 'Story.app'),
+            { recursive: true },
+          );
+        },
+      ),
+      verifyExtractedApplication: vi.fn().mockResolvedValue(undefined),
       ...overrides,
     };
   }
@@ -251,21 +355,53 @@ describe.runIf(process.platform === 'darwin')('standalone application exporter',
     const root = await temporaryRoot();
     await mkdir(path.join(root, 'source'));
     const { templateRoot } = await createTemplate(root);
+    let stagedApplicationPath = '';
+    let gameContents = '';
+    let metadata: Record<string, unknown> = {};
+    const archiveApplication = vi.fn(
+      async (applicationPath: string, archivePath: string) => {
+        stagedApplicationPath = applicationPath;
+        gameContents = await readFile(
+          path.join(
+            applicationPath,
+            'Contents',
+            'Resources',
+            'game',
+            'game.json',
+          ),
+          'utf8',
+        );
+        metadata = JSON.parse(
+          await readFile(
+            path.join(
+              applicationPath,
+              'Contents',
+              'Resources',
+              'vn-game-application.json',
+            ),
+            'utf8',
+          ),
+        ) as Record<string, unknown>;
+        await writeFile(archivePath, 'fake-standalone-zip');
+      },
+    );
+    const extractApplicationArchive = vi.fn(
+      async (_archivePath: string, extractionRootPath: string) => {
+        await cp(
+          stagedApplicationPath,
+          path.join(extractionRootPath, 'Story.app'),
+          { recursive: true },
+        );
+      },
+    );
 
-    const result = await exportStandaloneApplication(options(root, templateRoot));
+    const result = await exportStandaloneApplication(
+      options(root, templateRoot, {
+        archiveApplication,
+        extractApplicationArchive,
+      }),
+    );
     const target = artifactPath(root);
-    const gameDirectory = path.join(
-      target,
-      ...(process.platform === 'darwin'
-        ? ['Contents', 'Resources', 'game']
-        : ['resources', 'game']),
-    );
-    const metadataPath = path.join(
-      target,
-      ...(process.platform === 'darwin'
-        ? ['Contents', 'Resources', 'vn-game-application.json']
-        : ['resources', 'vn-game-application.json']),
-    );
 
     expect(result).toMatchObject({
       artifactName: path.basename(target),
@@ -275,13 +411,7 @@ describe.runIf(process.platform === 'darwin')('standalone application exporter',
       platform: process.platform,
       arch: process.arch,
     });
-    expect(await readFile(path.join(gameDirectory, 'game.json'), 'utf8')).toContain(
-      'vn-engine-runtime',
-    );
-    const metadata = JSON.parse(await readFile(metadataPath, 'utf8')) as Record<
-      string,
-      unknown
-    >;
+    expect(gameContents).toContain('vn-engine-runtime');
     expect(metadata).toEqual({
       format: STANDALONE_APPLICATION_FORMAT,
       configVersion: 1,
@@ -293,12 +423,328 @@ describe.runIf(process.platform === 'darwin')('standalone application exporter',
       playerVersion: '0.1.0',
     });
     expect(JSON.stringify(metadata)).not.toContain(root);
+    expect(await readFile(target, 'utf8')).toBe('fake-standalone-zip');
     expect((await readdir(root)).filter((name) => name.startsWith('.Story'))).toEqual(
       [],
     );
   });
 
-  it('assembles in a private workspace and verifies a complete target sibling before publishing', async () => {
+  it('preserves nested read-only template modes and removes the private tree after a later error', async () => {
+    const root = await temporaryRoot();
+    await mkdir(path.join(root, 'source'));
+    const { templateRoot, artifactRoot } = await createTemplate(root);
+    const readOnlyRoot = path.join(
+      artifactRoot,
+      'Contents',
+      'Resources',
+      'read-only-tree',
+    );
+    const readOnlyNested = path.join(readOnlyRoot, 'nested');
+    const readOnlyFile = path.join(readOnlyNested, 'main.js');
+    await mkdir(readOnlyNested, { recursive: true });
+    await writeFile(readOnlyFile, 'export const readOnly = true;\n');
+    await chmod(readOnlyFile, 0o444);
+    await chmod(readOnlyNested, 0o555);
+    await chmod(readOnlyRoot, 0o555);
+    let privateWorkspacePath = '';
+    const copiedReadOnlyRoot = (applicationPath: string) =>
+      path.join(
+        applicationPath,
+        'Contents',
+        'Resources',
+        'read-only-tree',
+      );
+
+    try {
+      await expect(
+        exportStandaloneApplication(
+          options(root, templateRoot, {
+            verifyTemplateArtifact: async (applicationPath: string) => {
+              privateWorkspacePath = path.dirname(applicationPath);
+              const copiedRoot = copiedReadOnlyRoot(applicationPath);
+              expect((await stat(copiedRoot)).mode & 0o777).toBe(0o555);
+              expect((await stat(path.join(copiedRoot, 'nested'))).mode & 0o777)
+                .toBe(0o555);
+              expect(
+                (await stat(path.join(copiedRoot, 'nested', 'main.js'))).mode &
+                  0o777,
+              ).toBe(0o444);
+            },
+            injectFault: (point: string) => {
+              if (point === 'after-template-copy') {
+                throw new Error('simulated read-only rollback failure');
+              }
+            },
+          }),
+        ),
+      ).rejects.toThrow('simulated read-only rollback failure');
+
+      expect(privateWorkspacePath).not.toBe('');
+      await expect(stat(privateWorkspacePath)).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+      await expect(stat(artifactPath(root))).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+      await expect(readFile(exportLockPath(root), 'utf8')).rejects.toMatchObject(
+        { code: 'ENOENT' },
+      );
+      expect((await stat(readOnlyRoot)).mode & 0o777).toBe(0o555);
+      expect((await stat(readOnlyNested)).mode & 0o777).toBe(0o555);
+      expect((await stat(readOnlyFile)).mode & 0o777).toBe(0o444);
+    } finally {
+      await chmod(readOnlyRoot, 0o755);
+      await chmod(readOnlyNested, 0o755);
+      await chmod(readOnlyFile, 0o644);
+      if (privateWorkspacePath.length > 0) {
+        const copiedRoot = copiedReadOnlyRoot(
+          path.join(privateWorkspacePath, 'Story.app'),
+        );
+        await chmod(copiedRoot, 0o755).catch(() => undefined);
+        await chmod(path.join(copiedRoot, 'nested'), 0o755).catch(
+          () => undefined,
+        );
+        await rm(privateWorkspacePath, { recursive: true, force: true }).catch(
+          () => undefined,
+        );
+      }
+    }
+  });
+
+  it('copies app.asar as one regular file under Electron without expanding its virtual .vite tree', async () => {
+    const root = await temporaryRoot();
+    const sourceRoot = path.join(root, 'source');
+    const exportsRoot = path.join(root, 'exports');
+    await Promise.all([mkdir(sourceRoot), mkdir(exportsRoot)]);
+    await writeFile(
+      path.join(sourceRoot, 'project.vn.json'),
+      sourceManifestContents,
+    );
+    const { artifactRoot } = await createTemplate(root);
+    const sourceAsarPath = path.join(
+      artifactRoot,
+      'Contents',
+      'Resources',
+      'app.asar',
+    );
+    await writeMinimalVirtualizedAsar(sourceAsarPath);
+    await chmod(sourceAsarPath, 0o444);
+    const sourceAsarStatus = await stat(sourceAsarPath);
+    const sourceAsarSha256 = createHash('sha256')
+      .update(await readFile(sourceAsarPath))
+      .digest('hex');
+    expect(sourceAsarStatus.isFile()).toBe(true);
+    expect(sourceAsarStatus.mode & 0o777).toBe(0o444);
+
+    const fixtureEntryPath = path.join(root, 'electron-asar-contract.ts');
+    const fixtureOutputRoot = path.join(root, 'electron-fixture-build');
+    const exporterModulePath = path.resolve(
+      process.cwd(),
+      'src/main/export/StandaloneApplicationExporter.ts',
+    );
+    const compilerModulePath = path.resolve(
+      process.cwd(),
+      'src/main/export/AuthorProjectCompiler.ts',
+    );
+    await writeFile(
+      fixtureEntryPath,
+      `import { createHash } from 'node:crypto';
+import * as patchedFs from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import * as originalFs from 'original-fs';
+import { exportStandaloneApplication } from ${JSON.stringify(exporterModulePath)};
+import { compileAuthorProjectV9 } from ${JSON.stringify(compilerModulePath)};
+
+async function main() {
+const root = process.env.VN_ASAR_CONTRACT_ROOT;
+if (!root) {
+  throw new Error('VN_ASAR_CONTRACT_ROOT is missing');
+}
+const sourceProjectRootPath = path.join(root, 'source');
+const templateRootPath = path.join(root, 'template');
+const targetArtifactPath = path.join(root, 'exports', 'Story-macOS.zip');
+const sourceAsarPath = path.join(
+  templateRootPath,
+  'payload',
+  'VN Engine Player.app',
+  'Contents',
+  'Resources',
+  'app.asar',
+);
+const sourceManifestContents = await readFile(
+  path.join(sourceProjectRootPath, 'project.vn.json'),
+  'utf8',
+);
+const expectedSnapshot = compileAuthorProjectV9(sourceManifestContents);
+const sentinel = 'simulated Electron ASAR post-copy failure';
+let verifiedCopiedAsar = false;
+let privateWorkspacePath = '';
+
+const patchedAsarStatus = patchedFs.lstatSync(sourceAsarPath);
+if (
+  !patchedAsarStatus.isDirectory() ||
+  !patchedFs.existsSync(path.join(sourceAsarPath, '.vite', 'build', 'main.js')) ||
+  !originalFs.lstatSync(sourceAsarPath).isFile()
+) {
+  throw new Error('Electron ASAR virtualization precondition failed');
+}
+try {
+  await exportStandaloneApplication({
+    sourceProjectRootPath,
+    targetArtifactPath,
+    templateRootPath,
+    sourceRevision: 7,
+    expectedManifestSha256: createHash('sha256')
+      .update(sourceManifestContents)
+      .digest('hex'),
+    expectedProject: expectedSnapshot.project,
+    expectedAssets: expectedSnapshot.publicAssets,
+    application: {
+      name: 'Story',
+      version: '1.2.3',
+      applicationId: 'com.example.story',
+    },
+    verifyTemplateArtifact: async (applicationPath) => {
+      privateWorkspacePath = path.dirname(applicationPath);
+      const copiedAsarPath = path.join(
+        applicationPath,
+        'Contents',
+        'Resources',
+        'app.asar',
+      );
+      const sourceStatus = originalFs.lstatSync(sourceAsarPath);
+      const copiedStatus = originalFs.lstatSync(copiedAsarPath);
+      if (!sourceStatus.isFile() || !copiedStatus.isFile()) {
+        throw new Error('app.asar must remain a regular file');
+      }
+      if (
+        (copiedStatus.mode & 0o777) !== (sourceStatus.mode & 0o777) ||
+        copiedStatus.size !== sourceStatus.size
+      ) {
+        throw new Error('copied app.asar metadata changed');
+      }
+      const sourceBytes = originalFs.readFileSync(sourceAsarPath);
+      const copiedBytes = originalFs.readFileSync(copiedAsarPath);
+      if (!sourceBytes.equals(copiedBytes)) {
+        throw new Error('copied app.asar bytes changed');
+      }
+      if (originalFs.existsSync(path.join(copiedAsarPath, '.vite'))) {
+        throw new Error('Electron virtual .vite tree escaped app.asar');
+      }
+      verifiedCopiedAsar = true;
+    },
+    injectFault: (point) => {
+      if (point === 'after-template-copy') {
+        throw new Error(sentinel);
+      }
+    },
+  });
+  throw new Error('expected injected post-copy failure');
+} catch (error) {
+  if (
+    !(error instanceof Error) ||
+    error.message !== sentinel ||
+    !verifiedCopiedAsar ||
+    privateWorkspacePath.length === 0
+  ) {
+    process.stderr.write(
+      \`ASAR_CONTRACT_FAILED: \${error instanceof Error ? error.stack : String(error)}\\n\`,
+    );
+    process.exitCode = 1;
+  } else if (
+    originalFs.existsSync(privateWorkspacePath) ||
+    originalFs.existsSync(targetArtifactPath) ||
+    originalFs.existsSync(
+      path.join(root, 'exports', '.Story-macOS.zip.export.lock'),
+    )
+  ) {
+    process.stderr.write('ASAR_CONTRACT_FAILED: rollback left transaction data\\n');
+    process.exitCode = 1;
+  } else {
+    process.stdout.write('ASAR_CONTRACT_OK\\n');
+    process.exitCode = 0;
+  }
+}
+}
+
+void main().catch((error) => {
+  process.stderr.write(
+    \`ASAR_CONTRACT_FAILED: \${error instanceof Error ? error.stack : String(error)}\\n\`,
+  );
+  process.exitCode = 1;
+});
+`,
+    );
+    await buildViteBundle({
+      configFile: false,
+      logLevel: 'silent',
+      build: {
+        ssr: fixtureEntryPath,
+        outDir: fixtureOutputRoot,
+        emptyOutDir: false,
+        minify: false,
+        rollupOptions: {
+          external: ['electron', 'original-fs'],
+          output: {
+            format: 'cjs',
+            entryFileNames: 'electron-asar-contract.cjs',
+          },
+        },
+      },
+    });
+    const electronBinary = createRequire(
+      path.join(process.cwd(), 'package.json'),
+    )('electron') as string;
+    let electronResult: Awaited<ReturnType<typeof execFileAsync>>;
+    try {
+      electronResult = await execFileAsync(
+        electronBinary,
+        [path.join(fixtureOutputRoot, 'electron-asar-contract.cjs')],
+        {
+          cwd: process.cwd(),
+          env: {
+            ...process.env,
+            ELECTRON_RUN_AS_NODE: '1',
+            VN_ASAR_CONTRACT_ROOT: root,
+          },
+          timeout: 60_000,
+          maxBuffer: 4 * 1024 * 1024,
+        },
+      );
+    } catch (error) {
+      const childError = error as Error & {
+        stdout?: string;
+        stderr?: string;
+      };
+      throw new Error(
+        `Electron ASAR contract fixture failed\nstdout:\n${childError.stdout ?? ''}\nstderr:\n${childError.stderr ?? ''}`,
+        { cause: error },
+      );
+    }
+    const { stdout, stderr } = electronResult;
+
+    expect(stderr).not.toContain('ASAR_CONTRACT_FAILED');
+    expect(stdout).toContain('ASAR_CONTRACT_OK');
+    await expect(stat(sourceAsarPath)).resolves.toMatchObject({
+      size: sourceAsarStatus.size,
+    });
+    expect((await stat(sourceAsarPath)).isFile()).toBe(true);
+    expect((await stat(sourceAsarPath)).mode & 0o777).toBe(0o444);
+    expect(
+      createHash('sha256')
+        .update(await readFile(sourceAsarPath))
+        .digest('hex'),
+    ).toBe(sourceAsarSha256);
+    await expect(stat(artifactPath(exportsRoot))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+    await expect(readFile(exportLockPath(exportsRoot), 'utf8')).rejects.toMatchObject(
+      { code: 'ENOENT' },
+    );
+  }, 90_000);
+
+  it('assembles and verifies the app privately before publishing its ZIP', async () => {
     const root = await temporaryRoot();
     const sourceRoot = path.join(root, 'source');
     const targetRoot = path.join(root, 'exports');
@@ -306,10 +752,10 @@ describe.runIf(process.platform === 'darwin')('standalone application exporter',
     const { templateRoot } = await createTemplate(root);
     const target = artifactPath(targetRoot);
     const canonicalTargetRoot = await realpath(targetRoot);
-    const canonicalTarget = path.join(canonicalTargetRoot, path.basename(target));
     let runtimeBundlePath = '';
     let assemblyArtifactPath = '';
-    const preparedPaths: string[] = [];
+    let preparedPath = '';
+    let archivedApplicationPath = '';
     runtimeMocks.exportRuntimeBundle.mockImplementationOnce(
       async (runtimeOptions) => {
         runtimeBundlePath = runtimeOptions.targetBundlePath;
@@ -341,22 +787,27 @@ describe.runIf(process.platform === 'darwin')('standalone application exporter',
       ).toEqual([]);
     });
     const preparePublishedArtifact = vi.fn(async (artifactPath: string) => {
-      preparedPaths.push(artifactPath);
-      if (preparedPaths.length === 1) {
-        expect(path.dirname(artifactPath)).toBe(canonicalTargetRoot);
-        expect(artifactPath).not.toBe(canonicalTarget);
-        await expect(stat(target)).rejects.toMatchObject({ code: 'ENOENT' });
-        await expect(
-          readFile(
-            path.join(artifactPath, 'Contents', 'Resources', 'game', 'game.json'),
-            'utf8',
-          ),
-        ).resolves.toContain('vn-engine-runtime');
-      } else {
-        expect(artifactPath).toBe(canonicalTarget);
-        await expect(stat(target)).resolves.toMatchObject({});
-      }
+      preparedPath = artifactPath;
+      expect(path.dirname(artifactPath)).not.toBe(canonicalTargetRoot);
+      expect(path.basename(artifactPath)).toBe('Story.app');
+      await expect(stat(target)).rejects.toMatchObject({ code: 'ENOENT' });
     });
+    const archiveApplication = vi.fn(
+      async (applicationPath: string, archivePath: string) => {
+        archivedApplicationPath = applicationPath;
+        await expect(stat(target)).rejects.toMatchObject({ code: 'ENOENT' });
+        await writeFile(archivePath, 'fake-standalone-zip');
+      },
+    );
+    const extractApplicationArchive = vi.fn(
+      async (_archivePath: string, extractionRootPath: string) => {
+        await cp(
+          archivedApplicationPath,
+          path.join(extractionRootPath, 'Story.app'),
+          { recursive: true },
+        );
+      },
+    );
 
     await exportStandaloneApplication(
       options(root, templateRoot, {
@@ -364,17 +815,19 @@ describe.runIf(process.platform === 'darwin')('standalone application exporter',
         targetArtifactPath: target,
         finalizeApplication,
         preparePublishedArtifact,
+        archiveApplication,
+        extractApplicationArchive,
       }),
     );
 
     expect(path.dirname(runtimeBundlePath)).not.toBe(canonicalTargetRoot);
     expect(path.dirname(assemblyArtifactPath)).not.toBe(canonicalTargetRoot);
-    expect(preparedPaths).toHaveLength(2);
-    expect(preparedPaths[0]).not.toBe(canonicalTarget);
-    expect(preparedPaths[1]).toBe(canonicalTarget);
-    await expect(stat(preparedPaths[0] as string)).rejects.toMatchObject({
+    expect(preparePublishedArtifact).toHaveBeenCalledTimes(1);
+    expect(preparedPath).toBe(assemblyArtifactPath);
+    await expect(stat(preparedPath)).rejects.toMatchObject({
       code: 'ENOENT',
     });
+    await expect(readFile(target, 'utf8')).resolves.toBe('fake-standalone-zip');
     expect(
       (await readdir(targetRoot)).filter((name) => name.startsWith('.Story')),
     ).toEqual([]);
@@ -835,80 +1288,6 @@ describe.runIf(process.platform === 'darwin')('standalone application exporter',
     expect(
       (await readdir(targetRoot)).filter((name) => name.startsWith('.Story')),
     ).toEqual([]);
-  });
-
-  it('removes its just-published artifact when the final strict check fails', async () => {
-    const root = await temporaryRoot();
-    await mkdir(path.join(root, 'source'));
-    const { templateRoot } = await createTemplate(root);
-    const target = artifactPath(root);
-    const canonicalTarget = path.join(
-      await realpath(root),
-      path.basename(target),
-    );
-    let publishingPath = '';
-    let prepareCalls = 0;
-    const preparePublishedArtifact = vi.fn(async (artifactPath: string) => {
-      prepareCalls += 1;
-      if (prepareCalls === 1) {
-        publishingPath = artifactPath;
-        return;
-      }
-      expect(artifactPath).toBe(canonicalTarget);
-      throw new Error('final strict verification failed');
-    });
-
-    await expect(
-      exportStandaloneApplication(
-        options(root, templateRoot, { preparePublishedArtifact }),
-      ),
-    ).rejects.toThrow('final strict verification failed');
-
-    expect(prepareCalls).toBe(2);
-    await expect(stat(publishingPath)).rejects.toMatchObject({ code: 'ENOENT' });
-    await expect(stat(target)).rejects.toMatchObject({ code: 'ENOENT' });
-    await expect(readFile(exportLockPath(root), 'utf8')).rejects.toMatchObject({
-      code: 'ENOENT',
-    });
-    expect((await readdir(root)).filter((name) => name.startsWith('.Story'))).toEqual(
-      [],
-    );
-  });
-
-  it('does not delete a replacement at the final path while unwinding a failed check', async () => {
-    const root = await temporaryRoot();
-    await mkdir(path.join(root, 'source'));
-    const { templateRoot } = await createTemplate(root);
-    const target = artifactPath(root);
-    const canonicalRoot = await realpath(root);
-    const canonicalTarget = path.join(canonicalRoot, path.basename(target));
-    const displacedArtifact = path.join(canonicalRoot, 'displaced-export.app');
-    let prepareCalls = 0;
-    const preparePublishedArtifact = vi.fn(async (artifactPath: string) => {
-      prepareCalls += 1;
-      if (prepareCalls === 1) {
-        return;
-      }
-      expect(artifactPath).toBe(canonicalTarget);
-      await rename(canonicalTarget, displacedArtifact);
-      await mkdir(canonicalTarget);
-      await writeFile(path.join(canonicalTarget, 'successor.txt'), 'successor');
-      throw new Error('final target changed during verification');
-    });
-
-    await expect(
-      exportStandaloneApplication(
-        options(root, templateRoot, { preparePublishedArtifact }),
-      ),
-    ).rejects.toThrow('final target changed during verification');
-
-    await expect(readFile(path.join(target, 'successor.txt'), 'utf8')).resolves.toBe(
-      'successor',
-    );
-    await expect(stat(displacedArtifact)).resolves.toMatchObject({});
-    await expect(readFile(exportLockPath(root), 'utf8')).rejects.toMatchObject({
-      code: 'ENOENT',
-    });
   });
 
   it('verifies the ad-hoc signature after signing instead of trusting sign exit zero', async () => {

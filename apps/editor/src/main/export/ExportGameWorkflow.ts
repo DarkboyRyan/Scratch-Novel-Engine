@@ -20,17 +20,6 @@ export const STANDALONE_TEMPLATE_UNAVAILABLE_MESSAGE =
   '当前平台的独立 Player 模板不可用，请安装对应模板后重试';
 export const STANDALONE_LOCAL_PLATFORM_UNSUPPORTED_MESSAGE =
   '当前 Editor 只支持在 macOS 本地组装独立应用；Windows/Linux 请使用对应平台 CI 构建';
-export const STANDALONE_UNSTABLE_TARGET_MESSAGE =
-  '当前导出位置会持续修改 macOS 应用元数据，无法保持签名有效；请选择“下载”或其他本地非同步目录';
-
-function isUnstableStandaloneTargetError(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    (error as { code?: unknown }).code ===
-      'UNSTABLE_STANDALONE_APPLICATION_METADATA'
-  );
-}
 
 function safeBundleBaseName(projectName: string): string {
   const withoutControlCharacters = [...projectName]
@@ -46,6 +35,29 @@ function safeBundleBaseName(projectName: string): string {
   return normalized.length === 0 ? '未命名游戏' : normalized;
 }
 
+function truncateUtf8(value: string, maximumBytes: number): string {
+  let result = '';
+  let bytes = 0;
+  for (const character of value) {
+    const characterBytes = Buffer.byteLength(character, 'utf8');
+    if (bytes + characterBytes > maximumBytes) {
+      break;
+    }
+    result += character;
+    bytes += characterBytes;
+  }
+  return result;
+}
+
+function safeStandaloneArchiveName(applicationName: string): string {
+  const suffix = '-macOS.zip';
+  const baseName = truncateUtf8(
+    safeBundleBaseName(applicationName),
+    240 - Buffer.byteLength(suffix, 'utf8'),
+  );
+  return `${baseName.length === 0 ? '未命名游戏' : baseName}${suffix}`;
+}
+
 function normalizeBundlePath(selectedPath: string): string {
   const absolutePath = path.resolve(selectedPath);
   if (absolutePath.toLowerCase().endsWith('.vngame')) {
@@ -55,14 +67,17 @@ function normalizeBundlePath(selectedPath: string): string {
 }
 
 function normalizeStandaloneArtifactPath(selectedPath: string): string {
-  const absolutePath = path.resolve(selectedPath);
-  if (process.platform !== 'darwin') {
-    return absolutePath;
+  let basePath = path.resolve(selectedPath);
+  if (/\.zip$/iu.test(basePath)) {
+    basePath = basePath.slice(0, -'.zip'.length);
   }
-  if (absolutePath.toLowerCase().endsWith('.app')) {
-    return `${absolutePath.slice(0, -'.app'.length)}.app`;
+  if (/\.app$/iu.test(basePath)) {
+    basePath = basePath.slice(0, -'.app'.length);
   }
-  return `${absolutePath}.app`;
+  if (/-macos$/iu.test(basePath)) {
+    basePath = basePath.slice(0, -'-macOS'.length);
+  }
+  return `${basePath}-macOS.zip`;
 }
 
 function assertExportableSession(context: EditorWindowContext): {
@@ -131,18 +146,17 @@ export async function runExportGameWorkflow(
   }
 
   const standalone = request.output === 'standalone-application';
-  const extension = process.platform === 'darwin' ? '.app' : '';
   const selection = await dialog.showSaveDialog(context.editorWindow, {
-    title: standalone ? '导出独立游戏应用' : '导出 VN 游戏内容包',
+    title: standalone ? '导出独立游戏 ZIP' : '导出 VN 游戏内容包',
     buttonLabel: '导出',
     defaultPath: path.join(
       path.dirname(frozen.projectRootPath),
       standalone
-        ? `${safeBundleBaseName(request.application.name)}${extension}`
+        ? safeStandaloneArchiveName(request.application.name)
         : `${safeBundleBaseName(current.project.name)}.vngame`,
     ),
     filters: standalone && process.platform === 'darwin'
-      ? [{ name: 'macOS Application', extensions: ['app'] }]
+      ? [{ name: 'macOS 游戏 ZIP', extensions: ['zip'] }]
       : standalone
         ? undefined
         : [{ name: 'VN Game Bundle', extensions: ['vngame'] }],
@@ -205,11 +219,6 @@ export async function runExportGameWorkflow(
   } catch (error) {
     // Native paths and low-level filesystem details stay in Main logs.
     console.error('[game-export] export failed', error);
-    if (standalone && isUnstableStandaloneTargetError(error)) {
-      // This diagnosis is deliberately path-free and actionable. Do not expose
-      // the wrapped codesign error, which may contain a private absolute path.
-      throw new Error(STANDALONE_UNSTABLE_TARGET_MESSAGE);
-    }
     throw new Error(
       standalone
         ? '独立应用导出失败，源项目和已有导出内容均未修改'

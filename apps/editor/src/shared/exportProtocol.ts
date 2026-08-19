@@ -18,6 +18,8 @@ export type StandaloneApplicationMetadata = {
   applicationId: string;
 };
 
+const MAX_MACOS_APPLICATION_BASENAME_UTF8_BYTES = 251;
+
 export function standaloneApplicationMetadataError(
   metadata: StandaloneApplicationMetadata,
 ): string | null {
@@ -26,6 +28,8 @@ export function standaloneApplicationMetadataError(
     metadata.name !== metadata.name.trim() ||
     metadata.name.length < 1 ||
     Array.from(metadata.name).length > 80 ||
+    new TextEncoder().encode(metadata.name).byteLength >
+      MAX_MACOS_APPLICATION_BASENAME_UTF8_BYTES ||
     filenamify(metadata.name, { replacement: '-' }) !== metadata.name ||
     [...metadata.name].some((character) => {
       const codePoint = character.codePointAt(0) ?? 0;
@@ -35,7 +39,7 @@ export function standaloneApplicationMetadataError(
     /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu.test(metadata.name) ||
     /[. ]$/u.test(metadata.name)
   ) {
-    return '应用名称需为 1–80 个字符，且不能包含系统保留字符';
+    return '应用名称需为 1–80 个字符、不能过长，且不能包含系统保留字符';
   }
   if (
     metadata.version.length > 32 ||

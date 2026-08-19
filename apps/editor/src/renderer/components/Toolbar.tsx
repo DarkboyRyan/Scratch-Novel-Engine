@@ -198,7 +198,9 @@ export function Toolbar({
                   }}
                 >
                   <option value="runtime-bundle">.vngame 内容包</option>
-                  <option value="standalone-application">独立游戏应用</option>
+                  <option value="standalone-application">
+                    独立游戏 ZIP（macOS）
+                  </option>
                 </select>
               </label>
 
@@ -233,8 +235,9 @@ export function Toolbar({
                     />
                   </label>
                   <p className="export-dialog-note">
-                    当前本地组装仅支持 macOS，并使用 Player 模板默认图标。
-                    Windows/Linux、自定义图标和正式签名由对应平台 CI 完成。
+                    ZIP 内含一个可运行的 macOS 应用，并使用 Player
+                    模板默认图标。Windows/Linux、自定义图标和正式签名由对应平台
+                    CI 完成。
                   </p>
                 </div>
               ) : null}

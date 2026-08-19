@@ -1,20 +1,8 @@
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { constants, type Stats } from "node:fs";
-import {
-  chmod,
-  lstat,
-  mkdtemp,
-  mkdir,
-  open,
-  readdir,
-  readlink,
-  realpath,
-  rename,
-  rm,
-  symlink,
-  type FileHandle,
-} from "node:fs/promises";
+import * as nodeFileSystem from "node:fs";
+import type { Stats } from "node:fs";
+import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -33,11 +21,45 @@ import {
 } from "./StandalonePlayerTemplate";
 import { acquireExportFileLock } from "./ExportFileLock";
 
+function resolveUnpatchedFileSystem(): typeof nodeFileSystem {
+  if (process.versions.electron === undefined) {
+    return nodeFileSystem;
+  }
+  const originalFileSystem = process.getBuiltinModule("original-fs");
+  if (originalFileSystem === undefined) {
+    throw new Error("Electron 原生文件系统模块不可用");
+  }
+  return originalFileSystem as typeof nodeFileSystem;
+}
+
+// Electron's regular fs API treats every valid *.asar file as a virtual
+// directory. Standalone export must copy and verify the physical application
+// tree instead, otherwise the Player's app.asar is expanded and its signature
+// is destroyed. Plain Node tests deliberately keep using the normal fs module.
+const unpatchedFileSystem = resolveUnpatchedFileSystem();
+const { constants } = unpatchedFileSystem;
+const {
+  chmod,
+  lstat,
+  link,
+  mkdtemp,
+  mkdir,
+  open,
+  readdir,
+  readlink,
+  realpath,
+  rename,
+  rmdir,
+  symlink,
+  unlink,
+} = unpatchedFileSystem.promises;
+
 const execFileAsync = promisify(execFile);
 const COPY_BUFFER_BYTES = 256 * 1024;
 const MAX_TEMPLATE_ENTRIES = 100_000;
 const MAX_TEMPLATE_FILE_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_TEMPLATE_TOTAL_BYTES = 8 * 1024 * 1024 * 1024;
+const MAX_ARCHIVE_FILE_BYTES = 12 * 1024 * 1024 * 1024;
 const MAX_CTIME_ONLY_RETRY_ATTEMPTS = 3;
 const FILE_PROVIDER_SETTLE_DELAY_MS = 500;
 const CLEANUP_RETRY_ATTEMPTS = 3;
@@ -101,6 +123,15 @@ export type StandaloneApplicationExportOptions = {
   ) => void | Promise<void>;
   verifyTemplateArtifact?: (stagingArtifactPath: string) => Promise<void>;
   finalizeApplication?: StandaloneApplicationFinalizer;
+  archiveApplication?: (
+    applicationPath: string,
+    archivePath: string,
+  ) => Promise<void>;
+  extractApplicationArchive?: (
+    archivePath: string,
+    extractionRootPath: string,
+  ) => Promise<void>;
+  verifyExtractedApplication?: (applicationPath: string) => Promise<void>;
   preparePublishedArtifact?: (publishedArtifactPath: string) => Promise<void>;
 };
 
@@ -266,12 +297,14 @@ async function removeOwnedDirectory(
       return;
     }
     try {
-      await rm(directoryPath, { recursive: true, force: true });
+      await removeOwnedDirectoryTree(directoryPath, identity);
       return;
     } catch (error) {
       if (
         attempt === CLEANUP_RETRY_ATTEMPTS - 1 ||
-        !["EBUSY", "ENOTEMPTY"].includes(errnoCode(error) ?? "")
+        !["EACCES", "EBUSY", "ENOTEMPTY", "EPERM"].includes(
+          errnoCode(error) ?? "",
+        )
       ) {
         throw error;
       }
@@ -282,12 +315,111 @@ async function removeOwnedDirectory(
   }
 }
 
-async function moveOwnedDirectoryAside(
+async function removeOwnedDirectoryTree(
   directoryPath: string,
-  rollbackPath: string,
+  expectedIdentity: FileIdentity,
+): Promise<void> {
+  const before = await lstat(directoryPath).catch((error: unknown) => {
+    if (errnoCode(error) === "ENOENT") {
+      return null;
+    }
+    throw error;
+  });
+  if (before === null) {
+    return;
+  }
+  if (
+    before.isSymbolicLink() ||
+    !before.isDirectory() ||
+    !sameFileIdentity(before, expectedIdentity)
+  ) {
+    return;
+  }
+
+  // Pin the physical directory with O_NOFOLLOW before restoring owner access.
+  // Template modes are restored after copying, so an injected failure can
+  // otherwise leave 0555 directories that a recursive rm cannot clean up.
+  const noFollow = constants.O_NOFOLLOW ?? 0;
+  const directoryOnly = constants.O_DIRECTORY ?? 0;
+  const directory = await open(
+    directoryPath,
+    constants.O_RDONLY | noFollow | directoryOnly,
+  );
+  try {
+    const opened = await directory.stat();
+    if (
+      !opened.isDirectory() ||
+      !sameFileIdentity(opened, expectedIdentity)
+    ) {
+      throw new Error("独立应用私有工作区在清理时发生了变化");
+    }
+    await directory.chmod((opened.mode & 0o777) | 0o700);
+  } finally {
+    await directory.close();
+  }
+
+  const writable = await lstat(directoryPath);
+  if (
+    writable.isSymbolicLink() ||
+    !writable.isDirectory() ||
+    !sameFileIdentity(writable, expectedIdentity)
+  ) {
+    throw new Error("独立应用私有工作区在清理时发生了变化");
+  }
+  const entries = await readdir(directoryPath);
+  entries.sort((left, right) => left.localeCompare(right, "en"));
+  for (const entry of entries) {
+    const entryPath = path.join(directoryPath, entry);
+    const entryStatus = await lstat(entryPath).catch((error: unknown) => {
+      if (errnoCode(error) === "ENOENT") {
+        return null;
+      }
+      throw error;
+    });
+    if (entryStatus === null) {
+      continue;
+    }
+    if (!entryStatus.isSymbolicLink() && entryStatus.isDirectory()) {
+      await removeOwnedDirectoryTree(entryPath, {
+        dev: entryStatus.dev,
+        ino: entryStatus.ino,
+      });
+      continue;
+    }
+    await unlink(entryPath).catch((error: unknown) => {
+      if (errnoCode(error) !== "ENOENT") {
+        throw error;
+      }
+    });
+  }
+
+  const emptied = await lstat(directoryPath);
+  if (
+    emptied.isSymbolicLink() ||
+    !emptied.isDirectory() ||
+    !sameFileIdentity(emptied, expectedIdentity)
+  ) {
+    throw new Error("独立应用私有工作区在清理时发生了变化");
+  }
+  await rmdir(directoryPath);
+}
+
+async function captureOwnedRegularFileIdentity(
+  filePath: string,
+  context: string,
+): Promise<FileIdentity> {
+  const status = await lstat(filePath);
+  if (status.isSymbolicLink() || !status.isFile() || status.nlink !== 1) {
+    throw new Error(`${context}不是安全的常规文件`);
+  }
+  return { dev: status.dev, ino: status.ino };
+}
+
+async function removeOwnedRegularFile(
+  filePath: string,
   identity: FileIdentity,
-): Promise<FileIdentity | null> {
-  const status = await lstat(directoryPath).catch((error: unknown) => {
+): Promise<void> {
+  const status = await lstat(filePath).catch((error: unknown) => {
     if (errnoCode(error) === "ENOENT") {
       return null;
     }
@@ -296,22 +428,12 @@ async function moveOwnedDirectoryAside(
   if (
     status === null ||
     status.isSymbolicLink() ||
-    !status.isDirectory() ||
+    !status.isFile() ||
     !sameFileIdentity(status, identity)
   ) {
-    return null;
+    return;
   }
-  await assertMissing(rollbackPath, "独立应用回滚暂存位置已存在");
-  await rename(directoryPath, rollbackPath);
-  const moved = await lstat(rollbackPath);
-  if (
-    moved.isSymbolicLink() ||
-    !moved.isDirectory() ||
-    !sameFileIdentity(moved, identity)
-  ) {
-    return null;
-  }
-  return identity;
+  await unlink(filePath);
 }
 
 async function canonicalizeDirectory(
@@ -350,18 +472,49 @@ function validateTargetName(
   if (
     artifactName.length === 0 ||
     artifactName.length > 160 ||
+    Buffer.byteLength(artifactName, "utf8") > 240 ||
+    Buffer.from(artifactName, "utf8").toString("utf8") !== artifactName ||
     artifactName.includes("\0") ||
+    [...artifactName].some((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint < 32 || codePoint === 127;
+    }) ||
     /[. ]$/u.test(artifactName)
   ) {
     throw new Error("独立应用产物名称无效");
   }
   if (
     template.manifest.platform === "darwin" &&
-    !artifactName.endsWith(".app")
+    !artifactName.endsWith("-macOS.zip")
   ) {
-    throw new Error("macOS 独立应用名称必须以 .app 结尾");
+    throw new Error("macOS 独立应用归档名称必须以 -macOS.zip 结尾");
   }
   return artifactName;
+}
+
+function applicationArtifactName(
+  application: StandaloneApplicationMetadata,
+): string {
+  const name = `${application.name}.app`;
+  if (
+    application.name.length === 0 ||
+    application.name !== application.name.normalize("NFC") ||
+    application.name !== application.name.trim() ||
+    Array.from(application.name).length > 80 ||
+    Buffer.byteLength(name, "utf8") > 255 ||
+    Buffer.from(name, "utf8").toString("utf8") !== name ||
+    path.basename(name) !== name ||
+    application.name.includes("\0") ||
+    [...application.name].some((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint < 32 || codePoint === 127;
+    }) ||
+    /[<>:"/\\|?*]/u.test(application.name) ||
+    /[. ]$/u.test(application.name)
+  ) {
+    throw new Error("macOS 独立应用名称无效");
+  }
+  return name;
 }
 
 function accountForEntry(budget: CopyBudget, bytes = 0): void {
@@ -434,7 +587,13 @@ async function copyTemplateEntry(
   const status = await lstat(sourcePath);
   if (status.isDirectory()) {
     accountForEntry(budget);
-    await mkdir(destinationPath, { mode: status.mode & 0o777 });
+    const sourceMode = status.mode & 0o777;
+    const assemblyMode = sourceMode | 0o700;
+    // A signed template may legitimately contain read-only directories. The
+    // destination still has to remain writable and traversable while its
+    // children are assembled; restore the template's exact mode afterwards.
+    await mkdir(destinationPath, { mode: assemblyMode });
+    await chmod(destinationPath, assemblyMode);
     const entries = await readdir(sourcePath);
     entries.sort((left, right) => left.localeCompare(right, "en"));
     for (const entry of entries) {
@@ -463,7 +622,7 @@ async function copyTemplateEntry(
     ) {
       throw new Error("独立应用模板目录在复制时发生了变化");
     }
-    await chmod(destinationPath, status.mode & 0o777);
+    await chmod(destinationPath, sourceMode);
     return;
   }
   if (status.isFile()) {
@@ -665,6 +824,145 @@ async function hashRegularFile(
     throw new Error(changedMessage);
   }
   return completed.value;
+}
+
+async function hashStableArchiveFile(
+  filePath: string,
+  expectedSha256?: string,
+): Promise<string> {
+  const before = await lstat(filePath);
+  if (
+    before.isSymbolicLink() ||
+    !before.isFile() ||
+    before.nlink !== 1 ||
+    before.size <= 0 ||
+    before.size > MAX_ARCHIVE_FILE_BYTES
+  ) {
+    throw new Error("独立应用 ZIP 不是大小有效的安全文件");
+  }
+  const noFollow = constants.O_NOFOLLOW ?? 0;
+  const file = await open(filePath, constants.O_RDONLY | noFollow);
+  try {
+    const opened = await file.stat();
+    if (
+      !opened.isFile() ||
+      opened.nlink !== 1 ||
+      fileSnapshotChange(before, opened) === "unsafe"
+    ) {
+      throw new Error("独立应用 ZIP 在复验前发生了变化");
+    }
+    const hash = createHash("sha256");
+    const buffer = Buffer.allocUnsafe(COPY_BUFFER_BYTES);
+    let position = 0;
+    while (position < opened.size) {
+      const length = Math.min(buffer.length, opened.size - position);
+      const { bytesRead } = await file.read(buffer, 0, length, position);
+      if (bytesRead !== length) {
+        throw new Error("独立应用 ZIP 未能完整复验");
+      }
+      hash.update(buffer.subarray(0, bytesRead));
+      position += bytesRead;
+    }
+    const after = await file.stat();
+    if (fileSnapshotChange(opened, after) === "unsafe") {
+      throw new Error("独立应用 ZIP 在复验时发生了变化");
+    }
+    const sha256 = hash.digest("hex");
+    if (expectedSha256 !== undefined && sha256 !== expectedSha256) {
+      throw new Error("独立应用 ZIP 的 SHA-256 与预期不一致");
+    }
+    return sha256;
+  } finally {
+    await file.close();
+  }
+}
+
+async function copyStableArchiveFile(
+  sourcePath: string,
+  destinationPath: string,
+  expectedSha256: string,
+): Promise<FileIdentity> {
+  const before = await lstat(sourcePath);
+  if (
+    before.isSymbolicLink() ||
+    !before.isFile() ||
+    before.nlink !== 1 ||
+    before.size <= 0 ||
+    before.size > MAX_ARCHIVE_FILE_BYTES
+  ) {
+    throw new Error("独立应用 ZIP 在发布前无效");
+  }
+  const noFollow = constants.O_NOFOLLOW ?? 0;
+  const source = await open(sourcePath, constants.O_RDONLY | noFollow);
+  let destination: FileHandle | null = null;
+  let destinationIdentity: FileIdentity | null = null;
+  try {
+    try {
+      const opened = await source.stat();
+      if (!opened.isFile() || !sameFileSnapshot(before, opened)) {
+        throw new Error("独立应用 ZIP 在发布前发生了变化");
+      }
+      destination = await open(
+        destinationPath,
+        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | noFollow,
+        0o600,
+      );
+      const created = await destination.stat();
+      if (!created.isFile() || created.nlink !== 1 || created.size !== 0) {
+        throw new Error("独立应用 ZIP 发布暂存文件无效");
+      }
+      destinationIdentity = { dev: created.dev, ino: created.ino };
+      const buffer = Buffer.allocUnsafe(COPY_BUFFER_BYTES);
+      let readPosition = 0;
+      while (readPosition < opened.size) {
+        const length = Math.min(buffer.length, opened.size - readPosition);
+        const { bytesRead } = await source.read(
+          buffer,
+          0,
+          length,
+          readPosition,
+        );
+        if (bytesRead !== length) {
+          throw new Error("独立应用 ZIP 未能完整读取");
+        }
+        let writeOffset = 0;
+        while (writeOffset < bytesRead) {
+          const { bytesWritten } = await destination.write(
+            buffer,
+            writeOffset,
+            bytesRead - writeOffset,
+            readPosition + writeOffset,
+          );
+          if (bytesWritten <= 0) {
+            throw new Error("独立应用 ZIP 未能完整写入");
+          }
+          writeOffset += bytesWritten;
+        }
+        readPosition += bytesRead;
+      }
+      if (!sameFileSnapshot(opened, await source.stat())) {
+        throw new Error("独立应用 ZIP 在发布时发生了变化");
+      }
+      await destination.sync();
+    } finally {
+      await destination?.close().catch(() => undefined);
+      await source.close().catch(() => undefined);
+    }
+    await hashStableArchiveFile(sourcePath, expectedSha256);
+    await hashStableArchiveFile(destinationPath, expectedSha256);
+    if (destinationIdentity === null) {
+      throw new Error("独立应用 ZIP 发布暂存文件身份缺失");
+    }
+    return destinationIdentity;
+  } catch (error) {
+    if (destinationIdentity !== null) {
+      await removeOwnedRegularFile(
+        destinationPath,
+        destinationIdentity,
+      ).catch(() => undefined);
+    }
+    throw error;
+  }
 }
 
 async function snapshotRegularTree(
@@ -894,6 +1192,90 @@ export async function verifyStandalonePlayerTemplateSignature(
   ]);
 }
 
+export async function archiveStandaloneApplication(
+  applicationPath: string,
+  archivePath: string,
+  commandRunner: PlatformCommandRunner = runPlatformCommand,
+): Promise<void> {
+  if (process.platform !== "darwin") {
+    throw new Error("macOS 独立应用归档只支持 macOS");
+  }
+  await assertSafeApplicationTree(applicationPath);
+  await assertMissing(archivePath, "独立应用 ZIP 已存在");
+  await commandRunner("/usr/bin/ditto", [
+    "-c",
+    "-k",
+    "--keepParent",
+    "--norsrc",
+    "--noextattr",
+    "--noacl",
+    "--noqtn",
+    applicationPath,
+    archivePath,
+  ]);
+  const archive = await open(archivePath, constants.O_RDONLY);
+  try {
+    await archive.sync();
+  } finally {
+    await archive.close();
+  }
+  await hashStableArchiveFile(archivePath);
+}
+
+export async function extractStandaloneApplicationArchive(
+  archivePath: string,
+  extractionRootPath: string,
+  commandRunner: PlatformCommandRunner = runPlatformCommand,
+): Promise<void> {
+  if (process.platform !== "darwin") {
+    throw new Error("macOS 独立应用 ZIP 复验只支持 macOS");
+  }
+  const rootIdentity = await captureOwnedDirectoryIdentity(
+    extractionRootPath,
+    "ZIP 解压复验目录",
+  );
+  if ((await readdir(extractionRootPath)).length !== 0) {
+    throw new Error("ZIP 解压复验目录必须为空");
+  }
+  await hashStableArchiveFile(archivePath);
+  await commandRunner("/usr/bin/ditto", [
+    "-x",
+    "-k",
+    "--norsrc",
+    "--noextattr",
+    "--noacl",
+    "--noqtn",
+    archivePath,
+    extractionRootPath,
+  ]);
+  const after = await lstat(extractionRootPath);
+  if (
+    after.isSymbolicLink() ||
+    !after.isDirectory() ||
+    !sameFileIdentity(after, rootIdentity)
+  ) {
+    throw new Error("ZIP 解压复验目录在解压时发生了变化");
+  }
+}
+
+export async function verifyExtractedStandaloneApplication(
+  applicationPath: string,
+  commandRunner: PlatformCommandRunner = runPlatformCommand,
+): Promise<void> {
+  if (process.platform !== "darwin") {
+    throw new Error("macOS 独立应用复验只支持 macOS");
+  }
+  // Verification deliberately performs no cleanup or re-signing. It proves
+  // that the exact bytes restored from the ZIP already carry a valid signature.
+  await assertSafeApplicationTree(applicationPath);
+  await commandRunner("/usr/bin/codesign", [
+    "--verify",
+    "--deep",
+    "--strict",
+    applicationPath,
+  ]);
+}
+
 export async function finalizeStandaloneApplication(
   stagingArtifactPath: string,
   template: LoadedStandalonePlayerTemplate,
@@ -962,6 +1344,85 @@ export async function finalizeStandaloneApplication(
   ]);
 }
 
+async function verifyEmbeddedApplicationContents(
+  applicationPath: string,
+  template: LoadedStandalonePlayerTemplate,
+  expectedMetadataContents: string,
+  expectedEmbeddedRecords: readonly TreeSnapshotRecord[],
+): Promise<void> {
+  const metadataPath = path.join(
+    applicationPath,
+    ...template.manifest.applicationMetadataFile.split("/"),
+  );
+  const gamePath = path.join(
+    applicationPath,
+    ...template.manifest.gameResourceDirectory.split("/"),
+  );
+  if (
+    (await readStableUtf8WithinRoot(
+      applicationPath,
+      metadataPath,
+      expectedMetadataContents,
+    )) !== expectedMetadataContents
+  ) {
+    throw new Error("独立应用元数据在 ZIP 复验时发生了变化");
+  }
+  const actualRecords = await snapshotRegularTree(
+    gamePath,
+    gamePath,
+    new Map(expectedEmbeddedRecords.map((record) => [record.path, record])),
+  );
+  if (JSON.stringify(actualRecords) !== JSON.stringify(expectedEmbeddedRecords)) {
+    throw new Error("内嵌游戏内容在 ZIP 复验时发生了变化");
+  }
+}
+
+async function verifyStandaloneApplicationArchive(
+  archivePath: string,
+  extractionRootPath: string,
+  applicationName: string,
+  template: LoadedStandalonePlayerTemplate,
+  expectedMetadataContents: string,
+  expectedEmbeddedRecords: readonly TreeSnapshotRecord[],
+  expectedArchiveSha256: string,
+  extractArchive: (
+    archivePath: string,
+    extractionRootPath: string,
+  ) => Promise<void>,
+  verifyExtractedApplication: (applicationPath: string) => Promise<void>,
+): Promise<void> {
+  await hashStableArchiveFile(archivePath, expectedArchiveSha256);
+  await mkdir(extractionRootPath, { mode: 0o700 });
+  await extractArchive(archivePath, extractionRootPath);
+  const rootEntries = await readdir(extractionRootPath);
+  if (rootEntries.length !== 1 || rootEntries[0] !== applicationName) {
+    throw new Error(
+      `独立应用 ZIP 根目录必须精确包含 ${applicationName}`,
+    );
+  }
+  const extractedApplicationPath = path.join(
+    extractionRootPath,
+    applicationName,
+  );
+  const extractedStatus = await lstat(extractedApplicationPath);
+  if (
+    extractedStatus.isSymbolicLink() ||
+    !extractedStatus.isDirectory() ||
+    (await realpath(extractedApplicationPath)) !== extractedApplicationPath
+  ) {
+    throw new Error("独立应用 ZIP 内的 .app 无效");
+  }
+  await assertSafeApplicationTree(extractedApplicationPath);
+  await verifyEmbeddedApplicationContents(
+    extractedApplicationPath,
+    template,
+    expectedMetadataContents,
+    expectedEmbeddedRecords,
+  );
+  await verifyExtractedApplication(extractedApplicationPath);
+  await hashStableArchiveFile(archivePath, expectedArchiveSha256);
+}
+
 export async function exportStandaloneApplication(
   options: StandaloneApplicationExportOptions,
 ): Promise<StandaloneApplicationExportResult> {
@@ -979,6 +1440,7 @@ export async function exportStandaloneApplication(
     "导出位置",
   );
   const artifactName = validateTargetName(requestedTargetPath, template);
+  const packagedApplicationName = applicationArtifactName(options.application);
   const targetPath = path.join(targetParentPath, artifactName);
   if (isInsideOrEqual(sourceRootPath, targetPath)) {
     throw new Error("独立应用不能导出到源项目内部");
@@ -989,11 +1451,7 @@ export async function exportStandaloneApplication(
   const lockPath = path.join(targetParentPath, `.${artifactName}.export.lock`);
   const publishingPath = path.join(
     targetParentPath,
-    `VNEnginePublishing-${transactionId}`,
-  );
-  const rollbackPath = path.join(
-    targetParentPath,
-    `VNEngineRollback-${transactionId}`,
+    `.vn-engine-${transactionId}.publishing.zip`,
   );
   const lock = await acquireExportFileLock(
     lockPath,
@@ -1003,7 +1461,6 @@ export async function exportStandaloneApplication(
   let transactionRootIdentity: FileIdentity | null = null;
   let publishingIdentity: FileIdentity | null = null;
   let targetIdentity: FileIdentity | null = null;
-  let rollbackIdentity: FileIdentity | null = null;
   let committed = false;
 
   try {
@@ -1021,7 +1478,10 @@ export async function exportStandaloneApplication(
       transactionRootPath,
       "独立应用私有工作区",
     );
-    const stagingPath = path.join(transactionRootPath, artifactName);
+    const stagingPath = path.join(
+      transactionRootPath,
+      packagedApplicationName,
+    );
     const temporaryBundlePath = path.join(
       transactionRootPath,
       "runtime.vngame",
@@ -1110,8 +1570,6 @@ export async function exportStandaloneApplication(
       throw new Error("内嵌游戏内容在平台处理时发生了变化");
     }
 
-    await options.injectFault?.("before-commit");
-    await lock.assertOwned();
     const stagingStatus = await lstat(stagingPath);
     if (
       stagingStatus.isSymbolicLink() ||
@@ -1120,81 +1578,112 @@ export async function exportStandaloneApplication(
     ) {
       throw new Error("独立应用 staging 在提交前发生了变化");
     }
+    await (options.preparePublishedArtifact ??
+      sanitizeAndVerifyStandaloneApplication)(stagingPath);
+    await verifyEmbeddedApplicationContents(
+      stagingPath,
+      template,
+      expectedMetadataContents,
+      embeddedBeforeFinalize,
+    );
     await syncApplicationTree(stagingPath);
 
-    await assertMissing(publishingPath, "独立应用发布暂存位置已存在");
+    const privateArchivePath = path.join(
+      transactionRootPath,
+      "standalone-application.zip",
+    );
+    await (options.archiveApplication ?? archiveStandaloneApplication)(
+      stagingPath,
+      privateArchivePath,
+    );
+    const expectedArchiveSha256 = await hashStableArchiveFile(
+      privateArchivePath,
+    );
+    const extractArchive =
+      options.extractApplicationArchive ??
+      extractStandaloneApplicationArchive;
+    const verifyExtracted =
+      options.verifyExtractedApplication ??
+      options.preparePublishedArtifact ??
+      verifyExtractedStandaloneApplication;
+    await verifyStandaloneApplicationArchive(
+      privateArchivePath,
+      path.join(transactionRootPath, "private-archive-verification"),
+      packagedApplicationName,
+      template,
+      expectedMetadataContents,
+      embeddedBeforeFinalize,
+      expectedArchiveSha256,
+      extractArchive,
+      verifyExtracted,
+    );
+
+    await lock.assertOwned();
+    await assertMissing(publishingPath, "独立应用 ZIP 发布暂存文件已存在");
     if ((await realpath(targetParentPath)) !== targetParentPath) {
       throw new Error("导出位置在发布前发生了变化");
     }
-    const stagingIdentity = await captureOwnedDirectoryIdentity(
-      stagingPath,
-      "独立应用 staging",
+    publishingIdentity = await copyStableArchiveFile(
+      privateArchivePath,
+      publishingPath,
+      expectedArchiveSha256,
     );
-    let movedToPublishing = false;
-    try {
-      await rename(stagingPath, publishingPath);
-      movedToPublishing = true;
-    } catch (error) {
-      if (errnoCode(error) !== "EXDEV") {
-        throw error;
-      }
+    const publishingAfterCopy = await captureOwnedRegularFileIdentity(
+      publishingPath,
+      "独立应用 ZIP 发布暂存文件",
+    );
+    if (!sameFileIdentity(publishingAfterCopy, publishingIdentity)) {
+      throw new Error("独立应用 ZIP 发布暂存文件在复制后发生了变化");
     }
-    if (movedToPublishing) {
-      publishingIdentity = stagingIdentity;
-      const movedIdentity = await captureOwnedDirectoryIdentity(
-        publishingPath,
-        "独立应用发布暂存目录",
-      );
-      if (!sameFileIdentity(movedIdentity, publishingIdentity)) {
-        throw new Error("独立应用发布暂存目录在移动时发生了变化");
-      }
-    } else {
-      // External-volume exports cannot rename from the private workspace.
-      // Keep the final name absent while a complete sibling is copied and
-      // verified on the destination volume.
-      await mkdir(publishingPath, { mode: 0o700 });
-      publishingIdentity = await captureOwnedDirectoryIdentity(
-        publishingPath,
-        "独立应用发布暂存目录",
-      );
-      await copyTemplateArtifact(stagingPath, publishingPath);
-    }
-    await (options.preparePublishedArtifact ??
-      sanitizeAndVerifyStandaloneApplication)(publishingPath);
-    await syncApplicationTree(publishingPath);
+    await verifyStandaloneApplicationArchive(
+      publishingPath,
+      path.join(transactionRootPath, "published-archive-verification"),
+      packagedApplicationName,
+      template,
+      expectedMetadataContents,
+      embeddedBeforeFinalize,
+      expectedArchiveSha256,
+      extractArchive,
+      verifyExtracted,
+    );
 
     await options.assertSourceStillCurrent?.();
+    await options.injectFault?.("before-commit");
     await lock.assertOwned();
     await assertMissing(targetPath, "导出位置在提交前发生了变化");
     if ((await realpath(targetParentPath)) !== targetParentPath) {
       throw new Error("导出位置在提交前发生了变化");
     }
-    const publishingBeforeRename = await captureOwnedDirectoryIdentity(
+    const publishingBeforeCommit = await captureOwnedRegularFileIdentity(
       publishingPath,
-      "独立应用发布暂存目录",
+      "独立应用 ZIP 发布暂存文件",
     );
-    if (!sameFileIdentity(publishingBeforeRename, publishingIdentity)) {
-      throw new Error("独立应用发布暂存目录在提交前发生了变化");
+    if (!sameFileIdentity(publishingBeforeCommit, publishingIdentity)) {
+      throw new Error("独立应用 ZIP 发布暂存文件在提交前发生了变化");
     }
-    await rename(publishingPath, targetPath);
+    await hashStableArchiveFile(publishingPath, expectedArchiveSha256);
+    try {
+      // A same-directory hard link gives us an atomic, no-clobber commit. The
+      // final name never refers to partial bytes, and a racing creator wins
+      // rather than being overwritten by rename(2).
+      await link(publishingPath, targetPath);
+    } catch (error) {
+      if (errnoCode(error) === "EEXIST") {
+        throw new Error("导出位置在提交前发生了变化");
+      }
+      throw error;
+    }
     targetIdentity = publishingIdentity;
+    await unlink(publishingPath);
     publishingIdentity = null;
-    const targetAfterRename = await captureOwnedDirectoryIdentity(
+    const targetAfterCommit = await captureOwnedRegularFileIdentity(
       targetPath,
-      "独立应用导出产物",
+      "独立应用 ZIP 导出产物",
     );
-    if (!sameFileIdentity(targetAfterRename, targetIdentity)) {
+    if (!sameFileIdentity(targetAfterCommit, targetIdentity)) {
       throw new Error("独立应用导出产物在提交时发生了变化");
     }
-    await (options.preparePublishedArtifact ??
-      sanitizeAndVerifyStandaloneApplication)(targetPath);
-    const targetAfterVerification = await captureOwnedDirectoryIdentity(
-      targetPath,
-      "独立应用导出产物",
-    );
-    if (!sameFileIdentity(targetAfterVerification, targetIdentity)) {
-      throw new Error("独立应用导出产物在最终复验时发生了变化");
-    }
+    await hashStableArchiveFile(targetPath, expectedArchiveSha256);
     committed = true;
     if (process.platform !== "win32") {
       await (async () => {
@@ -1217,61 +1706,14 @@ export async function exportStandaloneApplication(
     };
   } finally {
     if (!committed && targetIdentity !== null) {
-      const privateRollbackPath =
-        transactionRootPath === null
-          ? null
-          : path.join(transactionRootPath, "failed-target");
-      const evacuatedIdentity =
-        privateRollbackPath === null
-          ? null
-          : await moveOwnedDirectoryAside(
-              targetPath,
-              privateRollbackPath,
-              targetIdentity,
-            ).catch(() => null);
-      if (evacuatedIdentity !== null) {
-        targetIdentity = null;
-      }
-    }
-    if (!committed && targetIdentity !== null) {
-      rollbackIdentity = await moveOwnedDirectoryAside(
-        targetPath,
-        rollbackPath,
-        targetIdentity,
-      ).catch(() => null);
-      if (rollbackIdentity !== null) {
-        targetIdentity = null;
-      } else {
-        await removeOwnedDirectory(targetPath, targetIdentity).catch(
-          () => undefined,
-        );
-      }
-    }
-    if (rollbackIdentity !== null) {
-      await removeOwnedDirectory(rollbackPath, rollbackIdentity).catch(
+      await removeOwnedRegularFile(targetPath, targetIdentity).catch(
         () => undefined,
       );
     }
     if (publishingIdentity !== null) {
-      const privatePublishingCleanupPath =
-        transactionRootPath === null
-          ? null
-          : path.join(transactionRootPath, "failed-publishing");
-      const evacuatedIdentity =
-        privatePublishingCleanupPath === null
-          ? null
-          : await moveOwnedDirectoryAside(
-              publishingPath,
-              privatePublishingCleanupPath,
-              publishingIdentity,
-            ).catch(() => null);
-      if (evacuatedIdentity !== null) {
-        publishingIdentity = null;
-      } else {
-        await removeOwnedDirectory(publishingPath, publishingIdentity).catch(
-          () => undefined,
-        );
-      }
+      await removeOwnedRegularFile(publishingPath, publishingIdentity).catch(
+        () => undefined,
+      );
     }
     if (transactionRootPath !== null && transactionRootIdentity !== null) {
       await removeOwnedDirectory(

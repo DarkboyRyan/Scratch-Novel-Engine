@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { registerExportIpc } from '../../src/main/ipc/registerExportIpc';
@@ -156,6 +158,16 @@ describe('game export IPC', () => {
       applicationId: 'com.example.unicode',
     })).not.toBeNull();
     expect(standaloneApplicationMetadataError({
+      name: `${'😀'.repeat(20)}${'中'.repeat(60)}`,
+      version: '1.0.0',
+      applicationId: 'com.example.unicode',
+    })).not.toBeNull();
+    expect(standaloneApplicationMetadataError({
+      name: '中'.repeat(80),
+      version: '1.0.0',
+      applicationId: 'com.example.unicode',
+    })).toBeNull();
+    expect(standaloneApplicationMetadataError({
       name: 'Story',
       version: `${'1'.repeat(30)}.1.1`,
       applicationId: 'com.example.unicode',
@@ -170,7 +182,10 @@ describe('game export IPC', () => {
       assetCount: 2,
     });
     exportMocks.exportStandaloneApplication.mockResolvedValue({
-      artifactName: process.platform === 'darwin' ? 'Custom Story.app' : 'Custom Story',
+      artifactName:
+        process.platform === 'darwin'
+          ? 'Custom Story-macOS.zip'
+          : 'Custom Story',
       buildId: 'private-standalone-build-id',
       sourceRevision: 3,
       assetCount: 2,
@@ -331,40 +346,100 @@ describe('game export IPC', () => {
     ).rejects.toThrow('源项目和已有导出内容均未修改');
   });
 
-  it('exports a standalone application from validated path-free metadata', async () => {
-    electronMocks.showSaveDialog.mockResolvedValue({
-      canceled: false,
-      filePath: '/exports/Custom Story',
-    });
-    const { handler } = registerSession({ saved: true });
+  it.runIf(process.platform === 'darwin')(
+    'exports a macOS ZIP from validated path-free metadata',
+    async () => {
+      electronMocks.showSaveDialog.mockResolvedValue({
+        canceled: false,
+        filePath: '/exports/Custom Story',
+      });
+      const { handler } = registerSession({ saved: true });
 
-    await expect(handler(trustedEvent(), standaloneInvocation)).resolves.toEqual({
-      cancelled: false,
-      output: 'standalone-application',
-      artifactName:
-        process.platform === 'darwin' ? 'Custom Story.app' : 'Custom Story',
-      sourceRevision: 3,
-      assetCount: 2,
-    });
-    expect(exportMocks.loadStandalonePlayerTemplate).toHaveBeenCalledWith(
-      '/templates/current',
-    );
-    expect(exportMocks.exportStandaloneApplication).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sourceProjectRootPath: '/projects/My Story',
-        targetArtifactPath:
-          process.platform === 'darwin'
-            ? '/exports/Custom Story.app'
-            : '/exports/Custom Story',
-        templateRootPath: '/templates/current',
+      await expect(handler(trustedEvent(), standaloneInvocation)).resolves.toEqual({
+        cancelled: false,
+        output: 'standalone-application',
+        artifactName: 'Custom Story-macOS.zip',
         sourceRevision: 3,
-        application: standaloneInvocation.params.application,
-      }),
-    );
-    expect(JSON.stringify(await handler(trustedEvent(), standaloneInvocation))).not.toContain(
-      '/exports',
-    );
-  });
+        assetCount: 2,
+      });
+      expect(electronMocks.showSaveDialog).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          defaultPath: '/projects/Custom Story-macOS.zip',
+          filters: [expect.objectContaining({ extensions: ['zip'] })],
+        }),
+      );
+      expect(exportMocks.loadStandalonePlayerTemplate).toHaveBeenCalledWith(
+        '/templates/current',
+      );
+      expect(exportMocks.exportStandaloneApplication).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceProjectRootPath: '/projects/My Story',
+          targetArtifactPath: '/exports/Custom Story-macOS.zip',
+          templateRootPath: '/templates/current',
+          sourceRevision: 3,
+          application: standaloneInvocation.params.application,
+        }),
+      );
+      expect(
+        JSON.stringify(await handler(trustedEvent(), standaloneInvocation)),
+      ).not.toContain('/exports');
+    },
+  );
+
+  it.runIf(process.platform === 'darwin')(
+    'normalizes ZIP, prior app, and platform suffixes to one -macOS.zip suffix',
+    async () => {
+      const { handler } = registerSession({ saved: true });
+      for (const [selectedPath, expectedPath] of [
+        ['/exports/Custom Package.ZIP', '/exports/Custom Package-macOS.zip'],
+        ['/exports/Already-macOS.ZIP', '/exports/Already-macOS.zip'],
+        ['/exports/Legacy.app', '/exports/Legacy-macOS.zip'],
+      ] as const) {
+        electronMocks.showSaveDialog.mockResolvedValueOnce({
+          canceled: false,
+          filePath: selectedPath,
+        });
+
+        await handler(trustedEvent(), standaloneInvocation);
+
+        expect(exportMocks.exportStandaloneApplication).toHaveBeenLastCalledWith(
+          expect.objectContaining({ targetArtifactPath: expectedPath }),
+        );
+      }
+    },
+  );
+
+  it.runIf(process.platform === 'darwin')(
+    'keeps the default ZIP filename within the macOS UTF-8 component budget',
+    async () => {
+      electronMocks.showSaveDialog.mockResolvedValue({
+        canceled: true,
+        filePath: undefined,
+      });
+      const { handler } = registerSession({ saved: true });
+
+      await handler(trustedEvent(), {
+        action: 'export',
+        params: {
+          output: 'standalone-application',
+          application: {
+            name: '中'.repeat(80),
+            version: '1.0.0',
+            applicationId: 'com.example.unicode',
+          },
+        },
+      });
+
+      const dialogOptions = electronMocks.showSaveDialog.mock.calls.at(-1)?.[1] as
+        | { defaultPath?: string }
+        | undefined;
+      expect(dialogOptions?.defaultPath).toMatch(/-macOS\.zip$/u);
+      expect(
+        Buffer.byteLength(path.basename(dialogOptions?.defaultPath ?? ''), 'utf8'),
+      ).toBeLessThanOrEqual(240);
+    },
+  );
 
   it('rejects invalid standalone metadata before Main opens a dialog', async () => {
     const { handler } = registerSession({ saved: true });
@@ -414,18 +489,15 @@ describe('game export IPC', () => {
   });
 
   it.runIf(process.platform === 'darwin')(
-    'reports an actionable path-free error for a FileProvider target that cannot keep a valid signature',
+    'keeps archive failures path-free even for a FileProvider target',
     async () => {
       electronMocks.showSaveDialog.mockResolvedValue({
         canceled: false,
-        filePath: '/private/file-provider/Story.app',
+        filePath: '/private/file-provider/Story-macOS.zip',
       });
       exportMocks.exportStandaloneApplication.mockRejectedValue(
-        Object.assign(
-          new Error(
-            '/private/file-provider/Story.app: resource fork, Finder information, or similar detritus not allowed',
-          ),
-          { code: 'UNSTABLE_STANDALONE_APPLICATION_METADATA' },
+        new Error(
+          '/private/file-provider/Story-macOS.zip: archive verification failed',
         ),
       );
       vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -433,7 +505,7 @@ describe('game export IPC', () => {
 
       const failure = handler(trustedEvent(), standaloneInvocation);
       await expect(failure).rejects.toThrow(
-        '请选择“下载”或其他本地非同步目录',
+        '独立应用导出失败，源项目和已有导出内容均未修改',
       );
       await expect(failure).rejects.not.toThrow('/private/file-provider');
     },

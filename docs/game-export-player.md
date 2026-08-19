@@ -1,9 +1,10 @@
 # 独立游戏导出与 Player 技术路线
 
-> 本文既是实现记录，也是后续开发设计和面试讲解材料。截至 2026-08-18，
+> 本文既是实现记录，也是后续开发设计和面试讲解材料。截至 2026-08-19，
 > **阶段 0–5 已完成**：Editor 可以导出 runtime v1 `.vngame` 目录包，通用
 > Player 可以选择并运行它；macOS Editor 还可以通过内置的当前架构 Player 模板，
-> 在本机事务式组装每款游戏自己的 `.app`。阶段 6 的多平台 GitHub Actions、签名、
+> 在私有工作区事务式组装并签名每款游戏的 `.app`，再导出只包含该应用的
+> `*-macOS.zip`。阶段 6 的多平台 GitHub Actions、签名、
 > 公证和发布门禁代码已经落地，但仓库文件不能代替 GitHub 上的受保护 Environment、
 > Ruleset 和真实凭据配置，也还没有在 GitHub runner 与干净机器上完成一次正式验收。
 > 因此不能把“流水线存在”描述成“公开发行已验证”。
@@ -78,7 +79,7 @@ React 会话在
 [packages/player-ui](../packages/player-ui)，编辑器画面入口仍是
 [GamePreview.tsx](../apps/editor/src/renderer/features/game-preview/GamePreview.tsx)。
 独立窗口、只读内容加载、Player 专属媒体服务、Runtime Bundle 导出、通用换包与
-macOS 独立应用组装均已实现并通过本机自动测试。正式发布仍受平台证书、GitHub
+macOS 独立应用 ZIP 导出均已实现并通过本机自动测试。正式发布仍受平台证书、GitHub
 protected Environments/Rulesets、Environment Secrets、GitHub runner 和干净机器
 验收约束。
 
@@ -225,7 +226,8 @@ Player 程序代码（app.asar）
 通用 packaged Player 不内嵌 fixture 或作者游戏，启动后让用户选择外部
 `.vngame`。单游戏应用则把同一份经过验证的 bundle 注入 `app.asar` 外的
 `Resources/game`；Player 检测到该目录后进入 embedded 模式。macOS Editor 本地
-组装始终先注入，再更新 `Info.plist`、执行 ad-hoc 签名并严格复验。Windows/Linux
+导出始终在私有工作区先注入，再更新 `Info.plist`、执行 ad-hoc 签名；随后用
+`ditto` 生成 `*-macOS.zip`，在另一私有目录解压并严格复验唯一 `.app`。Windows/Linux
 以及带正式品牌图标的产物，由对应平台 runner 用同一 metadata 重新运行 Forge；
 不能修改一份已经正式签名的应用。
 
@@ -254,10 +256,12 @@ sequenceDiagram
   Main->>Main: 复验 staging、源清单和当前 session
   Main->>Stage: 同盘原子 rename 为 .vngame 目录
   alt macOS 独立应用
-    Main->>Stage: 复制严格匹配的 Player 模板
+    Main->>Stage: 在私有工作区复制严格匹配的 Player 模板
     Main->>Stage: 注入 Resources/game 和 metadata
     Main->>Stage: 更新 Info.plist、ad-hoc sign + verify
-    Main->>Stage: 原子 rename 为最终 .app
+    Main->>Stage: ditto 生成 *-macOS.zip
+    Main->>Stage: 在另一私有目录解压并复验唯一 .app
+    Main->>Stage: 单文件、无覆盖发布最终 ZIP
   end
   Main-->>UI: 返回无路径产物名称
   User->>Player: 选择游戏包
@@ -282,8 +286,8 @@ Application ID，不能传目标目录、模板位置、项目根、资源相对
 
 ## 5. MVP 导出流程
 
-第一版先完成平台无关的 `.vngame` 目录包和通用 Player 打开流程。它和 Player ZIP、
-签名、公证及多平台发布是不同验收项。
+第一版先完成平台无关的 `.vngame` 目录包和通用 Player 打开流程。`.vngame` 仍严格是
+目录包；macOS 独立应用 ZIP、正式签名、公证及多平台发布是不同验收项。
 
 ### 5.1 冻结一次一致的项目版本
 
@@ -356,29 +360,30 @@ MP3/WAV/Ogg “通过导入”不等于其内部编码一定能在所有目标�
 FileProvider 目录里直接组装和签名 Electron 应用：
 
 ```text
-取得最终目标的操作系统 advisory lock
+取得最终 *-macOS.zip 目标的操作系统 advisory lock
   → 在系统临时目录创建权限为 0700 的私有工作区
   → 在私有工作区生成 Runtime Bundle、复制 Player、注入内容并完成 ad-hoc 签名
-  → 安全复制到目标父目录的随机 `.publishing` 兄弟目录
-  → 只移除 codesign 不接受的 FinderInfo/ResourceFork 扩展属性
-  → fsync 并执行两轮 `codesign --verify --deep --strict`
-  → 同父目录 rename 为最终 `.app`
-  → 在最终路径再次清理上述两类属性并执行两轮严格签名复验
+  → `ditto -c -k --keepParent --norsrc --noextattr --noacl --noqtn <应用.app> <私有归档.zip>`
+  → 在另一权限为 0700 的私有目录执行
+    `ditto -x -k --norsrc --noextattr --noacl --noqtn <归档.zip> <复验目录>`
+  → 确认解压根目录只有预期 `.app`，并严格检查应用树与 embedded 内容
+  → 对解压后的应用再次执行 `codesign --verify --deep --strict`
+  → 稳定读取并核对 ZIP 的文件身份、大小和 SHA-256
+  → 目标父目录只接收一个随机 publishing 普通文件
+  → 核对目标仍不存在后，无覆盖发布为最终 `*-macOS.zip`
 ```
 
-这样 FileProvider 在复制过程中异步附加扩展属性时，不会污染私有组装和签名阶段；
-`provenance`、`quarantine` 等其他系统属性不会被粗暴清空。发布暂存、最终产物和私有
-工作区都记录目录身份，失败回滚只删除仍属于本次事务的 inode，不会误删后来出现在
-同一路径的文件。
+这样签名后的应用树从组装、归档到解压验签始终留在私有目录；Desktop、iCloud 或
+其他 FileProvider 只会看到一个 ZIP 普通文件，不再有机会在导出过程中遍历并修改
+`.app` 内部的 FinderInfo、ResourceFork 或其他扩展属性。这里不接受用户提供的任意
+ZIP：归档只能由已经通过安全树检查和签名验证的私有 `.app` 生成，生成后立即固定
+SHA-256；复验再要求解压根目录精确只有预期应用，并拒绝应用树中的逃逸链接、硬链接
+与非常规文件。这些约束共同封住 ZIP 路径逃逸/替换边界。发布暂存、最终 ZIP 和私有
+工作区都记录身份；失败回滚只删除仍属于本次事务的对象，不会覆盖既有同名文件，也
+不会误删后来出现在同一路径的文件。
 
-有些 Desktop/iCloud FileProvider 会在每次读取应用树后持续恢复 FinderInfo。原始
-`.app` 在这类目录里无法长期保持 strict codesign 有效，继续“清理后立即返回”会产生
-假成功。因此最终清理和首次严格校验后，生产代码会等待 500 ms，再在不清理属性的
-情况下执行第二次严格校验：若系统已回灌属性，本次产物按身份安全回滚，并向作者明确
-提示改存“下载”或其他本地非同步目录。真实项目已验证 Downloads 目标在返回两秒后仍
-能通过 deep/strict 校验，且不含 FinderInfo/ResourceFork。
-
-macOS 的 FileProvider 可能在保存后异步附加 `com.apple.provenance` 等扩展属性，只改变
+以上解决的是目标独立应用的交付边界；若源项目本身位于 FileProvider，macOS 仍可能在
+保存后异步附加 `com.apple.provenance` 等扩展属性，只改变
 文件 `ctime` 而不改变内容。导出遇到这种 ctime-only 波动时，会完整重开并重读最多
 三次；只有每次内容都匹配“保存时记录的 manifest SHA-256”才继续。源媒体和 Player
 模板没有对应的保存时可信摘要，因此仍保持严格 ctime 校验；同 inode、同大小、伪造
@@ -533,9 +538,9 @@ file protocol 兼容 Fuse。后续应增加只服务 `app.asar` 静态文件的�
 5. Main 再弹出原生保存对话框。目标必须不存在且不能位于源项目内部；Renderer
    不传入或获得路径；
 6. 内容包模式得到 `.vngame` 目录，不要手动改成 JSON 或 ZIP；
-7. 当前 packaged macOS Editor 可得到同架构 `.app`。应用包含只读
-   `Contents/Resources/game`，使用模板默认图标和 ad-hoc 签名，适合本机/内部测试，
-   不等于 Developer ID 正式发行；
+7. 当前 packaged macOS Editor 得到 `<安全应用名>-macOS.zip`。ZIP 根目录精确包含
+   一个同架构的 `<应用名>.app`；应用包含只读 `Contents/Resources/game`，使用模板
+   默认图标和 ad-hoc 签名，适合本机/内部测试，不等于 Developer ID 正式发行；
 8. Windows/Linux 的独立游戏不是由 macOS Editor 后处理可执行文件，而是调用
    `player-game-build.yml`，在目标平台重新构建并注入正式 metadata、图标和签名。
 
@@ -564,17 +569,26 @@ MyGame.vngame
 为了更换游戏内容去修改 Player 应用本体。最终是否做到“测试者无需任何开发工具”，
 仍要以 packaged Player 的干净机器验证为准。
 
-### 8.4 每款游戏一个独立应用（已实现，发行验证仍有边界）
+### 8.4 每款游戏一个独立应用 ZIP（已实现，发行验证仍有边界）
 
 ```text
-My Game.app / My Game.exe
+My Game-macOS.zip
+└── My Game.app/
 ```
 
 macOS Editor 内置由 generic Player 生成的、平台和架构严格匹配的模板。Main 先在
 系统私有工作区生成 Runtime Bundle，再安全复制模板、注入固定 `Resources/game` 与
-`vn-game-application.json`，更新 `Info.plist` 并完成 ad-hoc 签名。完整应用随后复制
-到目标同父目录的随机 publishing 目录，定向清理签名不兼容扩展属性并通过
-`codesign --verify --deep --strict` 后才原子改名；最终路径还会再次严格复验。
+`vn-game-application.json`，更新 `Info.plist` 并完成 ad-hoc 签名。通过
+`codesign --verify --deep --strict` 后，Main 用带 `--keepParent` 及禁用资源叉、扩展
+属性、ACL 和 quarantine 复制的 `ditto` 参数生成私有 ZIP；随后解压到另一私有目录，
+要求根目录精确只有目标 `.app`，复核 metadata/embedded 内容并再次严格验签。通过
+复验的 ZIP 才会作为单个普通文件复制到目标父目录 staging，并通过同目录硬链接进行
+原子、无覆盖提交；已有同名目标或发布竞态都会失败，而不会覆盖用户文件。
+
+因此 Desktop、iCloud 或其他 FileProvider 只接触最终 ZIP 文件，不再直接遍历签名后
+的 `.app` 树。FileProvider 问题不再要求作者把本地独立导出改存 Downloads；但 ZIP
+内部仍只是 ad-hoc 签名应用，只适合本机或内部测试。面向外部用户仍需要 Developer ID、
+Hardened Runtime、公证和真实干净机器 Gatekeeper 验收。
 
 本地组装不会把 Electron 应用内部整套可执行文件和 Helper 全部改名。它自定义外层
 `.app` 产物名，以及 `CFBundleDisplayName`、`CFBundleIdentifier`、
@@ -583,6 +597,11 @@ macOS Editor 内置由 generic Player 生成的、平台和架构严格匹配的
 `VN Engine Player Helper*`。这是本地模板后处理的明确边界，不应描述成“应用内部
 已经完全品牌化重命名”。正式 Forge 构建则在打包前使用同一 metadata 生成整套平台
 应用。
+
+`*-macOS.zip` 是传输和交付容器，不是 Player 的运行格式。用于 Steam 时通常先解压，
+再通过 Steamworks/SteamPipe 把 `.app` 目录树作为 depot 内容上传；不要把 ZIP 本身
+当作 Steam 可直接启动的游戏。`.vngame` 则继续保持目录包，由通用 Player 的原生目录
+选择器打开，与这里的独立应用 ZIP 是两种不同产物。
 
 多平台正式产物使用可复用的
 [`player-game-build.yml`](../.github/workflows/player-game-build.yml)：调用方提供已验证
@@ -762,8 +781,9 @@ artifacts。调用者不能使用 `secrets: inherit` 绕过这个边界。
 若步骤 3 之后发现问题，应修复代码并发布新版本/tag；不要移动既有 `player-v*` tag，
 也不要替换已公开 Release 的资产。
 
-macOS 内测建议把 Forge 输出定向到非 iCloud/FileProvider 同步目录，避免 Finder
-扩展属性在签名后污染 `.app`：
+下面只针对直接生成裸 `.app` 的通用 Player Forge 内测，不是 Editor 的每游戏本地
+导出。Forge 输出仍建议定向到非 iCloud/FileProvider 同步目录，避免 Finder 扩展属性
+在签名后污染 `.app`；Editor 每游戏导出已经用私有应用树和 ZIP 隔离这一边界：
 
 ```sh
 VN_PLAYER_OUT_DIR=/private/tmp/vn-player-out \
@@ -786,7 +806,7 @@ codesign --verify --deep --strict \
 | 自定义 Protocol 与 HTTP Range | 安全加载本地图片、音频、视频 | 不暴露 `file://` 和绝对路径 |
 | Web Audio/HTML Media | BGM、voice、视频生命周期 | 用户手势、ended、暂停和竞态清理 |
 | SHA-256 与事务性文件发布 | 完整性、可复验导出和故障恢复 | manifest 最后提交，产物非半成品 |
-| 严格 Player 模板契约 | macOS Editor 本地组装 `.app` | exact manifest、platform/arch、默认图标、固定 `Resources/game` |
+| 严格 Player 模板契约 | macOS Editor 本地生成 `*-macOS.zip` | exact manifest、platform/arch、唯一 `.app`、默认图标、固定 `Resources/game` |
 | Electron Forge | 平台应用和安装包 | 构建时 metadata、asar、extraResource 和签名前内容注入 |
 | 代码签名与供应链 | Gatekeeper、SmartScreen、发布可信度 | 内容必须先注入，再签名和公证 |
 | GitHub Actions 可复用 workflow | 每游戏三平台构建与通用 Player 发布 | protected Environment、无 unsigned fallback、完整 release set 与 GPG checksum signature |
@@ -797,14 +817,16 @@ codesign --verify --deep --strict \
 > 编辑器预览和独立游戏不是两套剧情实现：Editor 与 Player 共用纯 TypeScript
 > Runtime 和 React Player UI。导出前，Renderer 先提交草稿并经过既有 C++ 保存链
 > 固定 v9 与 revision；之后 Editor Main 严格读取磁盘 v9，在事务 staging 中编译
-> runtime v1，只复制剧情引用媒体并计算 SHA-256，最后原子 rename。独立应用先在
-> 系统私有工作区组装和签名，再通过目标侧 publishing、扩展属性清理和“等待后不再
-> 清理”的第二次签名复验发布；持续回灌 FinderInfo 的同步目录会安全回滚并提示改存
-> Downloads。通用 Player
+> runtime v1，只复制剧情引用媒体并计算 SHA-256，最后原子 rename；`.vngame` 始终
+> 是目录包。独立应用先在系统私有工作区组装和 ad-hoc 签名，再用 `ditto` 生成
+> `*-macOS.zip`；Main 会在另一私有目录解压，确认根目录只有唯一 `.app`、内容不变且
+> deep/strict 签名仍有效，最后把 ZIP 作为单个普通文件无覆盖发布。这样 FileProvider
+> 只接触 ZIP，不直接接触应用树。通用 Player
 > 的 Renderer 只请求原生目录选择，不接触路径；Main 完整验证候选后才切换会话并
 > 轮换 capability token。独立应用模式在 macOS 使用严格匹配当前架构的 Player
-> 模板，注入 `Resources/game`，只更新外层名称、显示名、ID 和版本后再 ad-hoc 签名
-> 并复验；内部 Electron Helper 命名保持 generic。正式 Windows/Linux 与品牌图标
+> 模板，注入 `Resources/game`，只更新 ZIP 内 `.app` 的外层名称、显示名、ID 和版本后
+> 再 ad-hoc 签名并复验；内部 Electron Helper 命名保持 generic。包含 ad-hoc 签名
+> `.app` 的 ZIP 只适合本机/内部测试；正式 Windows/Linux 与品牌图标
 > 则由可复用 GitHub Actions 在目标 runner 上重新构建。流水线代码已完成，但受保护
 > Environment、真实凭据 runner 执行和干净机器发布尚未实际验收。
 
@@ -902,22 +924,26 @@ DoD：
 
 工作：导出弹层提供内容包/独立应用两种模式；macOS Editor 使用 packaged resources
 内当前平台与架构的 generic Player 模板，在系统私有事务目录中注入 bundle 和
-metadata 并重新签名，再经目标侧 publishing 复验后发布。embedded Player 启动后
-自动读取固定内容并禁用换包。
+metadata 并重新签名，再用 `ditto` 生成 ZIP、私有解压验签，最后以单个普通文件
+无覆盖发布。embedded Player 启动后自动读取固定内容并禁用换包。
 
 DoD：
 
 - 应用名称、严格 `x.y.z` 版本和 Application ID 来自导出配置；macOS 本地组装明确
   使用模板默认图标，自定义图标由正式 CI 注入；
-- macOS 本地只自定义外层 `.app` 名、`CFBundleDisplayName`、ID 和版本；内部
+- macOS 本地只自定义 ZIP 内的外层 `.app` 名、`CFBundleDisplayName`、ID 和版本；内部
   `CFBundleName`/`CFBundleExecutable` 保持 `VN Engine Player` 以匹配 Electron Helper；
 - 应用内部不包含 Editor、Blockly 或作者项目绝对路径；
 - 模板 exact fields、platform/arch、注入路径、symlink/hardlink 和现有目标均严格校验；
 - 内容注入和 `Info.plist` 更新发生在 ad-hoc 签名前，签名后立即执行 deep/strict 验证；
-- 独立应用使用私有组装、目标侧 publishing、定向 xattr 清理和最终路径复验；持续
-  回灌 FinderInfo 的 FileProvider 目录会拒绝假成功，并提示选择本地非同步目录；
-- 失败按目录身份回滚私有工作区与 publishing，不覆盖既有目标；本机测试覆盖内容加载、
-  启动模式和事务故障点。
+- 输出名称严格以 `-macOS.zip` 结尾，ZIP 解压根目录精确包含唯一预期 `.app`；
+- 独立应用使用私有组装/签名、`ditto` ZIP、私有解压内容与签名复验；目标侧
+  FileProvider 只接触一个 ZIP 普通文件，不直接接触 `.app` 树；
+- 发布前稳定核对 ZIP 身份、大小和 SHA-256，并以同目录硬链接做原子无覆盖提交；
+- 失败按身份回滚私有工作区与 publishing 文件，不覆盖既有目标；本机测试覆盖内容
+  加载、启动模式、归档/解压复验和事务故障点；
+- ZIP 内 `.app` 仍使用模板默认图标和 ad-hoc 签名，只适合本机/内部测试；公开发行
+  仍需正式证书、公证和干净机器验收。
 
 ### 阶段 6：多平台 CI 与正式发布（流水线实现完成，正式执行待外部配置与验收）
 
@@ -938,7 +964,7 @@ DoD：
 
 ## 12. 当前边界与暂不承诺的能力
 
-截至 2026-08-18，仓库的真实边界是：
+截至 2026-08-19，仓库的真实边界是：
 
 - 已有 Editor 内正式预览和独立 `apps/player`；两者复用同一 Runtime/Player UI；
 - Editor 导出入口、严格 v9→runtime v1 编译器、只复制引用资产的 staging 发布事务
@@ -954,8 +980,9 @@ DoD：
 - packaged Player 不携带 fixture；通过原生目录选择器打开 `.vngame`，候选失败不
   覆盖旧游戏，成功后轮换媒体 token；
 - `.vngame` 当前是目录包，不是 ZIP，也没有 macOS 双击/UTI 文件关联；
-- macOS packaged Editor 能组装每游戏独立 `.app`；使用模板默认图标和 ad-hoc 签名，
-  适合内部测试。Windows/Linux 及正式品牌产物必须由目标平台 workflow 构建；
+- macOS packaged Editor 能导出每游戏 `*-macOS.zip`，内含唯一使用模板默认图标和
+  ad-hoc 签名的 `.app`，适合内部测试；目标 FileProvider 不直接接触应用树。
+  Windows/Linux 及正式品牌产物必须由目标平台 workflow 构建；
 - Player 暂不保存游戏进度；
 - 当前 Esc 暂停会停止音频，恢复后 BGM/voice 从头开始；macOS 的“退出游戏”按钮
   当前只关闭窗口，进程生命周期和菜单行为仍需在正式 Player 中收口；

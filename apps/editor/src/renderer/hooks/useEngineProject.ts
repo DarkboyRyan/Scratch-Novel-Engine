@@ -516,7 +516,10 @@ export function useEngineProject(
 function exportCompletedMessage(
   outcome: ExportGameCompletedResult,
 ): string {
-  const kind = outcome.output === 'standalone-application' ? '独立应用' : '内容包';
+  const kind =
+    outcome.output === 'standalone-application'
+      ? '独立游戏 ZIP'
+      : '内容包';
   return `已导出${kind} ${outcome.artifactName}（${outcome.assetCount} 项资源）`;
 }
 

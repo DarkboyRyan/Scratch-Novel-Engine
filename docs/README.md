@@ -18,7 +18,8 @@
 - [项目文件夹与媒体资源](./project-folder-storage.md)：项目目录格式、安全保存、资源导入、
   capability URL 与媒体读取。
 - [独立游戏 Player 与导出流程](./game-export-player.md)：记录已完成的共享 Runtime 与
-  Player、v9→runtime v1 内容包、macOS 独立 `.app` 组装、embedded 模式和多平台
+  Player、v9→runtime v1 内容包、macOS `*-macOS.zip` 独立应用导出（ZIP 内含唯一
+  已签名 `.app`）、embedded 模式和多平台
   workflow；也列出 `player-release`/`game-release` protected Environments、不可变 tag/
   Release 和 Environment Secrets 的上线配置，并区分“流水线已实现”与“正式发行尚未验收”。
 

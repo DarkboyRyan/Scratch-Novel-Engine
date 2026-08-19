@@ -23,8 +23,8 @@
 - 正式游戏顺序预览、阻塞式视频/选项、点击推进和跳转循环保护；
 - 平台无关的共享 Runtime/Player UI，以及只读独立 Electron Player MVP；
 - Editor 的 v9→runtime v1 `.vngame` 目录包导出，以及 Player 原生目录选择换包；
-- macOS Editor 基于严格 Player 模板的每游戏 `.app` 事务组装，以及 embedded Player
-  固定内容启动模式；
+- macOS Editor 基于严格 Player 模板的每游戏 `*-macOS.zip` 事务导出；ZIP 内含唯一
+  已签名 `.app`，embedded Player 以固定内容启动；
 - 通用 Player 正式发布和每游戏三平台构建的 GitHub Actions 门禁代码；
 - C++ Core/Backend、IPC、存储、Blockly 和预览的自动测试。
 
@@ -108,8 +108,9 @@ Main 负责：
 - 管理请求 ID、Promise、进程退出和错误；
 - 管理项目目录、临时工作区和原子发布；
 - 严格读取已保存 v9、编译 runtime v1，并以 staging/hash/rename 导出内容包；
-- 校验当前平台/架构 Player 模板，在 macOS 同盘 staging 中注入 runtime bundle、更新
-  `Info.plist`、ad-hoc 签名并复验后原子发布独立 `.app`；
+- 校验当前平台/架构 Player 模板，在 macOS 私有工作区注入 runtime bundle、更新
+  `Info.plist` 并 ad-hoc 签名；用 `ditto` 生成 ZIP、私有解压复验签名后，只发布
+  一个不覆盖既有目标的 `*-macOS.zip`；
 - 把 C++ 私有 Asset 净化成公开 DTO；
 - 提供带能力令牌的安全图片/音频/视频 protocol，以及音频和视频 Range 响应。
 
@@ -278,9 +279,12 @@ Renderer 不传入或接收本机路径。
 严格 `x.y.z` 版本和 reverse-DNS Application ID。packaged macOS Editor 会读取
 `Resources/player-templates/darwin-<arch>` 下的 exact manifest，先生成临时 bundle，
 再安全复制 generic Player 模板并注入 `Contents/Resources/game`。Main 写入无路径
-metadata、更新 `Info.plist`、执行 ad-hoc sign + deep/strict verify，最后原子发布
-`.app`。模板不匹配、已有目标、坏链接、签名失败或 revision 变化都会回滚。
-为保持预构建 Electron Helper 查找有效，本地路径只自定义外层 `.app` 名、
+metadata、更新 `Info.plist`、执行 ad-hoc sign + deep/strict verify，再以 `ditto` 生成
+`<安全应用名>-macOS.zip`。系统会把 ZIP 解压到另一处私有目录，确认根目录只有目标
+`.app` 并再次 deep/strict 验签，最后才以单个普通文件、无覆盖方式发布 ZIP。目标
+FileProvider 目录从不直接接触应用树。模板不匹配、已有目标、坏链接、ZIP 结构或签名
+复验失败、revision 变化都会回滚；`.vngame` 仍是目录包，不随独立应用一起改成 ZIP。
+为保持预构建 Electron Helper 查找有效，ZIP 内应用只自定义外层 `.app` 名、
 `CFBundleDisplayName`、ID 和版本；内部 `CFBundleName`/`CFBundleExecutable` 仍为
 `VN Engine Player`，不是整套内部二进制改名。
 
@@ -297,6 +301,10 @@ Windows/Linux 独立游戏和带正式图标的三平台产物不由 macOS Edito
 unsigned fallback；它们的实现已完成，但 protected Environment/Ruleset、真实凭据
 GitHub runner 执行和干净机器测试尚无完整正式验收记录。
 双击文件关联和干净机器测试也仍未完成。
+
+本地 ZIP 中的 `.app` 仍是 ad-hoc 签名，只适合本机或内部测试，不代表 Developer ID
+签名、公证或公开发行。ZIP 是传输产物，不是运行格式；例如发布到 Steam 时，通常先
+解压并把应用目录作为 depot 内容上传，而不是让 Steam 直接运行 ZIP。
 
 详见[独立游戏导出与 Player 技术路线](./game-export-player.md)。
 
