@@ -140,10 +140,10 @@ describe('standalone Player template contract', () => {
         { VN_PLAYER_TEMPLATE_ROOT: '/private/templates/current' },
         { isPackaged: false, appPath: '/workspace/apps/editor' },
       ),
-    ).toBe('/private/templates/current');
+    ).toBe(path.resolve('/private/templates/current'));
     expect(
       resolveStandalonePlayerTemplateRoot('/resources', 'darwin', 'arm64', {}),
-    ).toBe('/resources/player-templates/darwin-arm64');
+    ).toBe(path.join('/resources', 'player-templates', 'darwin-arm64'));
     expect(
       resolveStandalonePlayerTemplateRoot(
         '/electron/Resources',
@@ -155,9 +155,15 @@ describe('standalone Player template contract', () => {
           appPath: '/workspace/My_Game_Engine/apps/editor',
         },
       ),
-    ).toBe(
-      '/workspace/My_Game_Engine/engine/stage/player-templates/darwin-arm64',
-    );
+    ).toBe(path.resolve(
+      '/workspace/My_Game_Engine/apps/editor',
+      '..',
+      '..',
+      'engine',
+      'stage',
+      'player-templates',
+      'darwin-arm64',
+    ));
     expect(() =>
       resolveStandalonePlayerTemplateRoot(
         '/Applications/VN Engine Editor.app/Contents/Resources',
