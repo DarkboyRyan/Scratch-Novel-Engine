@@ -475,18 +475,35 @@ describe('game export IPC', () => {
     expect(electronMocks.showSaveDialog).not.toHaveBeenCalled();
   });
 
-  it('reports a stable path-free error when the current template is unavailable', async () => {
-    exportMocks.loadStandalonePlayerTemplate.mockRejectedValue(
-      new Error('/private/template/player-template.json missing'),
-    );
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const { handler } = registerSession({ saved: true });
+  it.runIf(process.platform === 'darwin')(
+    'reports a stable path-free error when the current template is unavailable',
+    async () => {
+      exportMocks.loadStandalonePlayerTemplate.mockRejectedValue(
+        new Error('/private/template/player-template.json missing'),
+      );
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const { handler } = registerSession({ saved: true });
 
-    const failure = handler(trustedEvent(), standaloneInvocation);
-    await expect(failure).rejects.toThrow('当前平台的独立 Player 模板不可用');
-    await expect(failure).rejects.not.toThrow('/private/template');
-    expect(electronMocks.showSaveDialog).not.toHaveBeenCalled();
-  });
+      const failure = handler(trustedEvent(), standaloneInvocation);
+      await expect(failure).rejects.toThrow('当前平台的独立 Player 模板不可用');
+      await expect(failure).rejects.not.toThrow('/private/template');
+      expect(electronMocks.showSaveDialog).not.toHaveBeenCalled();
+    },
+  );
+
+  it.runIf(process.platform !== 'darwin')(
+    'rejects local standalone assembly before resolving a Player template',
+    async () => {
+      const { handler } = registerSession({ saved: true });
+
+      await expect(
+        handler(trustedEvent(), standaloneInvocation),
+      ).rejects.toThrow('当前 Editor 只支持在 macOS 本地组装独立应用');
+      expect(exportMocks.resolveStandalonePlayerTemplateRoot).not.toHaveBeenCalled();
+      expect(exportMocks.loadStandalonePlayerTemplate).not.toHaveBeenCalled();
+      expect(electronMocks.showSaveDialog).not.toHaveBeenCalled();
+    },
+  );
 
   it.runIf(process.platform === 'darwin')(
     'keeps archive failures path-free even for a FileProvider target',
