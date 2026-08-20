@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -29,11 +30,16 @@ describe('C++ JSONL backend', () => {
       process.platform === 'win32'
         ? 'vn_engine_backend.exe'
         : 'vn_engine_backend';
-    const backendPath = path.resolve(
+    const backendBuildDirectory = path.resolve(
       process.cwd(),
       '../../engine/build',
-      executableName,
     );
+    const backendPath = [
+      path.join(backendBuildDirectory, executableName),
+      path.join(backendBuildDirectory, 'Debug', executableName),
+      path.join(backendBuildDirectory, 'Release', executableName),
+    ].find((candidate) => existsSync(candidate)) ??
+      path.join(backendBuildDirectory, executableName);
 
     backend = spawn(backendPath, [], {
       cwd: path.dirname(backendPath),

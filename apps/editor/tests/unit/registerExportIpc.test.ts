@@ -44,6 +44,8 @@ vi.mock('../../src/main/export/StandalonePlayerTemplate', () => ({
     exportMocks.resolveStandalonePlayerTemplateRoot,
 }));
 
+const projectRootPath = path.resolve('/projects/My Story');
+
 const runtimeInvocation = {
   action: 'export',
   params: { output: 'runtime-bundle' },
@@ -96,7 +98,7 @@ function registerSession(options: { saved?: boolean; dirty?: boolean } = {}) {
   const projectFileSession = new ProjectFileSession();
   if (options.saved) {
     projectFileSession.markOpened(
-      '/projects/My Story',
+      projectRootPath,
       {
         revision: 3,
         savedRevision: 3,
@@ -279,7 +281,7 @@ describe('game export IPC', () => {
   it('normalizes the native filename and returns no path or build ID', async () => {
     electronMocks.showSaveDialog.mockResolvedValue({
       canceled: false,
-      filePath: '/exports/Custom',
+      filePath: path.resolve('/exports/Custom'),
     });
     const { handler } = registerSession({ saved: true });
 
@@ -295,14 +297,17 @@ describe('game export IPC', () => {
     expect(electronMocks.showSaveDialog).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
-        defaultPath: '/projects/My - Story.vngame',
+        defaultPath: path.join(
+          path.dirname(projectRootPath),
+          'My - Story.vngame',
+        ),
         filters: [{ name: 'VN Game Bundle', extensions: ['vngame'] }],
       }),
     );
     expect(exportMocks.exportRuntimeBundle).toHaveBeenCalledWith(
       expect.objectContaining({
-        sourceProjectRootPath: '/projects/My Story',
-        targetBundlePath: '/exports/Custom.vngame',
+        sourceProjectRootPath: projectRootPath,
+        targetBundlePath: path.resolve('/exports/Custom.vngame'),
         sourceRevision: 3,
         expectedProject: projectResult().project,
         expectedAssets: [],

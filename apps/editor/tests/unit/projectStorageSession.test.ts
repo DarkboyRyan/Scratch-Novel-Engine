@@ -77,8 +77,10 @@ describe('ProjectStorageSession', () => {
       previewProjectFilePath: path.join(canonicalRoot, 'project.vn.json'),
       isTemporary: false,
     });
-    await expect(session.backendSavePath(canonicalRoot)).resolves.toMatch(
-      /vn-engine-project-.*\/project\.vn\.json$/,
+    const backendPath = await session.backendSavePath(canonicalRoot);
+    expect(path.basename(backendPath)).toBe('project.vn.json');
+    expect(path.basename(path.dirname(backendPath))).toMatch(
+      /^vn-engine-project-/,
     );
   });
 

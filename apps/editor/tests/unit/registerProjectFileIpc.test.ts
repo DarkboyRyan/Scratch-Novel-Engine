@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { BackendClient } from '../../src/main/backend/backendClient';
@@ -21,6 +23,7 @@ const storageMocks = vi.hoisted(() => ({
       `${parentPath}/${projectName}`,
   ),
   removeProjectRootIfEmpty: vi.fn().mockResolvedValue(undefined),
+  projectManifestPath: vi.fn(),
   resolveProjectManifestPath: vi.fn(async (rootPath: string) => ({
     projectRootPath: rootPath,
     projectFilePath: `${rootPath}/project.vn.json`,
@@ -30,8 +33,7 @@ const storageMocks = vi.hoisted(() => ({
 vi.mock('../../src/main/project/ProjectPathPolicy', () => ({
   createProjectRootInParent: storageMocks.createProjectRootInParent,
   removeProjectRootIfEmpty: storageMocks.removeProjectRootIfEmpty,
-  projectManifestPath: (rootPath: string) =>
-    `${rootPath}/project.vn.json`,
+  projectManifestPath: storageMocks.projectManifestPath,
   resolveProjectManifestPath: storageMocks.resolveProjectManifestPath,
 }));
 
@@ -39,6 +41,20 @@ vi.mock('electron', () => ({
   ipcMain: { handle: electronMocks.handle },
   dialog: { showOpenDialog: electronMocks.showOpenDialog },
 }));
+
+storageMocks.createProjectRootInParent.mockImplementation(
+  async (parentPath: string, projectName: string) =>
+    path.join(parentPath, projectName),
+);
+storageMocks.resolveProjectManifestPath.mockImplementation(
+  async (rootPath: string) => ({
+    projectRootPath: rootPath,
+    projectFilePath: path.join(rootPath, 'project.vn.json'),
+  }),
+);
+storageMocks.projectManifestPath.mockImplementation(
+  (rootPath: string) => path.join(rootPath, 'project.vn.json'),
+);
 
 type RegisteredHandler = (
   event: unknown,
@@ -77,10 +93,11 @@ function registerWithBackend(request = vi.fn()) {
     setDocumentEdited: vi.fn(),
     setRepresentedFilename: vi.fn(),
   };
+  const previewProjectRootPath = path.resolve('/projects/My story');
   const assetPreviewService = {
     prepareProjectFile: vi.fn().mockResolvedValue({
-      projectFilePath: '/projects/My story/project.vn.json',
-      projectRootPath: '/projects/My story',
+      projectFilePath: path.join(previewProjectRootPath, 'project.vn.json'),
+      projectRootPath: previewProjectRootPath,
       projectId: 'project-1',
       assets: new Map(),
       manifestContents: '{"format":"vn-engine-project"}',
@@ -90,7 +107,7 @@ function registerWithBackend(request = vi.fn()) {
   };
   const projectStorageSession = {
     backendSavePath: vi.fn(async (rootPath: string) =>
-      `${rootPath}/project.vn.json`,
+      path.join(rootPath, 'project.vn.json'),
     ),
     publishSavedProject: vi.fn().mockResolvedValue(
       '{"format":"vn-engine-project"}',
@@ -180,7 +197,7 @@ describe('project folder IPC', () => {
   });
 
   it('opens only project.vn.json inside the selected directory', async () => {
-    const rootPath = '/projects/My story';
+    const rootPath = path.resolve('/projects/My story');
     electronMocks.showOpenDialog.mockResolvedValue({
       canceled: false,
       filePaths: [rootPath],
@@ -204,7 +221,7 @@ describe('project folder IPC', () => {
       params: { contents: '{"format":"vn-engine-project"}' },
     });
     expect(assetPreviewService.prepareProjectFile).toHaveBeenCalledWith(
-      `${rootPath}/project.vn.json`,
+      path.join(rootPath, 'project.vn.json'),
     );
     expect(
       storageMocks.resolveProjectManifestPath,
@@ -231,8 +248,8 @@ describe('project folder IPC', () => {
   });
 
   it('creates a named child folder on first save', async () => {
-    const parentPath = '/projects';
-    const rootPath = '/projects/My story';
+    const parentPath = path.resolve('/projects');
+    const rootPath = path.join(parentPath, 'My story');
     electronMocks.showOpenDialog.mockResolvedValue({
       canceled: false,
       filePaths: [parentPath],
@@ -261,10 +278,10 @@ describe('project folder IPC', () => {
     );
     expect(request).toHaveBeenNthCalledWith(2, {
       method: 'project.save',
-      params: { filePath: `${rootPath}/project.vn.json` },
+      params: { filePath: path.join(rootPath, 'project.vn.json') },
     });
     expect(projectStorageSession.publishSavedProject).toHaveBeenCalledWith(
-      `${rootPath}/project.vn.json`,
+      path.join(rootPath, 'project.vn.json'),
       rootPath,
       expect.any(Function),
     );
@@ -274,7 +291,7 @@ describe('project folder IPC', () => {
   });
 
   it('reuses the Main-private project root on later saves', async () => {
-    const rootPath = '/projects/My story';
+    const rootPath = path.resolve('/projects/My story');
     const request = vi.fn().mockResolvedValue(projectResult);
     const { handler, projectFileSession } = registerWithBackend(request);
     projectFileSession.markOpened(rootPath, {
@@ -289,14 +306,14 @@ describe('project folder IPC', () => {
     expect(request).toHaveBeenCalledOnce();
     expect(request).toHaveBeenCalledWith({
       method: 'project.save',
-      params: { filePath: `${rootPath}/project.vn.json` },
+      params: { filePath: path.join(rootPath, 'project.vn.json') },
     });
   });
 
   it('keeps the logical session dirty when publication fails', async () => {
     electronMocks.showOpenDialog.mockResolvedValue({
       canceled: false,
-      filePaths: ['/projects'],
+      filePaths: [path.resolve('/projects')],
     });
     const request = vi.fn().mockResolvedValue(projectResult);
     const { handler, projectFileSession, projectStorageSession } =
@@ -318,7 +335,7 @@ describe('project folder IPC', () => {
       isDirty: true,
     });
     expect(storageMocks.removeProjectRootIfEmpty).toHaveBeenCalledWith(
-      '/projects/My story',
+      path.resolve('/projects/My story'),
     );
   });
 

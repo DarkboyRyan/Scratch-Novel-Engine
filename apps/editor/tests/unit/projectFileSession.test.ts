@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
@@ -59,15 +60,16 @@ describe('ProjectFileSession logical save boundary', () => {
 
   it('keeps native paths in Main-only accessors', () => {
     const session = new ProjectFileSession();
-    session.markOpened('/projects/story', {
+    const projectRootPath = path.resolve('/projects/story');
+    session.markOpened(projectRootPath, {
       revision: 1,
       savedRevision: 1,
       isDirty: false,
     });
 
-    expect(session.getProjectRootPath()).toBe('/projects/story');
+    expect(session.getProjectRootPath()).toBe(projectRootPath);
     expect(session.getManifestPath()).toBe(
-      '/projects/story/project.vn.json',
+      path.join(projectRootPath, 'project.vn.json'),
     );
     expect(session.snapshot()).not.toHaveProperty('filePath');
     expect(session.snapshot()).not.toHaveProperty('manifestSha256');
