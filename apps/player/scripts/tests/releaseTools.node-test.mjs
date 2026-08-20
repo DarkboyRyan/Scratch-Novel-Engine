@@ -300,6 +300,22 @@ function workflowRunBlocks(source) {
   return blocks;
 }
 
+function normalizeWorkflowSource(source) {
+  return source.replace(/\r\n?/gu, '\n');
+}
+
+async function readWorkflowSource(workflowDirectory, workflowName) {
+  const source = await readFile(path.join(workflowDirectory, workflowName), 'utf8');
+  return normalizeWorkflowSource(source);
+}
+
+test('normalizes workflow line endings before structural validation', () => {
+  assert.equal(
+    normalizeWorkflowSource('checkout\r\nwith\rpersist-credentials: false\n'),
+    'checkout\nwith\npersist-credentials: false\n',
+  );
+});
+
 test('never interpolates untrusted workflow expressions into shell source', async () => {
   const workflowDirectory = path.join(repositoryDirectory, '.github', 'workflows');
   const workflowNames = [
@@ -316,7 +332,7 @@ test('never interpolates untrusted workflow expressions into shell source', asyn
     'pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86',
   ]);
   for (const workflowName of workflowNames) {
-    const source = await readFile(path.join(workflowDirectory, workflowName), 'utf8');
+    const source = await readWorkflowSource(workflowDirectory, workflowName);
     for (const runBlock of workflowRunBlocks(source)) {
       assert.doesNotMatch(
         runBlock,
@@ -353,9 +369,9 @@ test('never interpolates untrusted workflow expressions into shell source', asyn
     assert.equal(safeCheckoutCount, checkoutCount, `${workflowName} checkout 不得持久化 token`);
   }
 
-  const gameWorkflow = await readFile(
-    path.join(workflowDirectory, 'player-game-build.yml'),
-    'utf8',
+  const gameWorkflow = await readWorkflowSource(
+    workflowDirectory,
+    'player-game-build.yml',
   );
   assert.match(gameWorkflow, /"--product=\$GAME_PRODUCT_NAME"/u);
   assert.match(gameWorkflow, /"\.\/\$APP_NAME"/u);
@@ -367,9 +383,9 @@ test('never interpolates untrusted workflow expressions into shell source', asyn
     'reusable game build must obtain signing secrets only from game-release Environment',
   );
 
-  const releaseWorkflow = await readFile(
-    path.join(workflowDirectory, 'player-release.yml'),
-    'utf8',
+  const releaseWorkflow = await readWorkflowSource(
+    workflowDirectory,
+    'player-release.yml',
   );
   assert.match(releaseWorkflow, /trap rollback_draft EXIT/u);
   assert.match(releaseWorkflow, /--method DELETE "repos\/\$\{GITHUB_REPOSITORY\}\/releases\/\$\{CREATED_RELEASE_ID\}"/u);
