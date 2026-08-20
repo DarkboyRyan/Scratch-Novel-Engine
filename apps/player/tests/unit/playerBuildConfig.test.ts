@@ -50,7 +50,7 @@ describe('Player build configuration', () => {
   it('accepts fully specified, canonical embedded build metadata', async () => {
     const root = await temporaryRoot();
     const game = path.join(root, 'game');
-    const icon = path.join(root, 'story.icns');
+    const icon = path.join(root, 'vn-player-icon.png');
     const output = path.join(root, 'out');
     await mkdir(game);
     await writeFile(icon, 'icon');

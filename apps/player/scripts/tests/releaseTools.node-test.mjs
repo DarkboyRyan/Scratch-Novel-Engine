@@ -347,7 +347,7 @@ test('never interpolates untrusted workflow expressions into shell source', asyn
     const checkoutCount = (source.match(/uses:\s+actions\/checkout@/gu) ?? []).length;
     const safeCheckoutCount = (
       source.match(
-        /uses:\s+actions\/checkout@[a-f0-9]{40}\s+#\s+v\d+(?:\.\d+){0,2}\n\s+with:\n\s+persist-credentials:\s+false/gu,
+        /uses:\s+actions\/checkout@[a-f0-9]{40}\s+#\s+v\d+(?:\.\d+){0,2}\r?\n\s+with:\r?\n\s+persist-credentials:\s+false/gu,
       ) ?? []
     ).length;
     assert.equal(safeCheckoutCount, checkoutCount, `${workflowName} checkout 不得持久化 token`);
