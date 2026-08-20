@@ -12,6 +12,7 @@ import {
   readFile,
   realpath,
   readdir,
+  rename,
   rm,
   stat,
   symlink,
@@ -278,6 +279,56 @@ describe.runIf(process.platform === 'darwin')('standalone application exporter',
 
   function exportLockPath(root: string, name = 'Story'): string {
     return path.join(root, `.${path.basename(artifactPath(root, name))}.export.lock`);
+  }
+
+  async function publishingDirectoryPaths(root: string): Promise<string[]> {
+    const entries = await readdir(root, { withFileTypes: true });
+    return entries
+      .filter(
+        (entry) =>
+          entry.isDirectory() &&
+          /^\.vn-engine-[^.]+\.publishing$/u.test(entry.name),
+      )
+      .map((entry) => path.join(root, entry.name));
+  }
+
+  async function requirePublishingDirectory(root: string): Promise<string> {
+    const publishingDirectories = await publishingDirectoryPaths(root);
+    expect(publishingDirectories).toHaveLength(1);
+    return publishingDirectories[0]!;
+  }
+
+  async function macosFileFlags(filePath: string): Promise<string[]> {
+    const { stdout } = await execFileAsync('/usr/bin/stat', [
+      '-f',
+      '%Sf',
+      filePath,
+    ]);
+    return stdout
+      .trim()
+      .split(',')
+      .map((flag) => flag.trim())
+      .filter((flag) => flag !== '' && flag !== '-');
+  }
+
+  async function extendedAttributeNames(filePath: string): Promise<string[]> {
+    const { stdout } = await execFileAsync('/usr/bin/xattr', [filePath]);
+    return stdout
+      .split('\n')
+      .map((attribute) => attribute.trim())
+      .filter(Boolean);
+  }
+
+  async function makePublishingDirectoryFinderHidden(
+    publishingDirectoryPath: string,
+  ): Promise<void> {
+    await execFileAsync('/usr/bin/chflags', ['hidden', publishingDirectoryPath]);
+    await execFileAsync('/usr/bin/xattr', [
+      '-wx',
+      'com.apple.FinderInfo',
+      `${'00'.repeat(8)}4000${'00'.repeat(22)}`,
+      publishingDirectoryPath,
+    ]);
   }
 
   function options(
@@ -831,6 +882,139 @@ void main().catch((error) => {
     expect(
       (await readdir(targetRoot)).filter((name) => name.startsWith('.Story')),
     ).toEqual([]);
+  });
+
+  it('publishes a visible ZIP from a regular file inside a hidden transaction directory', async () => {
+    const root = await temporaryRoot();
+    await mkdir(path.join(root, 'source'));
+    const { templateRoot } = await createTemplate(root);
+    const target = artifactPath(root);
+    let publishingDirectory = '';
+
+    await exportStandaloneApplication(
+      options(root, templateRoot, {
+        injectFault: async (point: string) => {
+          if (point !== 'before-commit') {
+            return;
+          }
+          publishingDirectory = await requirePublishingDirectory(root);
+          expect(path.basename(publishingDirectory)).toMatch(
+            /^\.vn-engine-[^.]+\.publishing$/u,
+          );
+          await expect(readdir(publishingDirectory)).resolves.toEqual([
+            'archive.zip',
+          ]);
+          expect(
+            (await stat(path.join(publishingDirectory, 'archive.zip'))).isFile(),
+          ).toBe(true);
+
+          // Reproduce Finder/FileProvider metadata on the hidden transaction
+          // directory. Its ordinary child archive must not inherit that state.
+          await makePublishingDirectoryFinderHidden(publishingDirectory);
+          expect(await macosFileFlags(publishingDirectory)).toContain('hidden');
+          expect(await extendedAttributeNames(publishingDirectory)).toContain(
+            'com.apple.FinderInfo',
+          );
+        },
+      }),
+    );
+
+    expect(publishingDirectory).not.toBe('');
+    expect(path.basename(target).startsWith('.')).toBe(false);
+    expect((await stat(target)).isFile()).toBe(true);
+    expect(await readFile(target, 'utf8')).toBe('fake-standalone-zip');
+    expect(await macosFileFlags(target)).not.toContain('hidden');
+    expect(await extendedAttributeNames(target)).not.toContain(
+      'com.apple.FinderInfo',
+    );
+    await expect(stat(publishingDirectory)).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+    await expect(publishingDirectoryPaths(root)).resolves.toEqual([]);
+  });
+
+  it('rolls back a hidden publishing directory when publication is interrupted', async () => {
+    const root = await temporaryRoot();
+    await mkdir(path.join(root, 'source'));
+    const { templateRoot } = await createTemplate(root);
+    const target = artifactPath(root);
+    let publishingDirectory = '';
+
+    await expect(
+      exportStandaloneApplication(
+        options(root, templateRoot, {
+          injectFault: async (point: string) => {
+            if (point !== 'before-commit') {
+              return;
+            }
+            publishingDirectory = await requirePublishingDirectory(root);
+            await makePublishingDirectoryFinderHidden(publishingDirectory);
+            throw new Error('publication interrupted');
+          },
+        }),
+      ),
+    ).rejects.toThrow('publication interrupted');
+
+    await expect(stat(publishingDirectory)).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+    await expect(stat(target)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(publishingDirectoryPaths(root)).resolves.toEqual([]);
+    await expect(
+      readFile(exportLockPath(root), 'utf8'),
+    ).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('does not remove a successor that replaces the publishing directory', async () => {
+    const root = await temporaryRoot();
+    await mkdir(path.join(root, 'source'));
+    const { templateRoot } = await createTemplate(root);
+    const target = artifactPath(root);
+    let publishingDirectory = '';
+    let displacedPublishingDirectory = '';
+
+    await expect(
+      exportStandaloneApplication(
+        options(root, templateRoot, {
+          injectFault: async (point: string) => {
+            if (point !== 'before-commit') {
+              return;
+            }
+            publishingDirectory = await requirePublishingDirectory(root);
+            displacedPublishingDirectory = path.join(
+              root,
+              '.displaced-publishing-transaction',
+            );
+            await rename(publishingDirectory, displacedPublishingDirectory);
+            await mkdir(publishingDirectory, { mode: 0o700 });
+            await Promise.all([
+              writeFile(
+                path.join(publishingDirectory, 'archive.zip'),
+                'successor archive',
+              ),
+              writeFile(
+                path.join(publishingDirectory, 'successor.txt'),
+                'successor owns this directory',
+              ),
+            ]);
+          },
+        }),
+      ),
+    ).rejects.toThrow(/发布暂存目录.*发生了变化/u);
+
+    await expect(
+      readFile(path.join(publishingDirectory, 'archive.zip'), 'utf8'),
+    ).resolves.toBe('successor archive');
+    await expect(
+      readFile(path.join(publishingDirectory, 'successor.txt'), 'utf8'),
+    ).resolves.toBe('successor owns this directory');
+    await expect(stat(displacedPublishingDirectory)).resolves.toMatchObject(
+      {},
+    );
+    await expect(stat(target)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(
+      readFile(exportLockPath(root), 'utf8'),
+    ).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('rejects template ctime drift and removes copied staging data', async () => {

@@ -57,7 +57,11 @@ async function failFirstPublishingFileSync(
   prototype.sync = (async function (this: FileHandle): Promise<void> {
     if (!didInject) {
       const entries = await readdir(targetRoot);
-      if (entries.some((entry) => entry.endsWith('.publishing.zip'))) {
+      if (
+        entries.some((entry) =>
+          /^\.vn-engine-[^.]+\.publishing$/u.test(entry),
+        )
+      ) {
         didInject = true;
         throw new Error('simulated publishing fsync failure');
       }

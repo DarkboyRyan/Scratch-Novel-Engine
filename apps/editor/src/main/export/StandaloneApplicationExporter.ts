@@ -436,6 +436,31 @@ async function removeOwnedRegularFile(
   await unlink(filePath);
 }
 
+async function removeOwnedEmptyDirectory(
+  directoryPath: string,
+  identity: FileIdentity,
+): Promise<void> {
+  const status = await lstat(directoryPath).catch((error: unknown) => {
+    if (errnoCode(error) === "ENOENT") {
+      return null;
+    }
+    throw error;
+  });
+  if (
+    status === null ||
+    status.isSymbolicLink() ||
+    !status.isDirectory() ||
+    !sameFileIdentity(status, identity)
+  ) {
+    return;
+  }
+  // rmdir never follows a replacement symlink and refuses to remove a
+  // directory containing an entry we did not create. Publication cleanup is
+  // intentionally non-recursive so a racing process cannot make us delete an
+  // unknown file from the user-selected destination.
+  await rmdir(directoryPath);
+}
+
 async function canonicalizeDirectory(
   directoryPath: string,
   context: string,
@@ -1449,9 +1474,13 @@ export async function exportStandaloneApplication(
 
   const transactionId = randomUUID();
   const lockPath = path.join(targetParentPath, `.${artifactName}.export.lock`);
-  const publishingPath = path.join(
+  const publishingDirectoryPath = path.join(
     targetParentPath,
-    `.vn-engine-${transactionId}.publishing.zip`,
+    `.vn-engine-${transactionId}.publishing`,
+  );
+  const publishingArchivePath = path.join(
+    publishingDirectoryPath,
+    "archive.zip",
   );
   const lock = await acquireExportFileLock(
     lockPath,
@@ -1459,7 +1488,8 @@ export async function exportStandaloneApplication(
   );
   let transactionRootPath: string | null = null;
   let transactionRootIdentity: FileIdentity | null = null;
-  let publishingIdentity: FileIdentity | null = null;
+  let publishingDirectoryIdentity: FileIdentity | null = null;
+  let publishingArchiveIdentity: FileIdentity | null = null;
   let targetIdentity: FileIdentity | null = null;
   let committed = false;
 
@@ -1619,24 +1649,85 @@ export async function exportStandaloneApplication(
     );
 
     await lock.assertOwned();
-    await assertMissing(publishingPath, "独立应用 ZIP 发布暂存文件已存在");
+    await assertMissing(
+      publishingDirectoryPath,
+      "独立应用 ZIP 发布暂存目录已存在",
+    );
     if ((await realpath(targetParentPath)) !== targetParentPath) {
       throw new Error("导出位置在发布前发生了变化");
     }
-    publishingIdentity = await copyStableArchiveFile(
+    await mkdir(publishingDirectoryPath, { mode: 0o700 });
+    publishingDirectoryIdentity = await captureOwnedDirectoryIdentity(
+      publishingDirectoryPath,
+      "独立应用 ZIP 发布暂存目录",
+    );
+    const publishingDirectory = await open(
+      publishingDirectoryPath,
+      constants.O_RDONLY |
+        (constants.O_NOFOLLOW ?? 0) |
+        (constants.O_DIRECTORY ?? 0),
+    );
+    try {
+      const openedPublishingDirectory = await publishingDirectory.stat();
+      if (
+        !openedPublishingDirectory.isDirectory() ||
+        !sameFileIdentity(
+          openedPublishingDirectory,
+          publishingDirectoryIdentity,
+        )
+      ) {
+        throw new Error("独立应用 ZIP 发布暂存目录在创建时发生了变化");
+      }
+      await publishingDirectory.chmod(0o700);
+    } finally {
+      await publishingDirectory.close();
+    }
+    const publishingDirectoryAfterCreation =
+      await captureOwnedDirectoryIdentity(
+        publishingDirectoryPath,
+        "独立应用 ZIP 发布暂存目录",
+      );
+    if (
+      !sameFileIdentity(
+        publishingDirectoryAfterCreation,
+        publishingDirectoryIdentity,
+      )
+    ) {
+      throw new Error("独立应用 ZIP 发布暂存目录在创建时发生了变化");
+    }
+    await assertMissing(
+      publishingArchivePath,
+      "独立应用 ZIP 发布暂存文件已存在",
+    );
+    publishingArchiveIdentity = await copyStableArchiveFile(
       privateArchivePath,
-      publishingPath,
+      publishingArchivePath,
       expectedArchiveSha256,
     );
+    const publishingDirectoryAfterCopy =
+      await captureOwnedDirectoryIdentity(
+        publishingDirectoryPath,
+        "独立应用 ZIP 发布暂存目录",
+      );
+    if (
+      !sameFileIdentity(
+        publishingDirectoryAfterCopy,
+        publishingDirectoryIdentity,
+      )
+    ) {
+      throw new Error("独立应用 ZIP 发布暂存目录在复制后发生了变化");
+    }
     const publishingAfterCopy = await captureOwnedRegularFileIdentity(
-      publishingPath,
+      publishingArchivePath,
       "独立应用 ZIP 发布暂存文件",
     );
-    if (!sameFileIdentity(publishingAfterCopy, publishingIdentity)) {
+    if (
+      !sameFileIdentity(publishingAfterCopy, publishingArchiveIdentity)
+    ) {
       throw new Error("独立应用 ZIP 发布暂存文件在复制后发生了变化");
     }
     await verifyStandaloneApplicationArchive(
-      publishingPath,
+      publishingArchivePath,
       path.join(transactionRootPath, "published-archive-verification"),
       packagedApplicationName,
       template,
@@ -1654,28 +1745,78 @@ export async function exportStandaloneApplication(
     if ((await realpath(targetParentPath)) !== targetParentPath) {
       throw new Error("导出位置在提交前发生了变化");
     }
+    const publishingDirectoryBeforeCommit =
+      await captureOwnedDirectoryIdentity(
+        publishingDirectoryPath,
+        "独立应用 ZIP 发布暂存目录",
+      );
+    if (
+      !sameFileIdentity(
+        publishingDirectoryBeforeCommit,
+        publishingDirectoryIdentity,
+      )
+    ) {
+      throw new Error("独立应用 ZIP 发布暂存目录在提交前发生了变化");
+    }
     const publishingBeforeCommit = await captureOwnedRegularFileIdentity(
-      publishingPath,
+      publishingArchivePath,
       "独立应用 ZIP 发布暂存文件",
     );
-    if (!sameFileIdentity(publishingBeforeCommit, publishingIdentity)) {
+    if (
+      !sameFileIdentity(publishingBeforeCommit, publishingArchiveIdentity)
+    ) {
       throw new Error("独立应用 ZIP 发布暂存文件在提交前发生了变化");
     }
-    await hashStableArchiveFile(publishingPath, expectedArchiveSha256);
+    await hashStableArchiveFile(
+      publishingArchivePath,
+      expectedArchiveSha256,
+    );
     try {
-      // A same-directory hard link gives us an atomic, no-clobber commit. The
+      // A same-filesystem hard link gives us an atomic, no-clobber commit. The
       // final name never refers to partial bytes, and a racing creator wins
       // rather than being overwritten by rename(2).
-      await link(publishingPath, targetPath);
+      await link(publishingArchivePath, targetPath);
     } catch (error) {
       if (errnoCode(error) === "EEXIST") {
         throw new Error("导出位置在提交前发生了变化");
       }
       throw error;
     }
-    targetIdentity = publishingIdentity;
-    await unlink(publishingPath);
-    publishingIdentity = null;
+    targetIdentity = publishingArchiveIdentity;
+    const [publishingAfterLink, targetAfterLink] = await Promise.all([
+      lstat(publishingArchivePath),
+      lstat(targetPath),
+    ]);
+    if (
+      publishingAfterLink.isSymbolicLink() ||
+      targetAfterLink.isSymbolicLink() ||
+      !publishingAfterLink.isFile() ||
+      !targetAfterLink.isFile() ||
+      !sameFileIdentity(publishingAfterLink, publishingArchiveIdentity) ||
+      !sameFileIdentity(targetAfterLink, publishingArchiveIdentity) ||
+      publishingAfterLink.nlink !== 2 ||
+      targetAfterLink.nlink !== 2
+    ) {
+      throw new Error("独立应用 ZIP 导出产物的原子链接无效");
+    }
+    await removeOwnedRegularFile(
+      publishingArchivePath,
+      publishingArchiveIdentity,
+    );
+    await assertMissing(
+      publishingArchivePath,
+      "独立应用 ZIP 发布暂存文件清理失败",
+    );
+    publishingArchiveIdentity = null;
+    await removeOwnedEmptyDirectory(
+      publishingDirectoryPath,
+      publishingDirectoryIdentity,
+    );
+    await assertMissing(
+      publishingDirectoryPath,
+      "独立应用 ZIP 发布暂存目录清理失败",
+    );
+    publishingDirectoryIdentity = null;
     const targetAfterCommit = await captureOwnedRegularFileIdentity(
       targetPath,
       "独立应用 ZIP 导出产物",
@@ -1710,10 +1851,17 @@ export async function exportStandaloneApplication(
         () => undefined,
       );
     }
-    if (publishingIdentity !== null) {
-      await removeOwnedRegularFile(publishingPath, publishingIdentity).catch(
-        () => undefined,
-      );
+    if (publishingArchiveIdentity !== null) {
+      await removeOwnedRegularFile(
+        publishingArchivePath,
+        publishingArchiveIdentity,
+      ).catch(() => undefined);
+    }
+    if (publishingDirectoryIdentity !== null) {
+      await removeOwnedEmptyDirectory(
+        publishingDirectoryPath,
+        publishingDirectoryIdentity,
+      ).catch(() => undefined);
     }
     if (transactionRootPath !== null && transactionRootIdentity !== null) {
       await removeOwnedDirectory(
