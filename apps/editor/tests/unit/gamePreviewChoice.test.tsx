@@ -19,11 +19,17 @@ const options = [
 ];
 
 const session: GamePreviewSession = {
+  phase: 'story',
   project: {
     schemaVersion: 1,
     id: 'project-choice-input',
     name: 'Choice input',
     entrySceneId: 'scene-entry',
+    startScreen: {
+      title: 'Choice input',
+      backgroundAssetId: null,
+      musicAssetId: null,
+    },
     scenes: [
       {
         schemaVersion: 1,
@@ -93,6 +99,7 @@ describe('GamePreview choices', () => {
           onAdvance={onAdvance}
           onVideoComplete={vi.fn()}
           onChoiceSelect={onChoiceSelect}
+          onEnterStory={vi.fn()}
           onExit={onExit}
         />,
       );
@@ -128,6 +135,101 @@ describe('GamePreview choices', () => {
     });
     await act(async () => buttons[0].dispatchEvent(escape));
     expect(escape.defaultPrevented).toBe(true);
+    expect(onExit).toHaveBeenCalledOnce();
+  });
+
+  it('renders the complete title phase and enters the story from Start', async () => {
+    const onEnterStory = vi.fn();
+    const onExit = vi.fn();
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play')
+      .mockResolvedValue();
+    vi.spyOn(HTMLMediaElement.prototype, 'pause')
+      .mockImplementation(() => {});
+    const resolveMediaUrl = vi.fn(async (assetId: string) => {
+      if (assetId === 'title-background') {
+        return 'vn-asset://preview/title-background';
+      }
+      if (assetId === 'title-music') {
+        return 'vn-asset://preview/title-music';
+      }
+      return null;
+    });
+    const titleSession: GamePreviewSession = {
+      ...session,
+      phase: 'title',
+      project: {
+        ...session.project,
+        name: '完整主界面',
+        startScreen: {
+          title: '自定义预览标题',
+          backgroundAssetId: 'title-background',
+          musicAssetId: 'title-music',
+        },
+      },
+    };
+
+    await act(async () => {
+      root.render(
+        <GamePreview
+          session={titleSession}
+          assets={[]}
+          previewUrls={{}}
+          resolveMediaUrl={resolveMediaUrl}
+          onAdvance={vi.fn()}
+          onVideoComplete={vi.fn()}
+          onChoiceSelect={vi.fn()}
+          onEnterStory={onEnterStory}
+          onExit={onExit}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[aria-label="完整主界面预览"]'),
+    ).not.toBeNull();
+    expect(container.querySelector('h1')?.textContent).toBe('自定义预览标题');
+    expect(container.textContent).toContain('开始游戏');
+    expect(container.textContent).toContain('选项');
+    expect(container.textContent).toContain('退出游戏');
+    expect(resolveMediaUrl).toHaveBeenCalledWith('title-background');
+    expect(resolveMediaUrl).toHaveBeenCalledWith('title-music');
+    expect(
+      container.querySelector<HTMLImageElement>(
+        '.player-title-background',
+      )?.src,
+    ).toContain('vn-asset://preview/title-background');
+    const music = container.querySelector<HTMLAudioElement>(
+      '.player-title-music',
+    );
+    expect(music?.src).toContain('vn-asset://preview/title-music');
+    expect(music?.loop).toBe(true);
+    expect(play).toHaveBeenCalled();
+
+    const optionsButton = [...container.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === '选项',
+    );
+    await act(async () => optionsButton?.click());
+    const optionsDialog = container.querySelector('[role="dialog"]');
+    expect(optionsDialog?.textContent).toContain('关闭主界面音乐');
+    expect(optionsDialog?.textContent).not.toContain('打开其他游戏');
+    const returnButton = [...container.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === '返回',
+    );
+    await act(async () => returnButton?.click());
+
+    const startButton = [...container.querySelectorAll('button')].find(
+      (button) => button.textContent?.includes('开始游戏'),
+    );
+    await act(async () => startButton?.click());
+    expect(onEnterStory).toHaveBeenCalledOnce();
+    expect(onExit).not.toHaveBeenCalled();
+
+    const exitButton = [...container.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === '退出游戏',
+    );
+    await act(async () => exitButton?.click());
     expect(onExit).toHaveBeenCalledOnce();
   });
 });

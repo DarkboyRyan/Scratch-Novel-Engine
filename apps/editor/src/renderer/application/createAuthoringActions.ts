@@ -7,6 +7,7 @@ import type {
   AddChoiceOptionAction,
   AddDialogueAction,
   AddSceneJumpAction,
+  AddStoryExtensionAction,
   AddVideoAction,
   DeleteBackgroundAction,
   DeleteChoiceOptionAction,
@@ -43,6 +44,7 @@ export type AuthoringActions = {
   addCharacter: AddCharacterAction;
   updateCharacter: UpdateCharacterAction;
   addSceneJump: AddSceneJumpAction;
+  addStoryExtension: AddStoryExtensionAction;
   updateSceneJump: UpdateSceneJumpAction;
   addBgm: AddBgmAction;
   updateBgm: UpdateBgmAction;
@@ -62,6 +64,7 @@ type CreateAuthoringActionsOptions = {
   commands: VnEngineApi;
   run: EngineMutationRunner;
   onSceneJumpUnavailable(): void;
+  onStoryExtensionUnavailable(): void;
 };
 
 // Maps feature-facing boolean actions onto the result-returning engine port.
@@ -71,6 +74,7 @@ export function createAuthoringActions({
   commands,
   run,
   onSceneJumpUnavailable,
+  onStoryExtensionUnavailable,
 }: CreateAuthoringActionsOptions): AuthoringActions {
   const succeeds = async (
     action: Parameters<EngineMutationRunner>[0],
@@ -110,6 +114,13 @@ export function createAuthoringActions({
       }
       return succeeds(() => commands.addSceneJump(params));
     },
+    addStoryExtension: (params) => {
+      if (typeof commands.addStoryExtension !== 'function') {
+        onStoryExtensionUnavailable();
+        return Promise.resolve(false);
+      }
+      return succeeds(() => commands.addStoryExtension(params));
+    },
     updateSceneJump: (params) => {
       if (typeof commands.updateSceneJump !== 'function') {
         onSceneJumpUnavailable();
@@ -135,7 +146,12 @@ export function createAuthoringActions({
       succeeds(() => commands.deleteTimelineNodes(params)),
     reorderTimelineNode: (params) =>
       succeeds(() => commands.reorderTimelineNode(params)),
-    reorderTimelineNodes: (params) =>
-      succeeds(() => commands.reorderTimelineNodes(params)),
+    reorderTimelineNodes: (params) => {
+      if (typeof commands.reorderTimelineNodes !== 'function') {
+        onStoryExtensionUnavailable();
+        return Promise.resolve(false);
+      }
+      return succeeds(() => commands.reorderTimelineNodes(params));
+    },
   };
 }

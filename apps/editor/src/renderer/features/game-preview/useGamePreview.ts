@@ -1,33 +1,63 @@
 import { useState } from 'react';
 
-import type { ProjectDocument } from '../../../shared/projectTypes';
+import type { ProjectDocument as RuntimeProjectDocument } from '@vnengine/runtime';
+
+import {
+  toRuntimeProjectDocument,
+  type ProjectDocument,
+} from '../../../shared/projectTypes';
 import {
   advanceGamePreview,
   selectGamePreviewChoice,
   startGamePreview,
+  startGamePreviewAtScene,
   type GamePreviewRuntime,
 } from './previewRuntime';
 
 export type GamePreviewSession = {
-  project: ProjectDocument;
+  phase: 'title' | 'story';
+  project: RuntimeProjectDocument;
   runtime: GamePreviewRuntime;
 };
 
 export function useGamePreview() {
   const [session, setSession] = useState<GamePreviewSession | null>(null);
 
-  function start(project: ProjectDocument): boolean {
-    const runtime = startGamePreview(project);
+  function start(project: ProjectDocument, sceneId: string): boolean {
+    const runtimeProject = toRuntimeProjectDocument(project);
+    const runtime = startGamePreviewAtScene(runtimeProject, sceneId);
     if (!runtime) {
       return false;
     }
-    setSession({ project, runtime });
+    setSession({ phase: 'story', project: runtimeProject, runtime });
     return true;
+  }
+
+  function startWhole(project: ProjectDocument): boolean {
+    const runtimeProject = toRuntimeProjectDocument(project);
+    const runtime = startGamePreview(runtimeProject);
+    if (!runtime) {
+      return false;
+    }
+    setSession({ phase: 'title', project: runtimeProject, runtime });
+    return true;
+  }
+
+  function enterStory(): void {
+    setSession((current) =>
+      current?.phase === 'title'
+        ? { ...current, phase: 'story' }
+        : current,
+    );
   }
 
   function advance(): void {
     setSession((current) => {
-      if (!current || current.runtime.status !== 'playing') {
+      if (
+        !current ||
+        current.phase !== 'story' ||
+        current.runtime.status !== 'playing'
+      ) {
         return current;
       }
       return {
@@ -39,7 +69,11 @@ export function useGamePreview() {
 
   function completeVideo(): void {
     setSession((current) => {
-      if (!current || current.runtime.status !== 'playingVideo') {
+      if (
+        !current ||
+        current.phase !== 'story' ||
+        current.runtime.status !== 'playingVideo'
+      ) {
         return current;
       }
       return {
@@ -51,7 +85,11 @@ export function useGamePreview() {
 
   function selectChoice(optionId: string): void {
     setSession((current) => {
-      if (!current || current.runtime.status !== 'choosing') {
+      if (
+        !current ||
+        current.phase !== 'story' ||
+        current.runtime.status !== 'choosing'
+      ) {
         return current;
       }
       return {
@@ -69,5 +107,14 @@ export function useGamePreview() {
     setSession(null);
   }
 
-  return { session, start, advance, completeVideo, selectChoice, exit };
+  return {
+    session,
+    start,
+    startWhole,
+    enterStory,
+    advance,
+    completeVideo,
+    selectChoice,
+    exit,
+  };
 }

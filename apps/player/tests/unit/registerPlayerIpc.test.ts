@@ -29,6 +29,11 @@ describe('Player read-only IPC', () => {
       id: 'project',
       name: 'Game',
       entrySceneId: 'scene',
+      startScreen: {
+        title: 'Story Title',
+        backgroundAssetId: null,
+        musicAssetId: null,
+      },
       scenes: [
         {
           schemaVersion: 1 as const,
@@ -43,6 +48,7 @@ describe('Player read-only IPC', () => {
   };
 
   function register(game: typeof publicGame | null = publicGame) {
+    const quitPlayer = vi.fn();
     const loadGame = vi.fn(() => game === null
       ? { status: 'error' as const, mode: 'generic' as const, error: 'runtime v1 无效' }
       : { status: 'loaded' as const, mode: 'generic' as const, game });
@@ -58,12 +64,16 @@ describe('Player read-only IPC', () => {
       { handle } as unknown as Electron.IpcMain,
       contexts,
       new Map([[42, 'file:///player/index.html']]),
+      quitPlayer,
     );
     expect(handle).toHaveBeenCalledWith(
       PLAYER_IPC_CHANNEL,
       expect.any(Function),
     );
-    return handle.mock.calls[0][1] as RegisteredHandler;
+    return {
+      handler: handle.mock.calls[0][1] as RegisteredHandler,
+      quitPlayer,
+    };
   }
 
   beforeEach(() => {
@@ -71,7 +81,7 @@ describe('Player read-only IPC', () => {
   });
 
   it('returns only ProjectDocument and path-free Asset DTOs', () => {
-    const handler = register();
+    const { handler } = register();
     const result = handler(trustedEvent(), {
       action: 'load-game',
       params: {},
@@ -88,7 +98,7 @@ describe('Player read-only IPC', () => {
   });
 
   it('exposes only opaque media capabilities for known Asset IDs', () => {
-    const handler = register();
+    const { handler } = register();
     expect(
       handler(trustedEvent(), {
         action: 'get-media-url',
@@ -105,15 +115,23 @@ describe('Player read-only IPC', () => {
   });
 
   it('opens a game through a path-free Main-owned intent', async () => {
-    const handler = register();
+    const { handler } = register();
     await expect(
       handler(trustedEvent(), { action: 'open-game', params: {} }),
     ).resolves.toEqual({ status: 'canceled' });
     expect(openGame).toHaveBeenCalledOnce();
   });
 
+  it('quits the application through an injected trusted Main action', () => {
+    const { handler, quitPlayer } = register();
+    expect(
+      handler(trustedEvent(), { action: 'quit-game', params: {} }),
+    ).toBeUndefined();
+    expect(quitPlayer).toHaveBeenCalledOnce();
+  });
+
   it('rejects subframes, extra fields and any path-shaped request', () => {
-    const handler = register();
+    const { handler } = register();
     const event = trustedEvent();
     const subframe = { url: 'file:///player/index.html' };
     expect(() =>
@@ -131,6 +149,12 @@ describe('Player read-only IPC', () => {
     ).toThrow('格式无效');
     expect(() =>
       handler(event, {
+        action: 'quit-game',
+        params: { force: true },
+      }),
+    ).toThrow('格式无效');
+    expect(() =>
+      handler(event, {
         action: 'open',
         params: { path: '/private/secret' },
       }),
@@ -144,7 +168,7 @@ describe('Player read-only IPC', () => {
   });
 
   it('returns a safe load error without adding write or import operations', () => {
-    const handler = register(null);
+    const { handler } = register(null);
     expect(
       handler(trustedEvent(), { action: 'load-game', params: {} }),
     ).toEqual({

@@ -5,10 +5,15 @@ import type {
   BgmNode,
   CharacterNode,
   CharacterSlot,
+  CharacterPosition,
   DialogueNode,
   SceneJumpNode,
-  SceneNode,
+  SemanticSceneNode,
   VideoNode,
+} from '../../../shared/projectTypes';
+import {
+  isSemanticSceneNode,
+  semanticSceneNodes,
 } from '../../../shared/projectTypes';
 import type { FormEditorPort } from '../../application/authoringPorts';
 import { EMPTY_DIALOGUE_MESSAGE } from '../../editorMessages';
@@ -57,7 +62,9 @@ export function useFormEditor({
       ) ?? project.scenes[0])
     : null;
 
-  const selectedNode = scene?.nodes.find(
+  const storyNodes = scene ? semanticSceneNodes(scene) : [];
+
+  const selectedNode = storyNodes.find(
     (node) => node.id === selectedNodeId,
   );
   const selectedDialogue =
@@ -81,7 +88,7 @@ export function useFormEditor({
     if (
       !scene ||
       selectedNodeId === null ||
-      scene.nodes.some((node) => node.id === selectedNodeId)
+      storyNodes.some((node) => node.id === selectedNodeId)
     ) {
       return;
     }
@@ -129,6 +136,9 @@ export function useFormEditor({
       ? false
       : speaker.length > 0 || text.length > 0;
   const commitInProgressRef = useRef<Promise<boolean> | null>(null);
+  // “+立绘”也可以提交尚未创建的对白。保留该次 C++ 分配的 ID，
+  // 让紧接着创建的人物节点仍能放到这条对白之前。
+  const lastCreatedDialogueIdRef = useRef<string | null>(null);
 
   async function commitPendingDraft(): Promise<boolean> {
     if (commitInProgressRef.current) {
@@ -176,6 +186,7 @@ export function useFormEditor({
           text,
         }),
       );
+      lastCreatedDialogueIdRef.current = result?.nodeId ?? null;
       if (result) {
         startNewDialogue();
       }
@@ -191,7 +202,7 @@ export function useFormEditor({
     }
   }
 
-  function applyNodeSelection(node: SceneNode) {
+  function applyNodeSelection(node: SemanticSceneNode) {
     setSelectedNodeId(node.id);
     if (node.type === 'dialogue') {
       setSpeaker(node.speaker);
@@ -202,7 +213,7 @@ export function useFormEditor({
     }
   }
 
-  async function selectNode(node: SceneNode): Promise<void> {
+  async function selectNode(node: SemanticSceneNode): Promise<void> {
     if (node.id === selectedNodeId) {
       return;
     }
@@ -306,15 +317,45 @@ export function useFormEditor({
   }
 
   async function insertCharacter() {
-    const anchorNodeId = selectedNodeId;
+    // 人物节点在运行时会自动执行。放在对白之后会等玩家推进后才生效，
+    // 因此当前对白及其连续人物组都以“下一条对白”为插入锚点。
+    const wasCreatingDialogue =
+      selectedNodeId === null && draftDirty;
+    const selectedIndex = storyNodes.findIndex(
+      (node) => node.id === selectedNodeId,
+    );
+    const selected = storyNodes[selectedIndex];
+    let dialogueAnchorId: string | null =
+      selected?.type === 'dialogue' ? selected.id : null;
+
+    if (selected?.type === 'character') {
+      let nextIndex = selectedIndex + 1;
+      while (storyNodes[nextIndex]?.type === 'character') {
+        nextIndex += 1;
+      }
+      if (storyNodes[nextIndex]?.type === 'dialogue') {
+        dialogueAnchorId = storyNodes[nextIndex].id;
+      }
+    }
+
+    if (wasCreatingDialogue) {
+      lastCreatedDialogueIdRef.current = null;
+    }
     if (!scene || !(await commitPendingDraft())) {
       return;
+    }
+
+    if (wasCreatingDialogue) {
+      dialogueAnchorId = lastCreatedDialogueIdRef.current;
+      lastCreatedDialogueIdRef.current = null;
     }
 
     const result = await runEngineAction(() =>
       authoringCommands.addCharacter({
         sceneId: scene.id,
-        afterNodeId: anchorNodeId,
+        ...(dialogueAnchorId
+          ? { beforeNodeId: dialogueAnchorId }
+          : { afterNodeId: selectedNodeId }),
       }),
     );
 
@@ -398,13 +439,19 @@ export function useFormEditor({
       assetId: string | null;
       slot: CharacterSlot;
       layer: number;
+      position: CharacterPosition | null;
     },
   ) {
     if (
       !scene ||
       (node.assetId === next.assetId &&
         node.slot === next.slot &&
-        node.layer === next.layer)
+        node.layer === next.layer &&
+        ((node.position === null && next.position === null) ||
+          (node.position !== null &&
+            next.position !== null &&
+            node.position.x === next.position.x &&
+            node.position.y === next.position.y)))
     ) {
       return;
     }
@@ -504,7 +551,7 @@ export function useFormEditor({
       return;
     }
 
-    const nodeToDelete = scene.nodes.find(
+    const nodeToDelete = storyNodes.find(
       (node) => node.id === nodeId,
     );
 
@@ -545,10 +592,10 @@ export function useFormEditor({
     }
 
     // “删除哪条”由 C++ 决定；“删除后界面选中谁”仍是 UI 导航规则。
-    const selectedIndex = scene.nodes.findIndex(
+    const selectedIndex = storyNodes.findIndex(
       (node) => node.id === nodeId,
     );
-    const remainingNodeIds = scene.nodes
+    const remainingNodeIds = storyNodes
       .filter((node) => node.id !== nodeId)
       .map((node) => node.id);
     const nextNodeId =
@@ -573,7 +620,7 @@ export function useFormEditor({
       (node) => node.id === nextNodeId,
     );
 
-    if (nextNode) {
+    if (nextNode && isSemanticSceneNode(nextNode)) {
       applyNodeSelection(nextNode);
     } else {
       startNewDialogue();
@@ -601,7 +648,7 @@ export function useFormEditor({
       return;
     }
 
-    const currentIndex = scene.nodes.findIndex(
+    const currentIndex = storyNodes.findIndex(
       (node) => node.id === nodeId,
     );
     if (currentIndex < 0) {
@@ -610,8 +657,8 @@ export function useFormEditor({
 
     const beforeNodeId =
       direction === -1
-        ? scene.nodes[currentIndex - 1]?.id
-        : scene.nodes[currentIndex + 2]?.id ?? null;
+        ? storyNodes[currentIndex - 1]?.id
+        : storyNodes[currentIndex + 2]?.id ?? null;
 
     if (direction === -1 && !beforeNodeId) {
       return;

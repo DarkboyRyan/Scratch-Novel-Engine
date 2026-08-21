@@ -29,6 +29,13 @@ export type ParsedRuntimeBundle = {
   files: RuntimeManifestAsset[];
 };
 
+type SupportedRuntimeVersion = 1 | 2 | 3 | 4;
+
+type ParsedRuntimeGame = {
+  project: ProjectDocument;
+  runtimeVersion: SupportedRuntimeVersion;
+};
+
 type JsonObject = Record<string, unknown>;
 
 function objectValue(value: unknown, context: string): JsonObject {
@@ -49,7 +56,7 @@ function exactFields(
     actual.length !== sortedExpected.length ||
     actual.some((key, index) => key !== sortedExpected[index])
   ) {
-    throw new Error(`${context} 字段不符合 runtime v1`);
+    throw new Error(`${context} 字段不符合 runtime 约定`);
   }
 }
 
@@ -107,9 +114,24 @@ function requireLiteral(
   }
 }
 
+function playerCompatibilityForRuntime(
+  runtimeVersion: SupportedRuntimeVersion,
+): string {
+  switch (runtimeVersion) {
+    case 1:
+      return '>=1 <2';
+    case 2:
+      return '>=2 <3';
+    case 3:
+      return '>=3 <4';
+    case 4:
+      return '>=4 <5';
+  }
+}
+
 function registerId(ids: Set<string>, id: string): void {
   if (ids.has(id)) {
-    throw new Error('runtime v1 包含重复的实体或资源 ID');
+    throw new Error('runtime 包含重复的实体或资源 ID');
   }
   ids.add(id);
 }
@@ -134,6 +156,7 @@ function parseSceneNode(
   input: unknown,
   context: string,
   ids: Set<string>,
+  runtimeVersion: SupportedRuntimeVersion,
 ): SceneNode {
   const value = objectValue(input, context);
   const type = stringValue(value, 'type', context);
@@ -164,7 +187,13 @@ function parseSceneNode(
       exactFields(value, ['id', 'type', 'assetId'], context);
       return { id, type, assetId: nullableId(value, 'assetId', context) };
     case 'character': {
-      exactFields(value, ['id', 'type', 'assetId', 'slot', 'layer'], context);
+      exactFields(
+        value,
+        runtimeVersion >= 4
+          ? ['id', 'type', 'assetId', 'slot', 'layer', 'position']
+          : ['id', 'type', 'assetId', 'slot', 'layer'],
+        context,
+      );
       const slot = value.slot;
       const layer = value.layer;
       if (slot !== 'left' && slot !== 'center' && slot !== 'right') {
@@ -173,12 +202,32 @@ function parseSceneNode(
       if (!Number.isSafeInteger(layer) || (layer as number) < 1 || (layer as number) > 10) {
         throw new Error(`${context}.layer 必须是 1 到 10 的整数`);
       }
+      let position: { x: number; y: number } | null = null;
+      if (runtimeVersion >= 4 && value.position !== null) {
+        const positionValue = objectValue(value.position, `${context}.position`);
+        exactFields(positionValue, ['x', 'y'], `${context}.position`);
+        const { x, y } = positionValue;
+        if (
+          typeof x !== 'number' ||
+          typeof y !== 'number' ||
+          !Number.isFinite(x) ||
+          !Number.isFinite(y) ||
+          x < 0 ||
+          x > 100 ||
+          y < 0 ||
+          y > 100
+        ) {
+          throw new Error(`${context}.position 坐标必须在 0 到 100 之间`);
+        }
+        position = { x, y };
+      }
       return {
         id,
         type,
         assetId: nullableId(value, 'assetId', context),
         slot,
         layer: layer as number,
+        position,
       };
     }
     case 'sceneJump':
@@ -204,7 +253,7 @@ function parseSceneNode(
         ),
       };
     default:
-      throw new Error(`${context}.type 不受 runtime v1 支持`);
+      throw new Error(`${context}.type 不受 runtime 支持`);
   }
 }
 
@@ -212,6 +261,7 @@ function parseScene(
   input: unknown,
   index: number,
   ids: Set<string>,
+  runtimeVersion: SupportedRuntimeVersion,
 ): SceneDocument {
   const context = `game.json.scenes[${index}]`;
   const value = objectValue(input, context);
@@ -229,34 +279,94 @@ function parseScene(
     name: stringValue(value, 'name', context, { maximum: 4096 }),
     backgroundAssetId: nullableId(value, 'backgroundAssetId', context),
     nodes: arrayValue(value, 'nodes', context).map((node, nodeIndex) =>
-      parseSceneNode(node, `${context}.nodes[${nodeIndex}]`, ids),
+      parseSceneNode(node, `${context}.nodes[${nodeIndex}]`, ids, runtimeVersion),
     ),
   };
 }
 
-function parseRuntimeGame(input: unknown, ids: Set<string>): ProjectDocument {
+function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
   const root = objectValue(input, 'game.json');
   exactFields(root, ['format', 'runtimeVersion', 'game', 'scenes'], 'game.json');
   requireLiteral(root, 'format', 'vn-engine-runtime', 'game.json');
-  requireLiteral(root, 'runtimeVersion', 1, 'game.json');
+  if (
+    root.runtimeVersion !== 1 &&
+    root.runtimeVersion !== 2 &&
+    root.runtimeVersion !== 3 &&
+    root.runtimeVersion !== 4
+  ) {
+    throw new Error('game.json.runtimeVersion 版本或格式不受支持');
+  }
+  const runtimeVersion = root.runtimeVersion;
 
   const metadata = objectValue(root.game, 'game.json.game');
-  exactFields(metadata, ['id', 'title', 'entrySceneId'], 'game.json.game');
+  exactFields(
+    metadata,
+    runtimeVersion === 1
+      ? ['id', 'title', 'entrySceneId']
+      : ['id', 'title', 'entrySceneId', 'startScreen'],
+    'game.json.game',
+  );
   const projectId = idValue(metadata, 'id', 'game.json.game');
   registerId(ids, projectId);
   const scenes = arrayValue(root, 'scenes', 'game.json').map(
-    (scene, index) => parseScene(scene, index, ids),
+    (scene, index) => parseScene(scene, index, ids, runtimeVersion),
   );
   if (scenes.length === 0) {
-    throw new Error('runtime v1 至少需要一个场景');
+    throw new Error('runtime 至少需要一个场景');
+  }
+
+  const projectName = stringValue(metadata, 'title', 'game.json.game', {
+    maximum: 4096,
+  });
+  let startScreen = {
+    title: projectName,
+    backgroundAssetId: null as string | null,
+    musicAssetId: null as string | null,
+  };
+  if (runtimeVersion >= 2) {
+    const startScreenValue = objectValue(
+      metadata.startScreen,
+      'game.json.game.startScreen',
+    );
+    exactFields(
+      startScreenValue,
+      runtimeVersion === 2
+        ? ['backgroundAssetId', 'musicAssetId']
+        : ['title', 'backgroundAssetId', 'musicAssetId'],
+      'game.json.game.startScreen',
+    );
+    startScreen = {
+      title: runtimeVersion === 2
+        ? projectName
+        : stringValue(
+            startScreenValue,
+            'title',
+            'game.json.game.startScreen',
+            { maximum: 4096 },
+          ),
+      backgroundAssetId: nullableId(
+        startScreenValue,
+        'backgroundAssetId',
+        'game.json.game.startScreen',
+      ),
+      musicAssetId: nullableId(
+        startScreenValue,
+        'musicAssetId',
+        'game.json.game.startScreen',
+      ),
+    };
   }
 
   return {
-    schemaVersion: 1,
-    id: projectId,
-    name: stringValue(metadata, 'title', 'game.json.game', { maximum: 4096 }),
-    entrySceneId: idValue(metadata, 'entrySceneId', 'game.json.game'),
-    scenes,
+    runtimeVersion,
+    project: {
+      schemaVersion: 1,
+      id: projectId,
+      name: projectName,
+      entrySceneId: idValue(metadata, 'entrySceneId', 'game.json.game'),
+      startScreen,
+      scenes,
+    },
   };
 }
 
@@ -331,6 +441,7 @@ function parseManifest(
   input: unknown,
   projectId: string,
   ids: Set<string>,
+  runtimeVersion: SupportedRuntimeVersion,
 ): RuntimeManifestAsset[] {
   const root = objectValue(input, 'manifest.json');
   exactFields(
@@ -350,8 +461,13 @@ function parseManifest(
   );
   requireLiteral(root, 'format', 'vn-engine-runtime-manifest', 'manifest.json');
   requireLiteral(root, 'manifestVersion', 1, 'manifest.json');
-  requireLiteral(root, 'runtimeVersion', 1, 'manifest.json');
-  requireLiteral(root, 'playerCompatibility', '>=1 <2', 'manifest.json');
+  requireLiteral(root, 'runtimeVersion', runtimeVersion, 'manifest.json');
+  requireLiteral(
+    root,
+    'playerCompatibility',
+    playerCompatibilityForRuntime(runtimeVersion),
+    'manifest.json',
+  );
   idValue(root, 'buildId', 'manifest.json');
   if (idValue(root, 'projectId', 'manifest.json') !== projectId) {
     throw new Error('game.json 与 manifest.json 的 Project ID 不一致');
@@ -408,6 +524,19 @@ function validateProjectReferences(
   }
   const assets = new Map(files.map((asset) => [asset.id, asset]));
 
+  requireAssetType(
+    assets,
+    project.startScreen.backgroundAssetId,
+    'image',
+    '主界面背景',
+  );
+  requireAssetType(
+    assets,
+    project.startScreen.musicAssetId,
+    'audio',
+    '主界面音乐',
+  );
+
   for (const scene of project.scenes) {
     requireAssetType(
       assets,
@@ -462,16 +591,17 @@ export function parseRuntimeBundleDocuments(
   manifestContents: string,
 ): ParsedRuntimeBundle {
   const ids = new Set<string>();
-  const project = parseRuntimeGame(parseJson(gameContents, 'game.json'), ids);
+  const parsedGame = parseRuntimeGame(parseJson(gameContents, 'game.json'), ids);
   const files = parseManifest(
     parseJson(manifestContents, 'manifest.json'),
-    project.id,
+    parsedGame.project.id,
     ids,
+    parsedGame.runtimeVersion,
   );
-  validateProjectReferences(project, files);
+  validateProjectReferences(parsedGame.project, files);
   return {
     game: {
-      project,
+      project: parsedGame.project,
       assets: files.map(({ id, type, displayName }) => ({
         id,
         type,

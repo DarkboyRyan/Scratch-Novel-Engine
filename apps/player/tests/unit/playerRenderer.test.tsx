@@ -19,6 +19,11 @@ const project: ProjectDocument = {
   id: 'player-project',
   name: '星光测试',
   entrySceneId: 'entry',
+  startScreen: {
+    title: '自定义星光标题',
+    backgroundAssetId: null,
+    musicAssetId: null,
+  },
   scenes: [
     {
       schemaVersion: 1,
@@ -33,6 +38,7 @@ const project: ProjectDocument = {
           assetId: 'character-1',
           slot: 'center',
           layer: 2,
+          position: { x: 37, y: 89 },
         },
         { id: 'bgm', type: 'bgm', assetId: 'bgm-1' },
         {
@@ -115,7 +121,7 @@ describe('Player Renderer', () => {
   let root: Root;
   let gateway: PlayerGateway;
   let resolveMediaUrl: ReturnType<typeof vi.fn>;
-  let close: ReturnType<typeof vi.fn>;
+  let quit: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     (
@@ -129,7 +135,7 @@ describe('Player Renderer', () => {
     resolveMediaUrl = vi.fn(async (assetId: string) =>
       `vn-game-asset://session/${assetId}`,
     );
-    close = vi.fn();
+    quit = vi.fn().mockResolvedValue(undefined);
     gateway = {
       loadGame: vi.fn().mockResolvedValue({
         status: 'loaded',
@@ -138,7 +144,7 @@ describe('Player Renderer', () => {
       }),
       openGame: vi.fn().mockResolvedValue({ status: 'canceled' }),
       resolveMediaUrl,
-      close,
+      quit,
     };
     vi.spyOn(HTMLMediaElement.prototype, 'play')
       .mockResolvedValue(undefined);
@@ -157,13 +163,19 @@ describe('Player Renderer', () => {
   it('waits for a real start click, then executes all seven node types', async () => {
     await act(async () => root.render(<App gateway={gateway} />));
 
-    expect(container.querySelector('h1')?.textContent).toBe('星光测试');
+    expect(container.querySelector('h1')?.textContent).toBe('自定义星光标题');
     expect(container.textContent).not.toContain('欢迎来到故事。');
     expect(resolveMediaUrl).not.toHaveBeenCalled();
 
     await act(async () => button(container, '开始游戏').click());
     expect(container.textContent).toContain('欢迎来到故事。');
-    expect(container.querySelector('.preview-character-center')).not.toBeNull();
+    const portrait = container.querySelector<HTMLImageElement>(
+      '.preview-character-center',
+    );
+    expect(portrait).not.toBeNull();
+    expect(portrait?.style.left).toBe('37%');
+    expect(portrait?.style.top).toBe('89%');
+    expect(portrait?.style.transform).toBe('translate(-50%, -100%)');
     expect(resolveMediaUrl).toHaveBeenCalledWith('background-1');
     expect(resolveMediaUrl).toHaveBeenCalledWith('character-1');
 
@@ -195,6 +207,131 @@ describe('Player Renderer', () => {
 
     await act(async () => window.dispatchEvent(keyboard(' ')));
     expect(container.querySelector('[aria-label="游戏结束"]')).not.toBeNull();
+  });
+
+  it('renders title media, keeps fixed main actions and stops music on start', async () => {
+    const titleGame = {
+      ...game,
+      project: {
+        ...project,
+        startScreen: {
+          title: '媒体标题页',
+          backgroundAssetId: 'title-background',
+          musicAssetId: 'title-music',
+        },
+      },
+      assets: [
+        ...game.assets,
+        { id: 'title-background', type: 'image' as const, displayName: '封面' },
+        { id: 'title-music', type: 'audio' as const, displayName: '标题曲' },
+      ],
+    };
+    gateway.loadGame = vi.fn().mockResolvedValue({
+      status: 'loaded',
+      mode: 'generic',
+      game: titleGame,
+    });
+
+    await act(async () => root.render(<App gateway={gateway} />));
+    await act(async () => undefined);
+
+    expect(resolveMediaUrl).toHaveBeenCalledWith('title-background');
+    expect(resolveMediaUrl).toHaveBeenCalledWith('title-music');
+    expect(container.querySelector<HTMLImageElement>('.player-title-background')?.src)
+      .toContain('title-background');
+    expect(container.querySelector<HTMLAudioElement>('.player-title-music')?.loop)
+      .toBe(true);
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalled();
+    expect(button(container, '开始游戏')).toBeTruthy();
+    expect(button(container, '选项')).toBeTruthy();
+    expect(button(container, '退出游戏')).toBeTruthy();
+    expect(
+      container.querySelector('.player-title-actions-vertical')?.children,
+    ).toHaveLength(3);
+    expect(container.textContent).not.toContain('打开其他游戏');
+
+    await act(async () => button(container, '选项').click());
+    expect(container.querySelector('[aria-label="选项"]')).not.toBeNull();
+    expect(container.textContent).toContain('打开其他游戏');
+    await act(async () => button(container, '返回').click());
+    await act(async () => button(container, '开始游戏').click());
+
+    expect(container.querySelector('.player-title-music')).toBeNull();
+    expect(HTMLMediaElement.prototype.pause).toHaveBeenCalled();
+  });
+
+  it('does not block start when title-music autoplay is rejected', async () => {
+    vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValueOnce(
+      new Error('autoplay denied'),
+    );
+    gateway.loadGame = vi.fn().mockResolvedValue({
+      status: 'loaded',
+      mode: 'generic',
+      game: {
+        ...game,
+        project: {
+          ...project,
+          startScreen: {
+            title: project.startScreen.title,
+            backgroundAssetId: null,
+            musicAssetId: 'title-music',
+          },
+        },
+      },
+    });
+
+    await act(async () => root.render(<App gateway={gateway} />));
+    await act(async () => undefined);
+    await act(async () => button(container, '开始游戏').click());
+    expect(container.textContent).toContain('欢迎来到故事。');
+  });
+
+  it('maps the title exit action to the Player quit gateway', async () => {
+    await act(async () => root.render(<App gateway={gateway} />));
+
+    await act(async () => button(container, '退出游戏').click());
+
+    expect(quit).toHaveBeenCalledOnce();
+    expect(gateway.openGame).not.toHaveBeenCalled();
+  });
+
+  it('re-resolves same-ID title assets after replacing the bundle', async () => {
+    const titledGame = {
+      ...game,
+      project: {
+        ...project,
+        startScreen: {
+          title: project.startScreen.title,
+          backgroundAssetId: 'same-title',
+          musicAssetId: null,
+        },
+      },
+    };
+    resolveMediaUrl.mockResolvedValueOnce('vn-game-asset://first/same-title')
+      .mockResolvedValueOnce('vn-game-asset://second/same-title');
+    gateway.loadGame = vi.fn().mockResolvedValue({
+      status: 'loaded',
+      mode: 'generic',
+      game: titledGame,
+    });
+    gateway.openGame = vi.fn().mockResolvedValue({
+      status: 'opened',
+      game: { ...titledGame, project: { ...titledGame.project } },
+    });
+
+    await act(async () => root.render(<App gateway={gateway} />));
+    await act(async () => undefined);
+    expect(container.querySelector<HTMLImageElement>('.player-title-background')?.src)
+      .toContain('first/same-title');
+
+    await act(async () => button(container, '选项').click());
+    await act(async () => button(container, '打开其他游戏').click());
+    await act(async () => undefined);
+
+    expect(resolveMediaUrl).toHaveBeenCalledTimes(2);
+    expect(container.querySelector<HTMLImageElement>('.player-title-background')?.src)
+      .toContain('second/same-title');
+    expect(container.querySelector('[aria-label="选项"]')).toBeNull();
   });
 
   it('pauses and resumes with Escape without advancing the dialogue', async () => {
@@ -250,7 +387,7 @@ describe('Player Renderer', () => {
 
     await act(async () => window.dispatchEvent(keyboard('Enter')));
     await act(async () => button(container, '退出游戏').click());
-    expect(close).toHaveBeenCalledOnce();
+    expect(quit).toHaveBeenCalledOnce();
   });
 
   it('opens a .vngame from the empty shell and switches to its title page', async () => {
@@ -267,7 +404,7 @@ describe('Player Renderer', () => {
     expect(container.textContent).toContain('.vngame');
     await act(async () => button(container, '选择游戏包').click());
     expect(gateway.openGame).toHaveBeenCalledOnce();
-    expect(container.querySelector('h1')?.textContent).toBe('星光测试');
+    expect(container.querySelector('h1')?.textContent).toBe('自定义星光标题');
     expect(container.textContent).toContain('开始游戏');
   });
 
@@ -278,14 +415,15 @@ describe('Player Renderer', () => {
     });
     await act(async () => root.render(<App gateway={gateway} />));
 
+    await act(async () => button(container, '选项').click());
     await act(async () => button(container, '打开其他游戏').click());
-    expect(container.querySelector('h1')?.textContent).toBe('星光测试');
+    expect(container.querySelector('h1')?.textContent).toBe('自定义星光标题');
     expect(container.querySelector('[role="alertdialog"]')?.textContent)
       .toContain('版本不受支持');
 
     await act(async () => button(container, '返回').click());
     expect(container.querySelector('[role="alertdialog"]')).toBeNull();
-    expect(container.querySelector('h1')?.textContent).toBe('星光测试');
+    expect(container.querySelector('h1')?.textContent).toBe('自定义星光标题');
   });
 
   it('shows a recoverable error page for a rejected or malformed bundle', async () => {
@@ -334,7 +472,7 @@ describe('Player Renderer', () => {
     });
     await act(async () => root.render(<App gateway={gateway} />));
 
-    expect(container.querySelector('h1')?.textContent).toBe('星光测试');
+    expect(container.querySelector('h1')?.textContent).toBe('自定义星光标题');
     expect(container.textContent).not.toContain('打开其他游戏');
     expect(container.textContent).not.toContain('选择游戏包');
 

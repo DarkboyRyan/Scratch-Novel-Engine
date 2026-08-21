@@ -81,6 +81,11 @@ const project = {
   id: 'project-1',
   name: 'Story',
   entrySceneId: 'scene-1',
+  startScreen: {
+    title: 'Standalone Story',
+    backgroundAssetId: null,
+    musicAssetId: null,
+  },
   scenes: [
     {
       schemaVersion: 1 as const,
@@ -94,7 +99,7 @@ const project = {
 
 const sourceManifestContents = JSON.stringify({
   format: 'vn-engine-project',
-  fileVersion: 9,
+  fileVersion: 13,
   project,
   assets: [],
 });
@@ -131,7 +136,7 @@ describe.runIf(process.platform === 'darwin')(
           platform: process.platform,
           arch: process.arch,
           playerVersion: '0.1.0',
-          runtimeCompatibility: '>=1 <2',
+          runtimeCompatibility: '>=1 <5',
           payloadRoot: 'payload',
           artifactEntry: 'VN Engine Player.app',
           gameResourceDirectory: 'Contents/Resources/game',

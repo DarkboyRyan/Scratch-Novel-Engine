@@ -1,8 +1,10 @@
 #include "backend.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <initializer_list>
 #include <iostream>
 #include <optional>
 #include <stdexcept>
@@ -45,6 +47,42 @@ std::string required_string(
     throw ProtocolError(
         "invalid_params",
         "params." + key + " must be a string");
+  }
+  return object.at(key).get<std::string>();
+}
+
+void require_exact_params(
+    const Json& params,
+    const std::initializer_list<std::string_view> expected_fields) {
+  std::unordered_set<std::string> expected;
+  for (const std::string_view field : expected_fields) {
+    expected.emplace(field);
+    if (!params.contains(std::string(field))) {
+      throw ProtocolError(
+          "invalid_params",
+          "params." + std::string(field) + " is required");
+    }
+  }
+  for (const auto& [field, unused] : params.items()) {
+    static_cast<void>(unused);
+    if (!expected.contains(field)) {
+      throw ProtocolError(
+          "invalid_params", "params contains unknown field: " + field);
+    }
+  }
+}
+
+std::optional<std::string> required_nullable_string(
+    const Json& object,
+    const std::string_view field_name) {
+  const std::string key(field_name);
+  if (!object.contains(key) ||
+      (!object.at(key).is_null() && !object.at(key).is_string())) {
+    throw ProtocolError(
+        "invalid_params", "params." + key + " must be a string or null");
+  }
+  if (object.at(key).is_null()) {
+    return std::nullopt;
   }
   return object.at(key).get<std::string>();
 }
@@ -110,6 +148,31 @@ int required_character_layer(const Json& object) {
   }
   throw ProtocolError(
       "invalid_params", "params.layer must be an integer between 1 and 10");
+}
+
+std::optional<CharacterPosition> required_character_position(
+    const Json& object) {
+  if (!object.contains("position")) {
+    throw ProtocolError("invalid_params", "params.position is required");
+  }
+  const Json& position = object.at("position");
+  if (position.is_null()) {
+    return std::nullopt;
+  }
+  if (!position.is_object() || position.size() != 2 ||
+      !position.contains("x") || !position.contains("y") ||
+      !position.at("x").is_number() || !position.at("y").is_number()) {
+    throw ProtocolError(
+        "invalid_params", "params.position must contain numeric x and y");
+  }
+  const double x = position.at("x").get<double>();
+  const double y = position.at("y").get<double>();
+  if (!std::isfinite(x) || !std::isfinite(y) || x < 0.0 || x > 100.0 ||
+      y < 0.0 || y > 100.0) {
+    throw ProtocolError(
+        "invalid_params", "params.position coordinates must be between 0 and 100");
+  }
+  return CharacterPosition{.x = x, .y = y};
 }
 
 std::filesystem::path project_file_path(const std::string& file_path) {
@@ -410,6 +473,35 @@ Json Backend::handle(const Json& request) {
           "project_name_required", "project name must not be empty");
     }
     changed = vnengine::rename_project(project, *name);
+  } else if (method == "startScreen.update") {
+    require_exact_params(
+        params, {"title", "backgroundAssetId", "musicAssetId"});
+    switch (vnengine::update_start_screen(
+        require_aggregate(),
+        required_string(params, "title"),
+        required_nullable_string(params, "backgroundAssetId"),
+        required_nullable_string(params, "musicAssetId"))) {
+      case vnengine::UpdateStartScreenResult::changed:
+        changed = true;
+        break;
+      case vnengine::UpdateStartScreenResult::unchanged:
+        changed = false;
+        break;
+      case vnengine::UpdateStartScreenResult::title_required:
+        throw ProtocolError(
+            "start_screen_title_required",
+            "start screen title must not be empty");
+      case vnengine::UpdateStartScreenResult::background_asset_not_found:
+      case vnengine::UpdateStartScreenResult::music_asset_not_found:
+        throw ProtocolError("asset_not_found", "asset does not exist");
+      case vnengine::UpdateStartScreenResult::background_asset_not_image:
+        throw ProtocolError(
+            "asset_not_image",
+            "start screen background asset must be an image");
+      case vnengine::UpdateStartScreenResult::music_asset_not_audio:
+        throw ProtocolError(
+            "asset_not_audio", "start screen music asset must be audio");
+    }
   } else if (method == "scene.add") {
     std::optional<std::string> name;
     if (params.contains("name")) {
@@ -628,7 +720,7 @@ Json Backend::handle(const Json& request) {
   } else if (method == "character.add") {
     const std::string scene_id = required_string(params, "sceneId");
     if (params.contains("assetId") || params.contains("slot") ||
-        params.contains("layer")) {
+        params.contains("layer") || params.contains("position")) {
       throw ProtocolError(
           "invalid_params",
           "character.add always creates an empty centered layer-1 node");
@@ -696,7 +788,8 @@ Json Backend::handle(const Json& request) {
         node_id,
         std::move(asset_id),
         required_character_slot(params),
-        required_character_layer(params))) {
+        required_character_layer(params),
+        required_character_position(params))) {
       case vnengine::UpdateCharacterNodeResult::changed:
         changed = true;
         break;
@@ -715,6 +808,7 @@ Json Backend::handle(const Json& request) {
             "asset_not_image", "character node asset must be an image");
       case vnengine::UpdateCharacterNodeResult::invalid_slot:
       case vnengine::UpdateCharacterNodeResult::invalid_layer:
+      case vnengine::UpdateCharacterNodeResult::invalid_position:
         throw ProtocolError("invalid_params", "character node fields are invalid");
     }
   } else if (method == "bgm.add") {
@@ -1119,6 +1213,52 @@ Json Backend::handle(const Json& request) {
     record_mutation(changed);
     return success_response(
         request_id(request), aggregate_, revision_, saved_revision_);
+  } else if (method == "storyExtension.add") {
+    const std::string scene_id = required_string(params, "sceneId");
+    std::optional<std::string> after_node_id;
+    if (params.contains("afterNodeId") &&
+        !params.at("afterNodeId").is_null()) {
+      after_node_id = required_string(params, "afterNodeId");
+    }
+    std::optional<std::string> before_node_id;
+    if (params.contains("beforeNodeId") &&
+        !params.at("beforeNodeId").is_null()) {
+      before_node_id = required_string(params, "beforeNodeId");
+    }
+
+    ProjectAggregate candidate = require_aggregate();
+    const vnengine::AddStoryExtensionNodeResult result =
+        vnengine::add_story_extension_node(
+            candidate.project,
+            ids_,
+            scene_id,
+            std::move(after_node_id),
+            std::move(before_node_id));
+    switch (result.status) {
+      case vnengine::AddStoryExtensionNodeStatus::added:
+        break;
+      case vnengine::AddStoryExtensionNodeStatus::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case vnengine::AddStoryExtensionNodeStatus::placement_conflict:
+        throw ProtocolError(
+            "story_extension_placement_conflict",
+            "afterNodeId and beforeNodeId cannot both be provided");
+      case vnengine::AddStoryExtensionNodeStatus::anchor_not_found:
+        throw ProtocolError("node_not_found", "timeline anchor does not exist");
+    }
+    if (const auto violation = vnengine::validate_project_aggregate(candidate);
+        violation.has_value()) {
+      throw ProtocolError("internal_error", *violation);
+    }
+    require_aggregate() = std::move(candidate);
+    record_mutation(true);
+    return success_response(
+        request_id(request),
+        aggregate_,
+        revision_,
+        saved_revision_,
+        scene_id,
+        result.node_id);
   } else if (method == "sceneJump.add") {
     const std::string scene_id = required_string(params, "sceneId");
     const std::string target_scene_id =

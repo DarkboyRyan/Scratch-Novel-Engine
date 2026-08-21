@@ -71,6 +71,11 @@ function resultFor(assetId = 'asset-1'): EngineMutationResult {
       id: 'project-1',
       name: 'Story',
       entrySceneId: 'scene-1',
+      startScreen: {
+        title: 'Story',
+        backgroundAssetId: null,
+        musicAssetId: null,
+      },
       scenes: [
         {
           schemaVersion: 1,

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { TitleScreen } from '@vnengine/player-ui';
 
 import type { AssetDocument } from '../../../shared/projectTypes';
 import type { MediaUrlResolver } from '../../application/mediaPort';
@@ -16,10 +17,13 @@ type GamePreviewProps = {
   onAdvance: () => void;
   onVideoComplete: () => void;
   onChoiceSelect: (optionId: string) => void;
+  onEnterStory: () => void;
   onExit: () => void;
 };
 
-export function GamePreview({
+type StoryGamePreviewProps = Omit<GamePreviewProps, 'onEnterStory'>;
+
+function StoryGamePreview({
   session,
   assets,
   previewUrls,
@@ -28,7 +32,7 @@ export function GamePreview({
   onVideoComplete,
   onChoiceSelect,
   onExit,
-}: GamePreviewProps) {
+}: StoryGamePreviewProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const { runtime } = session;
   const choices = getGamePreviewChoices(session.project, runtime);
@@ -45,6 +49,7 @@ export function GamePreview({
         name: asset?.displayName ?? '缺失立绘',
         slot: character.slot,
         layer: character.layer,
+        position: character.position,
       };
     },
   );
@@ -157,5 +162,78 @@ export function GamePreview({
         ×
       </button>
     </div>
+  );
+}
+
+type TitleGamePreviewProps = Pick<
+  GamePreviewProps,
+  'session' | 'resolveMediaUrl' | 'onEnterStory' | 'onExit'
+>;
+
+function TitleGamePreview({
+  session,
+  resolveMediaUrl,
+  onEnterStory,
+  onExit,
+}: TitleGamePreviewProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    rootRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onExit();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onExit]);
+
+  return (
+    <div
+      ref={rootRef}
+      className="game-preview-overlay game-preview-title-overlay"
+      tabIndex={-1}
+      aria-label="完整主界面预览"
+    >
+      <TitleScreen
+        startScreen={session.project.startScreen}
+        resolveMediaUrl={resolveMediaUrl}
+        onStart={onEnterStory}
+        onExit={onExit}
+      />
+      <button
+        type="button"
+        className="game-preview-exit"
+        aria-label="退出游戏预览"
+        title="退出游戏预览（Esc）"
+        onClick={onExit}
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
+export function GamePreview(props: GamePreviewProps) {
+  return props.session.phase === 'title' ? (
+    <TitleGamePreview
+      session={props.session}
+      resolveMediaUrl={props.resolveMediaUrl}
+      onEnterStory={props.onEnterStory}
+      onExit={props.onExit}
+    />
+  ) : (
+    <StoryGamePreview
+      session={props.session}
+      assets={props.assets}
+      previewUrls={props.previewUrls}
+      resolveMediaUrl={props.resolveMediaUrl}
+      onAdvance={props.onAdvance}
+      onVideoComplete={props.onVideoComplete}
+      onChoiceSelect={props.onChoiceSelect}
+      onExit={props.onExit}
+    />
   );
 }

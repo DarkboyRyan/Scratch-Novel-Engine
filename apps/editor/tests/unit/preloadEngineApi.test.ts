@@ -52,6 +52,15 @@ describe('preload background and timeline engine API', () => {
 
   it.each([
     [
+      'updateStartScreen',
+      {
+        title: 'Custom title',
+        backgroundAssetId: 'background-1',
+        musicAssetId: 'music-1',
+      },
+      'startScreen.update',
+    ],
+    [
       'addBackground',
       {
         sceneId: 'scene-1',
@@ -210,6 +219,14 @@ describe('preload background and timeline engine API', () => {
         beforeOptionId: 'option-1',
       },
       'choice.option.reorder',
+    ],
+    [
+      'addStoryExtension',
+      {
+        sceneId: 'scene-1',
+        beforeNodeId: 'dialogue-2',
+      },
+      'storyExtension.add',
     ],
     [
       'deleteTimelineNodes',

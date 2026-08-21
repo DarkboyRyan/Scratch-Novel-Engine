@@ -7,10 +7,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import type { ProjectDocument } from "@vnengine/runtime";
-
 import type { StandaloneApplicationMetadata } from "../../shared/exportProtocol";
-import type { AssetDocument } from "../../shared/projectTypes";
+import type {
+  AssetDocument,
+  ProjectDocument,
+} from "../../shared/projectTypes";
 import {
   exportRuntimeBundle,
   type RuntimeBundleExportFaultPoint,

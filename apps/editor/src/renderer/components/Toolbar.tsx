@@ -323,7 +323,9 @@ export function Toolbar({
       </div>
 
       <div className="toolbar-mode-row">
-        <span className="toolbar-mode-label">编辑方式</span>
+        <span className="toolbar-mode-label">
+          编辑方式
+        </span>
         <div
           className="editor-mode-switch"
           role="group"

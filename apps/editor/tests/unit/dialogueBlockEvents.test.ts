@@ -8,11 +8,15 @@ import { CHARACTER_BLOCK_TYPE } from '../../src/renderer/features/block-editor/b
 import { SCENE_JUMP_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/sceneJumpBlock';
 import { BGM_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/bgmBlock';
 import { CHOICE_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/choiceBlock';
+import { STORY_CONTINUATION_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/storyContinuationBlock';
 import {
   collectDialogueFieldDrafts,
   getDialogueFieldUpdate,
   getDroppedNewDialogueBlock,
+  getNewStoryExtensionDropResolution,
   getReorderedDialogueBlock,
+  getTimelineBeforeNodeIdForBlock,
+  getTimelineReorderDropResolution,
 } from '../../src/renderer/features/block-editor/dialogueBlockEvents';
 
 const scene: SceneDocument = {
@@ -64,6 +68,10 @@ function createDialogueBlock(
       previousBlockId === null
         ? null
         : ({ id: previousBlockId } as Blockly.Block),
+    getParent: () =>
+      previousBlockId === null
+        ? null
+        : ({ id: previousBlockId } as Blockly.Block),
   } as Blockly.BlockSvg;
 }
 
@@ -73,6 +81,39 @@ function createWorkspace(
   return {
     getBlockById: (blockId: string) =>
       blockId === block.id ? block : null,
+  } as Blockly.WorkspaceSvg;
+}
+
+type TopologyBlockDefinition = {
+  id: string;
+  type?: string;
+  previousId?: string | null;
+  nextId?: string | null;
+};
+
+function createTopologyWorkspace(
+  definitions: TopologyBlockDefinition[],
+): Blockly.WorkspaceSvg {
+  const blocks = new Map<string, Blockly.BlockSvg>();
+
+  for (const definition of definitions) {
+    const block = {
+      id: definition.id,
+      type: definition.type ?? DIALOGUE_BLOCK_TYPE,
+      getPreviousBlock: () =>
+        definition.previousId
+          ? blocks.get(definition.previousId) ?? null
+          : null,
+      getNextBlock: () =>
+        definition.nextId
+          ? blocks.get(definition.nextId) ?? null
+          : null,
+    } as unknown as Blockly.BlockSvg;
+    blocks.set(definition.id, block);
+  }
+
+  return {
+    getBlockById: (blockId: string) => blocks.get(blockId) ?? null,
   } as Blockly.WorkspaceSvg;
 }
 
@@ -109,6 +150,53 @@ describe('getDroppedNewDialogueBlock', () => {
       block,
       beforeNodeId: null,
     });
+  });
+
+  it('appends a dialogue connected below a terminal extension', () => {
+    const terminalExtensionScene: SceneDocument = {
+      ...scene,
+      nodes: [
+        ...scene.nodes,
+        { id: 'extension-last', type: 'storyExtension' },
+      ],
+    };
+    const block = createDialogueBlock(
+      'temporary-block',
+      null,
+      'extension-last',
+    );
+
+    expect(
+      getDroppedNewDialogueBlock(
+        createMoveEvent(block.id),
+        createWorkspace(block),
+        terminalExtensionScene,
+      ),
+    ).toEqual({ block, beforeNodeId: null });
+  });
+
+  it('uses the authoritative successor after an explicit jump page', () => {
+    const jumpingScene: SceneDocument = {
+      ...scene,
+      nodes: [
+        scene.nodes[0],
+        {
+          id: 'jump-1',
+          type: 'sceneJump',
+          targetSceneId: 'scene-2',
+        },
+        scene.nodes[1],
+      ],
+    };
+    const block = createDialogueBlock(
+      'temporary-block',
+      null,
+      'jump-1',
+    );
+
+    expect(
+      getTimelineBeforeNodeIdForBlock(block, jumpingScene),
+    ).toBe('node-2');
   });
 
   it('does not commit a new block that is not touching the scene chain', () => {
@@ -190,6 +278,97 @@ describe('getDroppedNewDialogueBlock', () => {
       createWorkspace(block),
       scene,
     )).toBeNull();
+  });
+});
+
+describe('getNewStoryExtensionDropResolution', () => {
+  function extensionBlock(
+    id: string,
+    nextBlockId: string | null,
+    previousBlockId: string | null = null,
+  ): Blockly.BlockSvg {
+    return {
+      ...createDialogueBlock(id, nextBlockId, previousBlockId),
+      type: STORY_CONTINUATION_BLOCK_TYPE,
+    } as Blockly.BlockSvg;
+  }
+
+  it('adds a toolbox extension immediately above a persisted node', () => {
+    const block = extensionBlock('temporary-extension', 'node-2');
+
+    expect(
+      getNewStoryExtensionDropResolution(
+        createMoveEvent(block.id),
+        createWorkspace(block),
+        scene,
+      ),
+    ).toEqual({
+      kind: 'add',
+      drop: { block, beforeNodeId: 'node-2' },
+    });
+  });
+
+  it('allows an isolated top-level extension to append an empty page', () => {
+    const block = extensionBlock('temporary-extension', null);
+
+    expect(
+      getNewStoryExtensionDropResolution(
+        createMoveEvent(block.id),
+        createWorkspace(block),
+        scene,
+      ),
+    ).toEqual({
+      kind: 'add',
+      drop: { block, beforeNodeId: null },
+    });
+  });
+
+  it('rolls back an extension whose next child is still temporary', () => {
+    const block = extensionBlock('temporary-extension', 'temporary-child');
+
+    expect(
+      getNewStoryExtensionDropResolution(
+        createMoveEvent(block.id),
+        createWorkspace(block),
+        scene,
+      ),
+    ).toEqual({ kind: 'rollback' });
+  });
+
+  it('rolls back an extension that acquired an invalid previous connection', () => {
+    const block = extensionBlock(
+      'temporary-extension',
+      null,
+      'node-2',
+    );
+
+    expect(
+      getNewStoryExtensionDropResolution(
+        createMoveEvent(block.id),
+        createWorkspace(block),
+        scene,
+      ),
+    ).toEqual({ kind: 'rollback' });
+  });
+
+  it('ignores an extension that already belongs to the scene', () => {
+    const sceneWithExtension: SceneDocument = {
+      ...scene,
+      nodes: [
+        scene.nodes[0],
+        { id: 'extension-1', type: 'storyExtension' },
+        scene.nodes[1],
+      ],
+    };
+    const block = extensionBlock('extension-1', 'node-2');
+
+    expect(
+      getNewStoryExtensionDropResolution(
+        createMoveEvent(block.id),
+        createWorkspace(block),
+        sceneWithExtension,
+      ),
+    ).toBeNull();
   });
 });
 
@@ -308,6 +487,39 @@ describe('getReorderedDialogueBlock', () => {
     ).toBeNull();
   });
 
+  it('ignores a page-body block returned to its original header chain', () => {
+    const sceneWithExtension: SceneDocument = {
+      ...scene,
+      nodes: [
+        scene.nodes[0],
+        { id: 'extension-1', type: 'storyExtension' },
+        scene.nodes[1],
+      ],
+    };
+    const workspace = createTopologyWorkspace([
+      { id: 'node-1', previousId: null, nextId: null },
+      {
+        id: 'extension-1',
+        type: STORY_CONTINUATION_BLOCK_TYPE,
+        previousId: null,
+        nextId: 'node-2',
+      },
+      {
+        id: 'node-2',
+        previousId: 'extension-1',
+        nextId: null,
+      },
+    ]);
+
+    expect(
+      getReorderedDialogueBlock(
+        createMoveEvent('node-2'),
+        workspace,
+        sceneWithExtension,
+      ),
+    ).toBeNull();
+  });
+
   it('reorders a persisted background node in the same timeline', () => {
     const mixedScene: SceneDocument = {
       ...scene,
@@ -345,6 +557,7 @@ describe('getReorderedDialogueBlock', () => {
           assetId: 'image-1',
           slot: 'left',
           layer: 2,
+          position: null,
         },
         scene.nodes[1],
       ],
@@ -426,5 +639,126 @@ describe('getReorderedDialogueBlock', () => {
       nodeId: 'choice-1',
       beforeNodeId: 'node-1',
     });
+  });
+});
+
+describe('timeline reorder manual-extension restoration', () => {
+  const extensionScene: SceneDocument = {
+    ...scene,
+    id: 'scene-with-extension',
+    nodes: [
+      scene.nodes[0],
+      { id: 'extension-1', type: 'storyExtension' },
+      scene.nodes[1],
+    ],
+  };
+
+  it('keeps a canonical page-header no-op without an unnecessary restore', () => {
+    const workspace = createTopologyWorkspace([
+      { id: 'node-1', previousId: null, nextId: null },
+      {
+        id: 'extension-1',
+        type: STORY_CONTINUATION_BLOCK_TYPE,
+        previousId: null,
+        nextId: 'node-2',
+      },
+      {
+        id: 'node-2',
+        previousId: 'extension-1',
+        nextId: null,
+      },
+    ]);
+
+    expect(
+      getTimelineReorderDropResolution(
+        createMoveEvent('node-2'),
+        workspace,
+        extensionScene,
+      ),
+    ).toBeNull();
+  });
+
+  it('restores a semantic no-op whose other page topology was damaged', () => {
+    const workspace = createTopologyWorkspace([
+      { id: 'node-1', previousId: null, nextId: 'extension-1' },
+      {
+        id: 'extension-1',
+        type: STORY_CONTINUATION_BLOCK_TYPE,
+        previousId: 'node-1',
+        nextId: 'node-2',
+      },
+      { id: 'node-2', previousId: 'extension-1', nextId: null },
+    ]);
+
+    expect(
+      getTimelineReorderDropResolution(
+        createMoveEvent('node-2'),
+        workspace,
+        extensionScene,
+      ),
+    ).toEqual({ kind: 'restore-projection' });
+  });
+
+  it('restores a persistent extension dragged outside its page', () => {
+    const workspace = createTopologyWorkspace([
+      { id: 'node-1', previousId: null, nextId: null },
+      {
+        id: 'extension-1',
+        type: STORY_CONTINUATION_BLOCK_TYPE,
+        previousId: null,
+        nextId: 'node-2',
+      },
+      { id: 'node-2', previousId: 'extension-1', nextId: null },
+    ]);
+
+    expect(
+      getTimelineReorderDropResolution(
+        createMoveEvent('extension-1'),
+        workspace,
+        extensionScene,
+      ),
+    ).toEqual({ kind: 'restore-projection' });
+  });
+
+  it('restores when a post-jump page root is reconnected below the jump', () => {
+    const jumpingScene: SceneDocument = {
+      ...scene,
+      id: 'scene-jump-pagination',
+      nodes: [
+        scene.nodes[0],
+        {
+          id: 'jump-1',
+          type: 'sceneJump',
+          targetSceneId: 'scene-2',
+        },
+        scene.nodes[1],
+      ],
+    };
+    const workspace = createTopologyWorkspace([
+      {
+        id: 'node-1',
+        previousId: null,
+        nextId: 'jump-1',
+      },
+      {
+        id: 'jump-1',
+        type: SCENE_JUMP_BLOCK_TYPE,
+        previousId: 'node-1',
+        nextId: 'node-2',
+      },
+      {
+        id: 'node-2',
+        previousId: 'jump-1',
+        nextId: null,
+      },
+    ]);
+
+    expect(
+      getTimelineReorderDropResolution(
+        createMoveEvent('node-2'),
+        workspace,
+        jumpingScene,
+      ),
+    ).toEqual({ kind: 'restore-projection' });
   });
 });

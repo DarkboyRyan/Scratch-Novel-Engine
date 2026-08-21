@@ -1,6 +1,9 @@
 import type { RuntimeCharacterState } from '@vnengine/runtime';
 
-import type { SceneDocument } from '../../../shared/projectTypes';
+import {
+  semanticSceneNodes,
+  type SceneDocument,
+} from '../../../shared/projectTypes';
 
 // Kept as an Editor-facing alias while both timeline preview and game runtime
 // share the platform-independent character state definition.
@@ -18,16 +21,17 @@ export function deriveTimelinePreview(
   scene: SceneDocument,
   selectedNodeId: string | null,
 ): TimelinePreviewState {
+  const nodes = semanticSceneNodes(scene);
   const selectedIndex = selectedNodeId
-    ? scene.nodes.findIndex((node) => node.id === selectedNodeId)
+    ? nodes.findIndex((node) => node.id === selectedNodeId)
     : -1;
   const playheadIndex =
-    selectedIndex >= 0 ? selectedIndex : scene.nodes.length - 1;
+    selectedIndex >= 0 ? selectedIndex : nodes.length - 1;
 
   let backgroundAssetId = scene.backgroundAssetId;
   const charactersByLayer = new Map<number, TimelineCharacterState>();
   for (let index = 0; index <= playheadIndex; index += 1) {
-    const node = scene.nodes[index];
+    const node = nodes[index];
     if (node?.type === 'background') {
       backgroundAssetId = node.assetId;
     } else if (node?.type === 'character') {
@@ -39,6 +43,7 @@ export function deriveTimelinePreview(
           assetId: node.assetId,
           slot: node.slot,
           layer: node.layer,
+          position: node.position,
         });
       }
     }
@@ -51,6 +56,6 @@ export function deriveTimelinePreview(
     ),
     showDialogue:
       selectedIndex < 0 ||
-      scene.nodes[selectedIndex]?.type === 'dialogue',
+      nodes[selectedIndex]?.type === 'dialogue',
   };
 }

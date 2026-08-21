@@ -13,6 +13,11 @@ const project: ProjectDocument = {
   id: 'choice-form-project',
   name: 'Choice form compatibility',
   entrySceneId: 'scene-entry',
+  startScreen: {
+    title: 'Story',
+    backgroundAssetId: null,
+    musicAssetId: null,
+  },
   scenes: [
     {
       schemaVersion: 1,
@@ -27,6 +32,14 @@ const project: ProjectDocument = {
             { id: 'option-a', text: '选择 A', targetSceneId: 'scene-a' },
             { id: 'option-b', text: '选择 B', targetSceneId: 'scene-b' },
           ],
+        },
+        { id: 'extension-1', type: 'storyExtension' },
+        {
+          id: 'dialogue-1',
+          type: 'dialogue',
+          speaker: '旁白',
+          text: '后续对白',
+          voiceAssetId: null,
         },
       ],
     },
@@ -72,6 +85,7 @@ describe('form editor choice compatibility', () => {
     const choice = project.scenes[0].nodes[0];
     if (choice.type !== 'choice') throw new Error('fixture is not a choice');
     const noop = async () => {};
+    const moveNode = vi.fn(async () => {});
 
     await act(async () => {
       root.render(
@@ -87,7 +101,7 @@ describe('form editor choice compatibility', () => {
             onSelectNode={noop}
             onInsertBackground={noop}
             onInsertSceneJump={noop}
-            onMoveNode={noop}
+            onMoveNode={moveNode}
             onDeleteNode={noop}
           />
           <InspectorPanel
@@ -116,6 +130,8 @@ describe('form editor choice compatibility', () => {
     });
 
     expect(container.textContent).toContain('2 个选项');
+    expect(container.textContent).toContain('2 个剧情节点');
+    expect(container.textContent).not.toContain('延伸');
     expect(container.textContent).toContain('选择 A');
     expect(container.textContent).toContain('跳转到场景 2');
     expect(container.textContent).toContain('选择 B');
@@ -123,5 +139,11 @@ describe('form editor choice compatibility', () => {
     expect(
       container.querySelector('[aria-label="在当前节点后插入场景选项"]'),
     ).toBeNull();
+
+    const moveDown = container.querySelector<HTMLButtonElement>(
+      '[aria-label="下移第 1 个剧情节点"]',
+    );
+    await act(async () => moveDown?.click());
+    expect(moveNode).toHaveBeenCalledWith('choice-1', 1);
   });
 });

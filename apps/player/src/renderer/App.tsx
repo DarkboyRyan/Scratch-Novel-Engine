@@ -1,10 +1,17 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import {
   advanceGame,
   selectChoice,
   startGame,
   type GameRuntime,
 } from '@vnengine/runtime';
+import { TitleScreen } from '@vnengine/player-ui';
 
 import { GameScreen } from './GameScreen';
 import {
@@ -18,7 +25,7 @@ type PlayerShellState =
   | { kind: 'loading' }
   | { kind: 'empty' }
   | { kind: 'error'; message: string }
-  | { kind: 'title'; game: PlayerGameView }
+  | { kind: 'title'; game: PlayerGameView; generation: number }
   | {
       kind: 'game';
       game: PlayerGameView;
@@ -38,6 +45,7 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
   const [openingGame, setOpeningGame] = useState(false);
   const [openError, setOpenError] = useState<string | null>(null);
   const openingRef = useRef(false);
+  const titleGenerationRef = useRef(0);
 
   const load = useCallback(async () => {
     setState({ kind: 'loading' });
@@ -45,7 +53,12 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
       const result = await gateway.loadGame();
       setMode(result.mode);
       if (result.status === 'loaded') {
-        setState({ kind: 'title', game: result.game });
+        titleGenerationRef.current += 1;
+        setState({
+          kind: 'title',
+          game: result.game,
+          generation: titleGenerationRef.current,
+        });
       } else if (result.status === 'empty') {
         setState(result.mode === 'generic'
           ? { kind: 'empty' }
@@ -78,7 +91,12 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
     try {
       const result = await gateway.openGame();
       if (result.status === 'opened') {
-        setState({ kind: 'title', game: result.game });
+        titleGenerationRef.current += 1;
+        setState({
+          kind: 'title',
+          game: result.game,
+          generation: titleGenerationRef.current,
+        });
       } else if (result.status === 'rejected') {
         setOpenError(result.error);
       }
@@ -151,7 +169,7 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
             <button
               type="button"
               className="secondary"
-              onClick={gateway.close}
+              onClick={() => void gateway.quit()}
             >
               退出游戏
             </button>
@@ -161,32 +179,15 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
     );
   } else if (state.kind === 'title') {
     content = (
-      <main className="player-shell player-title-page">
-        <section className="player-title-card">
-          <p className="player-eyebrow">A VN ENGINE STORY</p>
-          <h1>{state.game.project.name || '未命名游戏'}</h1>
-          <div className="player-title-actions">
-            <button
-              type="button"
-              className="player-start-button"
-              onClick={() => start(state.game)}
-            >
-              <span aria-hidden="true">▶</span>
-              开始游戏
-            </button>
-            {canOpenGame ? (
-              <button
-                type="button"
-                className="secondary"
-                disabled={openingGame}
-                onClick={() => void openGame()}
-              >
-                {openingGame ? '正在打开…' : '打开其他游戏'}
-              </button>
-            ) : null}
-          </div>
-        </section>
-      </main>
+      <TitleScreen
+        key={state.generation}
+        startScreen={state.game.project.startScreen}
+        openingGame={openingGame}
+        resolveMediaUrl={gateway.resolveMediaUrl}
+        onStart={() => start(state.game)}
+        onOpenGame={canOpenGame ? () => void openGame() : undefined}
+        onExit={() => void gateway.quit()}
+      />
     );
   } else {
     content = (
@@ -241,7 +242,7 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
         }}
         onRestart={() => start(state.game)}
         onOpenGame={() => void openGame()}
-        onExit={gateway.close}
+        onExit={() => void gateway.quit()}
       />
     );
   }

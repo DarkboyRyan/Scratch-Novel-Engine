@@ -14,6 +14,7 @@ import type {
   AddVideoAction,
   AddChoiceAction,
   AddChoiceOptionAction,
+  AddStoryExtensionAction,
   DeleteChoiceOptionAction,
   DeleteTimelineNodesAction,
   ReorderTimelineNodeAction,
@@ -40,6 +41,10 @@ import {
   type BlocklyWorkspaceHandle,
 } from './BlocklyWorkspace';
 import type { BlockEditorLayoutStore } from './blockEditorLayout';
+import {
+  createEditorSceneOptions,
+  START_SCREEN_SCENE_ID,
+} from '../start-screen/startScreenScene';
 
 type BlockEditorProps = {
   project: ProjectDocument;
@@ -48,6 +53,7 @@ type BlockEditorProps = {
   isBusy: boolean;
   assets: AssetDocument[];
   onSceneChange: (sceneId: string) => Promise<void>;
+  onSelectStartScreen: () => Promise<void>;
   onDialogueUpdate: UpdateDialogueAction;
   onDialogueAdd: AddDialogueAction;
   onBackgroundAdd: AddBackgroundAction;
@@ -62,6 +68,7 @@ type BlockEditorProps = {
   onVideoUpdate: UpdateVideoAction;
   onChoiceAdd: AddChoiceAction;
   onChoiceOptionAdd: AddChoiceOptionAction;
+  onStoryExtensionAdd: AddStoryExtensionAction;
   onChoiceOptionUpdate: UpdateChoiceOptionAction;
   onChoiceOptionDelete: DeleteChoiceOptionAction;
   onChoiceOptionReorder: ReorderChoiceOptionAction;
@@ -85,6 +92,7 @@ export const BlockEditor = forwardRef<
     isBusy,
     assets,
     onSceneChange,
+    onSelectStartScreen,
     onDialogueAdd,
     onBackgroundAdd,
     onBackgroundUpdate,
@@ -98,6 +106,7 @@ export const BlockEditor = forwardRef<
     onVideoUpdate,
     onChoiceAdd,
     onChoiceOptionAdd,
+    onStoryExtensionAdd,
     onChoiceOptionUpdate,
     onChoiceOptionDelete,
     onChoiceOptionReorder,
@@ -112,6 +121,7 @@ export const BlockEditor = forwardRef<
 ) {
   const workspaceRef = useRef<BlocklyWorkspaceHandle>(null);
   const [isChangingScene, setIsChangingScene] = useState(false);
+  const sceneOptions = createEditorSceneOptions(project);
   useImperativeHandle(ref, () => ({
     flushPendingDraft: () =>
       workspaceRef.current?.flushPendingDraft() ?? Promise.resolve(true),
@@ -126,7 +136,13 @@ export const BlockEditor = forwardRef<
         <div>
           <h1 id="block-editor-title">图形化编辑器</h1>
           <p>
-            当前项目：{project.name} · {scene.nodes.length} 个剧情节点
+            当前项目：{project.name} ·{' '}
+            {
+              scene.nodes.filter(
+                (node) => node.type !== 'storyExtension',
+              ).length
+            }{' '}
+            个剧情节点
           </p>
         </div>
 
@@ -147,7 +163,9 @@ export const BlockEditor = forwardRef<
                       await (workspaceRef.current?.flushPendingDraft() ??
                         true);
                     if (flushed) {
-                      await onSceneChange(nextSceneId);
+                      await (nextSceneId === START_SCREEN_SCENE_ID
+                        ? onSelectStartScreen()
+                        : onSceneChange(nextSceneId));
                     }
                   } finally {
                     setIsChangingScene(false);
@@ -155,12 +173,9 @@ export const BlockEditor = forwardRef<
                 })();
               }}
             >
-              {project.scenes.map((projectScene) => (
-                <option
-                  key={projectScene.id}
-                  value={projectScene.id}
-                >
-                  {projectScene.name}
+              {sceneOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
                 </option>
               ))}
             </select>
@@ -197,6 +212,7 @@ export const BlockEditor = forwardRef<
           onVideoUpdate={onVideoUpdate}
           onChoiceAdd={onChoiceAdd}
           onChoiceOptionAdd={onChoiceOptionAdd}
+          onStoryExtensionAdd={onStoryExtensionAdd}
           onChoiceOptionUpdate={onChoiceOptionUpdate}
           onChoiceOptionDelete={onChoiceOptionDelete}
           onChoiceOptionReorder={onChoiceOptionReorder}

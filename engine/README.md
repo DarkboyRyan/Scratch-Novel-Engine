@@ -72,6 +72,7 @@ Supported methods:
 - `ping`（仅用于直接诊断 C++ 进程，不经过 Renderer API）
 - `project.create`, `project.open`, `project.ensure`, `project.get`
 - `project.rename`, `project.save`（仅 Main 可以传入文件路径）
+- `startScreen.update`
 - `asset.import`（仅 Main 可以传入源媒体和项目文件路径）
 - `scene.add`, `scene.rename`, `scene.delete`, `scene.setBackground`
 - `dialogue.add`, `dialogue.update`, `dialogue.setVoice`, `dialogue.delete`,
@@ -92,23 +93,28 @@ button can immediately create an editable node.
 
 `project.open` accepts Main-process-only `contents` that Electron has already
 read as one stable manifest snapshot. C++ does not reopen a mutable path. It
-reads project file versions 1 through 9. Parsing and aggregate validation
+reads project file versions 1 through 11. Parsing and aggregate validation
 happen before the in-memory
 project is replaced, so a missing, malformed, or unsupported file leaves the
 current project unchanged. Version 1 Scenes have no `visuals` field and are
 migrated to an empty visual state in memory. Versions 1 and 2 contain only
 Dialogue nodes; they migrate to the unified in-memory timeline. `project.save`
-always writes version 9:
+always writes version 11:
 
 ```json
 {
   "format": "vn-engine-project",
-  "fileVersion": 9,
+  "fileVersion": 12,
   "project": {
     "schemaVersion": 1,
     "id": "project-id",
     "name": "My Story",
     "entrySceneId": "scene-id",
+    "startScreen": {
+      "title": "My Custom Title",
+      "backgroundAssetId": "sprite-asset-id",
+      "musicAssetId": "music-asset-id"
+    },
     "scenes": [
       {
         "schemaVersion": 1,
@@ -221,7 +227,11 @@ timeline nodes with nullable Asset IDs, position slots, and layers 1 through
 10. File version 6 adds explicit Scene jump nodes. File version 7 adds nullable
 Dialogue `voiceAssetId` references and nullable BGM timeline nodes. File
 version 8 adds nullable Video timeline nodes. File version 9 adds Choice
-timeline nodes and their ordered branch options. Versions 1 through 8 contain
+timeline nodes and their ordered branch options. File version 10 adds the
+software-managed `startScreen` background and music references. File version
+11 adds its independently editable `title`. Versions 1 through 10 migrate the
+title from `project.name`; versions 1 through 9 also migrate both media
+references to `null`. Versions 1 through 8 contain
 no Choice nodes and migrate to an in-memory project without inventing any.
 `visuals.backgroundAssetId` remains the initial background before the first
 background node. Reaching a
@@ -294,6 +304,27 @@ reorders. Deleting a Scene referenced by either a Scene jump or a Choice option
 returns `scene_in_use`. Failed commands validate before committing, and legal
 no-op updates/reorders do not advance the document revision.
 
+`startScreen.update` atomically replaces the title and two media references
+used by the software-managed title scene:
+
+```json
+{
+  "id": 2,
+  "method": "startScreen.update",
+  "params": {
+    "title": "My Custom Title",
+    "backgroundAssetId": "image-asset-id",
+    "musicAssetId": "audio-asset-id"
+  }
+}
+```
+
+All three fields are required; `title` is a non-empty trimmed string, while
+both media fields are nullable. The background must resolve to an image Asset
+and the music must resolve to an audio Asset. The command validates all values
+before committing any of them; a bad value leaves the entire Project unchanged,
+while assigning the current triple is a revision-preserving no-op.
+
 `scene.setBackground` accepts a Scene ID and either an image Asset ID or
 `null` to clear the background:
 
@@ -309,7 +340,7 @@ The command resolves both IDs and checks the Asset type before changing the
 Scene. This static value is the compatible initial background; timeline nodes
 may override it later. A missing Scene, missing Asset, or non-image Asset fails without
 changing state. Reassigning the current value succeeds without advancing the
-revision. The next ordinary `project.save` persists the selection in the v9
+revision. The next ordinary `project.save` persists the selection in the v13
 `visuals.backgroundAssetId` field.
 
 Asset metadata supports `image`, `video`, and `audio`. Binary assets remain in

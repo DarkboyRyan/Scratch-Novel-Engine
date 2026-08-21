@@ -1,4 +1,9 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 
 export type PreviewCharacter = {
   id: string;
@@ -6,6 +11,7 @@ export type PreviewCharacter = {
   name: string;
   slot: 'left' | 'center' | 'right';
   layer: number;
+  position: { x: number; y: number } | null;
 };
 
 export type VisualStageProps = {
@@ -31,10 +37,21 @@ function CharacterPortrait({ character }: { character: PreviewCharacter }) {
     return null;
   }
 
+  const style: CSSProperties = character.position
+    ? {
+        zIndex: 10 + character.layer,
+        left: `${character.position.x}%`,
+        top: `${character.position.y}%`,
+        right: 'auto',
+        bottom: 'auto',
+        transform: 'translate(-50%, -100%)',
+      }
+    : { zIndex: 10 + character.layer };
+
   return (
     <img
       className={`preview-character preview-character-${character.slot}`}
-      style={{ zIndex: 10 + character.layer }}
+      style={style}
       src={character.url}
       alt={character.name}
       onError={() => setFailed(true)}

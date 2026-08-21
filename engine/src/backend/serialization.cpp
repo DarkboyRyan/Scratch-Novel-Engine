@@ -1,5 +1,6 @@
 #include "serialization.hpp"
 
+#include <cmath>
 #include <initializer_list>
 #include <string>
 #include <string_view>
@@ -159,6 +160,10 @@ Json background_node_to_json(const BackgroundNode& background) {
 }
 
 Json character_node_to_json(const CharacterNode& character) {
+  Json position = nullptr;
+  if (character.position.has_value()) {
+    position = {{"x", character.position->x}, {"y", character.position->y}};
+  }
   return {
       {"id", character.id},
       {"type", "character"},
@@ -167,6 +172,7 @@ Json character_node_to_json(const CharacterNode& character) {
                                       : Json(nullptr)},
       {"slot", character_slot_to_string(character.slot)},
       {"layer", character.layer},
+      {"position", std::move(position)},
   };
 }
 
@@ -216,6 +222,13 @@ Json choice_node_to_json(const ChoiceNode& choice) {
   };
 }
 
+Json story_extension_node_to_json(const StoryExtensionNode& extension) {
+  return {
+      {"id", extension.id},
+      {"type", "storyExtension"},
+  };
+}
+
 Json scene_node_to_json(const SceneNode& node) {
   return std::visit(
       [](const auto& value) -> Json {
@@ -232,8 +245,10 @@ Json scene_node_to_json(const SceneNode& node) {
           return bgm_node_to_json(value);
         } else if constexpr (std::is_same_v<Value, VideoNode>) {
           return video_node_to_json(value);
-        } else {
+        } else if constexpr (std::is_same_v<Value, ChoiceNode>) {
           return choice_node_to_json(value);
+        } else {
+          return story_extension_node_to_json(value);
         }
       },
       node);
@@ -285,10 +300,17 @@ SceneNode scene_node_from_json(
     if (file_version < 5) {
       unsupported(context + ".type is not supported before file version 5");
     }
-    require_exact_fields(
-        value,
-        {"id", "type", "assetId", "slot", "layer"},
-        context);
+    if (file_version >= 13) {
+      require_exact_fields(
+          value,
+          {"id", "type", "assetId", "slot", "layer", "position"},
+          context);
+    } else {
+      require_exact_fields(
+          value,
+          {"id", "type", "assetId", "slot", "layer"},
+          context);
+    }
     const Json& asset_value = value.at("assetId");
     if (!asset_value.is_null() && !asset_value.is_string()) {
       invalid(context + ".assetId must be a string or null");
@@ -301,11 +323,28 @@ SceneNode scene_node_from_json(
     if (layer < 1 || layer > 10) {
       invalid(context + ".layer must be between 1 and 10");
     }
+    std::optional<CharacterPosition> position;
+    if (file_version >= 13 && !value.at("position").is_null()) {
+      const Json& position_value = value.at("position");
+      require_exact_fields(position_value, {"x", "y"}, context + ".position");
+      if (!position_value.at("x").is_number() ||
+          !position_value.at("y").is_number()) {
+        invalid(context + ".position coordinates must be numbers");
+      }
+      const double x = position_value.at("x").get<double>();
+      const double y = position_value.at("y").get<double>();
+      if (!std::isfinite(x) || !std::isfinite(y) || x < 0.0 || x > 100.0 ||
+          y < 0.0 || y > 100.0) {
+        invalid(context + ".position coordinates must be between 0 and 100");
+      }
+      position = CharacterPosition{.x = x, .y = y};
+    }
     return CharacterNode{
         .id = require_string(value, "id", context),
         .asset_id = std::move(asset_id),
         .slot = character_slot_from_json(value, context),
         .layer = layer,
+        .position = std::move(position),
     };
   }
   if (type == "sceneJump") {
@@ -388,6 +427,15 @@ SceneNode scene_node_from_json(
       });
     }
     return choice;
+  }
+  if (type == "storyExtension") {
+    if (file_version < 12) {
+      unsupported(context + ".type is not supported before file version 12");
+    }
+    require_exact_fields(value, {"id", "type"}, context);
+    return StoryExtensionNode{
+        .id = require_string(value, "id", context),
+    };
   }
   unsupported(context + ".type is not supported");
 }
@@ -505,6 +553,56 @@ SceneVisualState scene_visuals_from_json(
   return visuals;
 }
 
+Json start_screen_to_json(const StartScreen& start_screen) {
+  return {
+      {"title", start_screen.title},
+      {"backgroundAssetId",
+       start_screen.background_asset_id.has_value()
+           ? Json(*start_screen.background_asset_id)
+           : Json(nullptr)},
+      {"musicAssetId",
+       start_screen.music_asset_id.has_value()
+           ? Json(*start_screen.music_asset_id)
+           : Json(nullptr)},
+  };
+}
+
+StartScreen start_screen_from_json(
+    const Json& value,
+    const std::string_view context,
+    const int file_version,
+    const std::string& legacy_title) {
+  if (file_version >= 11) {
+    require_exact_fields(
+        value, {"title", "backgroundAssetId", "musicAssetId"}, context);
+  } else {
+    require_exact_fields(
+        value, {"backgroundAssetId", "musicAssetId"}, context);
+  }
+
+  const auto nullable_asset_id = [&value, context](
+                                     const std::string_view field) {
+    const Json& asset_id = value.at(std::string(field));
+    if (asset_id.is_null()) {
+      return std::optional<std::string>{};
+    }
+    if (!asset_id.is_string()) {
+      invalid(
+          std::string(context) + "." + std::string(field) +
+          " must be a string or null");
+    }
+    return std::optional<std::string>{asset_id.get<std::string>()};
+  };
+
+  return StartScreen{
+      .title = file_version >= 11
+          ? require_string(value, "title", context)
+          : legacy_title,
+      .background_asset_id = nullable_asset_id("backgroundAssetId"),
+      .music_asset_id = nullable_asset_id("musicAssetId"),
+  };
+}
+
 Json scene_to_file_json(const Scene& scene) {
   // Construct the persisted shape explicitly. The Renderer projection and
   // file format have separate version boundaries and must not accidentally
@@ -570,10 +668,22 @@ Scene scene_from_json(
 
 Project project_from_json(const Json& value, const int file_version) {
   constexpr std::string_view context = "project";
-  require_exact_fields(
-      value,
-      {"schemaVersion", "id", "name", "entrySceneId", "scenes"},
-      context);
+  if (file_version >= 10) {
+    require_exact_fields(
+        value,
+        {"schemaVersion",
+         "id",
+         "name",
+         "startScreen",
+         "entrySceneId",
+         "scenes"},
+        context);
+  } else {
+    require_exact_fields(
+        value,
+        {"schemaVersion", "id", "name", "entrySceneId", "scenes"},
+        context);
+  }
   require_schema_version(value, context);
 
   const Json& scenes = value.at("scenes");
@@ -581,10 +691,19 @@ Project project_from_json(const Json& value, const int file_version) {
     invalid("project.scenes must be an array");
   }
 
+  std::string project_name = require_string(value, "name", context);
+
   Project project{
       .schema_version = kSchemaVersion,
       .id = require_string(value, "id", context),
-      .name = require_string(value, "name", context),
+      .name = project_name,
+      .start_screen = file_version >= 10
+          ? start_screen_from_json(
+                value.at("startScreen"),
+                "project.startScreen",
+                file_version,
+                project_name)
+          : StartScreen{.title = project_name},
       .entry_scene_id = require_string(value, "entrySceneId", context),
       .scenes = {},
   };
@@ -663,6 +782,7 @@ Json project_to_file_json(const Project& project) {
       {"schemaVersion", project.schema_version},
       {"id", project.id},
       {"name", project.name},
+      {"startScreen", start_screen_to_json(project.start_screen)},
       {"entrySceneId", project.entry_scene_id},
       {"scenes", std::move(scenes)},
   };
@@ -689,6 +809,7 @@ Json project_to_json(const Project& project) {
       {"schemaVersion", project.schema_version},
       {"id", project.id},
       {"name", project.name},
+      {"startScreen", start_screen_to_json(project.start_screen)},
       {"entrySceneId", project.entry_scene_id},
       {"scenes", std::move(scenes)},
   };

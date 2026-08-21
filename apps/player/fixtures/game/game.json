@@ -1,10 +1,15 @@
 {
   "format": "vn-engine-runtime",
-  "runtimeVersion": 1,
+  "runtimeVersion": 3,
   "game": {
     "id": "development-player-fixture",
     "title": "VN Engine Player 演示",
-    "entrySceneId": "scene-entry"
+    "entrySceneId": "scene-entry",
+    "startScreen": {
+      "title": "星光物语",
+      "backgroundAssetId": null,
+      "musicAssetId": null
+    }
   },
   "scenes": [
     {

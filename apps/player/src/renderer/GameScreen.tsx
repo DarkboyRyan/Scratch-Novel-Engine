@@ -86,6 +86,7 @@ export function GameScreen({
       name: assetById.get(character.assetId)?.displayName ?? '缺失立绘',
       slot: character.slot,
       layer: character.layer,
+      position: character.position,
     }),
   );
   const choices = getChoices(project, runtime);

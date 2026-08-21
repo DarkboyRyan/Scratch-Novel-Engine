@@ -2,6 +2,11 @@ import type * as Blockly from 'blockly';
 
 import type { SceneDocument } from '../../../shared/projectTypes';
 import { isStoryBlockType } from './storyBlockTypes';
+import { paginateStoryNodes } from './storyBlockPagination';
+import {
+  getSceneStartBlockId,
+  SCENE_START_BLOCK_TYPE,
+} from './blocks/sceneStartBlock';
 
 export type WorkspacePoint = {
   x: number;
@@ -25,30 +30,53 @@ type CaptureLayoutOptions = {
   preferredRoot?: Blockly.BlockSvg;
 };
 
-function findCompleteTimelineRoot(
+function findCompleteFirstPageRoot(
   scene: SceneDocument,
   workspace: Blockly.WorkspaceSvg,
 ): Blockly.BlockSvg | null {
+  const startBlock = workspace.getBlockById?.(
+    getSceneStartBlockId(scene.id),
+  );
+  if (startBlock?.type === SCENE_START_BLOCK_TYPE) {
+    return startBlock.getRootBlock() as Blockly.BlockSvg;
+  }
+
   if (scene.nodes.length === 0) {
     return null;
   }
 
-  const sceneNodeIds = new Set(
-    scene.nodes.map((node) => node.id),
-  );
+  const firstPage = paginateStoryNodes(scene.nodes)[0];
+  if (!firstPage) {
+    return null;
+  }
+  const firstPageNodeIds = new Set([
+    ...firstPage.nodes.map((node) => node.id),
+    ...(firstPage.continuation
+      ? [firstPage.continuation.node.id]
+      : []),
+  ]);
+  const firstPageRootId =
+    firstPage.continuation?.node.id ?? firstPage.nodes[0]?.id;
 
   for (const root of workspace.getTopBlocks(false)) {
     if (!isStoryBlockType(root.type)) {
       continue;
     }
 
-    const projectedNodeCount = root
-      .getDescendants(false)
-      .filter((block) => sceneNodeIds.has(block.id)).length;
+    if (root.id !== firstPageRootId) {
+      continue;
+    }
 
-    // 只有完整的一条 Scene 链才能取代已保存的根坐标。
-    // 拖动中的孤立积木不能把整条剧情链的位置带走。
-    if (projectedNodeCount === scene.nodes.length) {
+    const projectedNodeIds = new Set(
+      root
+        .getDescendants(false)
+        .filter((block) => firstPageNodeIds.has(block.id))
+        .map((block) => block.id),
+    );
+
+    // 第一段是整个派生布局的锚点。只有手动分段中的积木完整时
+    // 才更新根坐标，拖动中的临时断链不能把所有自动列一起带走。
+    if (projectedNodeIds.size === firstPageNodeIds.size) {
       return root;
     }
   }
@@ -69,7 +97,7 @@ export function captureSceneWorkspaceLayout(
 
   if (updateRootPosition) {
     const root =
-      findCompleteTimelineRoot(scene, workspace) ??
+      findCompleteFirstPageRoot(scene, workspace) ??
       (scene.nodes.length === 0
         ? preferredRoot?.getRootBlock()
         : undefined);

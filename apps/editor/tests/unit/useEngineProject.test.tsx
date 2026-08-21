@@ -17,6 +17,11 @@ const initialResult: EngineMutationResult = {
     id: 'project-1',
     name: 'Initial story',
     entrySceneId: 'scene-1',
+    startScreen: {
+      title: 'Initial story',
+      backgroundAssetId: null,
+      musicAssetId: null,
+    },
     scenes: [
       {
         schemaVersion: 1,
@@ -122,6 +127,7 @@ describe('useEngineProject asset state', () => {
   let importVideo: ReturnType<typeof vi.fn>;
   let importAudio: ReturnType<typeof vi.fn>;
   let addBackground: ReturnType<typeof vi.fn>;
+  let updateStartScreen: ReturnType<typeof vi.fn>;
   let updateBackground: ReturnType<typeof vi.fn>;
   let deleteBackground: ReturnType<typeof vi.fn>;
   let reorderBackground: ReturnType<typeof vi.fn>;
@@ -135,6 +141,7 @@ describe('useEngineProject asset state', () => {
   let updateChoiceOption: ReturnType<typeof vi.fn>;
   let deleteChoiceOption: ReturnType<typeof vi.fn>;
   let reorderChoiceOption: ReturnType<typeof vi.fn>;
+  let addStoryExtension: ReturnType<typeof vi.fn>;
   let saveProject: ReturnType<typeof vi.fn>;
   let exportGame: ReturnType<typeof vi.fn>;
   let platform: EditorPlatformGateway;
@@ -167,6 +174,23 @@ describe('useEngineProject asset state', () => {
       result: importedAudioResult,
     });
     addBackground = vi.fn().mockResolvedValue(backgroundResult);
+    updateStartScreen = vi.fn().mockResolvedValue({
+      ...initialResult,
+      project: {
+        ...initialResult.project,
+        startScreen: {
+          title: 'Custom title',
+          backgroundAssetId: 'asset-1',
+          musicAssetId: 'audio-1',
+        },
+      },
+      assets: importedAudioResult.assets,
+      session: {
+        revision: 6,
+        savedRevision: 2,
+        isDirty: true,
+      },
+    });
     updateBackground = vi.fn().mockResolvedValue(backgroundResult);
     deleteBackground = vi.fn().mockResolvedValue(backgroundResult);
     reorderBackground = vi.fn().mockResolvedValue(backgroundResult);
@@ -180,6 +204,7 @@ describe('useEngineProject asset state', () => {
     updateChoiceOption = vi.fn().mockResolvedValue(backgroundResult);
     deleteChoiceOption = vi.fn().mockResolvedValue(backgroundResult);
     reorderChoiceOption = vi.fn().mockResolvedValue(backgroundResult);
+    addStoryExtension = vi.fn().mockResolvedValue(backgroundResult);
     saveProject = vi.fn().mockResolvedValue({
       cancelled: false,
       result: initialResult,
@@ -200,6 +225,7 @@ describe('useEngineProject asset state', () => {
     platform = {
       engine: {
         ensureProject: vi.fn().mockResolvedValue(initialResult),
+        updateStartScreen,
         addBackground,
         updateBackground,
         deleteBackground,
@@ -214,6 +240,7 @@ describe('useEngineProject asset state', () => {
         updateChoiceOption,
         deleteChoiceOption,
         reorderChoiceOption,
+        addStoryExtension,
       } as unknown as EditorPlatformGateway['engine'],
       projectFiles: {
         getSession: vi.fn().mockResolvedValue({
@@ -341,6 +368,33 @@ describe('useEngineProject asset state', () => {
     expect(current?.assets.at(-1)).toMatchObject({
       type: 'audio',
       displayName: 'voice.mp3',
+    });
+  });
+
+  it('updates the start screen title and resources in one queued mutation', async () => {
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(
+        await current!.updateStartScreen(
+          'Custom title',
+          'asset-1',
+          'audio-1',
+        ),
+      ).toBe(true);
+    });
+
+    expect(updateStartScreen).toHaveBeenCalledWith({
+      title: 'Custom title',
+      backgroundAssetId: 'asset-1',
+      musicAssetId: 'audio-1',
+    });
+    expect(current?.project?.startScreen).toEqual({
+      title: 'Custom title',
+      backgroundAssetId: 'asset-1',
+      musicAssetId: 'audio-1',
     });
   });
 
@@ -718,5 +772,64 @@ describe('useEngineProject asset state', () => {
       nodeIds: selection,
       beforeNodeId: null,
     });
+  });
+
+  it('queues authoring-only story extension insertion', async () => {
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(await current!.addStoryExtension({
+        sceneId: 'scene-1',
+        beforeNodeId: 'dialogue-2',
+      })).toBe(true);
+    });
+
+    expect(addStoryExtension).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      beforeNodeId: 'dialogue-2',
+    });
+  });
+
+  it('reports an actionable restart message for a stale story extension backend', async () => {
+    addStoryExtension.mockRejectedValue(
+      new Error('unknown method: storyExtension.add'),
+    );
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(await current!.addStoryExtension({
+        sceneId: 'scene-1',
+        beforeNodeId: null,
+      })).toBe(false);
+    });
+
+    expect(current!.engineMessage).toBe(
+      '延伸模块尚未加载，请完全退出并重新启动编辑器',
+    );
+  });
+
+  it('reports the same restart message when the stale backend cannot reorder an extension page', async () => {
+    reorderTimelineNodes.mockRejectedValue(
+      new Error('unknown method: timeline.reorderMany'),
+    );
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(await current!.reorderTimelineNodes({
+        sceneId: 'scene-1',
+        nodeIds: ['extension-1', 'dialogue-2'],
+        beforeNodeId: null,
+      })).toBe(false);
+    });
+
+    expect(current!.engineMessage).toBe(
+      '延伸模块尚未加载，请完全退出并重新启动编辑器',
+    );
   });
 });

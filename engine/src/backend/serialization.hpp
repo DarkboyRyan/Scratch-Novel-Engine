@@ -12,7 +12,7 @@
 namespace vnengine::backend {
 
 inline constexpr std::string_view kProjectFileFormat = "vn-engine-project";
-inline constexpr int kProjectFileVersion = 9;
+inline constexpr int kProjectFileVersion = 13;
 
 // The persistence envelope serializes the same aggregate that Core validates.
 // Keep the legacy name as an adapter while callers migrate to ProjectAggregate.

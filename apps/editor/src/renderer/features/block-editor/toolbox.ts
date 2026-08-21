@@ -2,7 +2,10 @@ import type * as Blockly from 'blockly';
 
 import { DIALOGUE_BLOCK_TYPE } from './blocks/dialogueBlock';
 import { BACKGROUND_BLOCK_TYPE } from './blocks/backgroundBlock';
-import { CHARACTER_BLOCK_TYPE } from './blocks/characterBlock';
+import {
+  CHARACTER_BLOCK_TYPE,
+  CLEAR_CHARACTER_BLOCK_TYPE,
+} from './blocks/characterBlock';
 import { SCENE_JUMP_BLOCK_TYPE } from './blocks/sceneJumpBlock';
 import { BGM_BLOCK_TYPE } from './blocks/bgmBlock';
 import { VIDEO_BLOCK_TYPE } from './blocks/videoBlock';
@@ -10,6 +13,7 @@ import {
   CHOICE_BLOCK_TYPE,
   CHOICE_OPTION_BLOCK_TYPE,
 } from './blocks/choiceBlock';
+import { STORY_CONTINUATION_BLOCK_TYPE } from './blocks/storyContinuationBlock';
 
 export function createBlockEditorToolbox(
   includeSceneJump = true,
@@ -23,15 +27,29 @@ export function createBlockEditorToolbox(
         colour: '35',
         contents: [
           { kind: 'block', type: DIALOGUE_BLOCK_TYPE },
-          { kind: 'block', type: BACKGROUND_BLOCK_TYPE },
-          { kind: 'block', type: CHARACTER_BLOCK_TYPE },
-          { kind: 'block', type: BGM_BLOCK_TYPE },
-          { kind: 'block', type: VIDEO_BLOCK_TYPE },
           { kind: 'block', type: CHOICE_BLOCK_TYPE },
           { kind: 'block', type: CHOICE_OPTION_BLOCK_TYPE },
+          { kind: 'block', type: STORY_CONTINUATION_BLOCK_TYPE },
           ...(includeSceneJump
             ? [{ kind: 'block' as const, type: SCENE_JUMP_BLOCK_TYPE }]
             : []),
+        ],
+      },
+      {
+        kind: 'category',
+        name: '音乐',
+        colour: '210',
+        contents: [{ kind: 'block', type: BGM_BLOCK_TYPE }],
+      },
+      {
+        kind: 'category',
+        name: '图片',
+        colour: '285',
+        contents: [
+          { kind: 'block', type: BACKGROUND_BLOCK_TYPE },
+          { kind: 'block', type: CHARACTER_BLOCK_TYPE },
+          { kind: 'block', type: CLEAR_CHARACTER_BLOCK_TYPE },
+          { kind: 'block', type: VIDEO_BLOCK_TYPE },
         ],
       },
     ],

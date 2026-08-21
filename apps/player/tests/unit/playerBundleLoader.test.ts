@@ -44,6 +44,7 @@ function gameDocument(assetId: string | null = null) {
 
 function manifestDocument(
   files: unknown[] = [],
+  runtimeVersion: 1 | 2 | 3 | 4 = 1,
 ): Record<string, unknown> {
   return {
     format: 'vn-engine-runtime-manifest',
@@ -51,8 +52,14 @@ function manifestDocument(
     buildId: 'build-1',
     projectId: 'project-1',
     sourceRevision: 3,
-    runtimeVersion: 1,
-    playerCompatibility: '>=1 <2',
+    runtimeVersion,
+    playerCompatibility: runtimeVersion === 1
+      ? '>=1 <2'
+      : runtimeVersion === 2
+        ? '>=2 <3'
+        : runtimeVersion === 3
+          ? '>=3 <4'
+          : '>=4 <5',
     createdAt: '2026-08-18T00:00:00.000Z',
     files,
   };
@@ -109,6 +116,11 @@ describe('runtime bundle loader', () => {
       id: 'development-player-fixture',
       name: 'VN Engine Player 演示',
       entrySceneId: 'scene-entry',
+      startScreen: {
+        title: '星光物语',
+        backgroundAssetId: null,
+        musicAssetId: null,
+      },
     });
     expect(bundle.game.assets).toEqual([]);
     expect(JSON.stringify(bundle.game)).not.toContain('relativePath');
@@ -135,7 +147,7 @@ describe('runtime bundle loader', () => {
         JSON.stringify({ ...gameDocument(), unexpected: true }),
         JSON.stringify(manifestDocument()),
       ),
-    ).toThrow('字段不符合 runtime v1');
+    ).toThrow('字段不符合 runtime 约定');
 
     expect(() =>
       parseRuntimeBundleDocuments(
@@ -155,6 +167,177 @@ describe('runtime bundle loader', () => {
         ),
       ),
     ).toThrow('不安全的资源相对路径');
+  });
+
+  it('normalizes runtime v1 and strictly validates runtime v2 start screens', () => {
+    const legacy = parseRuntimeBundleDocuments(
+      JSON.stringify(gameDocument()),
+      JSON.stringify(manifestDocument()),
+    );
+    expect(legacy.game.project.startScreen).toEqual({
+      title: 'Runtime test',
+      backgroundAssetId: null,
+      musicAssetId: null,
+    });
+
+    const runtimeV2 = gameDocument() as ReturnType<typeof gameDocument> & {
+      runtimeVersion: number;
+      game: ReturnType<typeof gameDocument>['game'] & {
+        startScreen: Record<string, unknown>;
+      };
+    };
+    runtimeV2.runtimeVersion = 2;
+    runtimeV2.game.startScreen = {
+      backgroundAssetId: 'title-background',
+      musicAssetId: null,
+    };
+    const titleAsset = {
+      assetId: 'title-background',
+      type: 'image',
+      displayName: 'Title',
+      path: 'assets/images/title.png',
+      mime: 'image/png',
+      bytes: 12,
+      sha256: '0'.repeat(64),
+    };
+    expect(
+      parseRuntimeBundleDocuments(
+        JSON.stringify(runtimeV2),
+        JSON.stringify(manifestDocument([titleAsset], 2)),
+      ).game.project.startScreen,
+    ).toEqual({
+      title: 'Runtime test',
+      backgroundAssetId: 'title-background',
+      musicAssetId: null,
+    });
+
+    runtimeV2.game.startScreen.unexpected = true;
+    expect(() =>
+      parseRuntimeBundleDocuments(
+        JSON.stringify(runtimeV2),
+        JSON.stringify(manifestDocument([titleAsset], 2)),
+      ),
+    ).toThrow('game.json.game.startScreen 字段不符合');
+  });
+
+  it('strictly reads a runtime v3 custom title without changing the project name', () => {
+    const runtimeV3 = {
+      ...gameDocument(),
+      runtimeVersion: 3,
+      game: {
+        ...gameDocument().game,
+        startScreen: {
+          title: '自定义标题',
+          backgroundAssetId: null,
+          musicAssetId: null,
+        },
+      },
+    };
+    const parsed = parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV3),
+      JSON.stringify(manifestDocument([], 3)),
+    );
+
+    expect(parsed.game.project.name).toBe('Runtime test');
+    expect(parsed.game.project.startScreen.title).toBe('自定义标题');
+
+    delete (runtimeV3.game.startScreen as Partial<
+      typeof runtimeV3.game.startScreen
+    >).title;
+    expect(() =>
+      parseRuntimeBundleDocuments(
+        JSON.stringify(runtimeV3),
+        JSON.stringify(manifestDocument([], 3)),
+      ),
+    ).toThrow('game.json.game.startScreen 字段不符合');
+  });
+
+  it('reads runtime v4 portrait coordinates and keeps v3 portraits on presets', () => {
+    const makeCharacterGame = (runtimeVersion: 3 | 4) => ({
+      ...gameDocument(),
+      runtimeVersion,
+      game: {
+        ...gameDocument().game,
+        startScreen: {
+          title: '自定义标题',
+          backgroundAssetId: null,
+          musicAssetId: null,
+        },
+      },
+      scenes: [{
+        ...gameDocument().scenes[0],
+        nodes: [{
+          id: 'portrait',
+          type: 'character',
+          assetId: null,
+          slot: 'left',
+          layer: 2,
+          ...(runtimeVersion === 4
+            ? { position: { x: 33.5, y: 84 } }
+            : {}),
+        }],
+      }],
+    });
+
+    const runtimeV4 = makeCharacterGame(4);
+    expect(
+      parseRuntimeBundleDocuments(
+        JSON.stringify(runtimeV4),
+        JSON.stringify(manifestDocument([], 4)),
+      ).game.project.scenes[0].nodes[0],
+    ).toMatchObject({ position: { x: 33.5, y: 84 } });
+
+    const runtimeV3 = makeCharacterGame(3);
+    expect(
+      parseRuntimeBundleDocuments(
+        JSON.stringify(runtimeV3),
+        JSON.stringify(manifestDocument([], 3)),
+      ).game.project.scenes[0].nodes[0],
+    ).toMatchObject({ position: null });
+
+    delete (runtimeV4.scenes[0].nodes[0] as Record<string, unknown>).position;
+    expect(() =>
+      parseRuntimeBundleDocuments(
+        JSON.stringify(runtimeV4),
+        JSON.stringify(manifestDocument([], 4)),
+      ),
+    ).toThrow('字段不符合 runtime 约定');
+  });
+
+  it('rejects mismatched or incorrectly typed runtime v2 title assets', () => {
+    const runtimeV2 = {
+      ...gameDocument(),
+      runtimeVersion: 2,
+      game: {
+        ...gameDocument().game,
+        startScreen: {
+          backgroundAssetId: 'title-background',
+          musicAssetId: null,
+        },
+      },
+    };
+    const wrongType = {
+      assetId: 'title-background',
+      type: 'audio',
+      displayName: 'Wrong',
+      path: 'assets/audio/title.mp3',
+      mime: 'audio/mpeg',
+      bytes: 4,
+      sha256: '0'.repeat(64),
+    };
+    expect(() =>
+      parseRuntimeBundleDocuments(
+        JSON.stringify(runtimeV2),
+        JSON.stringify(manifestDocument([wrongType], 2)),
+      ),
+    ).toThrow('主界面背景 引用了缺失或类型错误的资源');
+
+    expect(() =>
+      parseRuntimeBundleDocuments(
+        JSON.stringify(runtimeV2),
+        JSON.stringify(manifestDocument([wrongType], 1)),
+      ),
+    ).toThrow('manifest.json.runtimeVersion');
   });
 
   it('rejects a changed hash and a symlinked resource', async () => {

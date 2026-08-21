@@ -35,7 +35,8 @@ function isSceneNode(value: unknown): boolean {
     value.type !== 'sceneJump' &&
     value.type !== 'bgm' &&
     value.type !== 'video' &&
-    value.type !== 'choice'
+    value.type !== 'choice' &&
+    value.type !== 'storyExtension'
   ) {
     return false;
   }
@@ -57,7 +58,20 @@ function isSceneNode(value: unknown): boolean {
         value.slot === 'right') &&
       Number.isInteger(value.layer) &&
       (value.layer as number) >= 1 &&
-      (value.layer as number) <= 10
+      (value.layer as number) <= 10 &&
+      (value.position === null ||
+        (isObject(value.position) &&
+          Object.keys(value.position).length === 2 &&
+          Object.hasOwn(value.position, 'x') &&
+          Object.hasOwn(value.position, 'y') &&
+          typeof value.position.x === 'number' &&
+          Number.isFinite(value.position.x) &&
+          value.position.x >= 0 &&
+          value.position.x <= 100 &&
+          typeof value.position.y === 'number' &&
+          Number.isFinite(value.position.y) &&
+          value.position.y >= 0 &&
+          value.position.y <= 100))
     );
   }
 
@@ -76,6 +90,10 @@ function isSceneNode(value: unknown): boolean {
     );
   }
 
+  if (value.type === 'storyExtension') {
+    return true;
+  }
+
   return value.assetId === null || typeof value.assetId === 'string';
 }
 
@@ -92,6 +110,17 @@ function isSceneDocument(value: unknown): boolean {
   );
 }
 
+function isStartScreenDocument(value: unknown): boolean {
+  return (
+    isObject(value) &&
+    typeof value.title === 'string' &&
+    (value.backgroundAssetId === null ||
+      typeof value.backgroundAssetId === 'string') &&
+    (value.musicAssetId === null ||
+      typeof value.musicAssetId === 'string')
+  );
+}
+
 function isProjectDocument(value: unknown): boolean {
   return (
     isObject(value) &&
@@ -99,6 +128,7 @@ function isProjectDocument(value: unknown): boolean {
     typeof value.id === 'string' &&
     typeof value.name === 'string' &&
     typeof value.entrySceneId === 'string' &&
+    isStartScreenDocument(value.startScreen) &&
     Array.isArray(value.scenes) &&
     value.scenes.every(isSceneDocument)
   );
@@ -117,6 +147,13 @@ function toPublicAssetDocument(
 function toPublicSceneNode(
   value: Record<string, unknown>,
 ): SceneNode {
+  if (value.type === 'storyExtension') {
+    return {
+      id: value.id as string,
+      type: 'storyExtension',
+    };
+  }
+
   if (value.type === 'background') {
     return {
       id: value.id as string,
@@ -132,6 +169,7 @@ function toPublicSceneNode(
       assetId: value.assetId as string | null,
       slot: value.slot as CharacterSlot,
       layer: value.layer as number,
+      position: value.position as { x: number; y: number } | null,
     };
   }
 
@@ -204,6 +242,13 @@ function toPublicProjectDocument(
     id: value.id as string,
     name: value.name as string,
     entrySceneId: value.entrySceneId as string,
+    startScreen: {
+      title: (value.startScreen as Record<string, unknown>).title as string,
+      backgroundAssetId: (value.startScreen as Record<string, unknown>)
+        .backgroundAssetId as string | null,
+      musicAssetId: (value.startScreen as Record<string, unknown>)
+        .musicAssetId as string | null,
+    },
     scenes: (value.scenes as Record<string, unknown>[]).map(
       toPublicSceneDocument,
     ),

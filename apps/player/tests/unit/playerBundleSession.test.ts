@@ -24,6 +24,7 @@ async function makeBundle(
   const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'vn-player-session-'));
   temporaryDirectories.push(temporaryRoot);
   const root = path.join(temporaryRoot, `${name}.vngame`);
+  const runtimeVersion = options.runtimeVersion ?? 1;
   const imagePath = path.join(root, 'assets/images/image.png');
   await mkdir(path.dirname(imagePath), { recursive: true });
   await writeFile(imagePath, PNG);
@@ -31,11 +32,20 @@ async function makeBundle(
     path.join(root, 'game.json'),
     JSON.stringify({
       format: 'vn-engine-runtime',
-      runtimeVersion: options.runtimeVersion ?? 1,
+      runtimeVersion,
       game: {
         id: `project-${name}`,
         title: name,
         entrySceneId: `scene-${name}`,
+        ...(runtimeVersion === 2 || runtimeVersion === 3
+          ? {
+              startScreen: {
+                ...(runtimeVersion === 3 ? { title: `${name} title` } : {}),
+                backgroundAssetId: 'image',
+                musicAssetId: null,
+              },
+            }
+          : {}),
       },
       scenes: [
         {
@@ -56,8 +66,12 @@ async function makeBundle(
       buildId: `build-${name}`,
       projectId: `project-${name}`,
       sourceRevision: 1,
-      runtimeVersion: 1,
-      playerCompatibility: '>=1 <2',
+      runtimeVersion,
+      playerCompatibility: runtimeVersion === 1
+        ? '>=1 <2'
+        : runtimeVersion === 2
+          ? '>=2 <3'
+          : '>=3 <4',
       createdAt: '2026-08-18T00:00:00.000Z',
       files: [
         {
@@ -153,7 +167,7 @@ describe('Player bundle session', () => {
   it('rejects bad hashes and newer runtimes without disturbing the old game', async () => {
     const valid = await makeBundle('valid');
     const badHash = await makeBundle('bad-hash', { badHash: true });
-    const tooNew = await makeBundle('too-new', { runtimeVersion: 2 });
+    const tooNew = await makeBundle('too-new', { runtimeVersion: 4 });
     const selections = [valid, badHash, tooNew];
     const reportError = vi.fn();
     const { service, request } = makeMediaService();

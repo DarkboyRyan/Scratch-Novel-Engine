@@ -29,12 +29,12 @@ export type PlayerGateway = {
   loadGame(): Promise<PlayerLoadViewResult>;
   openGame(): Promise<PlayerOpenViewResult>;
   resolveMediaUrl: MediaUrlResolver;
-  close(): void;
+  quit(): Promise<void>;
 };
 
 export const preloadPlayerGateway: PlayerGateway = {
   loadGame: () => window.vnPlayer.loadGame(),
   openGame: () => window.vnPlayer.openGame(),
   resolveMediaUrl: (assetId) => window.vnPlayer.getMediaUrl(assetId),
-  close: () => window.close(),
+  quit: () => window.vnPlayer.quitGame(),
 };

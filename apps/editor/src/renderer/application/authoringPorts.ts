@@ -6,6 +6,7 @@ import type {
   AddChoiceParams,
   AddDialogueParams,
   AddSceneJumpParams,
+  AddStoryExtensionParams,
   AddVideoParams,
   DeleteBackgroundParams,
   DeleteDialoguesParams,
@@ -64,6 +65,9 @@ export type UpdateCharacterAction = (
 ) => Promise<boolean>;
 export type AddSceneJumpAction = (
   params: AddSceneJumpParams,
+) => Promise<boolean>;
+export type AddStoryExtensionAction = (
+  params: AddStoryExtensionParams,
 ) => Promise<boolean>;
 export type UpdateSceneJumpAction = (
   params: UpdateSceneJumpParams,

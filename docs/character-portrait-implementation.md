@@ -1,7 +1,8 @@
 # 人物立绘实现流程
 
 > 实现状态：已完成。人物节点最初在项目文件格式 v5 引入；场景跳转曾将 Writer
-> 升级为 v6，音频升级为 v7，视频升级为 v8，选项分支加入后当前 Writer 为 v9。
+> 升级为 v6，音频升级为 v7，视频升级为 v8，选项分支升级为 v9；主界面媒体配置
+> 在 v10 加入、独立标题在 v11 加入，当前 Writer 为 v13。
 > 详见 [视频播放积木](./video-playback-block.md)。测试数量会随功能变化，当前
 > 状态应以 `pnpm --dir apps/editor test` 的结果为准。
 
@@ -14,7 +15,7 @@
 | --- | --- | --- |
 | 领域模型 | C++20、`std::variant`、`std::optional` | 把人物作为强类型时间线节点，`null` 表示清除层 |
 | 层级规则 | C++ Core、整数 layer 1–10 | C++ 校验范围，Renderer 只负责映射视觉 z-order |
-| 文件格式 | nlohmann/json、版本化严格 Reader/Writer | 人物在 v5 引入；当前 v9 继续保存并校验人物字段 |
+| 文件格式 | nlohmann/json、版本化严格 Reader/Writer | 人物在 v5 引入；当前 v13 增加可空百分比坐标并继续严格校验 |
 | 跨进程 DTO | TypeScript discriminated union | 用 `node.type === 'character'` 做安全缩窄 |
 | UI | React 19 受控表单、HTML/CSS | 人物检查器、左中右位置和分层渲染 |
 | 图形化编辑 | Blockly 13 自定义 Block/Field | 人物积木、图片资源槽、拖动和时间线重排 |
@@ -43,7 +44,7 @@
 
 `Asset` 只描述可复用文件：ID、媒体类型、相对路径和显示名称。它不保存位置或层级。
 
-`CharacterNode` 是时间线指令，描述“从这里开始，第几层显示哪张图，位于左/中/右”。
+`CharacterNode` 是时间线指令，描述“从这里开始，第几层显示哪张图，以及使用左/中/右预设或自定义坐标”。
 
 预览状态不是第二份项目数据，而是把 Scene 从开头归约到当前播放位置得到的临时结果。
 
@@ -62,6 +63,7 @@ C++ ProjectAggregate（唯一业务真相）
 - `assetId` 有值：设置或替换该层图片。
 - `assetId` 为 `null`：清除该层。
 - `slot` 为 `left | center | right`：决定画面位置。
+- `position` 为 `null` 时使用 slot 预设；有值时保存画面百分比坐标，原点为左上角。
 - 后出现的同层节点覆盖前面的同层节点。
 
 最终预览按 layer 从小到大渲染。无需在项目中保存 CSS `z-index`。
@@ -80,6 +82,7 @@ struct CharacterNode {
   std::optional<std::string> asset_id;
   CharacterSlot slot = CharacterSlot::center;
   int layer = 1;
+  std::optional<CharacterPosition> position;
 };
 
 using SceneNode = std::variant<
@@ -92,6 +95,7 @@ using SceneNode = std::variant<
 领域约束：
 
 - layer 必须在 1–10。
+- position 有值时，x/y 都必须是 0–100 的有限数字。
 - asset_id 非空时必须指向当前 ProjectAggregate 中已有的 image Asset。
 - asset_id 不能是空字符串。
 - ID 继续与 Project、Scene、对白、背景、视觉实例和 Asset 共用全局命名空间。
@@ -106,12 +110,13 @@ type CharacterNode = {
   assetId: string | null;
   slot: 'left' | 'center' | 'right';
   layer: number;
+  position: { x: number; y: number } | null;
 };
 ```
 
 公共快照只含 Asset ID 和显示所需字段，不含绝对路径或项目相对路径。
 
-## 文件格式 v5（人物引入版本）与当前 v9
+## 文件格式 v5（人物引入版本）与当前 v13
 
 v5 增加人物时间线节点：
 
@@ -140,12 +145,13 @@ v5 增加人物时间线节点：
 兼容策略：
 
 - 人物节点在 v5 首次加入。
-- 当前 Reader 严格接受 v1–v9。
+- 当前 Reader 严格接受 v1–v13。
 - v1/v2 只有对白节点。
 - v3 支持必须绑定图片的背景节点。
 - v4 支持 `assetId: null` 的背景节点。
 - v5 支持人物节点。
-- v6 支持场景跳转；v7 增加语音/BGM；v8 增加 VideoNode；v9 增加 ChoiceNode，当前 Writer 始终写 v9。
+- v6 支持场景跳转；v7 增加语音/BGM；v8 增加 VideoNode；v9 增加 ChoiceNode；
+  v10 增加项目级 `startScreen` 媒体，v11 增加独立标题，v12 增加手动延伸，v13 为人物节点增加可空 `position: {x,y}`，当前 Writer 始终写 v13。
 - Project/Scene `schemaVersion` 仍为 1；本次变化属于磁盘 envelope 的演进。
 
 ## C++ 命令
@@ -259,9 +265,11 @@ PreviewPanel 的固定视觉顺序：
 
 ```text
 人物立绘 [白色图片名称槽]
-位置 [左/中/右]
+位置 [左/中/右/自定义]
 层级 [1..10]
 ```
+
+具体 X/Y 只在表单编辑中显示；Blockly 不显示数值，只在存在自定义坐标时把位置显示为“自定义”。
 
 资源条图片拖到人物积木后调用 `character.update`。混合选择、顺序、Delete 和垃圾桶继续使用通用 timeline 命令。
 
@@ -277,7 +285,7 @@ PreviewPanel 的固定视觉顺序：
 
 1. 新人物节点默认无图片、居中、第 1 层。
 2. 拖入图片后，表单、积木和预览显示同一名称/图片。
-3. 左、中、右位置正确。
+3. 左、中、右预设正确；表单坐标保存后预览按百分比定位，Blockly 只显示“自定义”。
 4. 多层人物按 layer 遮挡，高层在前。
 5. 后续同层节点替换之前图片。
 6. `assetId:null` 清除对应层，不影响其他层。
@@ -286,7 +294,7 @@ PreviewPanel 的固定视觉顺序：
 9. 表单与 Blockly 修改同一 C++ 节点，没有本地第二份真相。
 10. 混合多选拖动、Delete 和垃圾桶对对白/背景/人物都有效。
 11. 保存重开后人物、位置、层级与时间线顺序不变。
-12. v1–v8 项目仍能打开并在保存时升级到当前 v9。
+12. v1–v12 项目仍能打开并在保存时升级到当前 v13；旧人物节点自动补 `position: null`。
 13. 非图片、缺失资源、非法 slot/layer 失败且 Project/revision 不变。
 14. 图片路径不进入 Renderer、Preload 公共返回或普通 Engine 调用。
 

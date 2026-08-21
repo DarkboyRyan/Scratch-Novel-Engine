@@ -33,6 +33,15 @@ enum class CharacterSlot {
   right,
 };
 
+// Optional author-controlled portrait anchor in visual-stage percentages.
+// (0, 0) is the top-left corner and (100, 100) is the bottom-right corner.
+struct CharacterPosition {
+  double x = 50.0;
+  double y = 100.0;
+
+  bool operator==(const CharacterPosition&) const = default;
+};
+
 // A BackgroundNode is a timeline command rather than Asset metadata. When
 // playback reaches it, the optional referenced image becomes the active
 // background and remains active until the next BackgroundNode. nullopt is an
@@ -53,6 +62,7 @@ struct CharacterNode {
   std::optional<std::string> asset_id;
   CharacterSlot slot = CharacterSlot::center;
   int layer = 1;
+  std::optional<CharacterPosition> position;
 
   bool operator==(const CharacterNode&) const = default;
 };
@@ -106,6 +116,16 @@ struct ChoiceNode {
   bool operator==(const ChoiceNode&) const = default;
 };
 
+// A StoryExtensionNode is an authoring-only pagination marker. It has no
+// playback behavior and is removed when an author project is compiled into a
+// runtime bundle. Its stable ID lets the Editor use the same transactional
+// timeline ordering and deletion commands as every other Blockly item.
+struct StoryExtensionNode {
+  std::string id;
+
+  bool operator==(const StoryExtensionNode&) const = default;
+};
+
 using SceneNode =
     std::variant<
         Dialogue,
@@ -114,7 +134,8 @@ using SceneNode =
         SceneJumpNode,
         BgmNode,
         VideoNode,
-        ChoiceNode>;
+        ChoiceNode,
+        StoryExtensionNode>;
 
 // Character slots are authoring presets rather than z-order. Multiple
 // characters may intentionally share a slot; their order in SceneVisualState
@@ -150,10 +171,23 @@ struct Scene {
   bool operator==(const Scene&) const = default;
 };
 
+// The title screen is an engine-provided scene that precedes the authored
+// entry Scene. Authors configure its title and media; the built-in menu
+// controls remain Player-owned and are not persisted as editable project
+// entities.
+struct StartScreen {
+  std::string title = "未命名项目";
+  std::optional<std::string> background_asset_id;
+  std::optional<std::string> music_asset_id;
+
+  bool operator==(const StartScreen&) const = default;
+};
+
 struct Project {
   int schema_version = kSchemaVersion;
   std::string id;
   std::string name;
+  StartScreen start_screen;
   std::string entry_scene_id;
   std::vector<Scene> scenes;
 

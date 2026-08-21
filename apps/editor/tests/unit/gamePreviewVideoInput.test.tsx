@@ -13,11 +13,17 @@ vi.mock(
 );
 
 const session: GamePreviewSession = {
+  phase: 'story',
   project: {
     schemaVersion: 1,
     id: 'project-video-input',
     name: 'Video input',
     entrySceneId: 'scene-1',
+    startScreen: {
+      title: 'Story',
+      backgroundAssetId: null,
+      musicAssetId: null,
+    },
     scenes: [
       {
         schemaVersion: 1,
@@ -87,6 +93,7 @@ describe('GamePreview video input', () => {
           onAdvance={onAdvance}
           onVideoComplete={onVideoComplete}
           onChoiceSelect={vi.fn()}
+          onEnterStory={vi.fn()}
           onExit={onExit}
         />,
       );

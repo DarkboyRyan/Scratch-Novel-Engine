@@ -6,7 +6,9 @@ import {
   DIALOGUE_BLOCK_FIELDS,
   DIALOGUE_BLOCK_TYPE,
 } from './blocks/dialogueBlock';
+import { STORY_CONTINUATION_BLOCK_TYPE } from './blocks/storyContinuationBlock';
 import { isStoryBlockType } from './storyBlockTypes';
+import { isStoryPaginationProjectionConsistent } from './storyBlockPagination';
 
 export type DialogueFieldUpdate = {
   nodeId: string;
@@ -21,10 +23,33 @@ export type NewDialogueDrop = {
   beforeNodeId: string | null;
 };
 
+export type NewStoryExtensionDrop = {
+  block: Blockly.BlockSvg;
+  beforeNodeId: string | null;
+};
+
+export type NewStoryExtensionDropResolution =
+  | {
+      kind: 'add';
+      drop: NewStoryExtensionDrop;
+    }
+  | {
+      kind: 'rollback';
+    };
+
 export type DialogueReorderDrop = {
   nodeId: string;
   beforeNodeId: string | null;
 };
+
+export type TimelineReorderDropResolution =
+  | {
+      kind: 'reorder';
+      drop: DialogueReorderDrop;
+    }
+  | {
+      kind: 'restore-projection';
+    };
 
 export function getDialogueFieldUpdate(
   event: Blockly.Events.Abstract,
@@ -116,16 +141,81 @@ export function collectDialogueFieldDrafts(
   return drafts;
 }
 
-function getSceneNodeBelow(
+export function getTimelineBeforeNodeIdForBlock(
   block: Blockly.BlockSvg,
   scene: SceneDocument,
 ): string | null {
   const nextBlock = block.getNextBlock();
-  const nextBlockBelongsToScene =
+  if (
     nextBlock !== null &&
-    scene.nodes.some((node) => node.id === nextBlock.id);
+    scene.nodes.some((node) => node.id === nextBlock.id)
+  ) {
+    return nextBlock.id;
+  }
 
-  return nextBlockBelongsToScene ? nextBlock.id : null;
+  // 分页或显式跳转会让某些权威后继不再是物理 next 积木。
+  // 当被拖动的积木没有 next 连接时，用上方正式节点在
+  // Scene 中的后继作为锚点。
+  const previousBlock = block.getPreviousBlock();
+  const previousIndex = previousBlock
+    ? scene.nodes.findIndex((node) => node.id === previousBlock.id)
+    : -1;
+  if (previousIndex >= 0) {
+    return (
+      scene.nodes
+        .slice(previousIndex + 1)
+        .find((node) => node.id !== block.id)?.id ?? null
+    );
+  }
+
+  return null;
+}
+
+export function getNewStoryExtensionDropResolution(
+  event: Blockly.Events.Abstract,
+  workspace: Blockly.WorkspaceSvg,
+  scene: SceneDocument,
+): NewStoryExtensionDropResolution | null {
+  if (event.type !== Blockly.Events.BLOCK_MOVE) {
+    return null;
+  }
+
+  const moveEvent = event as Blockly.Events.BlockMove;
+  if (
+    !moveEvent.blockId ||
+    !moveEvent.reason?.includes('drag') ||
+    scene.nodes.some((node) => node.id === moveEvent.blockId)
+  ) {
+    return null;
+  }
+
+  const block = workspace.getBlockById(moveEvent.blockId);
+  if (!block || block.type !== STORY_CONTINUATION_BLOCK_TYPE) {
+    return null;
+  }
+
+  // 延伸是新页的页首，只有 next 连接口。吸附到某个已有
+  // 剧情节点上方时，就在该节点前插入 marker；留在空白处
+  // 则表示追加一个暂时没有内容的末尾分页。
+  const nextBlock = block.getNextBlock();
+  const nextNode = nextBlock
+    ? scene.nodes.find((node) => node.id === nextBlock.id)
+    : undefined;
+  if (
+    (nextBlock !== null &&
+      (!nextNode || nextNode.type === 'storyExtension')) ||
+    block.getPreviousBlock() !== null
+  ) {
+    return { kind: 'rollback' };
+  }
+
+  return {
+    kind: 'add',
+    drop: {
+      block,
+      beforeNodeId: nextNode?.id ?? null,
+    },
+  };
 }
 
 function getSceneNodeAbove(
@@ -178,7 +268,10 @@ export function getDroppedNewDialogueBlock(
     return null;
   }
 
-  const beforeNodeId = getSceneNodeBelow(block, scene);
+  const beforeNodeId = getTimelineBeforeNodeIdForBlock(
+    block,
+    scene,
+  );
   const afterNodeId = getSceneNodeAbove(block, scene);
 
   // 非空 Scene 中，积木必须真的接触到某个正式节点才进入 Project。
@@ -199,11 +292,11 @@ export function getDroppedNewDialogueBlock(
   };
 }
 
-export function getReorderedDialogueBlock(
+export function getTimelineReorderDropResolution(
   event: Blockly.Events.Abstract,
   workspace: Blockly.WorkspaceSvg,
   scene: SceneDocument,
-): DialogueReorderDrop | null {
+): TimelineReorderDropResolution | null {
   if (event.type !== Blockly.Events.BLOCK_MOVE) {
     return null;
   }
@@ -225,23 +318,57 @@ export function getReorderedDialogueBlock(
     return null;
   }
 
+  const movedNode = scene.nodes.find(
+    (node) => node.id === block.id,
+  );
+  if (movedNode?.type === 'storyExtension') {
+    // 延伸代表一整页，不允许通过单块拖拽只移动 marker。
+    // 页序只由它的数字字段触发 reorderMany 原子修改。
+    return { kind: 'restore-projection' };
+  }
+
   const currentIndex = scene.nodes.findIndex(
     (node) => node.id === block.id,
   );
   const currentBeforeNodeId =
     scene.nodes[currentIndex + 1]?.id ?? null;
-  const beforeNodeId = getSceneNodeBelow(block, scene);
+  const beforeNodeId = getTimelineBeforeNodeIdForBlock(
+    block,
+    scene,
+  );
 
-  // 放回原位、垃圾桶取消拖动和理论上的自连接都不应发送 IPC。
+  // 权威顺序没有变化时不能发送 reorder IPC，但跨分页拖放仍可能已经
+  // 改坏 Blockly 的物理连接。只有规范投影仍完整时才是真正的 no-op。
   if (
     beforeNodeId === block.id ||
     beforeNodeId === currentBeforeNodeId
   ) {
-    return null;
+    return isStoryPaginationProjectionConsistent(scene, workspace)
+      ? null
+      : { kind: 'restore-projection' };
   }
 
   return {
-    nodeId: block.id,
-    beforeNodeId,
+    kind: 'reorder',
+    drop: {
+      nodeId: block.id,
+      beforeNodeId,
+    },
   };
+}
+
+export function getReorderedDialogueBlock(
+  event: Blockly.Events.Abstract,
+  workspace: Blockly.WorkspaceSvg,
+  scene: SceneDocument,
+): DialogueReorderDrop | null {
+  const resolution = getTimelineReorderDropResolution(
+    event,
+    workspace,
+    scene,
+  );
+
+  return resolution?.kind === 'reorder'
+    ? resolution.drop
+    : null;
 }

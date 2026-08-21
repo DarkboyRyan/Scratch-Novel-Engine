@@ -18,12 +18,17 @@
 - [项目文件夹与媒体资源](./project-folder-storage.md)：项目目录格式、安全保存、资源导入、
   capability URL 与媒体读取。
 - [独立游戏 Player 与导出流程](./game-export-player.md)：记录已完成的共享 Runtime 与
-  Player、v9→runtime v1 内容包、macOS `*-macOS.zip` 独立应用导出（ZIP 内含唯一
+  Player、v13→runtime v4 内容包、runtime v1/v2/v3/v4 兼容读取、macOS `*-macOS.zip`
+  独立应用导出（ZIP 内含唯一
   已签名 `.app`）、embedded 模式和多平台
   workflow；也列出 `player-release`/`game-release` protected Environments、不可变 tag/
   Release 和 Environment Secrets 的上线配置，并区分“流水线已实现”与“正式发行尚未验收”。
 
 ### 剧情与编辑器功能
+
+- [当前架构中的主界面合成场景](./architecture.md#81-软件托管的主界面合成场景)：
+  Editor 默认进入的表单/Blockly 双编辑主界面、完整标题页预览、
+  `project.startScreen` 和 Player 标题页。
 
 - [人物立绘](./character-portrait-implementation.md)：人物资源、时间线节点、layer 和预览状态。
 - [场景跳转](./scene-jump-implementation.md)：SceneJumpNode 如何贯穿 C++、IPC、React、
@@ -45,7 +50,7 @@
 ## 面试准备推荐顺序
 
 1. [技术栈与面试讲解指南](./technical-stack-interview-guide.md)：先掌握 30 秒介绍、
-   总技术栈、五条调用链和常见问答。
+   总技术栈、六条调用链和常见问答。
 2. [当前架构](./architecture.md)：理解 Renderer、Preload、Main、C++ 和文件系统
    的职责边界。
 3. [代码结构整理与解耦](./code-organization-and-decoupling.md)：理解如何把现有编辑器
@@ -68,9 +73,13 @@
 Electron 43、React 19、TypeScript 5.9、Blockly 13、Vite 5、Electron Forge 7、
 C++20、CMake、nlohmann/json、Vitest、Node Test、CTest 和 GitHub Actions。
 
-当前项目 Writer 固定写 `fileVersion: 9`，Reader 支持 v1–v9。`SceneNode` 目前有
-Dialogue、Background、Character、SceneJump、Bgm、Video 和 Choice 七种类型；
-`ChoiceOption` 是 ChoiceNode 内部的子实体，不是第八种 SceneNode。
+当前项目 Writer 固定写 `fileVersion: 13`，Reader 支持 v1–v13。v10 新增项目级
+`project.startScreen` 背景/音乐配置，v11 新增与项目名彼此独立的主界面显示标题；
+它不是 Scene。v12 新增作者可从 Toolbox 主动插入的“延伸”节点，用于在 Blockly
+中建立向下连接的新分页；白色数字字段会原子调整整页先后。表单会隐藏它，Compiler
+会在生成 Runtime 前剥离它。可运行的
+`SceneNode` 仍是 Dialogue、Background、Character、SceneJump、Bgm、Video 和 Choice
+七种类型；`ChoiceOption` 是 ChoiceNode 内部的子实体。
 
 `archive/` 中的历史文档可能出现 PixiJS、Zod、Zustand、Playwright 或 Web 导出等
 尚未采用的技术。面试时不要把历史计划当作当前实现。

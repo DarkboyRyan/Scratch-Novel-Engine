@@ -14,13 +14,14 @@ import {
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
-import type { ProjectDocument } from "@vnengine/runtime";
-
-import type { AssetDocument } from "../../shared/projectTypes";
+import type {
+  AssetDocument,
+  ProjectDocument,
+} from "../../shared/projectTypes";
 import { mediaMagicMatches } from "../media/MediaContentValidator";
 import { maximumPreviewBytes } from "../media/MediaFormat";
 import {
-  compileAuthorProjectV9,
+  compileAuthorProjectV13,
   RUNTIME_VERSION,
   type AuthorAssetRecord,
 } from "./AuthorProjectCompiler";
@@ -33,7 +34,7 @@ const MAX_CTIME_ONLY_RETRY_ATTEMPTS = 3;
 
 export const RUNTIME_MANIFEST_FORMAT = "vn-engine-runtime-manifest";
 export const RUNTIME_MANIFEST_VERSION = 1;
-export const PLAYER_COMPATIBILITY = ">=1 <2";
+export const PLAYER_COMPATIBILITY = ">=4 <5";
 
 export type RuntimeManifestAssetV1 = {
   assetId: string;
@@ -511,7 +512,7 @@ async function copyAssetAndHash(
   stagingRootPath: string,
   asset: AuthorAssetRecord,
 ): Promise<RuntimeManifestAssetV1> {
-  // Author assets have no trusted digest in the saved v9 document. Treat even
+  // Author assets have no trusted digest in the saved v13 document. Treat even
   // ctime-only drift as a source change instead of learning a new hash here.
   return (await copyAssetAndHashAttempt(sourceRootPath, stagingRootPath, asset))
     .value;
@@ -728,8 +729,8 @@ export async function exportRuntimeBundle(
       sourceRootPath,
       options.expectedManifestSha256,
     );
-    const compiled = compileAuthorProjectV9(sourceManifestContents);
-    if (!isDeepStrictEqual(compiled.project, options.expectedProject)) {
+    const compiled = compileAuthorProjectV13(sourceManifestContents);
+    if (!isDeepStrictEqual(compiled.sourceProject, options.expectedProject)) {
       throw new Error("磁盘项目与当前编辑器项目不一致");
     }
     if (!isDeepStrictEqual(compiled.publicAssets, options.expectedAssets)) {

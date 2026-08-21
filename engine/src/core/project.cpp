@@ -4,10 +4,12 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <iomanip>
 #include <iterator>
 #include <sstream>
+#include <type_traits>
 #include <unordered_set>
 #include <utility>
 
@@ -101,7 +103,8 @@ Project create_empty_project(IdGenerator& ids, std::string name) {
   return Project{
       .schema_version = kSchemaVersion,
       .id = ids.next(),
-      .name = std::move(name),
+      .name = name,
+      .start_screen = {.title = std::move(name)},
       .entry_scene_id = first_scene_id,
       .scenes = {std::move(first_scene)},
   };
@@ -114,6 +117,51 @@ ProjectAggregate create_empty_project_aggregate(
       .project = create_empty_project(ids, std::move(name)),
       .assets = {},
   };
+}
+
+UpdateStartScreenResult update_start_screen(
+    ProjectAggregate& aggregate,
+    std::string title,
+    std::optional<std::string> background_asset_id,
+    std::optional<std::string> music_asset_id) {
+  const auto normalized_title =
+      normalize_start_screen_title(std::move(title));
+  if (!normalized_title.has_value()) {
+    return UpdateStartScreenResult::title_required;
+  }
+
+  if (background_asset_id.has_value()) {
+    const Asset* background = find_asset(aggregate, *background_asset_id);
+    if (background == nullptr) {
+      return UpdateStartScreenResult::background_asset_not_found;
+    }
+    if (background->type != AssetType::image) {
+      return UpdateStartScreenResult::background_asset_not_image;
+    }
+  }
+
+  if (music_asset_id.has_value()) {
+    const Asset* music = find_asset(aggregate, *music_asset_id);
+    if (music == nullptr) {
+      return UpdateStartScreenResult::music_asset_not_found;
+    }
+    if (music->type != AssetType::audio) {
+      return UpdateStartScreenResult::music_asset_not_audio;
+    }
+  }
+
+  StartScreen candidate{
+      .title = *normalized_title,
+      .background_asset_id = std::move(background_asset_id),
+      .music_asset_id = std::move(music_asset_id),
+  };
+  if (aggregate.project.start_screen == candidate) {
+    return UpdateStartScreenResult::unchanged;
+  }
+
+  static_assert(std::is_nothrow_move_assignable_v<StartScreen>);
+  aggregate.project.start_screen = std::move(candidate);
+  return UpdateStartScreenResult::changed;
 }
 
 SetSceneBackgroundResult set_scene_background(
@@ -187,6 +235,14 @@ std::optional<std::string> normalize_project_name(std::string name) {
     return std::nullopt;
   }
   return name;
+}
+
+std::optional<std::string> normalize_start_screen_title(std::string title) {
+  title = trim_ascii_whitespace(std::move(title));
+  if (title.empty()) {
+    return std::nullopt;
+  }
+  return title;
 }
 
 bool rename_project(Project& project, std::string name) {
@@ -404,6 +460,7 @@ AddCharacterNodeResult add_character_node(
       .asset_id = std::nullopt,
       .slot = CharacterSlot::center,
       .layer = 1,
+      .position = std::nullopt,
   };
   std::string created_id = character.id;
   scene->nodes.insert(insertion_iterator, std::move(character));
@@ -416,7 +473,8 @@ UpdateCharacterNodeResult update_character_node(
     const std::string_view node_id,
     std::optional<std::string> asset_id,
     const CharacterSlot slot,
-    const int layer) {
+    const int layer,
+    std::optional<CharacterPosition> position) {
   Scene* scene = find_scene(aggregate.project, scene_id);
   if (scene == nullptr) {
     return UpdateCharacterNodeResult::scene_not_found;
@@ -431,6 +489,12 @@ UpdateCharacterNodeResult update_character_node(
   if (layer < 1 || layer > 10) {
     return UpdateCharacterNodeResult::invalid_layer;
   }
+  if (position.has_value() &&
+      (!std::isfinite(position->x) || !std::isfinite(position->y) ||
+       position->x < 0.0 || position->x > 100.0 ||
+       position->y < 0.0 || position->y > 100.0)) {
+    return UpdateCharacterNodeResult::invalid_position;
+  }
   if (asset_id.has_value()) {
     const Asset* asset = find_asset(aggregate, *asset_id);
     if (asset == nullptr) {
@@ -441,13 +505,14 @@ UpdateCharacterNodeResult update_character_node(
     }
   }
   if (character->asset_id == asset_id && character->slot == slot &&
-      character->layer == layer) {
+      character->layer == layer && character->position == position) {
     return UpdateCharacterNodeResult::unchanged;
   }
 
   character->asset_id = std::move(asset_id);
   character->slot = slot;
   character->layer = layer;
+  character->position = std::move(position);
   return UpdateCharacterNodeResult::changed;
 }
 
@@ -926,6 +991,62 @@ UpdateSceneJumpNodeResult update_scene_jump_node(
 
   jump->target_scene_id = std::move(target_scene_id);
   return UpdateSceneJumpNodeResult::changed;
+}
+
+AddStoryExtensionNodeResult add_story_extension_node(
+    Project& project,
+    IdGenerator& ids,
+    const std::string_view scene_id,
+    std::optional<std::string> after_node_id,
+    std::optional<std::string> before_node_id) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return {AddStoryExtensionNodeStatus::scene_not_found, std::nullopt};
+  }
+  if (after_node_id.has_value() && before_node_id.has_value()) {
+    return {
+        AddStoryExtensionNodeStatus::placement_conflict,
+        std::nullopt,
+    };
+  }
+
+  auto insertion_iterator = scene->nodes.end();
+  if (before_node_id.has_value()) {
+    insertion_iterator = std::find_if(
+        scene->nodes.begin(),
+        scene->nodes.end(),
+        [&before_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *before_node_id;
+        });
+    if (insertion_iterator == scene->nodes.end()) {
+      return {
+          AddStoryExtensionNodeStatus::anchor_not_found,
+          std::nullopt,
+      };
+    }
+  } else if (after_node_id.has_value()) {
+    const auto anchor = std::find_if(
+        scene->nodes.begin(),
+        scene->nodes.end(),
+        [&after_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *after_node_id;
+        });
+    if (anchor == scene->nodes.end()) {
+      return {
+          AddStoryExtensionNodeStatus::anchor_not_found,
+          std::nullopt,
+      };
+    }
+    insertion_iterator = std::next(anchor);
+  }
+
+  StoryExtensionNode extension{.id = ids.next()};
+  std::string created_id = extension.id;
+  scene->nodes.insert(insertion_iterator, std::move(extension));
+  return {
+      AddStoryExtensionNodeStatus::added,
+      std::move(created_id),
+  };
 }
 
 bool reorder_scene_node(

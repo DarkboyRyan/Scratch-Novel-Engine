@@ -1,5 +1,6 @@
 #include "vnengine/project.hpp"
 
+#include <cmath>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -38,6 +39,22 @@ std::optional<std::string> validate_project(const Project& project) {
   }
   if (*normalized_name != project.name) {
     return "project name must not have surrounding whitespace";
+  }
+  const auto normalized_title =
+      normalize_start_screen_title(project.start_screen.title);
+  if (!normalized_title.has_value()) {
+    return "start screen title must not be empty";
+  }
+  if (*normalized_title != project.start_screen.title) {
+    return "start screen title must not have surrounding whitespace";
+  }
+  if (project.start_screen.background_asset_id.has_value() &&
+      project.start_screen.background_asset_id->empty()) {
+    return "start screen background Asset ID must not be empty";
+  }
+  if (project.start_screen.music_asset_id.has_value() &&
+      project.start_screen.music_asset_id->empty()) {
+    return "start screen music Asset ID must not be empty";
   }
   if (project.scenes.empty()) {
     return "project must contain at least one scene";
@@ -109,6 +126,15 @@ std::optional<std::string> validate_project(const Project& project) {
         }
         if (character->layer < 1 || character->layer > 10) {
           return "character node layer must be between 1 and 10";
+        }
+        if (character->position.has_value() &&
+            (!std::isfinite(character->position->x) ||
+             !std::isfinite(character->position->y) ||
+             character->position->x < 0.0 ||
+             character->position->x > 100.0 ||
+             character->position->y < 0.0 ||
+             character->position->y > 100.0)) {
+          return "character node position must be between 0 and 100";
         }
       }
       if (const auto* jump = std::get_if<SceneJumpNode>(&node);
@@ -239,6 +265,29 @@ std::optional<std::string> validate_project_aggregate(
     }
   }
 
+  if (aggregate.project.start_screen.background_asset_id.has_value()) {
+    const Asset* background = find_asset(
+        aggregate,
+        *aggregate.project.start_screen.background_asset_id);
+    if (background == nullptr) {
+      return "start screen background must reference an existing Asset";
+    }
+    if (background->type != AssetType::image) {
+      return "start screen background Asset must be an image";
+    }
+  }
+  if (aggregate.project.start_screen.music_asset_id.has_value()) {
+    const Asset* music = find_asset(
+        aggregate,
+        *aggregate.project.start_screen.music_asset_id);
+    if (music == nullptr) {
+      return "start screen music must reference an existing Asset";
+    }
+    if (music->type != AssetType::audio) {
+      return "start screen music Asset must be audio";
+    }
+  }
+
   for (const Scene& scene : aggregate.project.scenes) {
     if (scene.visuals.background_asset_id.has_value()) {
       const Asset* background = find_asset(
@@ -339,4 +388,3 @@ std::optional<std::string> validate_project_aggregate(
 }
 
 }  // namespace vnengine
-

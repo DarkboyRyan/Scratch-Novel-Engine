@@ -22,6 +22,8 @@ const vnPlayer: VnPlayerApi = {
       action: 'get-media-url',
       params: { assetId },
     }) as Promise<string | null>,
+  quitGame: () =>
+    invokePlayer({ action: 'quit-game', params: {} }) as Promise<void>,
 };
 
 contextBridge.exposeInMainWorld('vnPlayer', vnPlayer);

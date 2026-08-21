@@ -624,6 +624,167 @@
   border-radius: 999px;
 }
 
+.start-screen-editor-workspace {
+  background:
+    radial-gradient(circle at 24% 18%, rgb(83 117 154 / 8%), transparent 34%),
+    var(--panel);
+}
+
+.start-screen-preview-button {
+  flex: 0 0 auto;
+}
+
+.start-screen-blockly-workspace .blocklyEditableText > rect,
+.start-screen-blockly-workspace .blocklyEditableField > .blocklyFieldRect {
+  fill: #ffffff !important;
+  fill-opacity: 1 !important;
+  stroke: #c5cbd3 !important;
+  stroke-width: 1px !important;
+}
+
+.start-screen-blockly-workspace .blocklyEditableText text,
+.start-screen-blockly-workspace .blocklyEditableField text {
+  fill: #242a32 !important;
+}
+
+.start-screen-form-field {
+  display: grid;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.start-screen-form-field select,
+.inspector-panel.start-screen-form-inspector input,
+.inspector-panel.start-screen-form-inspector select {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 10px;
+  color: var(--text);
+  background: #ffffff;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+}
+
+.start-screen-form-note {
+  display: grid;
+  gap: 6px;
+  margin-top: 18px;
+  padding: 14px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.start-screen-form-note strong {
+  color: var(--text);
+}
+
+.start-screen-form-note p,
+.start-screen-form-help {
+  margin: 0;
+}
+
+.start-screen-form-preview {
+  min-width: 0;
+}
+
+.start-screen-design-preview {
+  position: relative;
+  isolation: isolate;
+  width: min(100%, 960px);
+  aspect-ratio: 16 / 9;
+  display: grid;
+  overflow: hidden;
+  color: #ffffff;
+  background:
+    radial-gradient(circle at 22% 28%, rgb(100 72 170 / 38%), transparent 38%),
+    radial-gradient(circle at 84% 76%, rgb(101 44 113 / 31%), transparent 36%),
+    linear-gradient(145deg, #131020, #07060c 72%);
+  border: 1px solid #d9dde3;
+  border-radius: 12px;
+  box-shadow: 0 16px 42px rgb(35 42 52 / 10%);
+  place-items: center;
+}
+
+.start-screen-design-preview > img,
+.start-screen-design-scrim {
+  position: absolute;
+  z-index: -2;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.start-screen-design-preview > img {
+  object-fit: contain;
+}
+
+.start-screen-design-scrim {
+  z-index: -1;
+  background:
+    linear-gradient(180deg, rgb(5 3 9 / 4%), rgb(5 3 9 / 18%)),
+    radial-gradient(circle at center, transparent 38%, rgb(4 3 8 / 12%) 100%);
+}
+
+.start-screen-design-card {
+  width: min(68%, 520px);
+  padding: clamp(22px, 5vw, 54px);
+  text-align: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 22px;
+  text-shadow: 0 2px 14px rgb(0 0 0 / 76%);
+}
+
+.start-screen-design-card > p {
+  margin: 0;
+  color: #baa3ec;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.2em;
+}
+
+.start-screen-design-card h2 {
+  margin: 10px 0 24px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(26px, 4vw, 52px);
+  font-weight: 500;
+}
+
+.start-screen-design-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.start-screen-design-actions span {
+  width: min(100%, 180px);
+  min-width: 104px;
+  padding: 9px 12px;
+  font-size: 11px;
+  font-weight: 650;
+  background: rgb(255 255 255 / 8%);
+  border: 1px solid rgb(255 255 255 / 24%);
+  border-radius: 8px;
+}
+
+.start-screen-design-actions span.is-primary {
+  background: linear-gradient(135deg, #7557d9, #9c5fc4);
+}
+
+.start-screen-form-help {
+  margin-top: 18px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .block-editor-heading h1 {
   margin: 0;
   font-size: 18px;
@@ -649,6 +810,19 @@
 .blockly-workspace {
   position: absolute;
   inset: 0;
+}
+
+/* 延伸页序是可写命令入口，白底与其它可编辑表单字段保持一致。 */
+.vn-story-continuation-sequence-field > rect,
+.vn-story-continuation-sequence-field > .blocklyFieldRect {
+  fill: #ffffff !important;
+  fill-opacity: 1 !important;
+  stroke: #c5cbd3 !important;
+  stroke-width: 1px !important;
+}
+
+.vn-story-continuation-sequence-field text {
+  fill: #242a32 !important;
 }
 
 .vn-block-selection-rectangle {
@@ -1312,6 +1486,157 @@
   place-items: center;
 }
 
+.game-preview-title-overlay {
+  padding: 0;
+  cursor: default;
+}
+
+.game-preview-title-overlay .player-shell {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  padding: 48px;
+  color: #f7f3ff;
+  background:
+    radial-gradient(circle at 22% 28%, rgb(100 72 170 / 38%), transparent 38%),
+    radial-gradient(circle at 84% 76%, rgb(101 44 113 / 31%), transparent 36%),
+    linear-gradient(145deg, #131020, #07060c 72%);
+  place-items: center;
+}
+
+.game-preview-title-overlay .player-title-page {
+  position: relative;
+  isolation: isolate;
+}
+
+.game-preview-title-overlay .player-title-background,
+.game-preview-title-overlay .player-title-scrim {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.game-preview-title-overlay .player-title-background {
+  z-index: -2;
+  object-fit: contain;
+}
+
+.game-preview-title-overlay .player-title-scrim {
+  z-index: -1;
+  background:
+    linear-gradient(180deg, rgb(5 3 9 / 4%), rgb(5 3 9 / 18%)),
+    radial-gradient(circle at center, transparent 38%, rgb(4 3 8 / 12%) 100%);
+}
+
+.game-preview-title-overlay .player-title-music {
+  display: none;
+}
+
+.game-preview-title-overlay .player-title-card {
+  width: min(680px, 92vw);
+  padding: clamp(36px, 7vw, 80px);
+  text-align: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 28px;
+  box-shadow: none;
+  text-shadow: 0 2px 16px rgb(0 0 0 / 76%);
+}
+
+.game-preview-title-overlay .player-title-card h1 {
+  margin: 12px 0 38px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(40px, 7vw, 84px);
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -0.035em;
+}
+
+.game-preview-title-overlay .player-eyebrow {
+  margin: 0;
+  color: #baa3ec;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.22em;
+}
+
+.game-preview-title-overlay .player-title-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.game-preview-title-overlay .player-title-actions > button {
+  width: min(100%, 260px);
+}
+
+.game-preview-title-overlay .player-title-card button,
+.game-preview-title-overlay .player-menu-card button {
+  min-width: 180px;
+  min-height: 48px;
+  padding: 0 24px;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+  background: linear-gradient(135deg, #7557d9, #9c5fc4);
+  border: 1px solid rgb(255 255 255 / 24%);
+  border-radius: 12px;
+}
+
+.game-preview-title-overlay .player-title-card button.secondary,
+.game-preview-title-overlay .player-menu-card button.secondary {
+  color: #e9e1f6;
+  background: rgb(255 255 255 / 8%);
+}
+
+.game-preview-title-overlay .player-start-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-width: 210px;
+}
+
+.game-preview-title-overlay .player-menu-layer {
+  position: absolute;
+  z-index: 90;
+  inset: 0;
+  display: grid;
+  padding: 40px;
+  background: rgb(5 3 9 / 72%);
+  backdrop-filter: blur(12px);
+  place-items: center;
+}
+
+.game-preview-title-overlay .player-menu-card {
+  width: min(410px, calc(100vw - 64px));
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  padding: 38px;
+  text-align: center;
+  background: rgb(20 15 31 / 94%);
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 22px;
+  box-shadow: 0 30px 90px rgb(0 0 0 / 52%);
+}
+
+.game-preview-title-overlay .player-menu-card h2 {
+  margin: 4px 0 22px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 38px;
+  font-weight: 500;
+}
+
+.game-preview-title-overlay .player-menu-card button {
+  width: 100%;
+}
+
 .game-preview-stage {
   width: min(calc(100vw - 56px), 1600px);
   max-height: calc(100vh - 56px);
@@ -1563,6 +1888,25 @@
   display: grid;
   align-content: start;
   gap: 16px;
+}
+
+.character-coordinate-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+
+.character-coordinate-fields legend {
+  grid-column: 1 / -1;
+  padding: 0;
+  margin-bottom: 8px;
+  color: #555c66;
+  font-size: 13px;
+  font-weight: 550;
 }
 
 .scene-jump-inspector {

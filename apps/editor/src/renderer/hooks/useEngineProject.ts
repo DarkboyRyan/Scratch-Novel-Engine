@@ -42,6 +42,16 @@ function requestInitialProject(
 function readableError(error: unknown): string {
   if (
     error instanceof Error &&
+    (error.message.includes('addStoryExtension is not a function') ||
+      error.message.includes('reorderTimelineNodes is not a function') ||
+      error.message.includes('unknown method: storyExtension') ||
+      error.message.includes('unknown method: timeline.reorderMany'))
+  ) {
+    return '延伸模块尚未加载，请完全退出并重新启动编辑器';
+  }
+
+  if (
+    error instanceof Error &&
     (error.message.includes('addSceneJump is not a function') ||
       error.message.includes('updateSceneJump is not a function') ||
       error.message.includes('unknown method: sceneJump'))
@@ -61,6 +71,13 @@ function readableError(error: unknown): string {
     error.message.includes('project name must not be empty')
   ) {
     return '项目名不可为空';
+  }
+
+  if (
+    error instanceof Error &&
+    error.message.includes('start screen title must not be empty')
+  ) {
+    return '游戏名不可为空';
   }
 
   if (
@@ -216,6 +233,9 @@ export function useEngineProject(
     run: runEngineAction,
     onSceneJumpUnavailable: () => {
       setEngineMessage('场景跳转模块尚未加载，请完全退出并重新启动编辑器');
+    },
+    onStoryExtensionUnavailable: () => {
+      setEngineMessage('延伸模块尚未加载，请完全退出并重新启动编辑器');
     },
   });
 
@@ -397,6 +417,21 @@ export function useEngineProject(
     return result !== null;
   }
 
+  async function updateStartScreen(
+    title: string,
+    backgroundAssetId: string | null,
+    musicAssetId: string | null,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      platform.engine.updateStartScreen({
+        title,
+        backgroundAssetId,
+        musicAssetId,
+      }),
+    );
+    return result !== null;
+  }
+
   async function importImage(): Promise<ImportImageStatus> {
     if (fileOperationInProgress.current) {
       return 'failed';
@@ -507,6 +542,7 @@ export function useEngineProject(
     importVideo,
     importAudio,
     renameProject,
+    updateStartScreen,
     setSceneBackground,
     waitForEngineActions,
     getProjectSnapshot,

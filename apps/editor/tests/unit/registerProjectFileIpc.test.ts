@@ -67,6 +67,11 @@ const projectResult: EngineMutationResult = {
     id: 'project-1',
     name: 'My story',
     entrySceneId: 'scene-1',
+    startScreen: {
+      title: 'My story',
+      backgroundAssetId: null,
+      musicAssetId: null,
+    },
     scenes: [
       {
         schemaVersion: 1,

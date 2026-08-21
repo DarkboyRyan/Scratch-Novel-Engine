@@ -17,12 +17,18 @@ export type BackgroundNode = {
 
 export type CharacterSlot = 'left' | 'center' | 'right';
 
+export type CharacterPosition = {
+  x: number;
+  y: number;
+};
+
 export type CharacterNode = {
   id: string;
   type: 'character';
   assetId: string | null;
   slot: CharacterSlot;
   layer: number;
+  position: CharacterPosition | null;
 };
 
 export type SceneJumpNode = {
@@ -72,10 +78,17 @@ export type SceneDocument = {
   nodes: SceneNode[];
 };
 
+export type StartScreenDocument = {
+  title: string;
+  backgroundAssetId: string | null;
+  musicAssetId: string | null;
+};
+
 export type ProjectDocument = {
   schemaVersion: 1;
   id: string;
   name: string;
   entrySceneId: string;
+  startScreen: StartScreenDocument;
   scenes: SceneDocument[];
 };

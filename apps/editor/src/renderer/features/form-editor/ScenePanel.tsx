@@ -4,8 +4,10 @@ import type {
   AssetDocument,
   ProjectDocument,
   SceneDocument,
-  SceneNode,
+  SemanticSceneNode,
 } from '../../../shared/projectTypes';
+import { semanticSceneNodes } from '../../../shared/projectTypes';
+import { START_SCREEN_SCENE_ID } from '../start-screen/startScreenScene';
 
 type ScenePanelProps = {
   project: ProjectDocument;
@@ -15,7 +17,8 @@ type ScenePanelProps = {
   isBusy: boolean;
   onAddScene: () => Promise<void>;
   onSelectScene: (sceneId: string) => Promise<void>;
-  onSelectNode: (node: SceneNode) => Promise<void>;
+  onSelectStartScreen?: () => Promise<void>;
+  onSelectNode: (node: SemanticSceneNode) => Promise<void>;
   onInsertBackground: () => Promise<void>;
   onInsertSceneJump: () => Promise<void>;
   onMoveNode: (
@@ -33,6 +36,7 @@ export function ScenePanel({
   isBusy,
   onAddScene,
   onSelectScene,
+  onSelectStartScreen,
   onSelectNode,
   onInsertBackground,
   onInsertSceneJump,
@@ -44,6 +48,7 @@ export function ScenePanel({
   const imageAssets = assets.filter((asset) => asset.type === 'image');
   const audioAssets = assets.filter((asset) => asset.type === 'audio');
   const videoAssets = assets.filter((asset) => asset.type === 'video');
+  const storyNodes = semanticSceneNodes(scene);
   const currentSceneNumber =
     project.scenes.findIndex((projectScene) => projectScene.id === scene.id) +
     1;
@@ -112,6 +117,21 @@ export function ScenePanel({
 
           {isSceneMenuOpen ? (
             <div className="scene-menu-list" role="listbox">
+              {onSelectStartScreen ? (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={false}
+                  data-scene-id={START_SCREEN_SCENE_ID}
+                  onClick={() => {
+                    setIsSceneMenuOpen(false);
+                    void onSelectStartScreen();
+                  }}
+                >
+                  <strong>主界面</strong>
+                  <span>软件托管的开始游戏界面</span>
+                </button>
+              ) : null}
               {project.scenes.map((projectScene, index) => (
                 <button
                   key={projectScene.id}
@@ -164,7 +184,7 @@ export function ScenePanel({
 
       <div className="scene-status">
         <span>{project.scenes.length} 个场景</span>
-        <span>{scene.nodes.length} 个剧情节点</span>
+        <span>{storyNodes.length} 个剧情节点</span>
       </div>
 
       <div className="timeline-add-actions">
@@ -179,7 +199,7 @@ export function ScenePanel({
       </div>
 
       <ol className="dialogue-list timeline-list">
-        {scene.nodes.map((node, index) => (
+        {storyNodes.map((node, index) => (
           <li
             key={node.id}
             className={`${node.id === selectedNodeId ? 'selected' : ''}${
@@ -289,7 +309,7 @@ export function ScenePanel({
                 type="button"
                 className="dialogue-move-button"
                 disabled={
-                  isBusy || index === scene.nodes.length - 1
+                  isBusy || index === storyNodes.length - 1
                 }
                 aria-label={`下移第 ${index + 1} 个剧情节点`}
                 title="下移"

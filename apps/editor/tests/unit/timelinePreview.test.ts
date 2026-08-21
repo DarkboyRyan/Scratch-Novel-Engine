@@ -17,6 +17,7 @@ const scene: SceneDocument = {
       voiceAssetId: null,
     },
     { id: 'b1', type: 'background', assetId: 'forest' },
+    { id: 'extension-1', type: 'storyExtension' },
     {
       id: 'd2',
       type: 'dialogue',
@@ -30,6 +31,7 @@ const scene: SceneDocument = {
       assetId: 'alice',
       slot: 'left',
       layer: 2,
+      position: null,
     },
     { id: 'b2', type: 'background', assetId: 'room' },
   ],
@@ -45,6 +47,14 @@ describe('deriveTimelinePreview', () => {
   });
 
   it('keeps the latest background active until another background node', () => {
+    expect(deriveTimelinePreview(scene, 'd2')).toEqual({
+      backgroundAssetId: 'forest',
+      characters: [],
+      showDialogue: true,
+    });
+  });
+
+  it('keeps authoring-only story extensions invisible to preview semantics', () => {
     expect(deriveTimelinePreview(scene, 'd2')).toEqual({
       backgroundAssetId: 'forest',
       characters: [],
@@ -85,6 +95,7 @@ describe('deriveTimelinePreview', () => {
           assetId: 'alice-image',
           slot: 'left',
           layer: 1,
+          position: null,
         },
         {
           id: 'bob',
@@ -92,6 +103,7 @@ describe('deriveTimelinePreview', () => {
           assetId: 'bob-image',
           slot: 'right',
           layer: 3,
+          position: { x: 75, y: 90 },
         },
         {
           id: 'replace',
@@ -99,6 +111,7 @@ describe('deriveTimelinePreview', () => {
           assetId: 'carol-image',
           slot: 'center',
           layer: 1,
+          position: null,
         },
         {
           id: 'clear',
@@ -106,6 +119,7 @@ describe('deriveTimelinePreview', () => {
           assetId: null,
           slot: 'right',
           layer: 3,
+          position: null,
         },
       ],
     };
@@ -116,12 +130,14 @@ describe('deriveTimelinePreview', () => {
         assetId: 'carol-image',
         slot: 'center',
         layer: 1,
+        position: null,
       },
       {
         nodeId: 'bob',
         assetId: 'bob-image',
         slot: 'right',
         layer: 3,
+        position: { x: 75, y: 90 },
       },
     ]);
     expect(deriveTimelinePreview(portraitScene, 'clear').characters).toEqual([
@@ -130,6 +146,7 @@ describe('deriveTimelinePreview', () => {
         assetId: 'carol-image',
         slot: 'center',
         layer: 1,
+        position: null,
       },
     ]);
   });

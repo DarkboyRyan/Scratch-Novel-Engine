@@ -37,7 +37,11 @@ function isPlayerInvocation(value: unknown): value is PlayerInvocation {
   if (!isObject(value.params)) {
     return false;
   }
-  if (value.action === 'load-game' || value.action === 'open-game') {
+  if (
+    value.action === 'load-game' ||
+    value.action === 'open-game' ||
+    value.action === 'quit-game'
+  ) {
     return hasExactFields(value.params, []);
   }
   return (
@@ -53,13 +57,20 @@ export function registerPlayerIpc(
   ipcMain: IpcRegistrar,
   contexts: PlayerWindowContexts,
   trustedLocations: TrustedPlayerLocations,
+  quitPlayer: () => void,
 ): void {
   ipcMain.handle(
     PLAYER_IPC_CHANNEL,
     (
       event: Electron.IpcMainInvokeEvent,
       invocation: unknown,
-    ): PlayerLoadResult | PlayerOpenResult | Promise<PlayerOpenResult> | string | null => {
+    ):
+      | PlayerLoadResult
+      | PlayerOpenResult
+      | Promise<PlayerOpenResult>
+      | string
+      | null
+      | void => {
       if (!isTrustedPlayerFrame(event, trustedLocations)) {
         throw new Error('Player 请求来源不可信');
       }
@@ -76,6 +87,10 @@ export function registerPlayerIpc(
       }
       if (invocation.action === 'open-game') {
         return context.bundleSession.openGame();
+      }
+      if (invocation.action === 'quit-game') {
+        quitPlayer();
+        return;
       }
       return context.bundleSession.getMediaUrl(invocation.params.assetId);
     },

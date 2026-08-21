@@ -16,7 +16,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { compileAuthorProjectV9 } from '../../src/main/export/AuthorProjectCompiler';
+import { compileAuthorProjectV13 } from '../../src/main/export/AuthorProjectCompiler';
 import {
   exportRuntimeBundle,
   type RuntimeBundleExportFaultPoint,
@@ -33,19 +33,24 @@ async function makeDirectory(): Promise<string> {
 function projectDocument(relativePath = 'assets/images/image-1.png'): unknown {
   return {
     format: 'vn-engine-project',
-    fileVersion: 9,
+    fileVersion: 13,
     project: {
       schemaVersion: 1,
       id: 'project-1',
       name: 'Export Game',
       entrySceneId: 'scene-1',
+      startScreen: {
+        title: 'Custom Title',
+        backgroundAssetId: 'image-1',
+        musicAssetId: 'title-music',
+      },
       scenes: [
         {
           schemaVersion: 1,
           id: 'scene-1',
           name: 'Scene 1',
           visuals: { backgroundAssetId: 'image-1', characters: [] },
-          nodes: [],
+          nodes: [{ id: 'extension-1', type: 'storyExtension' }],
         },
       ],
     },
@@ -57,10 +62,16 @@ function projectDocument(relativePath = 'assets/images/image-1.png'): unknown {
         displayName: 'Background.png',
       },
       {
-        id: 'unused-audio',
+        id: 'title-music',
         type: 'audio',
-        relativePath: 'assets/audio/unused-audio.mp3',
-        displayName: 'Unused.mp3',
+        relativePath: 'assets/audio/title-music.mp3',
+        displayName: 'Title.mp3',
+      },
+      {
+        id: 'unused-video',
+        type: 'video',
+        relativePath: 'assets/videos/unused-video.mp4',
+        displayName: 'Unused.mp4',
       },
     ],
   };
@@ -68,12 +79,12 @@ function projectDocument(relativePath = 'assets/images/image-1.png'): unknown {
 
 function currentSnapshot() {
   const manifestContents = JSON.stringify(projectDocument());
-  const compiled = compileAuthorProjectV9(manifestContents);
+  const compiled = compileAuthorProjectV13(manifestContents);
   return {
     expectedManifestSha256: createHash('sha256')
       .update(manifestContents)
       .digest('hex'),
-    expectedProject: compiled.project,
+    expectedProject: compiled.sourceProject,
     expectedAssets: compiled.publicAssets,
   };
 }
@@ -82,19 +93,27 @@ async function createSavedProject(): Promise<{
   projectRoot: string;
   outputParent: string;
   imageBytes: Buffer;
+  audioBytes: Buffer;
 }> {
   const testRoot = await makeDirectory();
   const projectRoot = path.join(testRoot, 'Author Project');
   const outputParent = path.join(testRoot, 'Exports');
   await mkdir(path.join(projectRoot, 'assets', 'images'), { recursive: true });
+  await mkdir(path.join(projectRoot, 'assets', 'audio'), { recursive: true });
   await mkdir(outputParent);
   const imageBytes = Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     Buffer.from('runtime-export-test'),
   ]);
+  const audioBytes = Buffer.alloc(417);
+  audioBytes.set([0xff, 0xfb, 0x90, 0x64]);
   await writeFile(path.join(projectRoot, 'project.vn.json'), JSON.stringify(projectDocument()));
   await writeFile(path.join(projectRoot, 'assets', 'images', 'image-1.png'), imageBytes);
-  return { projectRoot, outputParent, imageBytes };
+  await writeFile(
+    path.join(projectRoot, 'assets', 'audio', 'title-music.mp3'),
+    audioBytes,
+  );
+  return { projectRoot, outputParent, imageBytes, audioBytes };
 }
 
 afterEach(async () => {
@@ -106,8 +125,8 @@ afterEach(async () => {
 });
 
 describe('runtime bundle exporter', () => {
-  it('publishes a verified runtime v1 directory bundle with referenced assets only', async () => {
-    const { projectRoot, outputParent, imageBytes } = await createSavedProject();
+  it('publishes a verified runtime v4 bundle with start-screen assets', async () => {
+    const { projectRoot, outputParent, imageBytes, audioBytes } = await createSavedProject();
     const targetPath = path.join(outputParent, 'Custom Name.vngame');
 
     await expect(
@@ -123,7 +142,7 @@ describe('runtime bundle exporter', () => {
       bundleName: 'Custom Name.vngame',
       buildId: 'build-fixed',
       sourceRevision: 12,
-      assetCount: 1,
+      assetCount: 2,
     });
 
     const game = JSON.parse(await readFile(path.join(targetPath, 'game.json'), 'utf8'));
@@ -131,11 +150,32 @@ describe('runtime bundle exporter', () => {
       await readFile(path.join(targetPath, 'manifest.json'), 'utf8'),
     );
     expect(Object.keys(game)).toEqual(['format', 'runtimeVersion', 'game', 'scenes']);
+    expect(Object.keys(game.game)).toEqual([
+      'id',
+      'title',
+      'entrySceneId',
+      'startScreen',
+    ]);
+    expect(Object.keys(game.game.startScreen)).toEqual([
+      'title',
+      'backgroundAssetId',
+      'musicAssetId',
+    ]);
     expect(game).toMatchObject({
       format: 'vn-engine-runtime',
-      runtimeVersion: 1,
-      game: { id: 'project-1', title: 'Export Game', entrySceneId: 'scene-1' },
+      runtimeVersion: 4,
+      game: {
+        id: 'project-1',
+        title: 'Export Game',
+        entrySceneId: 'scene-1',
+        startScreen: {
+          title: 'Custom Title',
+          backgroundAssetId: 'image-1',
+          musicAssetId: 'title-music',
+        },
+      },
     });
+    expect(game.scenes[0].nodes).toEqual([]);
     expect(Object.keys(manifest)).toEqual([
       'format',
       'manifestVersion',
@@ -147,6 +187,10 @@ describe('runtime bundle exporter', () => {
       'createdAt',
       'files',
     ]);
+    expect(manifest).toMatchObject({
+      runtimeVersion: 4,
+      playerCompatibility: '>=4 <5',
+    });
     expect(manifest.files).toEqual([
       {
         assetId: 'image-1',
@@ -157,12 +201,21 @@ describe('runtime bundle exporter', () => {
         bytes: imageBytes.length,
         sha256: createHash('sha256').update(imageBytes).digest('hex'),
       },
+      {
+        assetId: 'title-music',
+        type: 'audio',
+        displayName: 'Title.mp3',
+        path: 'assets/audio/title-music.mp3',
+        mime: 'audio/mpeg',
+        bytes: audioBytes.length,
+        sha256: createHash('sha256').update(audioBytes).digest('hex'),
+      },
     ]);
     await expect(
       readFile(path.join(targetPath, 'assets', 'images', 'image-1.png')),
     ).resolves.toEqual(imageBytes);
     await expect(
-      access(path.join(targetPath, 'assets', 'audio', 'unused-audio.mp3')),
+      access(path.join(targetPath, 'assets', 'videos', 'unused-video.mp4')),
     ).rejects.toMatchObject({ code: 'ENOENT' });
     expect(JSON.stringify({ game, manifest })).not.toContain(projectRoot);
   });

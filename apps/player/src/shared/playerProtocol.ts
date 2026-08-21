@@ -60,6 +60,10 @@ export type PlayerInvocation =
       params: Record<string, never>;
     }
   | {
+      action: 'quit-game';
+      params: Record<string, never>;
+    }
+  | {
       action: 'get-media-url';
       params: {
         assetId: string;
@@ -70,4 +74,5 @@ export type VnPlayerApi = {
   loadGame(): Promise<PlayerLoadResult>;
   openGame(): Promise<PlayerOpenResult>;
   getMediaUrl(assetId: string): Promise<string | null>;
+  quitGame(): Promise<void>;
 };

@@ -24,11 +24,12 @@ describe('Player Preload API', () => {
     api = electronMocks.exposeInMainWorld.mock.calls[0][1] as VnPlayerApi;
   });
 
-  it('exposes only loadGame, openGame and getMediaUrl', () => {
+  it('exposes only loading, media and trusted quit intents', () => {
     expect(Object.keys(api).sort()).toEqual([
       'getMediaUrl',
       'loadGame',
       'openGame',
+      'quitGame',
     ]);
     expect('saveProject' in api).toBe(false);
     expect('importAsset' in api).toBe(false);
@@ -58,6 +59,13 @@ describe('Player Preload API', () => {
     expect(electronMocks.invoke).toHaveBeenLastCalledWith(
       PLAYER_IPC_CHANNEL,
       { action: 'get-media-url', params: { assetId: 'asset-1' } },
+    );
+
+    electronMocks.invoke.mockResolvedValueOnce(undefined);
+    await api.quitGame();
+    expect(electronMocks.invoke).toHaveBeenLastCalledWith(
+      PLAYER_IPC_CHANNEL,
+      { action: 'quit-game', params: {} },
     );
   });
 });

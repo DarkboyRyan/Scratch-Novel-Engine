@@ -14,6 +14,7 @@ type FormEditorProps = {
   characters: PreviewCharacter[];
   isStartPreviewDisabled: boolean;
   onStartPreview: () => void;
+  onSelectStartScreen: () => Promise<void>;
 };
 
 export function FormEditor({
@@ -25,6 +26,7 @@ export function FormEditor({
   characters,
   isStartPreviewDisabled,
   onStartPreview,
+  onSelectStartScreen,
 }: FormEditorProps) {
   const { project, scene } = editor;
 
@@ -42,6 +44,7 @@ export function FormEditor({
         isBusy={editor.isBusy}
         onAddScene={editor.addScene}
         onSelectScene={editor.selectScene}
+        onSelectStartScreen={onSelectStartScreen}
         onSelectNode={editor.selectNode}
         onInsertBackground={editor.insertBackground}
         onInsertSceneJump={editor.insertSceneJump}

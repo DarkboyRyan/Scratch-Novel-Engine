@@ -84,6 +84,8 @@ const vnEngine: VnEngineApi = {
     invokeEngine({ method: 'project.get', params: {} }),
   renameProject: (name) =>
     invokeEngine({ method: 'project.rename', params: { name } }),
+  updateStartScreen: (params) =>
+    invokeEngine({ method: 'startScreen.update', params }),
   addScene: (name) =>
     invokeEngine({ method: 'scene.add', params: { name } }),
   renameScene: (sceneId, name) =>
@@ -221,6 +223,11 @@ const vnEngine: VnEngineApi = {
   reorderChoiceOption: (params) =>
     invokeEngine({
       method: 'choice.option.reorder',
+      params,
+    }),
+  addStoryExtension: (params) =>
+    invokeEngine({
+      method: 'storyExtension.add',
       params,
     }),
   deleteTimelineNodes: (params) =>

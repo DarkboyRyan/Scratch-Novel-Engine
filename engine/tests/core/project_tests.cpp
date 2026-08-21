@@ -70,6 +70,12 @@ const vnengine::ChoiceNode& choice_at(
   return std::get<vnengine::ChoiceNode>(scene.nodes.at(index));
 }
 
+const vnengine::StoryExtensionNode& story_extension_at(
+    const vnengine::Scene& scene,
+    const std::size_t index) {
+  return std::get<vnengine::StoryExtensionNode>(scene.nodes.at(index));
+}
+
 std::vector<std::string> timeline_ids(const vnengine::Scene& scene) {
   std::vector<std::string> result;
   result.reserve(scene.nodes.size());
@@ -85,6 +91,9 @@ void creates_project_with_one_empty_entry_scene() {
 
   CHECK(project.schema_version == 1);
   CHECK(project.name == "未命名项目");
+  CHECK(project.start_screen.title == "未命名项目");
+  CHECK(!project.start_screen.background_asset_id.has_value());
+  CHECK(!project.start_screen.music_asset_id.has_value());
   CHECK(project.scenes.size() == 1);
   CHECK(project.scenes[0].name == "场景 1");
   CHECK(!project.scenes[0].visuals.background_asset_id.has_value());
@@ -101,6 +110,9 @@ void creates_an_empty_project_aggregate() {
       vnengine::create_empty_project_aggregate(ids, "视觉小说");
 
   CHECK(aggregate.project.name == "视觉小说");
+  CHECK(aggregate.project.start_screen.title == "视觉小说");
+  CHECK(!aggregate.project.start_screen.background_asset_id.has_value());
+  CHECK(!aggregate.project.start_screen.music_asset_id.has_value());
   CHECK(aggregate.assets.empty());
   CHECK(aggregate.project.scenes.size() == 1);
   CHECK(aggregate.project.scenes[0].visuals.characters.empty());
@@ -110,11 +122,13 @@ void creates_an_empty_project_aggregate() {
 void normalizes_and_renames_a_project() {
   SequenceIdGenerator ids;
   vnengine::Project project = vnengine::create_empty_project(ids, "旧名字");
+  CHECK(project.start_screen.title == "旧名字");
 
   CHECK(vnengine::normalize_project_name("  新名字\t") == "新名字");
   CHECK(!vnengine::normalize_project_name(" \n\t ").has_value());
   CHECK(vnengine::rename_project(project, "新名字"));
   CHECK(project.name == "新名字");
+  CHECK(project.start_screen.title == "旧名字");
   CHECK(!vnengine::rename_project(project, "新名字"));
 }
 
@@ -540,6 +554,100 @@ vnengine::ProjectAggregate visual_aggregate() {
   return aggregate;
 }
 
+void updates_start_screen_atomically() {
+  using Result = vnengine::UpdateStartScreenResult;
+
+  vnengine::ProjectAggregate aggregate = visual_aggregate();
+  CHECK(vnengine::update_start_screen(
+            aggregate,
+            "  自定义游戏名  ",
+            "asset-background",
+            "asset-music") ==
+        Result::changed);
+  CHECK(aggregate.project.start_screen.title == "自定义游戏名");
+  CHECK(aggregate.project.start_screen.background_asset_id ==
+        "asset-background");
+  CHECK(aggregate.project.start_screen.music_asset_id == "asset-music");
+  CHECK(!vnengine::validate_project_aggregate(aggregate).has_value());
+
+  CHECK(vnengine::update_start_screen(
+            aggregate,
+            "自定义游戏名",
+            "asset-background",
+            "asset-music") ==
+        Result::unchanged);
+
+  const vnengine::ProjectAggregate before_failures = aggregate;
+  CHECK(vnengine::update_start_screen(
+            aggregate, " ", "asset-background", "asset-music") ==
+        Result::title_required);
+  CHECK(aggregate == before_failures);
+  CHECK(vnengine::update_start_screen(
+            aggregate,
+            "另一个游戏名",
+            "missing-background",
+            "asset-music") ==
+        Result::background_asset_not_found);
+  CHECK(aggregate == before_failures);
+  CHECK(vnengine::update_start_screen(
+            aggregate, "另一个游戏名", "asset-music", "asset-music") ==
+        Result::background_asset_not_image);
+  CHECK(aggregate == before_failures);
+  CHECK(vnengine::update_start_screen(
+            aggregate, "另一个游戏名", "asset-alice", "missing-music") ==
+        Result::music_asset_not_found);
+  CHECK(aggregate == before_failures);
+  CHECK(vnengine::update_start_screen(
+            aggregate, "另一个游戏名", "asset-alice", "asset-bob") ==
+        Result::music_asset_not_audio);
+  CHECK(aggregate == before_failures);
+
+  CHECK(vnengine::update_start_screen(
+            aggregate, "另一个游戏名", std::nullopt, std::nullopt) ==
+        Result::changed);
+  CHECK(aggregate.project.start_screen.title == "另一个游戏名");
+  CHECK(!aggregate.project.start_screen.background_asset_id.has_value());
+  CHECK(!aggregate.project.start_screen.music_asset_id.has_value());
+  CHECK(vnengine::update_start_screen(
+            aggregate, "另一个游戏名", std::nullopt, std::nullopt) ==
+        Result::unchanged);
+}
+
+void rejects_invalid_start_screen_references() {
+  vnengine::ProjectAggregate valid = visual_aggregate();
+  valid.project.start_screen = {
+      .title = "视觉小说标题",
+      .background_asset_id = "asset-background",
+      .music_asset_id = "asset-music",
+  };
+  CHECK(!vnengine::validate_project_aggregate(valid).has_value());
+
+  vnengine::ProjectAggregate invalid = valid;
+  invalid.project.start_screen.title = "";
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+  invalid = valid;
+  invalid.project.start_screen.title = " 标题 ";
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+  invalid = valid;
+  invalid.project.start_screen.background_asset_id = "";
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+  invalid = valid;
+  invalid.project.start_screen.music_asset_id = "";
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+  invalid = valid;
+  invalid.project.start_screen.background_asset_id = "missing";
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+  invalid = valid;
+  invalid.project.start_screen.background_asset_id = "asset-music";
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+  invalid = valid;
+  invalid.project.start_screen.music_asset_id = "missing";
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+  invalid = valid;
+  invalid.project.start_screen.music_asset_id = "asset-alice";
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+}
+
 void validates_visual_references_and_stable_z_order() {
   vnengine::ProjectAggregate aggregate = visual_aggregate();
   const vnengine::SceneVisualState& visuals =
@@ -948,6 +1056,7 @@ void manages_character_timeline_nodes_atomically() {
   CHECK(!empty.asset_id.has_value());
   CHECK(empty.slot == vnengine::CharacterSlot::center);
   CHECK(empty.layer == 1);
+  CHECK(!empty.position.has_value());
 
   CHECK(vnengine::update_character_node(
             aggregate,
@@ -955,18 +1064,24 @@ void manages_character_timeline_nodes_atomically() {
             *added.node_id,
             "portrait",
             vnengine::CharacterSlot::left,
-            3) == vnengine::UpdateCharacterNodeResult::changed);
+            3,
+            vnengine::CharacterPosition{.x = 24.5, .y = 88.0}) ==
+        vnengine::UpdateCharacterNodeResult::changed);
   const vnengine::CharacterNode& updated = character_at(scene, 0);
   CHECK(updated.asset_id == "portrait");
   CHECK(updated.slot == vnengine::CharacterSlot::left);
   CHECK(updated.layer == 3);
+  CHECK(updated.position ==
+        (vnengine::CharacterPosition{.x = 24.5, .y = 88.0}));
   CHECK(vnengine::update_character_node(
             aggregate,
             scene_id,
             *added.node_id,
             "portrait",
             vnengine::CharacterSlot::left,
-            3) == vnengine::UpdateCharacterNodeResult::unchanged);
+            3,
+            vnengine::CharacterPosition{.x = 24.5, .y = 88.0}) ==
+        vnengine::UpdateCharacterNodeResult::unchanged);
 
   const vnengine::ProjectAggregate before_failures = aggregate;
   CHECK(vnengine::update_character_node(
@@ -990,6 +1105,15 @@ void manages_character_timeline_nodes_atomically() {
             "portrait",
             vnengine::CharacterSlot::right,
             11) == vnengine::UpdateCharacterNodeResult::invalid_layer);
+  CHECK(vnengine::update_character_node(
+            aggregate,
+            scene_id,
+            *added.node_id,
+            "portrait",
+            vnengine::CharacterSlot::right,
+            3,
+            vnengine::CharacterPosition{.x = -1.0, .y = 50.0}) ==
+        vnengine::UpdateCharacterNodeResult::invalid_position);
   CHECK(aggregate == before_failures);
 
   CHECK(vnengine::update_character_node(
@@ -1417,6 +1541,67 @@ void manages_choice_nodes_and_options_atomically() {
   CHECK(vnengine::validate_project_aggregate(invalid).has_value());
 }
 
+void manages_story_extension_nodes_in_the_generic_timeline() {
+  using Status = vnengine::AddStoryExtensionNodeStatus;
+
+  SequenceIdGenerator ids;
+  vnengine::Project project = vnengine::create_empty_project(ids);
+  const std::string scene_id = project.entry_scene_id;
+  vnengine::Scene& scene = project.scenes[0];
+  const std::string first = *vnengine::add_dialogue(
+      project, ids, scene_id, "Alice", "第一页");
+  const std::string second = *vnengine::add_dialogue(
+      project, ids, scene_id, "Bob", "第二页");
+
+  const vnengine::AddStoryExtensionNodeResult between =
+      vnengine::add_story_extension_node(
+          project, ids, scene_id, std::nullopt, second);
+  CHECK(between.status == Status::added);
+  CHECK(between.node_id.has_value());
+  CHECK(timeline_ids(scene) == std::vector<std::string>({
+      first, *between.node_id, second}));
+  CHECK(story_extension_at(scene, 1).id == *between.node_id);
+
+  // Positional rules stay deliberately broad: an author may keep a trailing
+  // marker as a placeholder for a page that will be written later.
+  const vnengine::AddStoryExtensionNodeResult trailing =
+      vnengine::add_story_extension_node(
+          project, ids, scene_id, second, std::nullopt);
+  CHECK(trailing.status == Status::added);
+  CHECK(trailing.node_id.has_value());
+  CHECK(timeline_ids(scene) == std::vector<std::string>({
+      first, *between.node_id, second, *trailing.node_id}));
+
+  const vnengine::Project before_failures = project;
+  CHECK(vnengine::add_story_extension_node(
+            project, ids, "missing", std::nullopt, second).status ==
+        Status::scene_not_found);
+  CHECK(vnengine::add_story_extension_node(
+            project, ids, scene_id, first, second).status ==
+        Status::placement_conflict);
+  CHECK(vnengine::add_story_extension_node(
+            project, ids, scene_id, std::nullopt, "missing").status ==
+        Status::anchor_not_found);
+  CHECK(project == before_failures);
+
+  CHECK(vnengine::reorder_scene_node(
+      project, scene_id, *trailing.node_id, first));
+  CHECK(timeline_ids(scene) == std::vector<std::string>({
+      *trailing.node_id, first, *between.node_id, second}));
+  CHECK(vnengine::delete_scene_nodes(
+      project, scene_id, {*between.node_id, *trailing.node_id}));
+  CHECK(timeline_ids(scene) == std::vector<std::string>({first, second}));
+  CHECK(!vnengine::validate_project(project).has_value());
+
+  vnengine::Project invalid = project;
+  invalid.scenes[0].nodes.emplace_back(
+      vnengine::StoryExtensionNode{.id = ""});
+  CHECK(vnengine::validate_project(invalid).has_value());
+  std::get<vnengine::StoryExtensionNode>(invalid.scenes[0].nodes.back()).id =
+      first;
+  CHECK(vnengine::validate_project(invalid).has_value());
+}
+
 }  // namespace
 
 int main() {
@@ -1445,6 +1630,9 @@ int main() {
       {"detects invalid project invariants",
        detects_invalid_project_invariants},
       {"validates portable asset paths", validates_portable_asset_paths},
+      {"updates start screen atomically", updates_start_screen_atomically},
+      {"rejects invalid start screen references",
+       rejects_invalid_start_screen_references},
       {"validates visual references and stable z order",
        validates_visual_references_and_stable_z_order},
       {"changes scene background only after validation",
@@ -1468,6 +1656,8 @@ int main() {
        manages_video_timeline_nodes_atomically},
       {"manages choice nodes and options atomically",
        manages_choice_nodes_and_options_atomically},
+      {"manages story extension nodes in the generic timeline",
+       manages_story_extension_nodes_in_the_generic_timeline},
   };
 
   int failures = 0;

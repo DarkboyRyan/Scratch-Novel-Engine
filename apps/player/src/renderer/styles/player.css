@@ -77,6 +77,35 @@ button.secondary {
   color: #cfc4de;
 }
 
+.player-title-page {
+  position: relative;
+  isolation: isolate;
+}
+
+.player-title-background,
+.player-title-scrim {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.player-title-background {
+  z-index: -2;
+  object-fit: contain;
+}
+
+.player-title-scrim {
+  z-index: -1;
+  background:
+    linear-gradient(180deg, rgb(5 3 9 / 4%), rgb(5 3 9 / 18%)),
+    radial-gradient(circle at center, transparent 38%, rgb(4 3 8 / 12%) 100%);
+}
+
+.player-title-music {
+  display: none;
+}
+
 .player-loading-mark {
   width: 36px;
   height: 36px;
@@ -100,6 +129,14 @@ button.secondary {
   background: rgb(17 13 27 / 74%);
   box-shadow: 0 30px 100px rgb(0 0 0 / 48%);
   backdrop-filter: blur(24px);
+}
+
+.player-title-card {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  text-shadow: 0 2px 16px rgb(0 0 0 / 76%);
+  backdrop-filter: none;
 }
 
 .player-title-card h1,
@@ -145,9 +182,14 @@ button.secondary {
 
 .player-title-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
   gap: 12px;
+}
+
+.player-title-actions > button {
+  width: min(100%, 260px);
 }
 
 .player-shell-actions {

@@ -3,12 +3,13 @@ import type { FormEvent } from 'react';
 import type {
   AssetDocument,
   CharacterSlot,
-  SceneNode,
+  CharacterPosition,
+  SemanticSceneNode,
   SceneDocument,
 } from '../../../shared/projectTypes';
 
 type InspectorPanelProps = {
-  selectedNode?: SceneNode;
+  selectedNode?: SemanticSceneNode;
   scenes: SceneDocument[];
   currentSceneId: string;
   assets: AssetDocument[];
@@ -22,6 +23,7 @@ type InspectorPanelProps = {
     assetId: string | null;
     slot: CharacterSlot;
     layer: number;
+    position: CharacterPosition | null;
   }) => Promise<void>;
   onSceneJumpChange: (targetSceneId: string) => Promise<void>;
   onBgmChange: (assetId: string | null) => Promise<void>;
@@ -107,12 +109,14 @@ export function InspectorPanel({
         assetId: string | null;
         slot: CharacterSlot;
         layer: number;
+        position: CharacterPosition | null;
       }>,
     ) =>
       onCharacterChange({
         assetId: selectedNode.assetId,
         slot: selectedNode.slot,
         layer: selectedNode.layer,
+        position: selectedNode.position,
         ...next,
       });
 
@@ -149,19 +153,123 @@ export function InspectorPanel({
         <label>
           位置
           <select
-            value={selectedNode.slot}
+            value={selectedNode.position ? 'custom' : selectedNode.slot}
             disabled={isBusy}
             onChange={(event) =>
               void update({
                 slot: event.target.value as CharacterSlot,
+                position: null,
               })
             }
           >
             <option value="left">左侧</option>
             <option value="center">中间</option>
             <option value="right">右侧</option>
+            {selectedNode.position ? (
+              <option value="custom">自定义</option>
+            ) : null}
           </select>
         </label>
+
+        <fieldset className="character-coordinate-fields">
+          <legend>具体坐标</legend>
+          <label>
+            X 坐标（%）
+            <input
+              key={`${selectedNode.id}:x:${selectedNode.position?.x ?? selectedNode.slot}`}
+              type="number"
+              min="0"
+              max="100"
+              step="0.1"
+              defaultValue={
+                selectedNode.position?.x ??
+                (selectedNode.slot === 'left'
+                  ? 20
+                  : selectedNode.slot === 'right'
+                    ? 80
+                    : 50)
+              }
+              disabled={isBusy}
+              aria-label="立绘 X 坐标"
+              onBlur={(event) => {
+                const x = Number(event.currentTarget.value);
+                const y = Number(
+                  event.currentTarget
+                    .closest('.character-coordinate-fields')
+                    ?.querySelector<HTMLInputElement>(
+                      '[aria-label="立绘 Y 坐标"]',
+                    )?.value ?? selectedNode.position?.y ?? 100,
+                );
+                if (
+                  Number.isFinite(x) &&
+                  x >= 0 &&
+                  x <= 100 &&
+                  Number.isFinite(y) &&
+                  y >= 0 &&
+                  y <= 100
+                ) {
+                  void update({
+                    position: { x, y },
+                  });
+                } else {
+                  event.currentTarget.value = String(
+                    selectedNode.position?.x ??
+                      (selectedNode.slot === 'left'
+                        ? 20
+                        : selectedNode.slot === 'right'
+                          ? 80
+                          : 50),
+                  );
+                }
+              }}
+            />
+          </label>
+          <label>
+            Y 坐标（%）
+            <input
+              key={`${selectedNode.id}:y:${selectedNode.position?.y ?? 'default'}`}
+              type="number"
+              min="0"
+              max="100"
+              step="0.1"
+              defaultValue={selectedNode.position?.y ?? 100}
+              disabled={isBusy}
+              aria-label="立绘 Y 坐标"
+              onBlur={(event) => {
+                const y = Number(event.currentTarget.value);
+                const x = Number(
+                  event.currentTarget
+                    .closest('.character-coordinate-fields')
+                    ?.querySelector<HTMLInputElement>(
+                      '[aria-label="立绘 X 坐标"]',
+                    )?.value ??
+                    selectedNode.position?.x ??
+                    (selectedNode.slot === 'left'
+                      ? 20
+                      : selectedNode.slot === 'right'
+                        ? 80
+                        : 50),
+                );
+                if (
+                  Number.isFinite(x) &&
+                  x >= 0 &&
+                  x <= 100 &&
+                  Number.isFinite(y) &&
+                  y >= 0 &&
+                  y <= 100
+                ) {
+                  void update({
+                    position: { x, y },
+                  });
+                } else {
+                  event.currentTarget.value = String(
+                    selectedNode.position?.y ?? 100,
+                  );
+                }
+              }}
+            />
+          </label>
+        </fieldset>
 
         <label>
           人物层级
@@ -183,7 +291,7 @@ export function InspectorPanel({
         </label>
 
         <p className="character-node-help">
-          后出现的同层立绘会替换之前的立绘；层级越大越靠前。
+          坐标以画面左上角为原点；修改坐标后，图形化编辑器的位置会显示为“自定义”。后出现的同层立绘会替换之前的立绘；层级越大越靠前。
         </p>
       </aside>
     );
@@ -435,8 +543,8 @@ function TimelineInsertActions({
       <button
         type="button"
         className="panel-heading-action character-action"
-        aria-label="在当前节点后插入人物立绘"
-        title="在当前节点后插入人物立绘"
+        aria-label="为当前对白画面添加人物立绘"
+        title="为当前对白画面添加人物立绘"
         disabled={isBusy}
         onClick={() => void onInsertCharacter()}
       >

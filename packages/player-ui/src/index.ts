@@ -8,6 +8,10 @@ export {
   type PreviewVideoProps,
 } from './PreviewVideo';
 export {
+  TitleScreen,
+  type TitleScreenProps,
+} from './TitleScreen';
+export {
   createPreviewAudioController,
   type PreviewAudioController,
   type PreviewAudioControllerOptions,

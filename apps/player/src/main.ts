@@ -77,7 +77,12 @@ async function openPlayerWindow(): Promise<void> {
   }
 }
 
-registerPlayerIpc(ipcMain, playerWindowContexts, trustedPlayerLocations);
+registerPlayerIpc(
+  ipcMain,
+  playerWindowContexts,
+  trustedPlayerLocations,
+  () => app.quit(),
+);
 
 app.on('ready', () => {
   Menu.setApplicationMenu(null);
