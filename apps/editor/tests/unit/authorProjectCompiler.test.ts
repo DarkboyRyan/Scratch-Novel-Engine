@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { compileAuthorProjectV13 } from '../../src/main/export/AuthorProjectCompiler';
+import { compileAuthorProjectV15 } from '../../src/main/export/AuthorProjectCompiler';
 
 function authorProject(): Record<string, unknown> {
   return {
     format: 'vn-engine-project',
-    fileVersion: 13,
+    fileVersion: 15,
     project: {
       schemaVersion: 1,
       id: 'project-1',
@@ -15,6 +15,18 @@ function authorProject(): Record<string, unknown> {
         title: '星光物语',
         backgroundAssetId: 'title-background',
         musicAssetId: 'title-music',
+      },
+      cgGallery: {
+        pages: [
+          {
+            imageAssetIds: [
+              null,
+              'unused-image',
+              ...Array<string | null>(7).fill(null),
+            ],
+          },
+          { imageAssetIds: Array<string | null>(9).fill(null) },
+        ],
       },
       scenes: [
         {
@@ -110,16 +122,16 @@ function authorProject(): Record<string, unknown> {
 }
 
 function compile(document: Record<string, unknown>) {
-  return compileAuthorProjectV13(JSON.stringify(document));
+  return compileAuthorProjectV15(JSON.stringify(document));
 }
 
-describe('author project v13 compiler', () => {
-  it('builds exact runtime v4 story data and includes start-screen-only assets', () => {
+describe('author project v15 compiler', () => {
+  it('builds exact runtime v6 data and includes fixed CG pages and CG-only assets', () => {
     const result = compile(authorProject());
 
     expect(result.game).toMatchObject({
       format: 'vn-engine-runtime',
-      runtimeVersion: 4,
+      runtimeVersion: 6,
       game: {
         id: 'project-1',
         title: '导出测试',
@@ -128,6 +140,18 @@ describe('author project v13 compiler', () => {
           title: '星光物语',
           backgroundAssetId: 'title-background',
           musicAssetId: 'title-music',
+        },
+        cgGallery: {
+          pages: [
+            {
+              imageAssetIds: [
+                null,
+                'unused-image',
+                ...Array<string | null>(7).fill(null),
+              ],
+            },
+            { imageAssetIds: Array<string | null>(9).fill(null) },
+          ],
         },
       },
     });
@@ -160,6 +184,7 @@ describe('author project v13 compiler', () => {
       'video-1-asset',
       'title-background',
       'title-music',
+      'unused-image',
     ]);
     expect(result.allAssetCount).toBe(7);
   });
@@ -178,7 +203,7 @@ describe('author project v13 compiler', () => {
 
     const unknownField = authorProject();
     (unknownField.project as Record<string, unknown>).nativePath = '/private/tmp';
-    expect(() => compile(unknownField)).toThrow('字段不符合作者项目 v13');
+    expect(() => compile(unknownField)).toThrow('字段不符合作者项目 v15');
   });
 
   it('rejects an empty or ASCII-padded custom title', () => {
@@ -220,6 +245,98 @@ describe('author project v13 compiler', () => {
     }).startScreen;
     wrongStartScreen.musicAssetId = 'image-1';
     expect(() => compile(wrongType)).toThrow('主界面音乐 引用了缺失或类型错误的资源');
+  });
+
+  it('rejects duplicate, missing, or non-image CG gallery resources', () => {
+    const duplicate = authorProject();
+    (duplicate.project as {
+      cgGallery: { pages: Array<{ imageAssetIds: Array<string | null> }> };
+    }).cgGallery.pages[0].imageAssetIds[0] = 'unused-image';
+    expect(() => compile(duplicate)).toThrow('不能包含重复资源 ID');
+
+    const missing = authorProject();
+    (missing.project as {
+      cgGallery: { pages: Array<{ imageAssetIds: Array<string | null> }> };
+    }).cgGallery.pages[0].imageAssetIds[1] = 'missing';
+    expect(() => compile(missing)).toThrow(
+      'CG 画廊 引用了缺失或类型错误的资源',
+    );
+
+    const wrongType = authorProject();
+    (wrongType.project as {
+      cgGallery: { pages: Array<{ imageAssetIds: Array<string | null> }> };
+    }).cgGallery.pages[0].imageAssetIds[1] = 'title-music';
+    expect(() => compile(wrongType)).toThrow(
+      'CG 画廊 引用了缺失或类型错误的资源',
+    );
+  });
+
+  it('rejects empty galleries and pages that do not have exactly nine slots', () => {
+    const empty = authorProject();
+    (empty.project as {
+      cgGallery: { pages: Array<{ imageAssetIds: Array<string | null> }> };
+    }).cgGallery.pages = [];
+    expect(() => compile(empty)).toThrow('至少需要一页');
+
+    const shortPage = authorProject();
+    (shortPage.project as {
+      cgGallery: { pages: Array<{ imageAssetIds: Array<string | null> }> };
+    }).cgGallery.pages[0].imageAssetIds.pop();
+    expect(() => compile(shortPage)).toThrow('必须精确包含 9 个槽位');
+  });
+
+  it('migrates strict v14 flat galleries into fixed pages before compiling', () => {
+    const empty = authorProject();
+    empty.fileVersion = 14;
+    (empty.project as Record<string, unknown>).cgGallery = {
+      imageAssetIds: [],
+    };
+    expect(compile(empty).sourceProject.cgGallery).toEqual({
+      pages: [{ imageAssetIds: Array(9).fill(null) }],
+    });
+
+    const populated = authorProject();
+    populated.fileVersion = 14;
+    const legacyAssetIds = Array.from(
+      { length: 10 },
+      (_, index) => `legacy-cg-${index + 1}`,
+    );
+    (populated.project as Record<string, unknown>).cgGallery = {
+      imageAssetIds: legacyAssetIds,
+    };
+    (populated.assets as Array<Record<string, unknown>>).push(
+      ...legacyAssetIds.map((assetId) => ({
+        id: assetId,
+        type: 'image',
+        relativePath: `assets/images/${assetId}.png`,
+        displayName: `${assetId}.png`,
+      })),
+    );
+    expect(compile(populated).sourceProject.cgGallery).toEqual({
+      pages: [
+        { imageAssetIds: legacyAssetIds.slice(0, 9) },
+        {
+          imageAssetIds: [
+            legacyAssetIds[9],
+            ...Array(8).fill(null),
+          ],
+        },
+      ],
+    });
+  });
+
+  it('still rejects malformed v14 CG gallery fields and values', () => {
+    const wrongFields = authorProject();
+    wrongFields.fileVersion = 14;
+    (wrongFields.project as Record<string, unknown>).cgGallery = { pages: [] };
+    expect(() => compile(wrongFields)).toThrow('字段不符合作者项目');
+
+    const nullEntry = authorProject();
+    nullEntry.fileVersion = 14;
+    (nullEntry.project as Record<string, unknown>).cgGallery = {
+      imageAssetIds: [null],
+    };
+    expect(() => compile(nullEntry)).toThrow('不是有效资源 ID');
   });
 
   it('rejects path traversal, wrong media types, and invalid scene jumps', () => {

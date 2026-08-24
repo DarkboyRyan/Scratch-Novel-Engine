@@ -19,7 +19,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { compileAuthorProjectV13 } from '../../src/main/export/AuthorProjectCompiler';
+import { compileAuthorProjectV15 } from '../../src/main/export/AuthorProjectCompiler';
 import { exportRuntimeBundle } from '../../src/main/export/RuntimeBundleExporter';
 
 const temporaryDirectories: string[] = [];
@@ -40,7 +40,7 @@ type FileHandleMethodInterceptor = (
 function projectDocument(): unknown {
   return {
     format: 'vn-engine-project',
-    fileVersion: 13,
+    fileVersion: 15,
     project: {
       schemaVersion: 1,
       id: 'project-1',
@@ -50,6 +50,9 @@ function projectDocument(): unknown {
         title: 'FileProvider Title',
         backgroundAssetId: null,
         musicAssetId: null,
+      },
+      cgGallery: {
+        pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
       },
       scenes: [
         {
@@ -81,8 +84,8 @@ async function createSavedProject(options: {
   assetPath: string;
   manifestContents: string;
   imageBytes: Buffer;
-  expectedProject: ReturnType<typeof compileAuthorProjectV13>['sourceProject'];
-  expectedAssets: ReturnType<typeof compileAuthorProjectV13>['publicAssets'];
+  expectedProject: ReturnType<typeof compileAuthorProjectV15>['sourceProject'];
+  expectedAssets: ReturnType<typeof compileAuthorProjectV15>['publicAssets'];
 }> {
   const root = await mkdtemp(path.join(tmpdir(), 'vn-file-provider-stability-'));
   temporaryDirectories.push(root);
@@ -101,7 +104,7 @@ async function createSavedProject(options: {
   }`;
   await writeFile(manifestPath, manifestContents);
   await writeFile(assetPath, imageBytes);
-  const compiled = compileAuthorProjectV13(manifestContents);
+  const compiled = compileAuthorProjectV15(manifestContents);
   return {
     projectRoot,
     outputParent,

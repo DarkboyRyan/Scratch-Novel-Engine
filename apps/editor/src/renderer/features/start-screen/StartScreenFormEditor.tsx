@@ -183,7 +183,7 @@ export const StartScreenFormEditor = forwardRef<
         </label>
         <div className="start-screen-form-note">
           <strong>软件托管结构</strong>
-          <p>开始游戏、选项和退出游戏由 Player 自动提供。</p>
+          <p>开始游戏、CG 画廊、选项和退出游戏由 Player 自动提供。</p>
         </div>
       </aside>
 
@@ -213,6 +213,7 @@ export const StartScreenFormEditor = forwardRef<
             <h2>{titleDraft || '未命名游戏'}</h2>
             <div className="start-screen-design-actions">
               <span className="is-primary">▶ 开始游戏</span>
+              <span>CG 画廊</span>
               <span>选项</span>
               <span>退出游戏</span>
             </div>

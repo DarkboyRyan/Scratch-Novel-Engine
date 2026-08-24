@@ -648,6 +648,75 @@ void rejects_invalid_start_screen_references() {
   CHECK(vnengine::validate_project_aggregate(invalid).has_value());
 }
 
+void updates_cg_gallery_atomically() {
+  using Result = vnengine::UpdateCgGalleryResult;
+
+  const auto page = [](const std::initializer_list<
+                       std::pair<std::size_t, std::string>> entries) {
+    vnengine::CgGalleryPage value;
+    for (const auto& [index, asset_id] : entries) {
+      value.image_asset_ids.at(index) = asset_id;
+    }
+    return value;
+  };
+
+  vnengine::ProjectAggregate aggregate = visual_aggregate();
+  const std::vector<vnengine::CgGalleryPage> populated_pages{
+      page({{0, "asset-bob"}, {2, "asset-background"}}),
+      page({{8, "asset-alice"}}),
+  };
+  CHECK(vnengine::update_cg_gallery(
+            aggregate, populated_pages) ==
+        Result::changed);
+  CHECK(aggregate.project.cg_gallery.pages == populated_pages);
+  CHECK(!vnengine::validate_project_aggregate(aggregate).has_value());
+
+  CHECK(vnengine::update_cg_gallery(aggregate, populated_pages) ==
+        Result::unchanged);
+  const vnengine::ProjectAggregate before_failures = aggregate;
+  CHECK(vnengine::update_cg_gallery(
+            aggregate,
+            {page({{0, "asset-alice"}}), page({{8, "asset-alice"}})}) ==
+        Result::duplicate_asset_id);
+  CHECK(aggregate == before_failures);
+  CHECK(vnengine::update_cg_gallery(
+            aggregate, {page({{0, "missing-image"}})}) ==
+        Result::asset_not_found);
+  CHECK(aggregate == before_failures);
+  CHECK(vnengine::update_cg_gallery(
+            aggregate, {page({{0, "asset-music"}})}) ==
+        Result::asset_not_image);
+  CHECK(aggregate == before_failures);
+  CHECK(vnengine::update_cg_gallery(aggregate, {}) == Result::page_required);
+  CHECK(aggregate == before_failures);
+
+  const std::vector<vnengine::CgGalleryPage> empty_gallery{
+      vnengine::CgGalleryPage{},
+  };
+  CHECK(vnengine::update_cg_gallery(aggregate, empty_gallery) ==
+        Result::changed);
+  CHECK(aggregate.project.cg_gallery.pages == empty_gallery);
+  CHECK(vnengine::update_cg_gallery(aggregate, empty_gallery) ==
+        Result::unchanged);
+
+  vnengine::ProjectAggregate invalid = visual_aggregate();
+  invalid.project.cg_gallery.pages.clear();
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+  invalid = visual_aggregate();
+  invalid.project.cg_gallery.pages[0].image_asset_ids[0] = "";
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+  invalid = visual_aggregate();
+  invalid.project.cg_gallery.pages = {
+      page({{0, "asset-alice"}}), page({{5, "asset-alice"}})};
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+  invalid = visual_aggregate();
+  invalid.project.cg_gallery.pages = {page({{0, "missing-image"}})};
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+  invalid = visual_aggregate();
+  invalid.project.cg_gallery.pages = {page({{0, "asset-music"}})};
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+}
+
 void validates_visual_references_and_stable_z_order() {
   vnengine::ProjectAggregate aggregate = visual_aggregate();
   const vnengine::SceneVisualState& visuals =
@@ -1633,6 +1702,7 @@ int main() {
       {"updates start screen atomically", updates_start_screen_atomically},
       {"rejects invalid start screen references",
        rejects_invalid_start_screen_references},
+      {"updates CG gallery atomically", updates_cg_gallery_atomically},
       {"validates visual references and stable z order",
        validates_visual_references_and_stable_z_order},
       {"changes scene background only after validation",

@@ -19,6 +19,9 @@ const project: ProjectDocument = {
     backgroundAssetId: null,
     musicAssetId: null,
   },
+  cgGallery: {
+    pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+  },
   scenes: [
     {
       schemaVersion: 1,
@@ -306,6 +309,9 @@ describe('game preview runtime', () => {
         backgroundAssetId: null,
         musicAssetId: null,
       },
+      cgGallery: {
+        pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+      },
       scenes: [
         {
           schemaVersion: 1,
@@ -384,6 +390,9 @@ describe('game preview runtime', () => {
         backgroundAssetId: null,
         musicAssetId: null,
       },
+      cgGallery: {
+        pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+      },
       scenes: [
         {
           schemaVersion: 1,
@@ -451,6 +460,9 @@ describe('game preview runtime', () => {
         title: 'Story',
         backgroundAssetId: null,
         musicAssetId: null,
+      },
+      cgGallery: {
+        pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
       },
       scenes: [
         {
@@ -533,6 +545,9 @@ describe('game preview runtime', () => {
         title: 'Story',
         backgroundAssetId: null,
         musicAssetId: null,
+      },
+      cgGallery: {
+        pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
       },
       scenes: [
         {

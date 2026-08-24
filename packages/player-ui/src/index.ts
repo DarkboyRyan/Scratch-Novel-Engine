@@ -1,4 +1,8 @@
 export {
+  CgGallery,
+  type CgGalleryProps,
+} from './CgGallery';
+export {
   VisualStage,
   type PreviewCharacter,
   type VisualStageProps,

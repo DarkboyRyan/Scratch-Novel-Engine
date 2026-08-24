@@ -1,5 +1,6 @@
 #include "serialization.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <initializer_list>
 #include <string>
@@ -603,6 +604,95 @@ StartScreen start_screen_from_json(
   };
 }
 
+Json cg_gallery_to_json(const CgGallery& cg_gallery) {
+  Json pages = Json::array();
+  for (const CgGalleryPage& page : cg_gallery.pages) {
+    Json image_asset_ids = Json::array();
+    for (const std::optional<std::string>& asset_id : page.image_asset_ids) {
+      image_asset_ids.push_back(
+          asset_id.has_value() ? Json(*asset_id) : Json(nullptr));
+    }
+    pages.push_back({{"imageAssetIds", std::move(image_asset_ids)}});
+  }
+  return {{"pages", std::move(pages)}};
+}
+
+CgGallery cg_gallery_from_json(
+    const Json& value,
+    const int file_version) {
+  constexpr std::string_view context = "project.cgGallery";
+
+  // v14 stored one packed image list. Preserve its order while migrating to
+  // fixed nine-slot pages; an empty legacy list becomes one empty page.
+  if (file_version == 14) {
+    require_exact_fields(value, {"imageAssetIds"}, context);
+    const Json& image_asset_ids = value.at("imageAssetIds");
+    if (!image_asset_ids.is_array()) {
+      invalid("project.cgGallery.imageAssetIds must be an array");
+    }
+
+    CgGallery gallery;
+    const std::size_t page_count = std::max<std::size_t>(
+        1U,
+        (image_asset_ids.size() + kCgGalleryPageSize - 1U) /
+            kCgGalleryPageSize);
+    gallery.pages.assign(page_count, CgGalleryPage{});
+    for (std::size_t index = 0; index < image_asset_ids.size(); ++index) {
+      const Json& asset_id = image_asset_ids.at(index);
+      if (!asset_id.is_string()) {
+        invalid(
+            "project.cgGallery.imageAssetIds[" + std::to_string(index) +
+            "] must be a string");
+      }
+      gallery.pages[index / kCgGalleryPageSize]
+          .image_asset_ids[index % kCgGalleryPageSize] =
+          asset_id.get<std::string>();
+    }
+    return gallery;
+  }
+
+  require_exact_fields(value, {"pages"}, context);
+  const Json& pages = value.at("pages");
+  if (!pages.is_array() || pages.empty()) {
+    invalid("project.cgGallery.pages must be a non-empty array");
+  }
+
+  CgGallery gallery;
+  gallery.pages.clear();
+  gallery.pages.reserve(pages.size());
+  for (std::size_t page_index = 0; page_index < pages.size(); ++page_index) {
+    const std::string page_context =
+        "project.cgGallery.pages[" + std::to_string(page_index) + "]";
+    const Json& page_json = pages.at(page_index);
+    require_exact_fields(page_json, {"imageAssetIds"}, page_context);
+    const Json& image_asset_ids = page_json.at("imageAssetIds");
+    if (!image_asset_ids.is_array() ||
+        image_asset_ids.size() != kCgGalleryPageSize) {
+      invalid(
+          page_context + ".imageAssetIds must contain exactly " +
+          std::to_string(kCgGalleryPageSize) + " items");
+    }
+
+    CgGalleryPage page;
+    for (std::size_t slot_index = 0;
+         slot_index < kCgGalleryPageSize;
+         ++slot_index) {
+      const Json& asset_id = image_asset_ids.at(slot_index);
+      if (asset_id.is_null()) {
+        continue;
+      }
+      if (!asset_id.is_string()) {
+        invalid(
+            page_context + ".imageAssetIds[" +
+            std::to_string(slot_index) + "] must be a string or null");
+      }
+      page.image_asset_ids[slot_index] = asset_id.get<std::string>();
+    }
+    gallery.pages.push_back(std::move(page));
+  }
+  return gallery;
+}
+
 Json scene_to_file_json(const Scene& scene) {
   // Construct the persisted shape explicitly. The Renderer projection and
   // file format have separate version boundaries and must not accidentally
@@ -668,7 +758,18 @@ Scene scene_from_json(
 
 Project project_from_json(const Json& value, const int file_version) {
   constexpr std::string_view context = "project";
-  if (file_version >= 10) {
+  if (file_version >= 14) {
+    require_exact_fields(
+        value,
+        {"schemaVersion",
+         "id",
+         "name",
+         "startScreen",
+         "cgGallery",
+         "entrySceneId",
+         "scenes"},
+        context);
+  } else if (file_version >= 10) {
     require_exact_fields(
         value,
         {"schemaVersion",
@@ -693,6 +794,10 @@ Project project_from_json(const Json& value, const int file_version) {
 
   std::string project_name = require_string(value, "name", context);
 
+  CgGallery cg_gallery = file_version >= 14
+      ? cg_gallery_from_json(value.at("cgGallery"), file_version)
+      : CgGallery{};
+
   Project project{
       .schema_version = kSchemaVersion,
       .id = require_string(value, "id", context),
@@ -704,6 +809,7 @@ Project project_from_json(const Json& value, const int file_version) {
                 file_version,
                 project_name)
           : StartScreen{.title = project_name},
+      .cg_gallery = std::move(cg_gallery),
       .entry_scene_id = require_string(value, "entrySceneId", context),
       .scenes = {},
   };
@@ -783,6 +889,7 @@ Json project_to_file_json(const Project& project) {
       {"id", project.id},
       {"name", project.name},
       {"startScreen", start_screen_to_json(project.start_screen)},
+      {"cgGallery", cg_gallery_to_json(project.cg_gallery)},
       {"entrySceneId", project.entry_scene_id},
       {"scenes", std::move(scenes)},
   };
@@ -810,6 +917,7 @@ Json project_to_json(const Project& project) {
       {"id", project.id},
       {"name", project.name},
       {"startScreen", start_screen_to_json(project.start_screen)},
+      {"cgGallery", cg_gallery_to_json(project.cg_gallery)},
       {"entrySceneId", project.entry_scene_id},
       {"scenes", std::move(scenes)},
   };

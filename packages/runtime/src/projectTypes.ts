@@ -84,11 +84,20 @@ export type StartScreenDocument = {
   musicAssetId: string | null;
 };
 
+export type CgGalleryPageDocument = {
+  imageAssetIds: Array<string | null>;
+};
+
+export type CgGalleryDocument = {
+  pages: CgGalleryPageDocument[];
+};
+
 export type ProjectDocument = {
   schemaVersion: 1;
   id: string;
   name: string;
   entrySceneId: string;
   startScreen: StartScreenDocument;
+  cgGallery: CgGalleryDocument;
   scenes: SceneDocument[];
 };

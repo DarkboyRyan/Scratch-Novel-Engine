@@ -86,6 +86,11 @@ const vnEngine: VnEngineApi = {
     invokeEngine({ method: 'project.rename', params: { name } }),
   updateStartScreen: (params) =>
     invokeEngine({ method: 'startScreen.update', params }),
+  updateCgGallery: (pages) =>
+    invokeEngine({
+      method: 'cgGallery.update',
+      params: { pages },
+    }),
   addScene: (name) =>
     invokeEngine({ method: 'scene.add', params: { name } }),
   renameScene: (sceneId, name) =>

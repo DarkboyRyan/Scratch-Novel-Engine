@@ -105,6 +105,7 @@ Project create_empty_project(IdGenerator& ids, std::string name) {
       .id = ids.next(),
       .name = name,
       .start_screen = {.title = std::move(name)},
+      .cg_gallery = {},
       .entry_scene_id = first_scene_id,
       .scenes = {std::move(first_scene)},
   };
@@ -162,6 +163,43 @@ UpdateStartScreenResult update_start_screen(
   static_assert(std::is_nothrow_move_assignable_v<StartScreen>);
   aggregate.project.start_screen = std::move(candidate);
   return UpdateStartScreenResult::changed;
+}
+
+UpdateCgGalleryResult update_cg_gallery(
+    ProjectAggregate& aggregate,
+    std::vector<CgGalleryPage> pages) {
+  if (pages.empty()) {
+    return UpdateCgGalleryResult::page_required;
+  }
+
+  std::unordered_set<std::string> unique_asset_ids;
+  unique_asset_ids.reserve(pages.size() * kCgGalleryPageSize);
+  for (const CgGalleryPage& page : pages) {
+    for (const std::optional<std::string>& asset_id : page.image_asset_ids) {
+      if (!asset_id.has_value()) {
+        continue;
+      }
+      if (!unique_asset_ids.insert(*asset_id).second) {
+        return UpdateCgGalleryResult::duplicate_asset_id;
+      }
+      const Asset* asset = find_asset(aggregate, *asset_id);
+      if (asset == nullptr) {
+        return UpdateCgGalleryResult::asset_not_found;
+      }
+      if (asset->type != AssetType::image) {
+        return UpdateCgGalleryResult::asset_not_image;
+      }
+    }
+  }
+
+  CgGallery candidate{.pages = std::move(pages)};
+  if (aggregate.project.cg_gallery == candidate) {
+    return UpdateCgGalleryResult::unchanged;
+  }
+
+  static_assert(std::is_nothrow_move_assignable_v<CgGallery>);
+  aggregate.project.cg_gallery = std::move(candidate);
+  return UpdateCgGalleryResult::changed;
 }
 
 SetSceneBackgroundResult set_scene_background(

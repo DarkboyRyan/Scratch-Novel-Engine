@@ -18,7 +18,7 @@
 - [项目文件夹与媒体资源](./project-folder-storage.md)：项目目录格式、安全保存、资源导入、
   capability URL 与媒体读取。
 - [独立游戏 Player 与导出流程](./game-export-player.md)：记录已完成的共享 Runtime 与
-  Player、v13→runtime v4 内容包、runtime v1/v2/v3/v4 兼容读取、macOS `*-macOS.zip`
+  Player、v15→runtime v6 内容包、runtime v1–v6 兼容读取、macOS `*-macOS.zip`
   独立应用导出（ZIP 内含唯一
   已签名 `.app`）、embedded 模式和多平台
   workflow；也列出 `player-release`/`game-release` protected Environments、不可变 tag/
@@ -29,6 +29,11 @@
 - [当前架构中的主界面合成场景](./architecture.md#81-软件托管的主界面合成场景)：
   Editor 默认进入的表单/Blockly 双编辑主界面、完整标题页预览、
   `project.startScreen` 和 Player 标题页。
+- [当前架构中的 CG 画廊合成场景](./architecture.md#82-软件托管的-cg-画廊合成场景)：
+  独立表单/Blockly 编辑入口、手动页面、每页固定九槽、Player 分页与大图浏览，以及
+  `project.cgGallery.pages[].imageAssetIds` 的结构与全局唯一引用契约。
+- [CG 画廊实现](./cg-gallery-implementation.md)：CG 数据模型、表单与 Blockly 页模块、
+  Player 九宫格/大图交互、版本迁移和导出资源闭包。
 
 - [人物立绘](./character-portrait-implementation.md)：人物资源、时间线节点、layer 和预览状态。
 - [场景跳转](./scene-jump-implementation.md)：SceneJumpNode 如何贯穿 C++、IPC、React、
@@ -73,11 +78,14 @@
 Electron 43、React 19、TypeScript 5.9、Blockly 13、Vite 5、Electron Forge 7、
 C++20、CMake、nlohmann/json、Vitest、Node Test、CTest 和 GitHub Actions。
 
-当前项目 Writer 固定写 `fileVersion: 13`，Reader 支持 v1–v13。v10 新增项目级
+当前项目 Writer 固定写 `fileVersion: 15`，Reader 支持 v1–v15。v10 新增项目级
 `project.startScreen` 背景/音乐配置，v11 新增与项目名彼此独立的主界面显示标题；
 它不是 Scene。v12 新增作者可从 Toolbox 主动插入的“延伸”节点，用于在 Blockly
-中建立向下连接的新分页；白色数字字段会原子调整整页先后。表单会隐藏它，Compiler
-会在生成 Runtime 前剥离它。可运行的
+中建立向下连接的新分页；白色数字字段会原子调整整页先后。v13 为人物节点新增可空
+百分比坐标；v14 首次以扁平 `project.cgGallery.imageAssetIds` 加入 CG 画廊。v15 改为
+至少一项的 `pages`，每页精确保存九个 `string | null` 槽位，所有非空图片 ID 跨页唯一；
+旧 v14 会按顺序每九张分块并补 `null`，v1–v13 迁移为一张全空页面。表单会隐藏延伸节点，
+Compiler 会在生成 Runtime 前剥离它。可运行的
 `SceneNode` 仍是 Dialogue、Background、Character、SceneJump、Bgm、Video 和 Choice
 七种类型；`ChoiceOption` 是 ChoiceNode 内部的子实体。
 

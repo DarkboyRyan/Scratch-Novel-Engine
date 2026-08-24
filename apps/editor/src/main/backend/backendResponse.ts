@@ -121,6 +121,37 @@ function isStartScreenDocument(value: unknown): boolean {
   );
 }
 
+function isCgGalleryDocument(value: unknown): boolean {
+  if (!isObject(value) || !Array.isArray(value.pages) || value.pages.length === 0) {
+    return false;
+  }
+
+  const assetIds = new Set<string>();
+  return value.pages.every((page) => {
+    if (
+      !isObject(page) ||
+      !Array.isArray(page.imageAssetIds) ||
+      page.imageAssetIds.length !== 9
+    ) {
+      return false;
+    }
+    return page.imageAssetIds.every((assetId) => {
+      if (assetId === null) {
+        return true;
+      }
+      if (
+        typeof assetId !== 'string' ||
+        assetId.length === 0 ||
+        assetIds.has(assetId)
+      ) {
+        return false;
+      }
+      assetIds.add(assetId);
+      return true;
+    });
+  });
+}
+
 function isProjectDocument(value: unknown): boolean {
   return (
     isObject(value) &&
@@ -129,6 +160,7 @@ function isProjectDocument(value: unknown): boolean {
     typeof value.name === 'string' &&
     typeof value.entrySceneId === 'string' &&
     isStartScreenDocument(value.startScreen) &&
+    isCgGalleryDocument(value.cgGallery) &&
     Array.isArray(value.scenes) &&
     value.scenes.every(isSceneDocument)
   );
@@ -248,6 +280,14 @@ function toPublicProjectDocument(
         .backgroundAssetId as string | null,
       musicAssetId: (value.startScreen as Record<string, unknown>)
         .musicAssetId as string | null,
+    },
+    cgGallery: {
+      pages: ((value.cgGallery as Record<string, unknown>)
+        .pages as Record<string, unknown>[]).map((page) => ({
+          imageAssetIds: [
+            ...(page.imageAssetIds as Array<string | null>),
+          ],
+        })),
     },
     scenes: (value.scenes as Record<string, unknown>[]).map(
       toPublicSceneDocument,

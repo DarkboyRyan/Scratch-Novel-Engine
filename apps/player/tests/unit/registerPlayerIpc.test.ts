@@ -34,6 +34,7 @@ describe('Player read-only IPC', () => {
         backgroundAssetId: null,
         musicAssetId: null,
       },
+      cgGallery: { pages: [{ imageAssetIds: Array(9).fill(null) }] },
       scenes: [
         {
           schemaVersion: 1 as const,

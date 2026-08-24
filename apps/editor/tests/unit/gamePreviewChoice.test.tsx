@@ -30,6 +30,9 @@ const session: GamePreviewSession = {
       backgroundAssetId: null,
       musicAssetId: null,
     },
+    cgGallery: {
+      pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+    },
     scenes: [
       {
         schemaVersion: 1,
@@ -152,6 +155,9 @@ describe('GamePreview choices', () => {
       if (assetId === 'title-music') {
         return 'vn-asset://preview/title-music';
       }
+      if (assetId.startsWith('cg-')) {
+        return `vn-asset://preview/${assetId}`;
+      }
       return null;
     });
     const titleSession: GamePreviewSession = {
@@ -164,6 +170,16 @@ describe('GamePreview choices', () => {
           title: '自定义预览标题',
           backgroundAssetId: 'title-background',
           musicAssetId: 'title-music',
+        },
+        cgGallery: {
+          pages: [{
+            imageAssetIds: [
+              'cg-1',
+              null,
+              'cg-2',
+              ...Array<string | null>(6).fill(null),
+            ],
+          }],
         },
       },
     };
@@ -191,6 +207,7 @@ describe('GamePreview choices', () => {
     ).not.toBeNull();
     expect(container.querySelector('h1')?.textContent).toBe('自定义预览标题');
     expect(container.textContent).toContain('开始游戏');
+    expect(container.textContent).toContain('CG画廊');
     expect(container.textContent).toContain('选项');
     expect(container.textContent).toContain('退出游戏');
     expect(resolveMediaUrl).toHaveBeenCalledWith('title-background');
@@ -206,6 +223,20 @@ describe('GamePreview choices', () => {
     expect(music?.src).toContain('vn-asset://preview/title-music');
     expect(music?.loop).toBe(true);
     expect(play).toHaveBeenCalled();
+
+    const galleryButton = [...container.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === 'CG画廊',
+    );
+    await act(async () => galleryButton?.click());
+    await act(async () => undefined);
+    expect(container.querySelector('[aria-label="CG画廊"]')).not.toBeNull();
+    expect(container.querySelectorAll('.player-cg-thumbnail')).toHaveLength(9);
+    expect(container.querySelectorAll('.player-cg-thumbnail:disabled')).toHaveLength(7);
+    expect(resolveMediaUrl).toHaveBeenCalledWith('cg-1');
+    const closeGalleryButton = container.querySelector<HTMLButtonElement>(
+      '[aria-label="关闭CG画廊"]',
+    );
+    await act(async () => closeGalleryButton?.click());
 
     const optionsButton = [...container.querySelectorAll('button')].find(
       (button) => button.textContent?.trim() === '选项',

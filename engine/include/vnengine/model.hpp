@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <variant>
@@ -183,11 +185,31 @@ struct StartScreen {
   bool operator==(const StartScreen&) const = default;
 };
 
+inline constexpr std::size_t kCgGalleryPageSize = 9;
+
+// A CG page has nine stable, nullable positions. Empty positions are kept
+// rather than compacted so authors can deliberately leave gaps in a page.
+struct CgGalleryPage {
+  std::array<std::optional<std::string>, kCgGalleryPageSize> image_asset_ids{};
+
+  bool operator==(const CgGalleryPage&) const = default;
+};
+
+// The CG gallery is an author-controlled list of pages. It always contains at
+// least one page, including for a new project, so the Editor can immediately
+// render nine explicit "none" choices without inventing transient state.
+struct CgGallery {
+  std::vector<CgGalleryPage> pages{CgGalleryPage{}};
+
+  bool operator==(const CgGallery&) const = default;
+};
+
 struct Project {
   int schema_version = kSchemaVersion;
   std::string id;
   std::string name;
   StartScreen start_screen;
+  CgGallery cg_gallery;
   std::string entry_scene_id;
   std::vector<Scene> scenes;
 

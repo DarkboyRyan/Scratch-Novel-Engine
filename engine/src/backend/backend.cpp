@@ -119,6 +119,62 @@ std::vector<std::string> required_unique_string_array(
   return values;
 }
 
+std::vector<CgGalleryPage> required_cg_gallery_pages(const Json& object) {
+  constexpr std::string_view field_name = "pages";
+  const std::string key(field_name);
+  if (!object.contains(key) || !object.at(key).is_array() ||
+      object.at(key).empty()) {
+    throw ProtocolError(
+        "invalid_params", "params.pages must be a non-empty array");
+  }
+
+  std::vector<CgGalleryPage> pages;
+  pages.reserve(object.at(key).size());
+  std::unordered_set<std::string> unique_asset_ids;
+  for (std::size_t page_index = 0;
+       page_index < object.at(key).size();
+       ++page_index) {
+    const Json& page_json = object.at(key).at(page_index);
+    if (!page_json.is_object() || page_json.size() != 1U ||
+        !page_json.contains("imageAssetIds")) {
+      throw ProtocolError(
+          "invalid_params",
+          "params.pages must contain only imageAssetIds page objects");
+    }
+    const Json& slots = page_json.at("imageAssetIds");
+    if (!slots.is_array() || slots.size() != kCgGalleryPageSize) {
+      throw ProtocolError(
+          "invalid_params",
+          "params.pages[].imageAssetIds must contain exactly " +
+              std::to_string(kCgGalleryPageSize) + " items");
+    }
+
+    CgGalleryPage page;
+    for (std::size_t slot_index = 0;
+         slot_index < kCgGalleryPageSize;
+         ++slot_index) {
+      const Json& value = slots.at(slot_index);
+      if (value.is_null()) {
+        continue;
+      }
+      if (!value.is_string() || value.get_ref<const std::string&>().empty()) {
+        throw ProtocolError(
+            "invalid_params",
+            "params.pages[].imageAssetIds must contain strings or null");
+      }
+      const std::string asset_id = value.get<std::string>();
+      if (!unique_asset_ids.insert(asset_id).second) {
+        throw ProtocolError(
+            "invalid_params",
+            "params.pages[].imageAssetIds must not contain duplicates");
+      }
+      page.image_asset_ids[slot_index] = asset_id;
+    }
+    pages.push_back(std::move(page));
+  }
+  return pages;
+}
+
 CharacterSlot required_character_slot(const Json& object) {
   const std::string slot = required_string(object, "slot");
   if (slot == "left") {
@@ -501,6 +557,30 @@ Json Backend::handle(const Json& request) {
       case vnengine::UpdateStartScreenResult::music_asset_not_audio:
         throw ProtocolError(
             "asset_not_audio", "start screen music asset must be audio");
+    }
+  } else if (method == "cgGallery.update") {
+    require_exact_params(params, {"pages"});
+    switch (vnengine::update_cg_gallery(
+        require_aggregate(),
+        required_cg_gallery_pages(params))) {
+      case vnengine::UpdateCgGalleryResult::changed:
+        changed = true;
+        break;
+      case vnengine::UpdateCgGalleryResult::unchanged:
+        changed = false;
+        break;
+      case vnengine::UpdateCgGalleryResult::page_required:
+        throw ProtocolError(
+            "invalid_params", "params.pages must contain at least one page");
+      case vnengine::UpdateCgGalleryResult::asset_not_found:
+        throw ProtocolError("asset_not_found", "asset does not exist");
+      case vnengine::UpdateCgGalleryResult::asset_not_image:
+        throw ProtocolError(
+            "asset_not_image", "CG gallery asset must be an image");
+      case vnengine::UpdateCgGalleryResult::duplicate_asset_id:
+        throw ProtocolError(
+            "invalid_params",
+            "params.pages[].imageAssetIds must not contain duplicates");
     }
   } else if (method == "scene.add") {
     std::optional<std::string> name;

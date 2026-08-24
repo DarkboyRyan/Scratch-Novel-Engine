@@ -7,6 +7,38 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+function isCgGalleryPages(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length === 0) {
+    return false;
+  }
+
+  const assetIds = new Set<string>();
+  return value.every((page) => {
+    if (
+      !isObject(page) ||
+      Object.keys(page).length !== 1 ||
+      !Array.isArray(page.imageAssetIds) ||
+      page.imageAssetIds.length !== 9
+    ) {
+      return false;
+    }
+    return page.imageAssetIds.every((assetId) => {
+      if (assetId === null) {
+        return true;
+      }
+      if (
+        typeof assetId !== 'string' ||
+        assetId.length === 0 ||
+        assetIds.has(assetId)
+      ) {
+        return false;
+      }
+      assetIds.add(assetId);
+      return true;
+    });
+  });
+}
+
 export function isEngineInvocation(
   value: unknown,
 ): value is EngineInvocation {
@@ -54,6 +86,11 @@ export function isEngineInvocation(
         (params.backgroundAssetId === null ||
           hasString('backgroundAssetId')) &&
         (params.musicAssetId === null || hasString('musicAssetId'))
+      );
+    case 'cgGallery.update':
+      return (
+        Object.keys(params).length === 1 &&
+        isCgGalleryPages(params.pages)
       );
     case 'scene.add':
       return params.name === undefined || hasString('name');

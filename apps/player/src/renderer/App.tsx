@@ -182,6 +182,7 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
       <TitleScreen
         key={state.generation}
         startScreen={state.game.project.startScreen}
+        cgGalleryPages={state.game.project.cgGallery?.pages ?? []}
         openingGame={openingGame}
         resolveMediaUrl={gateway.resolveMediaUrl}
         onStart={() => start(state.game)}

@@ -75,6 +75,41 @@ describe('engine IPC validation', () => {
     }
   });
 
+  it('accepts only exact non-empty nine-slot CG pages', () => {
+    const emptyPage = { imageAssetIds: Array(9).fill(null) };
+    const populatedPage = {
+      imageAssetIds: ['image-2', null, 'image-1', null, null, null, null, null, null],
+    };
+    expect(isEngineInvocation({
+      method: 'cgGallery.update',
+      params: { pages: [emptyPage] },
+    })).toBe(true);
+    expect(isEngineInvocation({
+      method: 'cgGallery.update',
+      params: { pages: [populatedPage, emptyPage] },
+    })).toBe(true);
+
+    for (const params of [
+      {},
+      { pages: [] },
+      { pages: 'page-1' },
+      { pages: [{ imageAssetIds: Array(8).fill(null) }] },
+      { pages: [{ imageAssetIds: [2, ...Array(8).fill(null)] }] },
+      {
+        pages: [
+          { imageAssetIds: ['image-1', ...Array(8).fill(null)] },
+          { imageAssetIds: ['image-1', ...Array(8).fill(null)] },
+        ],
+      },
+      { pages: [emptyPage], unexpected: true },
+    ]) {
+      expect(isEngineInvocation({
+        method: 'cgGallery.update',
+        params,
+      })).toBe(false);
+    }
+  });
+
   it('accepts setting or clearing a scene background by Asset ID', () => {
     expect(
       isEngineInvocation({

@@ -16,7 +16,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { compileAuthorProjectV13 } from '../../src/main/export/AuthorProjectCompiler';
+import { compileAuthorProjectV15 } from '../../src/main/export/AuthorProjectCompiler';
 import {
   exportRuntimeBundle,
   type RuntimeBundleExportFaultPoint,
@@ -33,7 +33,7 @@ async function makeDirectory(): Promise<string> {
 function projectDocument(relativePath = 'assets/images/image-1.png'): unknown {
   return {
     format: 'vn-engine-project',
-    fileVersion: 13,
+    fileVersion: 15,
     project: {
       schemaVersion: 1,
       id: 'project-1',
@@ -43,6 +43,15 @@ function projectDocument(relativePath = 'assets/images/image-1.png'): unknown {
         title: 'Custom Title',
         backgroundAssetId: 'image-1',
         musicAssetId: 'title-music',
+      },
+      cgGallery: {
+        pages: [{
+          imageAssetIds: [
+            null,
+            'gallery-image',
+            ...Array<string | null>(7).fill(null),
+          ],
+        }],
       },
       scenes: [
         {
@@ -73,13 +82,19 @@ function projectDocument(relativePath = 'assets/images/image-1.png'): unknown {
         relativePath: 'assets/videos/unused-video.mp4',
         displayName: 'Unused.mp4',
       },
+      {
+        id: 'gallery-image',
+        type: 'image',
+        relativePath: 'assets/images/gallery-image.png',
+        displayName: 'Gallery.png',
+      },
     ],
   };
 }
 
 function currentSnapshot() {
   const manifestContents = JSON.stringify(projectDocument());
-  const compiled = compileAuthorProjectV13(manifestContents);
+  const compiled = compileAuthorProjectV15(manifestContents);
   return {
     expectedManifestSha256: createHash('sha256')
       .update(manifestContents)
@@ -93,6 +108,7 @@ async function createSavedProject(): Promise<{
   projectRoot: string;
   outputParent: string;
   imageBytes: Buffer;
+  galleryImageBytes: Buffer;
   audioBytes: Buffer;
 }> {
   const testRoot = await makeDirectory();
@@ -107,13 +123,27 @@ async function createSavedProject(): Promise<{
   ]);
   const audioBytes = Buffer.alloc(417);
   audioBytes.set([0xff, 0xfb, 0x90, 0x64]);
+  const galleryImageBytes = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    Buffer.from('runtime-gallery-export-test'),
+  ]);
   await writeFile(path.join(projectRoot, 'project.vn.json'), JSON.stringify(projectDocument()));
   await writeFile(path.join(projectRoot, 'assets', 'images', 'image-1.png'), imageBytes);
+  await writeFile(
+    path.join(projectRoot, 'assets', 'images', 'gallery-image.png'),
+    galleryImageBytes,
+  );
   await writeFile(
     path.join(projectRoot, 'assets', 'audio', 'title-music.mp3'),
     audioBytes,
   );
-  return { projectRoot, outputParent, imageBytes, audioBytes };
+  return {
+    projectRoot,
+    outputParent,
+    imageBytes,
+    galleryImageBytes,
+    audioBytes,
+  };
 }
 
 afterEach(async () => {
@@ -125,8 +155,14 @@ afterEach(async () => {
 });
 
 describe('runtime bundle exporter', () => {
-  it('publishes a verified runtime v4 bundle with start-screen assets', async () => {
-    const { projectRoot, outputParent, imageBytes, audioBytes } = await createSavedProject();
+  it('publishes a verified runtime v6 bundle with start-screen and CG assets', async () => {
+    const {
+      projectRoot,
+      outputParent,
+      imageBytes,
+      galleryImageBytes,
+      audioBytes,
+    } = await createSavedProject();
     const targetPath = path.join(outputParent, 'Custom Name.vngame');
 
     await expect(
@@ -142,7 +178,7 @@ describe('runtime bundle exporter', () => {
       bundleName: 'Custom Name.vngame',
       buildId: 'build-fixed',
       sourceRevision: 12,
-      assetCount: 2,
+      assetCount: 3,
     });
 
     const game = JSON.parse(await readFile(path.join(targetPath, 'game.json'), 'utf8'));
@@ -155,6 +191,7 @@ describe('runtime bundle exporter', () => {
       'title',
       'entrySceneId',
       'startScreen',
+      'cgGallery',
     ]);
     expect(Object.keys(game.game.startScreen)).toEqual([
       'title',
@@ -163,7 +200,7 @@ describe('runtime bundle exporter', () => {
     ]);
     expect(game).toMatchObject({
       format: 'vn-engine-runtime',
-      runtimeVersion: 4,
+      runtimeVersion: 6,
       game: {
         id: 'project-1',
         title: 'Export Game',
@@ -172,6 +209,15 @@ describe('runtime bundle exporter', () => {
           title: 'Custom Title',
           backgroundAssetId: 'image-1',
           musicAssetId: 'title-music',
+        },
+        cgGallery: {
+          pages: [{
+            imageAssetIds: [
+              null,
+              'gallery-image',
+              ...Array<string | null>(7).fill(null),
+            ],
+          }],
         },
       },
     });
@@ -188,8 +234,8 @@ describe('runtime bundle exporter', () => {
       'files',
     ]);
     expect(manifest).toMatchObject({
-      runtimeVersion: 4,
-      playerCompatibility: '>=4 <5',
+      runtimeVersion: 6,
+      playerCompatibility: '>=6 <7',
     });
     expect(manifest.files).toEqual([
       {
@@ -210,14 +256,70 @@ describe('runtime bundle exporter', () => {
         bytes: audioBytes.length,
         sha256: createHash('sha256').update(audioBytes).digest('hex'),
       },
+      {
+        assetId: 'gallery-image',
+        type: 'image',
+        displayName: 'Gallery.png',
+        path: 'assets/images/gallery-image.png',
+        mime: 'image/png',
+        bytes: galleryImageBytes.length,
+        sha256: createHash('sha256').update(galleryImageBytes).digest('hex'),
+      },
     ]);
     await expect(
       readFile(path.join(targetPath, 'assets', 'images', 'image-1.png')),
     ).resolves.toEqual(imageBytes);
     await expect(
+      readFile(path.join(targetPath, 'assets', 'images', 'gallery-image.png')),
+    ).resolves.toEqual(galleryImageBytes);
+    await expect(
       access(path.join(targetPath, 'assets', 'videos', 'unused-video.mp4')),
     ).rejects.toMatchObject({ code: 'ENOENT' });
     expect(JSON.stringify({ game, manifest })).not.toContain(projectRoot);
+  });
+
+  it('exports an opened v14 project without requiring an extra save', async () => {
+    const { projectRoot, outputParent } = await createSavedProject();
+    const legacyDocument = projectDocument() as {
+      fileVersion: number;
+      project: { cgGallery: unknown };
+    };
+    legacyDocument.fileVersion = 14;
+    legacyDocument.project.cgGallery = {
+      imageAssetIds: ['gallery-image'],
+    };
+    const legacyContents = JSON.stringify(legacyDocument);
+    await writeFile(
+      path.join(projectRoot, 'project.vn.json'),
+      legacyContents,
+    );
+    const migratedSnapshot = compileAuthorProjectV15(legacyContents);
+    const targetPath = path.join(outputParent, 'Legacy.vngame');
+
+    await expect(exportRuntimeBundle({
+      sourceProjectRootPath: projectRoot,
+      targetBundlePath: targetPath,
+      sourceRevision: 0,
+      expectedManifestSha256: createHash('sha256')
+        .update(legacyContents)
+        .digest('hex'),
+      expectedProject: migratedSnapshot.sourceProject,
+      expectedAssets: migratedSnapshot.publicAssets,
+      buildId: 'legacy-build',
+      createdAt: '2026-08-18T00:00:00.000Z',
+    })).resolves.toMatchObject({ assetCount: 3 });
+
+    const game = JSON.parse(
+      await readFile(path.join(targetPath, 'game.json'), 'utf8'),
+    ) as { game: { cgGallery: unknown } };
+    expect(game.game.cgGallery).toEqual({
+      pages: [{
+        imageAssetIds: [
+          'gallery-image',
+          ...Array(8).fill(null),
+        ],
+      }],
+    });
   });
 
   it('removes staging and leaves no final bundle after any injected failure', async () => {

@@ -12,6 +12,11 @@ const validProject = {
     backgroundAssetId: 'asset-1',
     musicAssetId: null,
   },
+  cgGallery: {
+    pages: [{
+      imageAssetIds: ['asset-1', null, null, null, null, null, null, null, null],
+    }],
+  },
   scenes: [
     {
       schemaVersion: 1,
@@ -138,6 +143,54 @@ describe('backend response validation', () => {
       },
     });
     expect(JSON.stringify(parsed)).not.toContain('privateBackgroundPath');
+  });
+
+  it('accepts and sanitizes fixed CG gallery pages', () => {
+    const parsed = parseBackendResponse(successResponse({
+      project: {
+        ...validProject,
+        cgGallery: {
+          pages: [{
+            imageAssetIds: ['asset-1', null, null, null, null, null, null, null, null],
+            privatePath: '/not/public/cg-page',
+          }],
+          privatePath: '/not/public/cg',
+        },
+      },
+    }));
+
+    expect(parsed).toMatchObject({
+      ok: true,
+      result: {
+        project: {
+          cgGallery: {
+            pages: [{
+              imageAssetIds: ['asset-1', null, null, null, null, null, null, null, null],
+            }],
+          },
+        },
+      },
+    });
+    expect(JSON.stringify(parsed)).not.toContain('privatePath');
+  });
+
+  it.each([
+    undefined,
+    {},
+    { pages: [] },
+    { pages: 'page-1' },
+    { pages: [{ imageAssetIds: Array(8).fill(null) }] },
+    { pages: [{ imageAssetIds: ['asset-1', 2, ...Array(7).fill(null)] }] },
+    {
+      pages: [
+        { imageAssetIds: ['asset-1', ...Array(8).fill(null)] },
+        { imageAssetIds: ['asset-1', ...Array(8).fill(null)] },
+      ],
+    },
+  ])('rejects a malformed CG gallery: %j', (cgGallery) => {
+    expect(() => parseBackendResponse(successResponse({
+      project: { ...validProject, cgGallery },
+    }))).toThrow('project');
   });
 
   it.each([

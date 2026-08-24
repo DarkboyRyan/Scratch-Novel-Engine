@@ -2,9 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import type { StartScreenDocument } from '@vnengine/runtime';
 
 import type { MediaUrlResolver } from './mediaPort';
+import { CgGallery } from './CgGallery';
 
 export type TitleScreenProps = {
   startScreen: StartScreenDocument;
+  cgGalleryPages?: ReadonlyArray<{
+    imageAssetIds: readonly (string | null)[];
+  }>;
   resolveMediaUrl: MediaUrlResolver;
   openingGame?: boolean;
   onStart: () => void;
@@ -47,6 +51,7 @@ function useResolvedTitleAsset(
 
 export function TitleScreen({
   startScreen,
+  cgGalleryPages = [],
   resolveMediaUrl,
   openingGame = false,
   onStart,
@@ -54,6 +59,7 @@ export function TitleScreen({
   onExit,
 }: TitleScreenProps) {
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [cgGalleryOpen, setCgGalleryOpen] = useState(false);
   const [musicEnabled, setMusicEnabled] = useState(true);
   const audioRef = useRef<HTMLAudioElement>(null);
   const backgroundUrl = useResolvedTitleAsset(
@@ -116,6 +122,13 @@ export function TitleScreen({
           <button
             type="button"
             className="secondary"
+            onClick={() => setCgGalleryOpen(true)}
+          >
+            CG画廊
+          </button>
+          <button
+            type="button"
+            className="secondary"
             onClick={() => setOptionsOpen(true)}
           >
             选项
@@ -162,6 +175,13 @@ export function TitleScreen({
             </button>
           </section>
         </div>
+      ) : null}
+      {cgGalleryOpen ? (
+        <CgGallery
+          pages={cgGalleryPages}
+          resolveMediaUrl={resolveMediaUrl}
+          onClose={() => setCgGalleryOpen(false)}
+        />
       ) : null}
     </main>
   );

@@ -29,7 +29,7 @@ export type ParsedRuntimeBundle = {
   files: RuntimeManifestAsset[];
 };
 
-type SupportedRuntimeVersion = 1 | 2 | 3 | 4;
+type SupportedRuntimeVersion = 1 | 2 | 3 | 4 | 5 | 6;
 
 type ParsedRuntimeGame = {
   project: ProjectDocument;
@@ -126,6 +126,10 @@ function playerCompatibilityForRuntime(
       return '>=3 <4';
     case 4:
       return '>=4 <5';
+    case 5:
+      return '>=5 <6';
+    case 6:
+      return '>=6 <7';
   }
 }
 
@@ -292,7 +296,9 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
     root.runtimeVersion !== 1 &&
     root.runtimeVersion !== 2 &&
     root.runtimeVersion !== 3 &&
-    root.runtimeVersion !== 4
+    root.runtimeVersion !== 4 &&
+    root.runtimeVersion !== 5 &&
+    root.runtimeVersion !== 6
   ) {
     throw new Error('game.json.runtimeVersion 版本或格式不受支持');
   }
@@ -303,7 +309,9 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
     metadata,
     runtimeVersion === 1
       ? ['id', 'title', 'entrySceneId']
-      : ['id', 'title', 'entrySceneId', 'startScreen'],
+      : runtimeVersion < 5
+        ? ['id', 'title', 'entrySceneId', 'startScreen']
+        : ['id', 'title', 'entrySceneId', 'startScreen', 'cgGallery'],
     'game.json.game',
   );
   const projectId = idValue(metadata, 'id', 'game.json.game');
@@ -357,6 +365,102 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
     };
   }
 
+  let cgGallery = {
+    pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+  };
+  if (runtimeVersion === 5) {
+    const cgGalleryValue = objectValue(
+      metadata.cgGallery,
+      'game.json.game.cgGallery',
+    );
+    exactFields(
+      cgGalleryValue,
+      ['imageAssetIds'],
+      'game.json.game.cgGallery',
+    );
+    const imageAssetIds = arrayValue(
+      cgGalleryValue,
+      'imageAssetIds',
+      'game.json.game.cgGallery',
+    ).map((assetId, index) => {
+      if (typeof assetId !== 'string') {
+        throw new Error(
+          `game.json.game.cgGallery.imageAssetIds[${index}] 不是有效资源 ID`,
+        );
+      }
+      return idValue(
+        { assetId },
+        'assetId',
+        `game.json.game.cgGallery.imageAssetIds[${index}]`,
+      );
+    });
+    if (new Set(imageAssetIds).size !== imageAssetIds.length) {
+      throw new Error('game.json.game.cgGallery.imageAssetIds 不能包含重复资源 ID');
+    }
+    cgGallery = {
+      pages: imageAssetIds.length === 0
+        ? [{ imageAssetIds: Array<string | null>(9).fill(null) }]
+        : Array.from(
+            { length: Math.ceil(imageAssetIds.length / 9) },
+            (_, pageIndex) => ({
+              imageAssetIds: Array.from(
+                { length: 9 },
+                (_, slotIndex) =>
+                  imageAssetIds[(pageIndex * 9) + slotIndex] ?? null,
+              ),
+            }),
+          ),
+    };
+  } else if (runtimeVersion >= 6) {
+    const cgGalleryValue = objectValue(
+      metadata.cgGallery,
+      'game.json.game.cgGallery',
+    );
+    exactFields(cgGalleryValue, ['pages'], 'game.json.game.cgGallery');
+    const pageValues = arrayValue(
+      cgGalleryValue,
+      'pages',
+      'game.json.game.cgGallery',
+    );
+    if (pageValues.length === 0) {
+      throw new Error('game.json.game.cgGallery.pages 至少需要一页');
+    }
+    const seenAssetIds = new Set<string>();
+    cgGallery = {
+      pages: pageValues.map((page, pageIndex) => {
+        const context = `game.json.game.cgGallery.pages[${pageIndex}]`;
+        const pageValue = objectValue(page, context);
+        exactFields(pageValue, ['imageAssetIds'], context);
+        const slots = arrayValue(pageValue, 'imageAssetIds', context);
+        if (slots.length !== 9) {
+          throw new Error(`${context}.imageAssetIds 必须精确包含 9 个槽位`);
+        }
+        return {
+          imageAssetIds: slots.map((assetId, slotIndex) => {
+            if (assetId === null) {
+              return null;
+            }
+            if (typeof assetId !== 'string') {
+              throw new Error(
+                `${context}.imageAssetIds[${slotIndex}] 不是有效资源 ID 或 null`,
+              );
+            }
+            const parsed = idValue(
+              { assetId },
+              'assetId',
+              `${context}.imageAssetIds[${slotIndex}]`,
+            );
+            if (seenAssetIds.has(parsed)) {
+              throw new Error('game.json.game.cgGallery.pages 不能包含重复资源 ID');
+            }
+            seenAssetIds.add(parsed);
+            return parsed;
+          }),
+        };
+      }),
+    };
+  }
+
   return {
     runtimeVersion,
     project: {
@@ -365,6 +469,7 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
       name: projectName,
       entrySceneId: idValue(metadata, 'entrySceneId', 'game.json.game'),
       startScreen,
+      cgGallery,
       scenes,
     },
   };
@@ -536,6 +641,11 @@ function validateProjectReferences(
     'audio',
     '主界面音乐',
   );
+  for (const page of project.cgGallery.pages) {
+    for (const assetId of page.imageAssetIds) {
+      requireAssetType(assets, assetId, 'image', 'CG 画廊');
+    }
+  }
 
   for (const scene of project.scenes) {
     requireAssetType(

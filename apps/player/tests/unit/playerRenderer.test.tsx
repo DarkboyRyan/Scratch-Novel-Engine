@@ -24,6 +24,7 @@ const project: ProjectDocument = {
     backgroundAssetId: null,
     musicAssetId: null,
   },
+  cgGallery: { pages: [{ imageAssetIds: Array(9).fill(null) }] },
   scenes: [
     {
       schemaVersion: 1,
@@ -243,11 +244,12 @@ describe('Player Renderer', () => {
       .toBe(true);
     expect(HTMLMediaElement.prototype.play).toHaveBeenCalled();
     expect(button(container, '开始游戏')).toBeTruthy();
+    expect(button(container, 'CG画廊')).toBeTruthy();
     expect(button(container, '选项')).toBeTruthy();
     expect(button(container, '退出游戏')).toBeTruthy();
     expect(
       container.querySelector('.player-title-actions-vertical')?.children,
-    ).toHaveLength(3);
+    ).toHaveLength(4);
     expect(container.textContent).not.toContain('打开其他游戏');
 
     await act(async () => button(container, '选项').click());
@@ -284,6 +286,97 @@ describe('Player Renderer', () => {
     await act(async () => undefined);
     await act(async () => button(container, '开始游戏').click());
     expect(container.textContent).toContain('欢迎来到故事。');
+  });
+
+  it('browses CG images nine per page and opens a selected image', async () => {
+    const imageAssetIds = Array.from({ length: 10 }, (_, index) =>
+      `cg-${index + 1}`,
+    );
+    gateway.loadGame = vi.fn().mockResolvedValue({
+      status: 'loaded',
+      mode: 'generic',
+      game: {
+        ...game,
+        project: {
+          ...project,
+          cgGallery: {
+            pages: [
+              { imageAssetIds: imageAssetIds.slice(0, 9) },
+              {
+                imageAssetIds: [
+                  imageAssetIds[9],
+                  ...Array<string | null>(8).fill(null),
+                ],
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    await act(async () => root.render(<App gateway={gateway} />));
+    expect(resolveMediaUrl).not.toHaveBeenCalledWith('cg-1');
+
+    await act(async () => button(container, 'CG画廊').click());
+    await act(async () => undefined);
+    expect(container.querySelector('[aria-label="CG画廊"]')).not.toBeNull();
+    expect(container.querySelectorAll('.player-cg-thumbnail')).toHaveLength(9);
+    expect(resolveMediaUrl).toHaveBeenCalledWith('cg-1');
+    expect(resolveMediaUrl).toHaveBeenCalledWith('cg-9');
+    expect(resolveMediaUrl).not.toHaveBeenCalledWith('cg-10');
+
+    await act(async () => button(container, '下一页').click());
+    await act(async () => undefined);
+    expect(container.querySelectorAll('.player-cg-thumbnail')).toHaveLength(9);
+    expect(container.querySelectorAll('.player-cg-thumbnail:disabled')).toHaveLength(8);
+    expect(container.textContent).toContain('2 / 2');
+    expect(resolveMediaUrl).toHaveBeenCalledWith('cg-10');
+
+    const lastCg = container.querySelector<HTMLButtonElement>(
+      '[aria-label="放大 CG 10"]',
+    );
+    await act(async () => lastCg?.click());
+    expect(container.querySelector('[aria-label="CG 10 大图"]')).not.toBeNull();
+
+    await act(async () => window.dispatchEvent(keyboard('Escape')));
+    expect(container.querySelector('[aria-label="CG 10 大图"]')).toBeNull();
+    expect(container.querySelector('[aria-label="CG画廊"]')).not.toBeNull();
+    await act(async () => window.dispatchEvent(keyboard('Escape')));
+    expect(container.querySelector('[aria-label="CG画廊"]')).toBeNull();
+  });
+
+  it('keeps a manually added empty CG page in pagination', async () => {
+    gateway.loadGame = vi.fn().mockResolvedValue({
+      status: 'loaded',
+      mode: 'generic',
+      game: {
+        ...game,
+        project: {
+          ...project,
+          cgGallery: {
+            pages: [
+              {
+                imageAssetIds: [
+                  'cg-1',
+                  ...Array<string | null>(8).fill(null),
+                ],
+              },
+              { imageAssetIds: Array<string | null>(9).fill(null) },
+            ],
+          },
+        },
+      },
+    });
+
+    await act(async () => root.render(<App gateway={gateway} />));
+    await act(async () => button(container, 'CG画廊').click());
+    await act(async () => undefined);
+    await act(async () => button(container, '下一页').click());
+
+    expect(container.textContent).toContain('2 / 2');
+    expect(container.querySelectorAll('.player-cg-thumbnail')).toHaveLength(9);
+    expect(container.querySelectorAll('.player-cg-thumbnail:disabled')).toHaveLength(9);
+    expect(container.textContent).toContain('无');
   });
 
   it('maps the title exit action to the Player quit gateway', async () => {

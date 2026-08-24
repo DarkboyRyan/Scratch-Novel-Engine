@@ -22,6 +22,9 @@ const initialResult: EngineMutationResult = {
       backgroundAssetId: null,
       musicAssetId: null,
     },
+    cgGallery: {
+      pages: [{ imageAssetIds: Array(9).fill(null) }],
+    },
     scenes: [
       {
         schemaVersion: 1,
@@ -128,6 +131,7 @@ describe('useEngineProject asset state', () => {
   let importAudio: ReturnType<typeof vi.fn>;
   let addBackground: ReturnType<typeof vi.fn>;
   let updateStartScreen: ReturnType<typeof vi.fn>;
+  let updateCgGallery: ReturnType<typeof vi.fn>;
   let updateBackground: ReturnType<typeof vi.fn>;
   let deleteBackground: ReturnType<typeof vi.fn>;
   let reorderBackground: ReturnType<typeof vi.fn>;
@@ -191,6 +195,23 @@ describe('useEngineProject asset state', () => {
         isDirty: true,
       },
     });
+    updateCgGallery = vi.fn().mockResolvedValue({
+      ...initialResult,
+      project: {
+        ...initialResult.project,
+        cgGallery: {
+          pages: [{
+            imageAssetIds: ['asset-1', null, null, null, null, null, null, null, null],
+          }],
+        },
+      },
+      assets: importedResult.assets,
+      session: {
+        revision: 3,
+        savedRevision: 2,
+        isDirty: true,
+      },
+    });
     updateBackground = vi.fn().mockResolvedValue(backgroundResult);
     deleteBackground = vi.fn().mockResolvedValue(backgroundResult);
     reorderBackground = vi.fn().mockResolvedValue(backgroundResult);
@@ -226,6 +247,7 @@ describe('useEngineProject asset state', () => {
       engine: {
         ensureProject: vi.fn().mockResolvedValue(initialResult),
         updateStartScreen,
+        updateCgGallery,
         addBackground,
         updateBackground,
         deleteBackground,
@@ -295,6 +317,40 @@ describe('useEngineProject asset state', () => {
       hasStorage: true,
       projectFolderName: 'story',
       ...importedResult.session,
+    });
+  });
+
+  it('projects a pre-CG live snapshot as an empty gallery instead of crashing', async () => {
+    const legacyProject = { ...initialResult.project };
+    delete (legacyProject as Partial<typeof legacyProject>).cgGallery;
+    const legacyResult = {
+      ...initialResult,
+      project: legacyProject,
+    } as unknown as EngineMutationResult;
+    platform = {
+      ...platform,
+      engine: {
+        ...platform.engine,
+        ensureProject: vi.fn().mockResolvedValue(legacyResult),
+        getProject: vi.fn().mockResolvedValue(legacyResult),
+      },
+    };
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    expect(current?.project?.cgGallery).toEqual({
+      pages: [{ imageAssetIds: Array(9).fill(null) }],
+    });
+    expect(current?.engineMessage).toBe('');
+
+    let snapshot: Awaited<ReturnType<EngineProjectState['getProjectSnapshot']>>;
+    await act(async () => {
+      snapshot = await current!.getProjectSnapshot();
+    });
+    expect(snapshot!.cgGallery).toEqual({
+      pages: [{ imageAssetIds: Array(9).fill(null) }],
     });
   });
 
@@ -396,6 +452,22 @@ describe('useEngineProject asset state', () => {
       backgroundAssetId: 'asset-1',
       musicAssetId: 'audio-1',
     });
+  });
+
+  it('updates fixed CG pages in one queued mutation', async () => {
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    const pages = [{
+      imageAssetIds: ['asset-1', null, null, null, null, null, null, null, null],
+    }];
+    await act(async () => {
+      expect(await current!.updateCgGallery(pages)).toBe(true);
+    });
+
+    expect(updateCgGallery).toHaveBeenCalledWith(pages);
+    expect(current?.project?.cgGallery.pages).toEqual(pages);
   });
 
   it('commits, saves, and exports one clean persisted revision', async () => {

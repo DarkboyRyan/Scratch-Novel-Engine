@@ -18,6 +18,10 @@ function dialogue(id: string, voiceAssetId: string | null = null) {
   };
 }
 
+function emptyCgGallery(): ProjectDocument['cgGallery'] {
+  return { pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }] };
+}
+
 describe('shared runtime execution contract', () => {
   it('applies background, character and BGM nodes before stopping at dialogue', () => {
     const project: ProjectDocument = {
@@ -30,6 +34,7 @@ describe('shared runtime execution contract', () => {
         backgroundAssetId: null,
         musicAssetId: null,
       },
+      cgGallery: emptyCgGallery(),
       scenes: [{
         schemaVersion: 1,
         id: 'entry',
@@ -79,6 +84,7 @@ describe('shared runtime execution contract', () => {
         backgroundAssetId: null,
         musicAssetId: null,
       },
+      cgGallery: emptyCgGallery(),
       scenes: [{
         schemaVersion: 1,
         id: 'entry',
@@ -118,6 +124,7 @@ describe('shared runtime execution contract', () => {
         backgroundAssetId: null,
         musicAssetId: null,
       },
+      cgGallery: emptyCgGallery(),
       scenes: [
         {
           schemaVersion: 1,
@@ -184,6 +191,7 @@ describe('shared runtime execution contract', () => {
         backgroundAssetId: null,
         musicAssetId: null,
       },
+      cgGallery: emptyCgGallery(),
       scenes: [
         {
           schemaVersion: 1,
@@ -225,6 +233,7 @@ describe('shared runtime execution contract', () => {
         backgroundAssetId: null,
         musicAssetId: null,
       },
+      cgGallery: emptyCgGallery(),
       scenes: [{
         schemaVersion: 1,
         id: 'entry',
@@ -245,6 +254,7 @@ describe('shared runtime execution contract', () => {
         backgroundAssetId: null,
         musicAssetId: null,
       },
+      cgGallery: emptyCgGallery(),
       scenes: [
         {
           schemaVersion: 1,
@@ -279,6 +289,7 @@ describe('shared runtime execution contract', () => {
         backgroundAssetId: null,
         musicAssetId: null,
       },
+      cgGallery: emptyCgGallery(),
       scenes: [{
         schemaVersion: 1,
         id: 'entry',

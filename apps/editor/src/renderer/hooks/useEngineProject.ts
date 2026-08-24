@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ImportAssetResult } from '../../shared/assetProtocol';
 import type { EngineMutationResult } from '../../shared/engineProtocol';
@@ -39,7 +39,67 @@ function requestInitialProject(
   return platform.engine.ensureProject();
 }
 
+function withRendererProjectDefaults(
+  project: ProjectDocument,
+): ProjectDocument {
+  // Vite can hot-reload the Renderer while Electron Main, Preload and the C++
+  // backend keep running. A Project snapshot retained by React from before CG
+  // gallery support therefore has no `cgGallery` property. Treat that one
+  // legacy in-memory shape as an empty gallery so selecting the new surface
+  // cannot crash the complete Renderer. Fresh backend responses are still
+  // validated strictly by Main before they reach this boundary.
+  const gallery = (
+    project as ProjectDocument & {
+      cgGallery?: ProjectDocument['cgGallery'];
+    }
+  ).cgGallery;
+  const assetIds = new Set<string>();
+  const hasValidPages =
+    gallery &&
+    Array.isArray(gallery.pages) &&
+    gallery.pages.length > 0 &&
+    gallery.pages.every(
+      (page) =>
+        page !== null &&
+        typeof page === 'object' &&
+        Array.isArray(page.imageAssetIds) &&
+        page.imageAssetIds.length === 9 &&
+        page.imageAssetIds.every((assetId) => {
+          if (assetId === null) {
+            return true;
+          }
+          if (
+            typeof assetId !== 'string' ||
+            assetId.length === 0 ||
+            assetIds.has(assetId)
+          ) {
+            return false;
+          }
+          assetIds.add(assetId);
+          return true;
+        }),
+    );
+  if (hasValidPages) {
+    return project;
+  }
+
+  return {
+    ...project,
+    cgGallery: {
+      pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+    },
+  };
+}
+
 function readableError(error: unknown): string {
+  if (
+    error instanceof Error &&
+    (error.message.includes('updateCgGallery is not a function') ||
+      error.message.includes('unknown method: cgGallery.update'))
+  ) {
+    return 'CG 画廊模块尚未加载，请完全退出并重新启动编辑器';
+  }
+
   if (
     error instanceof Error &&
     (error.message.includes('addStoryExtension is not a function') ||
@@ -98,6 +158,10 @@ export function useEngineProject(
 ) {
   const [project, setProject] =
     useState<ProjectDocument | null>(null);
+  const rendererProject = useMemo(
+    () => project === null ? null : withRendererProjectDefaults(project),
+    [project],
+  );
   const [assets, setAssets] = useState<AssetDocument[]>([]);
   // 即使重新打开的是同一个 project.id，Main 也会轮换图片预览能力令牌。
   // 这个计数让 Renderer 丢弃旧 URL，并按新项目会话重新申请。
@@ -132,8 +196,12 @@ export function useEngineProject(
   function applyResult(
     result: EngineMutationResult,
     fileSession?: ProjectFileSessionSnapshot,
-  ): void {
-    setProject(result.project);
+  ): EngineMutationResult {
+    const normalizedProject = withRendererProjectDefaults(result.project);
+    const normalizedResult = normalizedProject === result.project
+      ? result
+      : { ...result, project: normalizedProject };
+    setProject(normalizedProject);
     setAssets(result.assets);
 
     if (fileSession) {
@@ -141,13 +209,14 @@ export function useEngineProject(
         ...fileSession,
         ...result.session,
       });
-      return;
+      return normalizedResult;
     }
 
     setSession((current) => ({
       ...current,
       ...result.session,
     }));
+    return normalizedResult;
   }
 
   useEffect(() => {
@@ -206,8 +275,8 @@ export function useEngineProject(
 
       try {
         const result = await action();
-        applyResult(result);
-        resolveQueuedResult(result);
+        const normalizedResult = applyResult(result);
+        resolveQueuedResult(normalizedResult);
       } catch (error: unknown) {
         setEngineMessage(readableError(error));
         resolveQueuedResult(null);
@@ -225,7 +294,9 @@ export function useEngineProject(
 
   async function getProjectSnapshot(): Promise<ProjectDocument | null> {
     const result = await runEngineAction(() => platform.engine.getProject());
-    return result?.project ?? null;
+    return result === null
+      ? null
+      : withRendererProjectDefaults(result.project);
   }
 
   const authoringActions = createAuthoringActions({
@@ -432,6 +503,15 @@ export function useEngineProject(
     return result !== null;
   }
 
+  async function updateCgGallery(
+    pages: ProjectDocument['cgGallery']['pages'],
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      platform.engine.updateCgGallery(pages),
+    );
+    return result !== null;
+  }
+
   async function importImage(): Promise<ImportImageStatus> {
     if (fileOperationInProgress.current) {
       return 'failed';
@@ -520,7 +600,7 @@ export function useEngineProject(
   }
 
   return {
-    project,
+    project: rendererProject,
     assets,
     projectGeneration,
     projectFolderName: session.projectFolderName,
@@ -543,6 +623,7 @@ export function useEngineProject(
     importAudio,
     renameProject,
     updateStartScreen,
+    updateCgGallery,
     setSceneBackground,
     waitForEngineActions,
     getProjectSnapshot,

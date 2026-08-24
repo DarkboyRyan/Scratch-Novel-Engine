@@ -1,7 +1,7 @@
 # 独立游戏导出与 Player 技术路线
 
-> 本文既是实现记录，也是后续开发设计和面试讲解材料。截至 2026-08-21，
-> **阶段 0–5 已完成**：Editor 可以导出 runtime v4 `.vngame` 目录包，通用
+> 本文既是实现记录，也是后续开发设计和面试讲解材料。截至 2026-08-24，
+> **阶段 0–5 已完成**：Editor 可以导出 runtime v6 `.vngame` 目录包，通用
 > Player 可以选择并运行它；macOS Editor 还可以通过内置的当前架构 Player 模板，
 > 在私有工作区事务式组装并签名每款游戏的 `.app`，再导出只包含该应用的
 > `*-macOS.zip`。阶段 6 的多平台 GitHub Actions、签名、
@@ -33,7 +33,8 @@
 
 当前预览已经完成了“执行剧情”的核心语义；第一版独立 Player 已补齐独立启动、
 只读内容加载、安全媒体服务、可配置独立标题/背景/音乐的标题页、暂停/结束界面和错误页。
-标题页固定提供“开始游戏 / 选项 / 退出游戏”。开发模式自动读取仓库内
+标题页固定按“开始游戏 / CG 画廊 / 选项 / 退出游戏”提供四个入口；画廊每页九张，
+支持分页、点击放大和 Esc 返回。开发模式自动读取仓库内
 受控 fixture。packaged Player 有两种互斥模式：通用空壳由玩家主动选择 Editor
 导出的目录包；embedded Player 在启动时严格加载 `Resources/game`，并隐藏“打开
 其他游戏”入口。
@@ -42,19 +43,19 @@
 
 ```text
 apps/
-├── editor/                  # 编辑器、v12 保存和 runtime bundle 导出
+├── editor/                  # 编辑器、v15 保存和 runtime bundle 导出
 └── player/                  # 独立只读 Electron Player
 
 packages/
 ├── runtime/                 # 纯 TypeScript 剧情状态机与共享类型
 └── player-ui/               # React 舞台、音频、视频和选项组件
 
-engine/                      # C++20 领域模型、v12 校验、revision 与保存
+engine/                      # C++20 领域模型、v15 校验、revision 与保存
 ```
 
 当前 [pnpm-workspace.yaml](../pnpm-workspace.yaml) 已包含 `apps/*` 和 `packages/*`；
 `@vnengine/runtime`、`@vnengine/player-ui` 和只读 `apps/player` 已落地。Player
-没有链接 Editor IPC，也不启动 C++ 编辑后端；v13 → runtime v4 的严格编译和文件
+没有链接 Editor IPC，也不启动 C++ 编辑后端；v15 → runtime v6 的严格编译和文件
 事务位于 Editor Main，而不是 C++ Core 或 Player Renderer。
 
 ## 2. 当前编辑器预览与独立 Player 的区别
@@ -103,11 +104,14 @@ window.vnPlayer.quitGame();
 
 ### 2.2 哪些语义必须原样复用
 
-当前 Project Writer 写 `fileVersion: 13`，Reader 支持 v1–v13。v10 的
+当前 Project Writer 写 `fileVersion: 15`，Reader 支持 v1–v15。v10 的
 `project.startScreen` 保存可空的背景图片和音乐 Asset ID；v11 新增与项目名独立的
 主界面标题。读取 v1–v9 时两项媒体迁移为 `null`，读取 v1–v10 时标题从
 `project.name` 迁移。它是项目级标题页配置，不是剧情节点。C++ 作者模型还在 v12
-加入没有运行行为的 `StoryExtensionNode`；Compiler 会剥离它，因此 Runtime 保持以下
+加入没有运行行为的 `StoryExtensionNode`；v13 为人物节点加入可空百分比坐标；v14
+首次以扁平 `project.cgGallery.imageAssetIds` 加入画廊。v15 改为
+`project.cgGallery.pages[].imageAssetIds`：至少一页、每页精确九个 `string | null`，
+所有非空图片 ID 跨页唯一；它不是剧情节点。Compiler 会剥离延伸，因此 Runtime 保持以下
 七种可执行节点：
 
 1. `Dialogue`：对白停顿点，可选绑定一次性语音；
@@ -137,9 +141,9 @@ window.vnPlayer.quitGame();
 
 ```mermaid
 flowchart LR
-  AUTHOR["作者项目<br/>project.vn.json v12 + assets"]
-  SAVE["C++ 保存并冻结 v12 revision"]
-  COMPILE["Editor Main 严格编译 runtime v4"]
+  AUTHOR["作者项目<br/>project.vn.json v15 + assets"]
+  SAVE["C++ 保存并冻结 v15 revision"]
+  COMPILE["Editor Main 严格编译 runtime v6"]
   BUNDLE["Runtime Bundle<br/>game.json + manifest + assets"]
   PACKAGE["平台打包与签名"]
   APP["macOS / Windows / Linux 游戏"]
@@ -153,7 +157,7 @@ flowchart LR
 
 ```text
 我的项目/
-├── project.vn.json          # vn-engine-project，当前 fileVersion: 13
+├── project.vn.json          # vn-engine-project，当前 fileVersion: 15
 └── assets/
     ├── images/
     ├── audio/
@@ -161,7 +165,7 @@ flowchart LR
 ```
 
 它服务于编辑过程，包含可继续修改的项目数据。版本迁移由 C++ Reader 负责，Player
-不需要理解 v1–v13 的所有作者格式。
+不需要理解 v1–v15 的所有作者格式。
 
 Editor 把“主界面”作为排在场景 1 之前的软件托管 synthetic scene：它有固定的
 Blockly 根积木；根字段可编辑独立游戏标题，内部固定包含“背景图片”和“背景音乐”
@@ -169,6 +173,12 @@ Blockly 根积木；根字段可编辑独立游戏标题，内部固定包含“
 `project.scenes`。真正持久化的是项目级 `project.startScreen`。新建、打开或启动
 Editor 后默认进入该编辑入口；标题、资源选择和拖放最终调用 C++
 `startScreen.update`，由 Core 原子校验标题及图片/音频类型并更新 revision。
+
+Editor 还提供独立的“CG 画廊”synthetic scene，同样不会写入 `project.scenes`。
+表单通过“新增一页/删除本页”和每页九个下拉框明确编辑槽位；Blockly 只有在作者从
+CG Toolbox 拖入大模块时才新增页面。空项选择“无”并保存为 `null`，资源面板点击不再
+自动加入图片。两种编辑方式最终都通过 `cgGallery.update` 原子替换完整 `pages`；C++
+会校验至少一页、每页精确九槽、所有非空 ID 跨页唯一且引用图片。
 
 普通剧情过长时，作者可从 Toolbox 主动插入带稳定 ID 的“延伸”，作为下一横向分页
 向下开放的页首；作者修改白色数字字段时会原子移动该页整段并重新编号。显式场景跳转
@@ -191,13 +201,13 @@ MyGame.vngame/
 ```
 
 `game.json` 只保存 Player 真正需要的只读标题配置和剧情快照；`manifest.json` 保存
-构建身份、兼容版本和每个被剧情或主界面引用文件的完整性信息。当前运行格式单独使用
-`runtimeVersion: 4`，不要把它和作者项目 `fileVersion: 13` 绑定：
+构建身份、兼容版本和每个被剧情、主界面或 CG 画廊非空槽引用文件的完整性信息。当前运行格式单独使用
+`runtimeVersion: 6`，不要把它和作者项目 `fileVersion: 15` 绑定：
 
 ```json
 {
   "format": "vn-engine-runtime",
-  "runtimeVersion": 3,
+  "runtimeVersion": 6,
   "game": {
     "id": "project-id",
     "title": "我的游戏",
@@ -206,6 +216,17 @@ MyGame.vngame/
       "title": "自定义主界面标题",
       "backgroundAssetId": "title-background-asset-id",
       "musicAssetId": "title-music-asset-id"
+    },
+    "cgGallery": {
+      "pages": [
+        {
+          "imageAssetIds": [
+            "cg-image-asset-id", null, null,
+            null, null, null,
+            null, null, null
+          ]
+        }
+      ]
     }
   },
   "scenes": [
@@ -229,8 +250,8 @@ MyGame.vngame/
   "buildId": "opaque-build-id",
   "projectId": "project-id",
   "sourceRevision": 42,
-  "runtimeVersion": 3,
-  "playerCompatibility": ">=4 <5",
+  "runtimeVersion": 6,
+  "playerCompatibility": ">=6 <7",
   "createdAt": "2026-08-20T00:00:00.000Z",
   "files": [
     {
@@ -250,16 +271,29 @@ MyGame.vngame/
       "mime": "audio/mpeg",
       "bytes": 654321,
       "sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+    },
+    {
+      "assetId": "cg-image-asset-id",
+      "type": "image",
+      "displayName": "CG-01.webp",
+      "path": "assets/images/cg-image-asset-id.webp",
+      "mime": "image/webp",
+      "bytes": 234567,
+      "sha256": "123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0"
     }
   ]
 }
 ```
 
-Player Reader 同时支持 runtime v1/v2/v3/v4。v1 的 `game` 没有 `startScreen`，加载后
+Player Reader 同时支持 runtime v1–v6。v1 的 `game` 没有 `startScreen`，加载后
 补空媒体和 `game.title`；v2 严格读取背景/音乐两字段并以 `game.title` 补标题；
-v3 对 `game.startScreen` 的标题、背景、音乐三个字段使用 exact-fields 校验，并要求
-manifest 的 `playerCompatibility: ">=4 <5"`。历史 v1/v2/v3 仍分别要求 `">=1 <2"`、
-`">=2 <3"` 和 `">=3 <4"`。Player 模板声明 `runtimeCompatibility: ">=1 <5"`，明确覆盖四代
+v3 对 `game.startScreen` 的标题、背景、音乐三个字段使用 exact-fields 校验；v4 为
+人物节点加入可空百分比坐标；v5 首次以扁平 `cgGallery.imageAssetIds` 加入画廊；
+v6 改为 `cgGallery.pages[].imageAssetIds` 固定九槽结构。runtime v5 会保持原顺序、
+每九张分块并以 `null` 补满；runtime v1–v4 加载后统一得到一张全空页。历史
+v1/v2/v3/v4/v5 分别要求 `">=1 <2"`、`">=2 <3"`、`">=3 <4"`、`">=4 <5"`
+和 `">=5 <6"`；当前 v6 manifest 要求 `">=6 <7"`。
+Player 模板声明 `runtimeCompatibility: ">=1 <7"`，明确覆盖六代
 内容，而不是把模板兼容范围误写成单一 bundle 的 manifest 范围。
 
 运行包中绝不能出现源文件绝对路径、项目目录绝对路径或 capability token。
@@ -299,12 +333,12 @@ sequenceDiagram
   UI->>UI: 提交项目名、表单和 Blockly 草稿
   UI->>Main: saveProject()（首次保存可取消）
   Main->>CPP: project.save 到安全工作位置
-  CPP-->>Main: 已保存 v13 + revision
+  CPP-->>Main: 已保存 v15 + revision
   Main->>Main: 发布 project.vn.json，确认 clean revision
   UI->>Main: exportGame(mode + 安全 metadata，无路径）
   Main->>CPP: project.get 核对同一 revision/project ID
-  Main->>Main: 稳定读取已保存 v13 并严格编译 runtime v4
-  Main->>Stage: 仅复制剧情与主界面引用资产，流式计算 SHA-256
+  Main->>Main: 稳定读取已保存 v15 并严格编译 runtime v6
+  Main->>Stage: 仅复制剧情、主界面与 CG 画廊引用资产，流式计算 SHA-256
   Main->>Stage: 最后写 manifest.json
   Main->>Main: 复验 staging、源清单和当前 session
   Main->>Stage: 同盘原子 rename 为 .vngame 目录
@@ -329,7 +363,7 @@ Application ID，不能传目标目录、模板位置、项目根、资源相对
 当前实现入口：
 
 - [Editor 导出编排](../apps/editor/src/main/export/ExportGameWorkflow.ts)
-- [v13 → runtime v4 严格编译](../apps/editor/src/main/export/AuthorProjectCompiler.ts)
+- [v15 → runtime v6 严格编译](../apps/editor/src/main/export/AuthorProjectCompiler.ts)
 - [staging 与原子发布](../apps/editor/src/main/export/RuntimeBundleExporter.ts)
 - [独立应用事务组装](../apps/editor/src/main/export/StandaloneApplicationExporter.ts)
 - [Player 模板严格 Reader](../apps/editor/src/main/export/StandalonePlayerTemplate.ts)
@@ -347,19 +381,19 @@ Application ID，不能传目标目录、模板位置、项目根、资源相对
 1. Renderer 提交项目名、表单字段和活动 Blockly 字段；
 2. 等待当前 Engine mutation Promise 队列排空；
 3. 调用既有项目保存流程；首次保存时先选择项目目录，取消则不开始导出；
-4. C++ 写出权威 v12，Main 发布完成后得到 `hasStorage=true`、`isDirty=false` 且
+4. C++ 写出权威 v15，Main 发布完成后得到 `hasStorage=true`、`isDirty=false` 且
    `savedRevision===revision`；Main 同时对这次实际发布的精确 manifest bytes 计算
    SHA-256，只保存在窗口级文件会话中，不暴露给 Renderer；
 5. Renderer 发送无路径 `exportGame()`，Main 再强制检查相同条件并用 `project.get`
    核对内存 Project 和已保存 revision；
 6. Main 稳定读取磁盘 `project.vn.json`，先核对保存时的可信 SHA-256，再由 TypeScript
-   `AuthorProjectCompiler` 严格编译 runtime v4；这里**没有新增 C++ export 命令**；
+   `AuthorProjectCompiler` 严格编译 runtime v6；这里**没有新增 C++ export 命令**；
 7. `FileOperationCoordinator` 在 Main 侧串行化保存、编辑命令、导入和导出；导出结束前
    还会复查源清单及 session 未变化；
 8. `sourceRevision` 写入 manifest，之后的编辑只会影响下一次导出。
 
 当前版本不直接导出未保存项目。点击“导出”会主动经过保存流程，而不是从临时
-工作区绕过 v12 提交边界。
+工作区绕过 v15 提交边界。
 
 ### 5.2 导出前预检
 
@@ -370,6 +404,7 @@ Application ID，不能传目标目录、模板位置、项目根、资源相对
 - 场景跳转或选项目标不存在；
 - 节点引用的 Asset 不存在或媒体类型不匹配；
 - 主界面标题为空，或背景/音乐引用不存在、分别不是 image/audio；
+- CG 画廊没有页面、任一页不是精确九槽、非空引用跨页重复、不存在或不是 image；
 - manifest 相对路径包含绝对路径、`..`、反斜杠或目录逃逸；
 - 源文件缺失，不是普通文件，是 symlink/junction/reparse point，或读取中发生变化；
 - 扩展名、magic bytes、声明 MIME 不一致；
@@ -383,7 +418,7 @@ Application ID，不能传目标目录、模板位置、项目根、资源相对
 - 从入口场景无法到达的场景；
 - 空 `VideoNode` 或空 `ChoiceNode`（当前语义是合法并自动跳过）；
 - 没有对白或选择可停留的自动跳转循环；
-- 未被任何剧情节点或主界面引用的资源（不会被复制进 runtime bundle）；
+- 未被任何剧情节点、主界面或 CG 画廊引用的资源（不会被复制进 runtime bundle）；
 - 未超过硬上限、但体积较大的媒体或游戏包；
 - 缺少图标、作者、版本或版权信息；
 - 应用未签名或未公证。
@@ -401,8 +436,8 @@ MP3/WAV/Ogg “通过导入”不等于其内部编码一定能在所有目标�
 选择最终目标
   → 在目标父目录取得操作系统 advisory lock
   → 在同一父目录创建随机 staging 兄弟目录
-  → 严格读取已保存 v13 并写 runtime v4 game.json
-  → 仅对剧情与主界面引用媒体使用稳定句柄流式复制并计算 SHA-256
+  → 严格读取已保存 v15 并写 runtime v6 game.json
+  → 仅对剧情、主界面与 CG 画廊引用媒体使用稳定句柄流式复制并计算 SHA-256
   → flush/fsync 文件与目录
   → 最后生成 manifest.json
   → 从磁盘重新打开，校验 JSON、大小和 hash
@@ -463,8 +498,11 @@ macOS 使用继承文件描述符的 `lockf` 内核锁，Linux 使用同类 `flo
 内容包完成必须同时满足：
 
 - `game.json` 能被严格 Reader 读取，未知字段和坏枚举按版本策略处理；
-- runtime v4 的 `game.startScreen` 恰好包含独立标题和两个可空资源 ID，且背景/音乐
+- runtime v6 的 `game.startScreen` 恰好包含独立标题和两个可空资源 ID，且背景/音乐
   分别引用 image/audio；这些文件也必须出现在 manifest；
+- `game.cgGallery.pages` 至少一页，每页 `imageAssetIds` 精确九项 `string | null`；所有
+  非空 ID 跨页唯一且引用 image，每个被引用 CG 文件都必须出现在 manifest，空槽和
+  未被引用资源不会产生文件记录；
 - `entrySceneId` 和七类节点引用完整；
 - 每个 manifest 文件只对应一个安全相对路径；
 - 文件实际大小和 SHA-256 与 manifest 一致；
@@ -488,7 +526,8 @@ flowchart TD
   VERIFY["完整验证候选 game/manifest/媒体"]
   COMMIT["成功后 commit 并轮换 capability token"]
   TITLE["Renderer 渲染标题背景并循环标题音乐"]
-  MENU["固定开始游戏 / 选项 / 退出游戏"]
+  MENU["固定开始游戏 / CG 画廊 / 选项 / 退出游戏"]
+  GALLERY["每页九张 / 分页 / 点击大图 / Esc 返回"]
   STOP["开始游戏时停止并归零标题音乐"]
   RUNTIME["Shared Runtime 从 entrySceneId 归约"]
   UI["Player UI 渲染背景/人物/对白/选项/视频"]
@@ -498,6 +537,7 @@ flowchart TD
   MODE -->|"否"| EMPTY --> PICKER --> VERIFY
   VERIFY --> COMMIT --> TITLE --> MENU
   MENU -->|"开始游戏"| STOP --> RUNTIME --> UI
+  MENU -->|"CG 画廊"| GALLERY --> MENU
 ```
 
 候选 bundle 会在临时对象中完成 exact fields、版本、ID/引用、路径、MIME、Magic
@@ -511,7 +551,9 @@ Player 可以分成两层状态：
 - 剧情 Runtime：沿用当前 `playing`、`playingVideo`、`choosing`、`finished`、
   `runtimeError`。
 
-标题页固定显示“开始游戏 / 选项 / 退出游戏”。通用 Player 的“打开其他游戏”和标题
+标题页固定按“开始游戏 / CG 画廊 / 选项 / 退出游戏”纵向显示。CG 画廊按
+`pages` 顺序每页固定显示九格，空槽显示“无”，提供上一页/下一页并可点击非空缩略图查看大图；
+Esc 会先关闭大图，再关闭画廊返回标题页。通用 Player 的“打开其他游戏”和标题
 音乐开关位于“选项”，embedded Player 不显示换包入口。“退出游戏”通过受校验 IPC
 调用 Main 的 `app.quit()`，在 macOS 也会结束应用，而不只是关闭 BrowserWindow。
 
@@ -543,6 +585,7 @@ Player 可以分成两层状态：
 - 固定高度、按数量重排位置的 Galgame 选项；
 - BGM 与 voice 两条独立 `HTMLAudioElement` 通道；
 - 阻塞式 `HTMLVideoElement`、自然结束和 Enter 跳过；
+- 标题页与 CG 画廊九宫格、分页、大图层和 Esc 两级返回；
 - capability URL 的异步申请、竞态取消和组件卸载清理；
 - 键盘、鼠标、焦点与基本可访问性。
 
@@ -612,11 +655,14 @@ file protocol 兼容 Fuse。后续应增加只服务 `app.asar` 静态文件的�
 
 1. 启动 packaged `VN Engine Player`，初始页不会内嵌开发 fixture；
 2. 点击“选择游戏包”，在原生目录选择器中选择整个 `MyGame.vngame` 目录；
-3. 验证成功后进入标题页，点击“开始游戏”；
-4. 标题页固定提供“开始游戏 / 选项 / 退出游戏”；通用 Player 可在“选项”中点击
+3. 验证成功后进入标题页，可点击“开始游戏”或打开“CG 画廊”；
+4. 标题页固定按“开始游戏 / CG 画廊 / 选项 / 退出游戏”排列；画廊每页固定九格，
+   空槽显示“无”，并支持分页、点击放大和 Esc 返回。通用 Player 可在“选项”中点击
    “打开其他游戏”，候选无效或取消时已经打开的游戏保持可用；
-5. runtime v3/v4 会显示作者配置的独立标题与背景并循环标题音乐；runtime v1/v2 会把
-   `game.title` 作为标题回退，v1 同时使用空媒体配置。
+5. runtime v3–v6 会显示作者配置的独立标题与背景并循环标题音乐；runtime v5/v6
+   还读取作者 CG 选择，其中 v5 扁平列表会迁移为固定页，runtime v1–v4 得到一张空页。
+   runtime v1/v2 会把 `game.title`
+   作为标题回退，v1 同时使用空媒体配置。
 
 开发命令 `pnpm --dir apps/player start` 会自动加载仓库 fixture，便于开发 Player UI；
 它不代表 packaged Player 会携带 fixture。
@@ -703,9 +749,9 @@ Contents/Resources/vn-game-application.json
 Contents/Info.plist
 ```
 
-当前模板的 `runtimeCompatibility` 必须精确为 `">=1 <5"`，表示模板内 Player 兼容
-runtime v1/v2/v3/v4。它与 runtime v4 bundle manifest 的
-`playerCompatibility: ">=4 <5"` 是两个不同方向的契约，不能互换。
+当前模板的 `runtimeCompatibility` 必须精确为 `">=1 <7"`，表示模板内 Player 兼容
+runtime v1–v6。它与 runtime v6 bundle manifest 的
+`playerCompatibility: ">=6 <7"` 是两个不同方向的契约，不能互换。
 
 Editor 写入的 `vn-game-application.json` 只含 format/configVersion、`productName`、
 `version`、`appBundleId`、默认图标标记、runtime build ID 和 Player 版本，不含源项目、
@@ -873,8 +919,8 @@ codesign --verify --deep --strict \
 | React Hooks 与组件设计 | 舞台、标题页、暂停页、错误页 | 状态机与副作用分离 |
 | Electron Main/Preload/IPC | 文件权限、窗口和最小 API | Renderer 无 Node 权限，边界双重校验 |
 | Node 文件系统与流 | staging、复制、hash、fsync | 大文件不整体读入内存，失败可回滚 |
-| C++20 领域模型与保存 | 提交权威 v12 和冻结 revision | 导出复用既有保存边界，不伪造第二份 Project |
-| TypeScript 严格编译器 | 已保存 v13 → runtime v4 | 独立版本、exact fields、ID/引用和资源类型校验 |
+| C++20 领域模型与保存 | 提交权威 v15 和冻结 revision | 导出复用既有保存边界，不伪造第二份 Project |
+| TypeScript 严格编译器 | 已保存 v15 → runtime v6 | 独立版本、exact fields、固定 CG 槽位、ID/引用和资源类型校验 |
 | 手写严格 Runtime Reader | Player 校验 game/manifest/媒体 | 候选先验证后 commit，旧会话不被失败输入破坏 |
 | 自定义 Protocol 与 HTTP Range | 安全加载本地图片、音频、视频 | 不暴露 `file://` 和绝对路径 |
 | Web Audio/HTML Media | 标题音乐、剧情 BGM、voice、视频生命周期 | 用户手势、相互隔离、ended、暂停和竞态清理 |
@@ -889,8 +935,8 @@ codesign --verify --deep --strict \
 
 > 编辑器预览和独立游戏不是两套剧情实现：Editor 与 Player 共用纯 TypeScript
 > Runtime 和 React Player UI。导出前，Renderer 先提交草稿并经过既有 C++ 保存链
-> 固定 v12 与 revision；之后 Editor Main 严格读取磁盘 v12，在事务 staging 中编译
-> runtime v4，只复制剧情与主界面引用媒体并计算 SHA-256，最后原子 rename；
+> 固定 v15 与 revision；之后 Editor Main 严格读取磁盘 v15，在事务 staging 中编译
+> runtime v6，只复制剧情、主界面与 CG 画廊非空槽引用媒体并计算 SHA-256，最后原子 rename；
 > `.vngame` 始终
 > 是目录包。独立应用先在系统私有工作区组装和 ad-hoc 签名，再用 `ditto` 生成
 > `*-macOS.zip`；Main 会在另一私有目录解压，确认根目录只有唯一 `.app`、内容不变且
@@ -922,8 +968,10 @@ DoD：
 - `packages/runtime` 自己拥有可执行契约测试；
 - 背景、人物、BGM、语音、空/非空 Video、空/非空 Choice、显式跳转、场景结束、
   重复对白 occurrence 和无对白跳转循环都有明确期望；
-- 阶段 0 当时冻结的是 authoring v9 与 runtime v1；当前已经升级为 authoring v13、
-  runtime v4，并保持两个版本号彼此独立。
+- 阶段 0 当时冻结的是 authoring v9 与 runtime v1；当前已经升级为 authoring v15、
+  runtime v6，并保持两个版本号彼此独立。历史上 authoring v13/runtime v4 曾加入
+  人物自定义百分比坐标，v14/runtime v5 首次加入扁平 CG 画廊，v15/runtime v6
+  再升级为作者显式创建的固定九槽页面。
 
 ### 阶段 1：抽离 `packages/runtime` 和 `packages/player-ui`（已完成）
 
@@ -949,7 +997,7 @@ DoD：
 - 阶段 2 曾用 `Resources/game` fixture 验证只读 Player；阶段 4 已把 packaged
   Player 改成不内嵌游戏的通用空壳，fixture 只在开发模式自动加载。
 
-当前 runtime v4 bundle 由两个严格 JSON 文件和媒体目录组成；Player 兼容 v1/v2/v3/v4：
+当前 runtime v6 bundle 由两个严格 JSON 文件和媒体目录组成；Player 兼容 runtime v1–v6：
 
 ```text
 MyGame.vngame/
@@ -966,14 +1014,14 @@ fields、版本、全局 ID、场景/资源引用、安全相对路径、MIME/�
 ### 阶段 3：实现 Runtime Bundle 导出（已完成）
 
 工作：阶段 3 最初复用 C++ v9 保存边界并实现 v9→runtime v1；当前同一架构已升级为
-C++ v13→runtime v4 编译、staging 事务、manifest 和无路径 Renderer 导出入口，仍不
+C++ v15→runtime v6 编译、staging 事务、manifest 和无路径 Renderer 导出入口，仍不
 新增 C++ export 命令。
 
 DoD：
 
 - 点击导出前提交草稿、等待 Engine queue、保存项目并冻结 clean revision；
-- Main 再读取已保存 v13 并核对 Project ID/revision，Renderer 不获得任何路径；
-- 生成 `game.json`、`manifest.json` 和仅包含剧情/主界面引用资产的媒体目录；
+- Main 再读取已保存 v15 并核对 Project ID/revision，Renderer 不获得任何路径；
+- 生成 `game.json`、`manifest.json` 和仅包含剧情/主界面/CG 画廊引用资产的媒体目录；
 - 每个文件大小、MIME 和 SHA-256 可复验；
 - 同父目录内核 advisory lock、staging、fsync、源复查和原子 rename 覆盖成功路径；
 - 导出进程被强制终止后，内核自动释放锁，同名目标无需 TTL 即可再次导出；
@@ -1040,20 +1088,25 @@ DoD：
 
 ## 12. 当前边界与暂不承诺的能力
 
-截至 2026-08-21，仓库的真实边界是：
+截至 2026-08-24，仓库的真实边界是：
 
 - 已有 Editor 内正式预览和独立 `apps/player`；两者复用同一 Runtime/Player UI；
 - Editor 默认进入软件托管的主界面 synthetic scene；固定 Blockly 根结构配置
   `project.startScreen` 的独立标题、图片和音乐，但不污染 `project.scenes`；
-- Editor 导出入口、严格 v13→runtime v4 编译器、只复制剧情/主界面引用资产的 staging 发布事务
+- CG 画廊是另一个独立 synthetic scene；表单手动新增/删除页面，Blockly 从 Toolbox
+  拖入大模块才新增页面；每页固定九个可为“无”的槽位，持久化为
+  `project.cgGallery.pages[].imageAssetIds`，非空图片 ID 跨页唯一；资源面板点击不直接加入；
+- Editor 导出入口、严格 v15→runtime v6 编译器、只复制剧情/主界面/CG 非空槽引用资产的 staging 发布事务
   已完成并通过导出→Player 严格读取集成测试；
-- Player Reader 兼容 runtime v1/v2/v3/v4；v4 manifest 使用 `">=4 <5"`，Player 模板使用
-  `">=1 <5"`；开发 fixture 继续作为 v3 向后兼容样本，Editor 当前导出使用 v4；
+- Player Reader 兼容 runtime v1–v6；v6 manifest 使用 `">=6 <7"`，Player 模板使用
+  `">=1 <7"`；runtime v5 扁平画廊会按序分块并补空槽，v1–v4 得到一张空页；
+  开发 fixture 继续作为 v3 向后兼容样本，Editor 当前导出使用 v6；
 - 已有图片 PNG/JPEG/WebP、音频 MP3/WAV/Ogg、视频 MP4/WebM 的安全导入；
 - Editor 使用 `vn-asset://`；Player 使用隔离的 `vn-game-asset://` capability，
   音视频均支持单段 Range；
 - Player 有独立 Forge 配置、标题页、暂停页、结束页和错误页；标题页渲染自定义背景、
-  循环播放独立标题音乐并固定显示“开始游戏 / 选项 / 退出游戏”；通用与 embedded 两种
+  循环播放独立标题音乐并固定显示“开始游戏 / CG 画廊 / 选项 / 退出游戏”；画廊每页固定九格，
+  空槽显示“无”，并支持分页、点击放大和 Esc 返回；通用与 embedded 两种
   packaged 启动模式已有测试。当前本机验证属于 internal/ad-hoc，不是 Developer ID
   正式签名或 Apple 公证；
 - packaged Player 不携带 fixture；通过原生目录选择器打开 `.vngame`，候选失败不

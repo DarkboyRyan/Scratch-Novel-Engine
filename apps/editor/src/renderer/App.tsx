@@ -23,12 +23,20 @@ import { deriveTimelinePreview } from './features/form-editor/timelinePreview';
 import { GamePreview } from './features/game-preview/GamePreview';
 import { useGamePreview } from './features/game-preview/useGamePreview';
 import {
+  CgGalleryEditor,
+} from './features/cg-gallery/CgGalleryEditor';
+import {
+  CgGalleryFormEditor,
+} from './features/cg-gallery/CgGalleryFormEditor';
+import type { CgGalleryEditorHandle } from './features/cg-gallery/CgGalleryBlocklyWorkspace';
+import {
   StartScreenEditor,
   type StartScreenEditorHandle,
 } from './features/start-screen/StartScreenEditor';
 import { StartScreenFormEditor } from './features/start-screen/StartScreenFormEditor';
 import {
   editorSurfaceReducer,
+  CG_GALLERY_SCENE_ID,
   initialEditorSurface,
   START_SCREEN_SCENE_ID,
   updateStartScreenFromLatest,
@@ -43,6 +51,7 @@ export default function App() {
     useRef<BlockEditorLayoutStore>(new Map());
   const blockEditorRef = useRef<BlockEditorHandle>(null);
   const startScreenEditorRef = useRef<StartScreenEditorHandle>(null);
+  const cgGalleryEditorRef = useRef<CgGalleryEditorHandle>(null);
   const engine = useEngineProject();
   const editor = useFormEditor(engine);
   const gamePreview = useGamePreview();
@@ -53,6 +62,9 @@ export default function App() {
     initialEditorSurface,
   );
   const isStartScreenSelected = editorSurface === 'start-screen';
+  const isCgGallerySelected = editorSurface === 'cg-gallery';
+  const isSyntheticSurfaceSelected =
+    isStartScreenSelected || isCgGallerySelected;
   const assetPreviewUrls = useAssetPreviewUrls(
     project?.id ?? null,
     engine.projectGeneration,
@@ -161,14 +173,20 @@ export default function App() {
     const prepared = await prepareProjectSave({
       editorMode,
       flushBlockDraft: () =>
-        isStartScreenSelected
+        isCgGallerySelected
+          ? (cgGalleryEditorRef.current?.flushPendingDraft() ??
+            Promise.resolve(true))
+          : isStartScreenSelected
           ? (startScreenEditorRef.current?.flushPendingDraft() ??
             Promise.resolve(true))
           : (blockEditorRef.current?.flushPendingDraft() ??
             Promise.resolve(true)),
       commitProjectName,
       commitFormDraft: () =>
-        isStartScreenSelected
+        isCgGallerySelected
+          ? (cgGalleryEditorRef.current?.flushPendingDraft() ??
+            Promise.resolve(true))
+          : isStartScreenSelected
           ? (startScreenEditorRef.current?.flushPendingDraft() ??
             Promise.resolve(true))
           : editor.commitPendingDraft(),
@@ -176,7 +194,7 @@ export default function App() {
 
     if (
       prepared &&
-      (isStartScreenSelected || editorMode === 'blocks')
+      (isSyntheticSurfaceSelected || editorMode === 'blocks')
     ) {
       setBlockDraftDirty(false);
     }
@@ -201,8 +219,8 @@ export default function App() {
     if (engine.isBusy || gamePreview.session) {
       return;
     }
-    const previewSceneId = isStartScreenSelected ? null : scene?.id ?? null;
-    if (!isStartScreenSelected && previewSceneId === null) {
+    const previewSceneId = isSyntheticSurfaceSelected ? null : scene?.id ?? null;
+    if (!isSyntheticSurfaceSelected && previewSceneId === null) {
       engine.setEngineMessage('当前场景不存在，无法开始预览');
       return;
     }
@@ -212,14 +230,14 @@ export default function App() {
 
     const latestProject = await engine.getProjectSnapshot();
     const started = latestProject
-      ? isStartScreenSelected
+      ? isSyntheticSurfaceSelected
         ? gamePreview.startWhole(latestProject)
         : previewSceneId !== null &&
           gamePreview.start(latestProject, previewSceneId)
       : false;
     if (!started) {
       engine.setEngineMessage(
-        isStartScreenSelected
+        isSyntheticSurfaceSelected
           ? '游戏入口场景不存在，无法预览完整主界面流程'
           : '当前场景不存在，无法开始预览',
       );
@@ -255,7 +273,13 @@ export default function App() {
   const handleSelectBackground = async (
     assetId: string | null,
   ): Promise<void> => {
-    if (!scene) {
+    if (!project || !scene) {
+      return;
+    }
+
+    if (isCgGallerySelected) {
+      // CG images are assigned to explicit page slots in the CG editor.
+      // ResourcePanel is intentionally read-only while this surface is open.
       return;
     }
 
@@ -287,16 +311,30 @@ export default function App() {
       return;
     }
 
-    if (nextSceneId === START_SCREEN_SCENE_ID) {
-      if (isStartScreenSelected) {
+    if (
+      nextSceneId === START_SCREEN_SCENE_ID ||
+      nextSceneId === CG_GALLERY_SCENE_ID
+    ) {
+      const selectingStartScreen = nextSceneId === START_SCREEN_SCENE_ID;
+      if (
+        (selectingStartScreen && isStartScreenSelected) ||
+        (!selectingStartScreen && isCgGallerySelected)
+      ) {
         return;
       }
-      const committed =
-        editorMode === 'form'
+      const committed = isCgGallerySelected
+        ? await (cgGalleryEditorRef.current?.flushPendingDraft() ?? true)
+        : isStartScreenSelected
+          ? await (startScreenEditorRef.current?.flushPendingDraft() ?? true)
+          : editorMode === 'form'
           ? await editor.commitPendingDraft()
           : await (blockEditorRef.current?.flushPendingDraft() ?? true);
       if (committed) {
-        dispatchEditorSurface({ type: 'select-start-screen' });
+        dispatchEditorSurface({
+          type: selectingStartScreen
+            ? 'select-start-screen'
+            : 'select-cg-gallery',
+        });
       }
       return;
     }
@@ -307,9 +345,10 @@ export default function App() {
       return;
     }
 
-    if (isStartScreenSelected) {
-      const flushed =
-        await (startScreenEditorRef.current?.flushPendingDraft() ?? true);
+    if (isSyntheticSurfaceSelected) {
+      const flushed = isCgGallerySelected
+        ? await (cgGalleryEditorRef.current?.flushPendingDraft() ?? true)
+        : await (startScreenEditorRef.current?.flushPendingDraft() ?? true);
       if (!flushed) {
         return;
       }
@@ -327,7 +366,9 @@ export default function App() {
 
     // 切换视图会卸载当前编辑器，所以先把它的草稿提交给
     // C++。提交失败就留在当前模式，避免隐藏或丢失用户输入。
-    const committed = isStartScreenSelected
+    const committed = isCgGallerySelected
+      ? await (cgGalleryEditorRef.current?.flushPendingDraft() ?? true)
+      : isStartScreenSelected
       ? await (startScreenEditorRef.current?.flushPendingDraft() ?? true)
       : editorMode === 'form'
         ? await editor.commitPendingDraft()
@@ -471,17 +512,47 @@ export default function App() {
         backgroundAssetId={
           isStartScreenSelected
             ? project.startScreen.backgroundAssetId
+            : isCgGallerySelected
+              ? null
             : scene.backgroundAssetId
         }
         previewUrls={assetPreviewUrls}
         isBusy={engine.isBusy}
+        imageSelectionPurpose={
+          isCgGallerySelected ? 'cg-gallery' : 'background'
+        }
         onImportImage={handleImportImage}
         onImportAudio={handleImportAudio}
         onImportVideo={handleImportVideo}
         onSelectBackground={handleSelectBackground}
       />
 
-      {isStartScreenSelected && editorMode === 'form' ? (
+      {isCgGallerySelected && editorMode === 'form' ? (
+        <CgGalleryFormEditor
+          ref={cgGalleryEditorRef}
+          project={project}
+          assets={engine.assets}
+          previewUrls={assetPreviewUrls}
+          isBusy={engine.isBusy}
+          isStartPreviewDisabled={engine.isBusy}
+          onSceneChange={handleSceneChange}
+          onUpdateCgGallery={engine.updateCgGallery}
+          onDraftDirtyChange={setBlockDraftDirty}
+          onStartPreview={() => void handleStartPreview()}
+        />
+      ) : isCgGallerySelected ? (
+        <CgGalleryEditor
+          ref={cgGalleryEditorRef}
+          project={project}
+          assets={engine.assets}
+          isBusy={engine.isBusy}
+          isStartPreviewDisabled={engine.isBusy}
+          onSceneChange={handleSceneChange}
+          onUpdateCgGallery={engine.updateCgGallery}
+          onDraftDirtyChange={setBlockDraftDirty}
+          onStartPreview={() => void handleStartPreview()}
+        />
+      ) : isStartScreenSelected && editorMode === 'form' ? (
         <StartScreenFormEditor
           ref={startScreenEditorRef}
           project={project}
@@ -525,6 +596,9 @@ export default function App() {
           onSelectStartScreen={() =>
             handleSceneChange(START_SCREEN_SCENE_ID)
           }
+          onSelectCgGallery={() =>
+            handleSceneChange(CG_GALLERY_SCENE_ID)
+          }
         />
       ) : (
         <BlockEditor
@@ -537,6 +611,9 @@ export default function App() {
           onSceneChange={handleSceneChange}
           onSelectStartScreen={() =>
             handleSceneChange(START_SCREEN_SCENE_ID)
+          }
+          onSelectCgGallery={() =>
+            handleSceneChange(CG_GALLERY_SCENE_ID)
           }
           onDialogueUpdate={engine.updateDialogue}
           onDialogueAdd={engine.addDialogue}

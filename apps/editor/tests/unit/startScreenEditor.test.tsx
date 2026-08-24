@@ -24,6 +24,7 @@ import {
   START_SCREEN_ROOT_BLOCK_TYPE,
 } from '../../src/renderer/features/start-screen/startScreenBlocks';
 import {
+  CG_GALLERY_SCENE_ID,
   createEditorSceneOptions,
   editorSurfaceReducer,
   initialEditorSurface,
@@ -44,6 +45,9 @@ const project: ProjectDocument = {
     title: 'Start screen title',
     backgroundAssetId: null,
     musicAssetId: 'music-1',
+  },
+  cgGallery: {
+    pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
   },
   scenes: [
     {
@@ -115,6 +119,11 @@ describe('start screen Editor projection', () => {
         id: START_SCREEN_SCENE_ID,
         label: '主界面',
         kind: 'start-screen',
+      },
+      {
+        id: CG_GALLERY_SCENE_ID,
+        label: 'CG 画廊',
+        kind: 'cg-gallery',
       },
       { id: 'scene-1', label: '场景 1', kind: 'story' },
       { id: 'scene-2', label: '场景 2 · 天台', kind: 'story' },
@@ -479,11 +488,12 @@ describe('start screen Editor projection', () => {
     ).toContain('vn-asset://preview/night-sky');
     expect(container.textContent).toContain('自定义游戏名');
     expect(container.textContent).toContain('开始游戏');
+    expect(container.textContent).toContain('CG 画廊');
     expect(container.textContent).toContain('选项');
     expect(container.textContent).toContain('退出游戏');
     expect(
       container.querySelector('.start-screen-design-actions')?.children,
-    ).toHaveLength(3);
+    ).toHaveLength(4);
     expect(container.textContent).not.toContain('清除背景');
     expect(container.textContent).not.toContain('清除音乐');
 

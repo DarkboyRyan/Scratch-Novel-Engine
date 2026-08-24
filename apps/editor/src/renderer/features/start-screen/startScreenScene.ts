@@ -1,14 +1,16 @@
 import type { ProjectDocument } from '../../../shared/projectTypes';
 
-// The main menu is an Editor-owned synthetic scene. It deliberately does not
-// use a UUID or enter project.scenes, so story commands can never mutate it as
-// if it were an ordinary narrative scene.
+// The main menu and CG gallery are Editor-owned synthetic scenes. They do not
+// use UUIDs or enter project.scenes, so story commands can never mutate them as
+// ordinary narrative scenes.
 export const START_SCREEN_SCENE_ID = 'vn-editor:start-screen';
+export const CG_GALLERY_SCENE_ID = 'vn-editor:cg-gallery';
 
-export type EditorSurface = 'start-screen' | 'story';
+export type EditorSurface = 'start-screen' | 'cg-gallery' | 'story';
 export type EditorSurfaceAction =
   | { type: 'project-loaded' }
   | { type: 'select-start-screen' }
+  | { type: 'select-cg-gallery' }
   | { type: 'select-story' };
 
 export function initialEditorSurface(): EditorSurface {
@@ -19,13 +21,18 @@ export function editorSurfaceReducer(
   _current: EditorSurface,
   action: EditorSurfaceAction,
 ): EditorSurface {
-  return action.type === 'select-story' ? 'story' : 'start-screen';
+  if (action.type === 'select-story') {
+    return 'story';
+  }
+  return action.type === 'select-cg-gallery'
+    ? 'cg-gallery'
+    : 'start-screen';
 }
 
 export type EditorSceneOption = {
   id: string;
   label: string;
-  kind: 'start-screen' | 'story';
+  kind: 'start-screen' | 'cg-gallery' | 'story';
 };
 
 export function createEditorSceneOptions(
@@ -36,6 +43,11 @@ export function createEditorSceneOptions(
       id: START_SCREEN_SCENE_ID,
       label: '主界面',
       kind: 'start-screen',
+    },
+    {
+      id: CG_GALLERY_SCENE_ID,
+      label: 'CG 画廊',
+      kind: 'cg-gallery',
     },
     ...project.scenes.map((scene, index) => ({
       id: scene.id,

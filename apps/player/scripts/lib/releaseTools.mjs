@@ -57,12 +57,19 @@ const GAME_METADATA_FIELDS_V2 = [
   'entrySceneId',
   'startScreen',
 ];
+const GAME_METADATA_FIELDS_V5 = [
+  ...GAME_METADATA_FIELDS_V2,
+  'cgGallery',
+];
 const START_SCREEN_FIELDS_V2 = ['backgroundAssetId', 'musicAssetId'];
 const START_SCREEN_FIELDS_V3 = [
   'title',
   'backgroundAssetId',
   'musicAssetId',
 ];
+const CG_GALLERY_FIELDS_V5 = ['imageAssetIds'];
+const CG_GALLERY_FIELDS_V6 = ['pages'];
+const CG_GALLERY_PAGE_FIELDS_V6 = ['imageAssetIds'];
 const ASSET_DIRECTORY = {
   image: 'images',
   audio: 'audio',
@@ -359,7 +366,11 @@ function validateManifestDocument(input, projectId, runtimeVersion) {
           ? '>=2 <3'
           : runtimeVersion === 3
             ? '>=3 <4'
-            : '>=4 <5'
+            : runtimeVersion === 4
+              ? '>=4 <5'
+              : runtimeVersion === 5
+                ? '>=5 <6'
+                : '>=6 <7'
     )
   ) {
     throw new Error('manifest.json 的格式或版本不受支持');
@@ -435,7 +446,9 @@ function validateGameDocument(input) {
       root.runtimeVersion !== 1 &&
       root.runtimeVersion !== 2 &&
       root.runtimeVersion !== 3 &&
-      root.runtimeVersion !== 4
+      root.runtimeVersion !== 4 &&
+      root.runtimeVersion !== 5 &&
+      root.runtimeVersion !== 6
     )
   ) {
     throw new Error('game.json 的格式或版本不受支持');
@@ -445,7 +458,9 @@ function validateGameDocument(input) {
     metadata,
     root.runtimeVersion === 1
       ? GAME_METADATA_FIELDS_V1
-      : GAME_METADATA_FIELDS_V2,
+      : root.runtimeVersion < 5
+        ? GAME_METADATA_FIELDS_V2
+        : GAME_METADATA_FIELDS_V5,
     'game.json.game',
   );
   const projectId = boundedString(metadata.id, 'game.json.game.id', 256);
@@ -490,7 +505,66 @@ function validateGameDocument(input) {
       musicAssetId: nullableAssetId('musicAssetId'),
     };
   }
-  return { projectId, runtimeVersion: root.runtimeVersion, startScreen };
+  let cgGallery = null;
+  if (root.runtimeVersion === 5) {
+    const value = objectValue(metadata.cgGallery, 'game.json.game.cgGallery');
+    exactFields(value, CG_GALLERY_FIELDS_V5, 'game.json.game.cgGallery');
+    if (!Array.isArray(value.imageAssetIds)) {
+      throw new Error('game.json.game.cgGallery.imageAssetIds 必须是数组');
+    }
+    const seen = new Set();
+    const imageAssetIds = value.imageAssetIds.map((assetId, index) => {
+      const parsed = boundedString(
+        assetId,
+        `game.json.game.cgGallery.imageAssetIds[${index}]`,
+        256,
+      );
+      if (seen.has(parsed)) {
+        throw new Error('game.json.game.cgGallery.imageAssetIds 不能包含重复资源 ID');
+      }
+      seen.add(parsed);
+      return parsed;
+    });
+    cgGallery = { imageAssetIds };
+  } else if (root.runtimeVersion >= 6) {
+    const value = objectValue(metadata.cgGallery, 'game.json.game.cgGallery');
+    exactFields(value, CG_GALLERY_FIELDS_V6, 'game.json.game.cgGallery');
+    if (!Array.isArray(value.pages) || value.pages.length === 0) {
+      throw new Error('game.json.game.cgGallery.pages 至少需要一页');
+    }
+    const seen = new Set();
+    const imageAssetIds = [];
+    for (const [pageIndex, pageInput] of value.pages.entries()) {
+      const context = `game.json.game.cgGallery.pages[${pageIndex}]`;
+      const page = objectValue(pageInput, context);
+      exactFields(page, CG_GALLERY_PAGE_FIELDS_V6, context);
+      if (!Array.isArray(page.imageAssetIds) || page.imageAssetIds.length !== 9) {
+        throw new Error(`${context}.imageAssetIds 必须精确包含 9 个槽位`);
+      }
+      for (const [slotIndex, assetId] of page.imageAssetIds.entries()) {
+        if (assetId === null) {
+          continue;
+        }
+        const parsed = boundedString(
+          assetId,
+          `${context}.imageAssetIds[${slotIndex}]`,
+          256,
+        );
+        if (seen.has(parsed)) {
+          throw new Error('game.json.game.cgGallery.pages 不能包含重复资源 ID');
+        }
+        seen.add(parsed);
+        imageAssetIds.push(parsed);
+      }
+    }
+    cgGallery = { imageAssetIds };
+  }
+  return {
+    projectId,
+    runtimeVersion: root.runtimeVersion,
+    startScreen,
+    cgGallery,
+  };
 }
 
 export async function verifyRuntimeBundle(bundleRoot) {
@@ -518,16 +592,16 @@ export async function verifyRuntimeBundle(bundleRoot) {
     gameMetadata.projectId,
     gameMetadata.runtimeVersion,
   );
+  const filesById = new Map(files.map((file) => [file.assetId, file]));
+  const requireTypedAsset = (assetId, type, context) => {
+    if (assetId === null) {
+      return;
+    }
+    if (filesById.get(assetId)?.type !== type) {
+      throw new Error(`${context} 引用了缺失或类型错误的资源`);
+    }
+  };
   if (gameMetadata.startScreen !== null) {
-    const filesById = new Map(files.map((file) => [file.assetId, file]));
-    const requireTypedAsset = (assetId, type, context) => {
-      if (assetId === null) {
-        return;
-      }
-      if (filesById.get(assetId)?.type !== type) {
-        throw new Error(`${context} 引用了缺失或类型错误的资源`);
-      }
-    };
     requireTypedAsset(
       gameMetadata.startScreen.backgroundAssetId,
       'image',
@@ -538,6 +612,11 @@ export async function verifyRuntimeBundle(bundleRoot) {
       'audio',
       '主界面音乐',
     );
+  }
+  if (gameMetadata.cgGallery !== null) {
+    for (const assetId of gameMetadata.cgGallery.imageAssetIds) {
+      requireTypedAsset(assetId, 'image', 'CG 画廊');
+    }
   }
   for (const file of files) {
     await verifyMediaFile(root, file);

@@ -133,6 +133,9 @@ const project = {
     backgroundAssetId: null,
     musicAssetId: null,
   },
+  cgGallery: {
+    pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+  },
   scenes: [
     {
       schemaVersion: 1 as const,
@@ -146,7 +149,7 @@ const project = {
 
 const sourceManifestContents = JSON.stringify({
   format: 'vn-engine-project',
-  fileVersion: 13,
+  fileVersion: 15,
   project: {
     ...project,
     scenes: [
@@ -220,7 +223,7 @@ function platformTemplateManifest(overrides: Record<string, unknown> = {}) {
     platform: process.platform,
     arch: process.arch,
     playerVersion: '0.1.0',
-    runtimeCompatibility: '>=1 <5',
+    runtimeCompatibility: '>=1 <7',
     payloadRoot: 'payload',
     artifactEntry: macos ? 'VN Engine Player.app' : 'vn-engine-player',
     gameResourceDirectory: macos
@@ -610,7 +613,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import * as originalFs from 'original-fs';
 import { exportStandaloneApplication } from ${JSON.stringify(exporterModulePath)};
-import { compileAuthorProjectV13 } from ${JSON.stringify(compilerModulePath)};
+import { compileAuthorProjectV15 } from ${JSON.stringify(compilerModulePath)};
 
 async function main() {
 const root = process.env.VN_ASAR_CONTRACT_ROOT;
@@ -632,7 +635,7 @@ const sourceManifestContents = await readFile(
   path.join(sourceProjectRootPath, 'project.vn.json'),
   'utf8',
 );
-const expectedSnapshot = compileAuthorProjectV13(sourceManifestContents);
+const expectedSnapshot = compileAuthorProjectV15(sourceManifestContents);
 const sentinel = 'simulated Electron ASAR post-copy failure';
 let verifiedCopiedAsar = false;
 let privateWorkspacePath = '';

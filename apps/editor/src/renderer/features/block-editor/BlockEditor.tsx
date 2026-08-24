@@ -43,6 +43,7 @@ import {
 import type { BlockEditorLayoutStore } from './blockEditorLayout';
 import {
   createEditorSceneOptions,
+  CG_GALLERY_SCENE_ID,
   START_SCREEN_SCENE_ID,
 } from '../start-screen/startScreenScene';
 
@@ -54,6 +55,7 @@ type BlockEditorProps = {
   assets: AssetDocument[];
   onSceneChange: (sceneId: string) => Promise<void>;
   onSelectStartScreen: () => Promise<void>;
+  onSelectCgGallery: () => Promise<void>;
   onDialogueUpdate: UpdateDialogueAction;
   onDialogueAdd: AddDialogueAction;
   onBackgroundAdd: AddBackgroundAction;
@@ -93,6 +95,7 @@ export const BlockEditor = forwardRef<
     assets,
     onSceneChange,
     onSelectStartScreen,
+    onSelectCgGallery,
     onDialogueAdd,
     onBackgroundAdd,
     onBackgroundUpdate,
@@ -165,7 +168,9 @@ export const BlockEditor = forwardRef<
                     if (flushed) {
                       await (nextSceneId === START_SCREEN_SCENE_ID
                         ? onSelectStartScreen()
-                        : onSceneChange(nextSceneId));
+                        : nextSceneId === CG_GALLERY_SCENE_ID
+                          ? onSelectCgGallery()
+                          : onSceneChange(nextSceneId));
                     }
                   } finally {
                     setIsChangingScene(false);

@@ -105,6 +105,22 @@ UpdateStartScreenResult update_start_screen(
     std::optional<std::string> background_asset_id,
     std::optional<std::string> music_asset_id);
 
+enum class UpdateCgGalleryResult {
+  changed,
+  unchanged,
+  page_required,
+  asset_not_found,
+  asset_not_image,
+  duplicate_asset_id,
+};
+
+// Replaces the complete ordered CG selection as one aggregate mutation. The
+// candidate is fully validated before commit, so a bad Asset never partially
+// changes the gallery.
+UpdateCgGalleryResult update_cg_gallery(
+    ProjectAggregate& aggregate,
+    std::vector<CgGalleryPage> pages);
+
 // Title-screen names follow the same whitespace rules as project names but
 // remain an independent value after project creation/migration.
 std::optional<std::string> normalize_start_screen_title(std::string title);

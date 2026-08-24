@@ -94,6 +94,10 @@ export type UpdateStartScreenParams = {
   musicAssetId: string | null;
 };
 
+export type UpdateCgGalleryParams = {
+  pages: ProjectDocument['cgGallery']['pages'];
+};
+
 export type AddVideoParams = {
   sceneId: string;
   afterNodeId?: string | null;
@@ -203,6 +207,7 @@ export const ENGINE_METHODS = [
   'project.get',
   'project.rename',
   'startScreen.update',
+  'cgGallery.update',
   'scene.add',
   'scene.rename',
   'scene.delete',
@@ -250,6 +255,7 @@ export type EngineParamsByMethod = {
     name: string;
   };
   'startScreen.update': UpdateStartScreenParams;
+  'cgGallery.update': UpdateCgGalleryParams;
   'scene.add': {
     name?: string;
   };
@@ -375,6 +381,9 @@ export type VnEngineApi = {
   renameProject(name: string): Promise<EngineMutationResult>;
   updateStartScreen(
     params: UpdateStartScreenParams,
+  ): Promise<EngineMutationResult>;
+  updateCgGallery(
+    pages: ProjectDocument['cgGallery']['pages'],
   ): Promise<EngineMutationResult>;
   addScene(name?: string): Promise<EngineMutationResult>;
   renameScene(

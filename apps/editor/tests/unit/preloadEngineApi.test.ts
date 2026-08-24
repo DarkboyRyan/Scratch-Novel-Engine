@@ -50,6 +50,21 @@ describe('preload background and timeline engine API', () => {
     electron.invoke.mockResolvedValue({});
   });
 
+  it('forwards fixed CG pages through the engine channel', async () => {
+    const pages = [{
+      imageAssetIds: ['image-2', null, 'image-1', null, null, null, null, null, null],
+    }];
+    await engine.updateCgGallery(pages);
+
+    expect(electron.invoke).toHaveBeenCalledWith(
+      'vn-engine:request',
+      {
+        method: 'cgGallery.update',
+        params: { pages },
+      },
+    );
+  });
+
   it.each([
     [
       'updateStartScreen',

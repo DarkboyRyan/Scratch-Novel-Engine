@@ -199,6 +199,7 @@ function TitleGamePreview({
     >
       <TitleScreen
         startScreen={session.project.startScreen}
+        cgGalleryPages={session.project.cgGallery?.pages ?? []}
         resolveMediaUrl={resolveMediaUrl}
         onStart={onEnterStory}
         onExit={onExit}

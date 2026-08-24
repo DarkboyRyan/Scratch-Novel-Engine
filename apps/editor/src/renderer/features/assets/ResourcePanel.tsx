@@ -10,6 +10,7 @@ type ResourcePanelProps = {
   backgroundAssetId: string | null;
   previewUrls: Readonly<Record<string, string>>;
   isBusy: boolean;
+  imageSelectionPurpose?: 'background' | 'cg-gallery';
   onImportImage: () => Promise<void>;
   onImportAudio: () => Promise<void>;
   onImportVideo: () => Promise<void>;
@@ -21,6 +22,7 @@ export function ResourcePanel({
   backgroundAssetId,
   previewUrls,
   isBusy,
+  imageSelectionPurpose = 'background',
   onImportImage,
   onImportAudio,
   onImportVideo,
@@ -64,15 +66,17 @@ export function ResourcePanel({
         导入视频
       </button>
 
-      <button
-        type="button"
-        className="resource-clear-background"
-        aria-pressed={backgroundAssetId === null}
-        disabled={isBusy || backgroundAssetId === null}
-        onClick={() => void onSelectBackground(null)}
-      >
-        无背景
-      </button>
+      {imageSelectionPurpose === 'background' ? (
+        <button
+          type="button"
+          className="resource-clear-background"
+          aria-pressed={backgroundAssetId === null}
+          disabled={isBusy || backgroundAssetId === null}
+          onClick={() => void onSelectBackground(null)}
+        >
+          无背景
+        </button>
+      ) : null}
 
       <div className="resource-list" aria-label="已导入资源">
         {assets.length === 0 ? (
@@ -88,15 +92,27 @@ export function ResourcePanel({
                   <button
                     type="button"
                     key={asset.id}
-                    draggable={!isBusy}
+                    draggable={
+                      !isBusy && imageSelectionPurpose === 'background'
+                    }
                     className={`resource-item${
                       asset.id === backgroundAssetId
                         ? ' is-background'
                         : ''
                     }`}
-                    title={`将 ${asset.displayName} 设为当前场景背景`}
-                    aria-pressed={asset.id === backgroundAssetId}
-                    disabled={isBusy}
+                    title={
+                      imageSelectionPurpose === 'cg-gallery'
+                        ? asset.displayName
+                        : `将 ${asset.displayName} 设为当前场景背景`
+                    }
+                    aria-pressed={
+                      imageSelectionPurpose === 'background'
+                        ? asset.id === backgroundAssetId
+                        : undefined
+                    }
+                    disabled={
+                      isBusy || imageSelectionPurpose === 'cg-gallery'
+                    }
                     onDragStart={(event) => {
                       event.dataTransfer.effectAllowed = 'copy';
                       event.dataTransfer.setData(
@@ -104,7 +120,11 @@ export function ResourcePanel({
                         asset.id,
                       );
                     }}
-                    onClick={() => void onSelectBackground(asset.id)}
+                    onClick={() => {
+                      if (imageSelectionPurpose === 'background') {
+                        void onSelectBackground(asset.id);
+                      }
+                    }}
                   >
                     {previewUrls[asset.id] ? (
                       <img

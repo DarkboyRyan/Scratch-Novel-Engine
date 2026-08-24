@@ -7,7 +7,10 @@ import type {
   SemanticSceneNode,
 } from '../../../shared/projectTypes';
 import { semanticSceneNodes } from '../../../shared/projectTypes';
-import { START_SCREEN_SCENE_ID } from '../start-screen/startScreenScene';
+import {
+  CG_GALLERY_SCENE_ID,
+  START_SCREEN_SCENE_ID,
+} from '../start-screen/startScreenScene';
 
 type ScenePanelProps = {
   project: ProjectDocument;
@@ -18,6 +21,7 @@ type ScenePanelProps = {
   onAddScene: () => Promise<void>;
   onSelectScene: (sceneId: string) => Promise<void>;
   onSelectStartScreen?: () => Promise<void>;
+  onSelectCgGallery?: () => Promise<void>;
   onSelectNode: (node: SemanticSceneNode) => Promise<void>;
   onInsertBackground: () => Promise<void>;
   onInsertSceneJump: () => Promise<void>;
@@ -37,6 +41,7 @@ export function ScenePanel({
   onAddScene,
   onSelectScene,
   onSelectStartScreen,
+  onSelectCgGallery,
   onSelectNode,
   onInsertBackground,
   onInsertSceneJump,
@@ -130,6 +135,21 @@ export function ScenePanel({
                 >
                   <strong>主界面</strong>
                   <span>软件托管的开始游戏界面</span>
+                </button>
+              ) : null}
+              {onSelectCgGallery ? (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={false}
+                  data-scene-id={CG_GALLERY_SCENE_ID}
+                  onClick={() => {
+                    setIsSceneMenuOpen(false);
+                    void onSelectCgGallery();
+                  }}
+                >
+                  <strong>CG 画廊</strong>
+                  <span>九宫格浏览与大图查看页面</span>
                 </button>
               ) : null}
               {project.scenes.map((projectScene, index) => (

@@ -67,7 +67,7 @@ function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-async function writeMediaBundle(root, runtimeVersion = 3) {
+async function writeMediaBundle(root, runtimeVersion = 6) {
   const png = Buffer.from([
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
     0x00, 0x00, 0x00, 0x0d,
@@ -85,13 +85,28 @@ async function writeMediaBundle(root, runtimeVersion = 3) {
         id: 'project',
         title: 'Test',
         entrySceneId: 'scene',
-        ...(runtimeVersion === 2 || runtimeVersion === 3
+        ...(runtimeVersion >= 2
           ? {
               startScreen: {
-                ...(runtimeVersion === 3 ? { title: 'Custom Title' } : {}),
+                ...(runtimeVersion >= 3 ? { title: 'Custom Title' } : {}),
                 backgroundAssetId: 'background',
                 musicAssetId: null,
               },
+            }
+          : {}),
+        ...(runtimeVersion >= 5
+          ? {
+              cgGallery: runtimeVersion === 5
+                ? { imageAssetIds: ['background'] }
+                : {
+                    pages: [{
+                      imageAssetIds: [
+                        null,
+                        'background',
+                        ...Array(7).fill(null),
+                      ],
+                    }],
+                  },
             }
           : {}),
       },
@@ -117,7 +132,13 @@ async function writeMediaBundle(root, runtimeVersion = 3) {
         ? '>=1 <2'
         : runtimeVersion === 2
           ? '>=2 <3'
-          : '>=3 <4',
+          : runtimeVersion === 3
+            ? '>=3 <4'
+            : runtimeVersion === 4
+              ? '>=4 <5'
+              : runtimeVersion === 5
+                ? '>=5 <6'
+                : '>=6 <7',
       createdAt: '2026-08-18T00:00:00.000Z',
       files: [{
         assetId: 'background',
@@ -147,14 +168,17 @@ test('verifies a runtime bundle and rejects post-manifest tampering', async () =
   );
 });
 
-test('keeps release verification compatible with legacy runtime v1/v2 bundles', async () => {
+test('keeps release verification compatible with legacy runtime v1/v2/v5 bundles', async () => {
   const v1Root = await temporaryDirectory();
   const v2Root = await temporaryDirectory();
+  const v5Root = await temporaryDirectory();
   await writeMediaBundle(v1Root, 1);
   await writeMediaBundle(v2Root, 2);
+  await writeMediaBundle(v5Root, 5);
 
   await assert.doesNotReject(verifyRuntimeBundle(v1Root));
   await assert.doesNotReject(verifyRuntimeBundle(v2Root));
+  await assert.doesNotReject(verifyRuntimeBundle(v5Root));
 });
 
 test('uses the production Player schema for scenes and references', async () => {

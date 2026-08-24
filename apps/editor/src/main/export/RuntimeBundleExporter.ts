@@ -21,7 +21,7 @@ import type {
 import { mediaMagicMatches } from "../media/MediaContentValidator";
 import { maximumPreviewBytes } from "../media/MediaFormat";
 import {
-  compileAuthorProjectV13,
+  compileAuthorProjectV15,
   RUNTIME_VERSION,
   type AuthorAssetRecord,
 } from "./AuthorProjectCompiler";
@@ -34,7 +34,7 @@ const MAX_CTIME_ONLY_RETRY_ATTEMPTS = 3;
 
 export const RUNTIME_MANIFEST_FORMAT = "vn-engine-runtime-manifest";
 export const RUNTIME_MANIFEST_VERSION = 1;
-export const PLAYER_COMPATIBILITY = ">=4 <5";
+export const PLAYER_COMPATIBILITY = ">=6 <7";
 
 export type RuntimeManifestAssetV1 = {
   assetId: string;
@@ -512,7 +512,7 @@ async function copyAssetAndHash(
   stagingRootPath: string,
   asset: AuthorAssetRecord,
 ): Promise<RuntimeManifestAssetV1> {
-  // Author assets have no trusted digest in the saved v13 document. Treat even
+  // Author assets have no trusted digest in the saved v15 document. Treat even
   // ctime-only drift as a source change instead of learning a new hash here.
   return (await copyAssetAndHashAttempt(sourceRootPath, stagingRootPath, asset))
     .value;
@@ -729,7 +729,7 @@ export async function exportRuntimeBundle(
       sourceRootPath,
       options.expectedManifestSha256,
     );
-    const compiled = compileAuthorProjectV13(sourceManifestContents);
+    const compiled = compileAuthorProjectV15(sourceManifestContents);
     if (!isDeepStrictEqual(compiled.sourceProject, options.expectedProject)) {
       throw new Error("磁盘项目与当前编辑器项目不一致");
     }

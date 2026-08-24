@@ -11,6 +11,8 @@ export {
 export type {
   BackgroundNode,
   BgmNode,
+  CgGalleryDocument,
+  CgGalleryPageDocument,
   CharacterNode,
   CharacterPosition,
   CharacterSlot,

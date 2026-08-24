@@ -24,6 +24,9 @@ const session: GamePreviewSession = {
       backgroundAssetId: null,
       musicAssetId: null,
     },
+    cgGallery: {
+      pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+    },
     scenes: [
       {
         schemaVersion: 1,

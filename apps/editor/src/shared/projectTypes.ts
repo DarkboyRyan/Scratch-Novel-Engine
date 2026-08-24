@@ -10,6 +10,8 @@ import type {
 export type {
   BackgroundNode,
   BgmNode,
+  CgGalleryDocument,
+  CgGalleryPageDocument,
   CharacterNode,
   CharacterPosition,
   CharacterSlot,
@@ -64,6 +66,9 @@ export function toRuntimeProjectDocument(
     name: project.name,
     entrySceneId: project.entrySceneId,
     startScreen: project.startScreen,
+    cgGallery: project.cgGallery ?? {
+      pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+    },
     scenes: project.scenes.map((scene) => ({
       schemaVersion: scene.schemaVersion,
       id: scene.id,

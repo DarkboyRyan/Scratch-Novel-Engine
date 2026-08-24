@@ -56,6 +56,23 @@ std::optional<std::string> validate_project(const Project& project) {
       project.start_screen.music_asset_id->empty()) {
     return "start screen music Asset ID must not be empty";
   }
+  std::unordered_set<std::string> cg_asset_ids;
+  if (project.cg_gallery.pages.empty()) {
+    return "CG gallery must contain at least one page";
+  }
+  for (const CgGalleryPage& page : project.cg_gallery.pages) {
+    for (const std::optional<std::string>& asset_id : page.image_asset_ids) {
+      if (!asset_id.has_value()) {
+        continue;
+      }
+      if (asset_id->empty()) {
+        return "CG gallery Asset ID must not be empty";
+      }
+      if (!cg_asset_ids.insert(*asset_id).second) {
+        return "CG gallery Asset IDs must be unique";
+      }
+    }
+  }
   if (project.scenes.empty()) {
     return "project must contain at least one scene";
   }
@@ -285,6 +302,21 @@ std::optional<std::string> validate_project_aggregate(
     }
     if (music->type != AssetType::audio) {
       return "start screen music Asset must be audio";
+    }
+  }
+
+  for (const CgGalleryPage& page : aggregate.project.cg_gallery.pages) {
+    for (const std::optional<std::string>& asset_id : page.image_asset_ids) {
+      if (!asset_id.has_value()) {
+        continue;
+      }
+      const Asset* image = find_asset(aggregate, *asset_id);
+      if (image == nullptr) {
+        return "CG gallery must reference an existing Asset";
+      }
+      if (image->type != AssetType::image) {
+        return "CG gallery Asset must be an image";
+      }
     }
   }
 

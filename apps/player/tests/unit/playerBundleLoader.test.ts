@@ -44,7 +44,7 @@ function gameDocument(assetId: string | null = null) {
 
 function manifestDocument(
   files: unknown[] = [],
-  runtimeVersion: 1 | 2 | 3 | 4 = 1,
+  runtimeVersion: 1 | 2 | 3 | 4 | 5 | 6 = 1,
 ): Record<string, unknown> {
   return {
     format: 'vn-engine-runtime-manifest',
@@ -59,7 +59,11 @@ function manifestDocument(
         ? '>=2 <3'
         : runtimeVersion === 3
           ? '>=3 <4'
-          : '>=4 <5',
+          : runtimeVersion === 4
+            ? '>=4 <5'
+            : runtimeVersion === 5
+              ? '>=5 <6'
+              : '>=6 <7',
     createdAt: '2026-08-18T00:00:00.000Z',
     files,
   };
@@ -178,6 +182,9 @@ describe('runtime bundle loader', () => {
       title: 'Runtime test',
       backgroundAssetId: null,
       musicAssetId: null,
+    });
+    expect(legacy.game.project.cgGallery).toEqual({
+      pages: [{ imageAssetIds: Array(9).fill(null) }],
     });
 
     const runtimeV2 = gameDocument() as ReturnType<typeof gameDocument> & {
@@ -302,6 +309,169 @@ describe('runtime bundle loader', () => {
         JSON.stringify(manifestDocument([], 4)),
       ),
     ).toThrow('字段不符合 runtime 约定');
+  });
+
+  it('strictly reads a runtime v5 CG gallery and validates its image assets', () => {
+    const cgAsset = {
+      assetId: 'cg-1',
+      type: 'image',
+      displayName: 'CG 1',
+      path: 'assets/images/cg-1.png',
+      mime: 'image/png',
+      bytes: 12,
+      sha256: '0'.repeat(64),
+    };
+    const runtimeV5 = {
+      ...gameDocument(),
+      runtimeVersion: 5,
+      game: {
+        ...gameDocument().game,
+        startScreen: {
+          title: '自定义标题',
+          backgroundAssetId: null,
+          musicAssetId: null,
+        },
+        cgGallery: { imageAssetIds: ['cg-1'] },
+      },
+    };
+
+    expect(
+      parseRuntimeBundleDocuments(
+        JSON.stringify(runtimeV5),
+        JSON.stringify(manifestDocument([cgAsset], 5)),
+      ).game.project.cgGallery,
+    ).toEqual({
+      pages: [{ imageAssetIds: ['cg-1', ...Array(8).fill(null)] }],
+    });
+
+    const migratedAssetIds = Array.from(
+      { length: 10 },
+      (_, index) => `legacy-cg-${index + 1}`,
+    );
+    runtimeV5.game.cgGallery.imageAssetIds = migratedAssetIds;
+    const migratedFiles = migratedAssetIds.map((assetId) => ({
+      ...cgAsset,
+      assetId,
+      displayName: assetId,
+      path: `assets/images/${assetId}.png`,
+    }));
+    expect(
+      parseRuntimeBundleDocuments(
+        JSON.stringify(runtimeV5),
+        JSON.stringify(manifestDocument(migratedFiles, 5)),
+      ).game.project.cgGallery,
+    ).toEqual({
+      pages: [
+        { imageAssetIds: migratedAssetIds.slice(0, 9) },
+        {
+          imageAssetIds: [
+            migratedAssetIds[9],
+            ...Array(8).fill(null),
+          ],
+        },
+      ],
+    });
+
+    runtimeV5.game.cgGallery.imageAssetIds = [];
+    expect(
+      parseRuntimeBundleDocuments(
+        JSON.stringify(runtimeV5),
+        JSON.stringify(manifestDocument([], 5)),
+      ).game.project.cgGallery,
+    ).toEqual({ pages: [{ imageAssetIds: Array(9).fill(null) }] });
+
+    runtimeV5.game.cgGallery.imageAssetIds = ['cg-1', 'cg-1'];
+    expect(() =>
+      parseRuntimeBundleDocuments(
+        JSON.stringify(runtimeV5),
+        JSON.stringify(manifestDocument([cgAsset], 5)),
+      ),
+    ).toThrow('不能包含重复资源 ID');
+
+    runtimeV5.game.cgGallery.imageAssetIds = ['missing'];
+    expect(() =>
+      parseRuntimeBundleDocuments(
+        JSON.stringify(runtimeV5),
+        JSON.stringify(manifestDocument([cgAsset], 5)),
+      ),
+    ).toThrow('CG 画廊 引用了缺失或类型错误的资源');
+
+    runtimeV5.game.cgGallery.imageAssetIds = ['cg-1'];
+    expect(() =>
+      parseRuntimeBundleDocuments(
+        JSON.stringify(runtimeV5),
+        JSON.stringify(manifestDocument([{
+          ...cgAsset,
+          type: 'audio',
+          path: 'assets/audio/cg-1.mp3',
+          mime: 'audio/mpeg',
+        }], 5)),
+      ),
+    ).toThrow('CG 画廊 引用了缺失或类型错误的资源');
+  });
+
+  it('strictly reads runtime v6 fixed CG pages and preserves empty slots', () => {
+    const cgAsset = {
+      assetId: 'cg-1',
+      type: 'image',
+      displayName: 'CG 1',
+      path: 'assets/images/cg-1.png',
+      mime: 'image/png',
+      bytes: 12,
+      sha256: '0'.repeat(64),
+    };
+    const slots: Array<string | null> = [
+      null,
+      'cg-1',
+      ...Array<string | null>(7).fill(null),
+    ];
+    const runtimeV6 = {
+      ...gameDocument(),
+      runtimeVersion: 6,
+      game: {
+        ...gameDocument().game,
+        startScreen: {
+          title: '自定义标题',
+          backgroundAssetId: null,
+          musicAssetId: null,
+        },
+        cgGallery: { pages: [{ imageAssetIds: slots }] },
+      },
+    };
+
+    expect(
+      parseRuntimeBundleDocuments(
+        JSON.stringify(runtimeV6),
+        JSON.stringify(manifestDocument([cgAsset], 6)),
+      ).game.project.cgGallery,
+    ).toEqual({ pages: [{ imageAssetIds: slots }] });
+
+    runtimeV6.game.cgGallery.pages[0].imageAssetIds.pop();
+    expect(() =>
+      parseRuntimeBundleDocuments(
+        JSON.stringify(runtimeV6),
+        JSON.stringify(manifestDocument([cgAsset], 6)),
+      ),
+    ).toThrow('必须精确包含 9 个槽位');
+
+    runtimeV6.game.cgGallery.pages = [];
+    expect(() =>
+      parseRuntimeBundleDocuments(
+        JSON.stringify(runtimeV6),
+        JSON.stringify(manifestDocument([cgAsset], 6)),
+      ),
+    ).toThrow('至少需要一页');
+
+    runtimeV6.game.cgGallery.pages = [
+      { imageAssetIds: ['cg-1', ...Array(8).fill(null)] },
+      { imageAssetIds: [null, 'cg-1', ...Array(7).fill(null)] },
+    ];
+    expect(() =>
+      parseRuntimeBundleDocuments(
+        JSON.stringify(runtimeV6),
+        JSON.stringify(manifestDocument([cgAsset], 6)),
+      ),
+    ).toThrow('不能包含重复资源 ID');
   });
 
   it('rejects mismatched or incorrectly typed runtime v2 title assets', () => {
