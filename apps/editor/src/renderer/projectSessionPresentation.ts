@@ -2,10 +2,11 @@ export function projectWindowTitle(
   projectName: string,
   hasStorage: boolean,
   isDirty: boolean,
+  unsavedLabel = '未保存',
 ): string {
   const dirtyMark = isDirty ? '● ' : '';
-  const unsavedLabel = hasStorage ? '' : ' [未保存]';
-  return `${dirtyMark}${projectName}${unsavedLabel} — VN Engine Editor`;
+  const storageLabel = hasStorage ? '' : ` [${unsavedLabel}]`;
+  return `${dirtyMark}${projectName}${storageLabel} — VN Engine Editor`;
 }
 
 export function projectSaveStatus(

@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron';
 
 import { ENGINE_IPC_CHANNEL } from '../../shared/engineProtocol';
+import type { EditorLanguage } from '../../shared/editorSettingsProtocol';
 import {
   isTrustedEditorFrame,
   type TrustedEditorLocations,
@@ -12,6 +13,7 @@ import { isEngineInvocation } from './validateEngineInvocation';
 export function registerEngineIpc(
   contexts: EditorWindowContexts,
   trustedEditorLocations: TrustedEditorLocations,
+  getLanguage: () => EditorLanguage = () => 'zh-CN',
 ): void {
   ipcMain.handle(
     ENGINE_IPC_CHANNEL,
@@ -41,6 +43,7 @@ export function registerEngineIpc(
           context.editorWindow,
           result.project.name,
           session,
+          getLanguage(),
         );
 
         return {

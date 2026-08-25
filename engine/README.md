@@ -72,6 +72,7 @@ Supported methods:
 - `ping`（仅用于直接诊断 C++ 进程，不经过 Renderer API）
 - `project.create`, `project.open`, `project.ensure`, `project.get`
 - `project.rename`, `project.save`（仅 Main 可以传入文件路径）
+- `startScreen.update`, `cgGallery.update`
 - `asset.import`（仅 Main 可以传入源媒体和项目文件路径）
 - `scene.add`, `scene.rename`, `scene.delete`, `scene.setBackground`
 - `dialogue.add`, `dialogue.update`, `dialogue.setVoice`, `dialogue.delete`,
@@ -92,23 +93,39 @@ button can immediately create an editable node.
 
 `project.open` accepts Main-process-only `contents` that Electron has already
 read as one stable manifest snapshot. C++ does not reopen a mutable path. It
-reads project file versions 1 through 9. Parsing and aggregate validation
+reads project file versions 1 through 15. Parsing and aggregate validation
 happen before the in-memory
 project is replaced, so a missing, malformed, or unsupported file leaves the
 current project unchanged. Version 1 Scenes have no `visuals` field and are
 migrated to an empty visual state in memory. Versions 1 and 2 contain only
 Dialogue nodes; they migrate to the unified in-memory timeline. `project.save`
-always writes version 9:
+always writes version 15:
 
 ```json
 {
   "format": "vn-engine-project",
-  "fileVersion": 9,
+  "fileVersion": 15,
   "project": {
     "schemaVersion": 1,
     "id": "project-id",
     "name": "My Story",
     "entrySceneId": "scene-id",
+    "startScreen": {
+      "title": "My Custom Title",
+      "backgroundAssetId": "sprite-asset-id",
+      "musicAssetId": "music-asset-id"
+    },
+    "cgGallery": {
+      "pages": [
+        {
+          "imageAssetIds": [
+            "sprite-asset-id", null, null,
+            null, null, null,
+            null, null, null
+          ]
+        }
+      ]
+    },
     "scenes": [
       {
         "schemaVersion": 1,
@@ -142,7 +159,8 @@ always writes version 9:
             "type": "character",
             "assetId": "sprite-asset-id",
             "slot": "center",
-            "layer": 1
+            "layer": 1,
+            "position": null
           },
           {
             "id": "scene-jump-node-id",
@@ -221,8 +239,19 @@ timeline nodes with nullable Asset IDs, position slots, and layers 1 through
 10. File version 6 adds explicit Scene jump nodes. File version 7 adds nullable
 Dialogue `voiceAssetId` references and nullable BGM timeline nodes. File
 version 8 adds nullable Video timeline nodes. File version 9 adds Choice
-timeline nodes and their ordered branch options. Versions 1 through 8 contain
+timeline nodes and their ordered branch options. File version 10 adds the
+software-managed `startScreen` background and music references. File version
+11 adds its independently editable `title`. Versions 1 through 10 migrate the
+title from `project.name`; versions 1 through 9 also migrate both media
+references to `null`. Versions 1 through 8 contain
 no Choice nodes and migrate to an in-memory project without inventing any.
+File version 12 adds authoring-only Story Extension timeline markers. File
+version 13 adds nullable exact character coordinates. File version 14 adds the
+legacy packed `cgGallery.imageAssetIds` selection. File version 15 replaces it
+with one or more persistent `cgGallery.pages`, each containing exactly nine
+nullable slots. Versions 1 through 13 migrate to one empty page; v14 selections
+are chunked in order and padded with `null`. Every non-null CG reference must
+resolve to a globally unique image Asset.
 `visuals.backgroundAssetId` remains the initial background before the first
 background node. Reaching a
 background node changes or clears the active image until the next background
@@ -256,7 +285,8 @@ an optional `afterNodeId`/`beforeNodeId` anchor. `background.update` assigns an
 image Asset ID or `null` to clear it. `background.update`,
 `background.delete`, and `background.reorder` operate only on background nodes.
 `character.add` creates an empty center-positioned node on layer 1;
-`character.update` atomically sets its nullable image, slot, and layer. A later
+`character.update` atomically sets its nullable image, slot, layer, and optional
+exact position. A later
 node replaces the portrait on the same layer, while a null Asset ID clears that
 layer. For Blockly mixed selections, the `timeline.*` commands accept dialogue,
 background, character, Scene jump, BGM, Video, and Choice IDs together. Multi-node reordering ignores payload order and
@@ -294,6 +324,54 @@ reorders. Deleting a Scene referenced by either a Scene jump or a Choice option
 returns `scene_in_use`. Failed commands validate before committing, and legal
 no-op updates/reorders do not advance the document revision.
 
+`startScreen.update` atomically replaces the title and two media references
+used by the software-managed title scene:
+
+```json
+{
+  "id": 2,
+  "method": "startScreen.update",
+  "params": {
+    "title": "My Custom Title",
+    "backgroundAssetId": "image-asset-id",
+    "musicAssetId": "audio-asset-id"
+  }
+}
+```
+
+All three fields are required; `title` is a non-empty trimmed string, while
+both media fields are nullable. The background must resolve to an image Asset
+and the music must resolve to an audio Asset. The command validates all values
+before committing any of them; a bad value leaves the entire Project unchanged,
+while assigning the current triple is a revision-preserving no-op.
+
+`cgGallery.update` atomically replaces all persistent CG pages:
+
+```json
+{
+  "id": 3,
+  "method": "cgGallery.update",
+  "params": {
+    "pages": [
+      {
+        "imageAssetIds": [
+          "ending-cg", null, "opening-cg",
+          null, null, null,
+          null, null, null
+        ]
+      }
+    ]
+  }
+}
+```
+
+At least one page is required and each page has exactly nine string-or-null
+slots. Every non-null ID must be globally unique and resolve to an image Asset.
+Page and slot order, including empty positions and empty pages, are persisted
+exactly. Any invalid ID, type, duplicate, or malformed page rejects the whole
+command without changing the existing gallery; reassigning the same pages does
+not advance the revision.
+
 `scene.setBackground` accepts a Scene ID and either an image Asset ID or
 `null` to clear the background:
 
@@ -309,7 +387,7 @@ The command resolves both IDs and checks the Asset type before changing the
 Scene. This static value is the compatible initial background; timeline nodes
 may override it later. A missing Scene, missing Asset, or non-image Asset fails without
 changing state. Reassigning the current value succeeds without advancing the
-revision. The next ordinary `project.save` persists the selection in the v9
+revision. The next ordinary `project.save` persists the selection in the v15
 `visuals.backgroundAssetId` field.
 
 Asset metadata supports `image`, `video`, and `audio`. Binary assets remain in

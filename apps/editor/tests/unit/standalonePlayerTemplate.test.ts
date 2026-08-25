@@ -24,7 +24,7 @@ describe('standalone Player template contract', () => {
       platform: process.platform,
       arch: process.arch,
       playerVersion: '0.1.0',
-      runtimeCompatibility: '>=1 <2',
+      runtimeCompatibility: '>=1 <7',
       payloadRoot: 'payload',
       artifactEntry: macos ? 'VN Engine Player.app' : 'player',
       gameResourceDirectory: macos
@@ -78,6 +78,13 @@ describe('standalone Player template contract', () => {
     await expect(loadStandalonePlayerTemplate(escapingPath)).rejects.toThrow(
       '格式或路径无效',
     );
+
+    const oldRuntimeContract = await createTemplate({
+      runtimeCompatibility: '>=1 <6',
+    });
+    await expect(
+      loadStandalonePlayerTemplate(oldRuntimeContract),
+    ).rejects.toThrow('格式或路径无效');
   });
 
   it('rejects every drift from the fixed macOS v1 injection paths', async () => {

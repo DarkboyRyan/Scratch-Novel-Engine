@@ -27,7 +27,7 @@
 | 层 | 技术 | 用途 |
 | --- | --- | --- |
 | 领域模型 | C++20、`std::variant`、`std::vector` | 保存 ChoiceNode、稳定 Option ID 和引用约束 |
-| 文件格式 | nlohmann/json、版本化 Reader/Writer | v9 严格读写嵌套 `options` |
+| 文件格式 | nlohmann/json、版本化 Reader/Writer | v9 引入嵌套 `options`；当前 v15 Writer 延续严格字段 |
 | 本地协议 | JSONL、Electron IPC、contextBridge | 传递具名 choice 命令，不暴露 C++ 或 Node 权限 |
 | 图形编辑 | Blockly 13、自定义 Block/Connection/Event | 外层容器、内部选项、字段编辑和嵌套重排 |
 | 状态协调 | React 19、TypeScript 5.9、Promise 队列 | 应用 C++ 完整快照并提交活动字段草稿 |
@@ -96,10 +96,11 @@ C++ Core 在提交前保证：
 - 失败操作不提交候选数据，合法 no-op 不增加 revision；
 - 空 `options` 是合法状态，不会被错误地当成损坏项目。
 
-## 4. 项目文件 v9
+## 4. Choice 在 v9 引入，当前项目文件为 v15
 
-当前 Writer 固定写 `fileVersion: 9`，Reader 接受 v1–v9。v9 首次加入
-`type: "choice"`：
+当前 Writer 固定写 `fileVersion: 15`，Reader 接受 v1–v15。`type: "choice"` 是
+v9 首次加入的历史能力；v10 在保留同一 Choice 严格结构的同时新增项目级
+`project.startScreen` 媒体，v11 为主界面增加独立标题：
 
 ```json
 {
@@ -120,7 +121,7 @@ C++ Core 在提交前保证：
 }
 ```
 
-v9 Reader 对 ChoiceNode 使用严格字段集合：节点只能有 `id/type/options`，每个
+从 v9 开始，Reader 对 ChoiceNode 使用严格字段集合：节点只能有 `id/type/options`，每个
 选项只能有 `id/text/targetSceneId`，并要求 `options` 是数组。解析成功后还要经过
 Core 的全项目引用与唯一性校验。v1–v8 仍按各自旧格式读取，但不能伪装包含尚未
 存在于对应版本的 ChoiceNode。
@@ -271,7 +272,7 @@ React 默认转义文本，选项文字不会被当作 HTML 执行。
 | 范围 | 重点用例 |
 | --- | --- |
 | C++ Core | 空 Choice 合法、稳定 ID、增改删排、文本 trim、目标存在、scene_in_use、no-op |
-| C++ 序列化 | v9 round-trip、空/多选项、严格字段、旧版本拒绝 Choice、损坏引用拒绝 |
+| C++ 序列化 | v9 Choice 迁移、v15 round-trip、空/多选项、严格字段、旧版本拒绝 Choice、损坏引用拒绝 |
 | JSONL Backend | 五个 choice method、返回 nodeId/optionId、错误码和 revision |
 | IPC/Preload | API 参数逐字段验证、Renderer 不能传多余字段或伪造 ID |
 | Blockly | 专用 connection check、动态场景下拉、嵌套新增/修改/重排/删除与重新投影 |
@@ -306,7 +307,8 @@ apps/editor/src/renderer/styles/editor.css
 > ChoiceNode 是七种 SceneNode 之一，内部 ChoiceOption 使用稳定 ID、文案和目标
 > Scene ID。Blockly 用 statement input 做嵌套容器，并用专用 connection type
 > 防止选项变成独立剧情节点；每次编辑转换成细粒度 choice 命令，由 C++ 校验后
-> 返回完整快照。项目文件升级为 v9。正式预览的纯状态机增加 choosing 阻塞态，
+> 返回完整快照。Choice 当时随项目文件 v9 引入；当前 Writer 已升级到 v15，并继续
+> 保持相同 Choice 严格结构。正式预览的纯状态机增加 choosing 阻塞态，
 > 空容器跳过，有选项时渲染固定 54px 的居中矩形按钮，点击后按权威 optionId
 > 跳转；目标场景重置背景和人物但延续 BGM。这样作者态、持久化和运行态使用同一
 > 语义，而且 UI 不能绕过 C++ 引用校验。
@@ -314,7 +316,8 @@ apps/editor/src/renderer/styles/editor.css
 ## 13. 当前边界
 
 - 当前选择是“点击后直接跳到目标场景”，尚无变量赋值、条件表达式和选项可见性；
-- 尚无键盘上下选择、历史返回、限时选项、已选标记和存档；
+- 尚无键盘上下选择、历史返回、限时选项和已选标记；正式 Player 可以在 choosing
+  阻塞态保存并从当前 `game.json` 重建选项，Editor 预览本身不持久化存档；
 - 正式预览状态机仍在 TypeScript。独立 Player 的 MVP 应复用抽离后的共享
   TypeScript Runtime；只有在变量、脚本、跨版本存档或确定性回放变得复杂后，
   才评估把同一 Choice 运行语义下沉到 C++ Runtime。

@@ -1,5 +1,6 @@
 import type {
   CharacterSlot,
+  CharacterPosition,
   ChoiceNode,
   ChoiceOption,
   DialogueNode,
@@ -11,6 +12,7 @@ export type RuntimeCharacterState = {
   assetId: string;
   slot: CharacterSlot;
   layer: number;
+  position: CharacterPosition | null;
 };
 
 export type GameRuntime = {
@@ -165,6 +167,7 @@ export function advanceGame(
           assetId: node.assetId,
           slot: node.slot,
           layer: node.layer,
+          position: node.position,
         });
       }
       continue;
@@ -298,9 +301,12 @@ export function selectChoice(
   });
 }
 
-export function startGame(project: ProjectDocument): GameRuntime | null {
+export function startGameAtScene(
+  project: ProjectDocument,
+  sceneId: string,
+): GameRuntime | null {
   const scene = project.scenes.find(
-    (candidate) => candidate.id === project.entrySceneId,
+    (candidate) => candidate.id === sceneId,
   );
   if (!scene) {
     return null;
@@ -320,4 +326,11 @@ export function startGame(project: ProjectDocument): GameRuntime | null {
     dialogue: null,
     choices: [],
   });
+}
+
+// Formal game startup always honors the authored entry scene. Editor preview
+// uses startGameAtScene instead so selecting another scene never rewrites or
+// weakens the project's real entry-point contract.
+export function startGame(project: ProjectDocument): GameRuntime | null {
+  return startGameAtScene(project, project.entrySceneId);
 }

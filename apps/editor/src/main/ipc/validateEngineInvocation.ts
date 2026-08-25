@@ -7,6 +7,38 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+function isCgGalleryPages(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length === 0) {
+    return false;
+  }
+
+  const assetIds = new Set<string>();
+  return value.every((page) => {
+    if (
+      !isObject(page) ||
+      Object.keys(page).length !== 1 ||
+      !Array.isArray(page.imageAssetIds) ||
+      page.imageAssetIds.length !== 9
+    ) {
+      return false;
+    }
+    return page.imageAssetIds.every((assetId) => {
+      if (assetId === null) {
+        return true;
+      }
+      if (
+        typeof assetId !== 'string' ||
+        assetId.length === 0 ||
+        assetIds.has(assetId)
+      ) {
+        return false;
+      }
+      assetIds.add(assetId);
+      return true;
+    });
+  });
+}
+
 export function isEngineInvocation(
   value: unknown,
 ): value is EngineInvocation {
@@ -45,6 +77,21 @@ export function isEngineInvocation(
       return Object.keys(params).length === 0;
     case 'project.rename':
       return hasString('name');
+    case 'startScreen.update':
+      return (
+        Object.keys(params).length === 3 &&
+        hasString('title') &&
+        Object.hasOwn(params, 'backgroundAssetId') &&
+        Object.hasOwn(params, 'musicAssetId') &&
+        (params.backgroundAssetId === null ||
+          hasString('backgroundAssetId')) &&
+        (params.musicAssetId === null || hasString('musicAssetId'))
+      );
+    case 'cgGallery.update':
+      return (
+        Object.keys(params).length === 1 &&
+        isCgGalleryPages(params.pages)
+      );
     case 'scene.add':
       return params.name === undefined || hasString('name');
     case 'scene.rename':
@@ -69,6 +116,7 @@ export function isEngineInvocation(
     case 'bgm.add':
     case 'video.add':
     case 'choice.add':
+    case 'storyExtension.add':
       return (
         hasString('sceneId') &&
         params.assetId === undefined &&
@@ -127,6 +175,7 @@ export function isEngineInvocation(
         params.assetId === undefined &&
         params.slot === undefined &&
         params.layer === undefined &&
+        params.position === undefined &&
         hasValidOptionalPlacement()
       );
     case 'character.update':
@@ -139,7 +188,20 @@ export function isEngineInvocation(
           params.slot === 'right') &&
         Number.isInteger(params.layer) &&
         (params.layer as number) >= 1 &&
-        (params.layer as number) <= 10
+        (params.layer as number) <= 10 &&
+        (params.position === null ||
+          (isObject(params.position) &&
+            Object.keys(params.position).length === 2 &&
+            Object.hasOwn(params.position, 'x') &&
+            Object.hasOwn(params.position, 'y') &&
+            typeof params.position.x === 'number' &&
+            Number.isFinite(params.position.x) &&
+            params.position.x >= 0 &&
+            params.position.x <= 100 &&
+            typeof params.position.y === 'number' &&
+            Number.isFinite(params.position.y) &&
+            params.position.y >= 0 &&
+            params.position.y <= 100))
       );
     case 'sceneJump.add':
       return (

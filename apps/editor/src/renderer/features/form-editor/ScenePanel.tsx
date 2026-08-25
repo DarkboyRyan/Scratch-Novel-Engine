@@ -4,8 +4,14 @@ import type {
   AssetDocument,
   ProjectDocument,
   SceneDocument,
-  SceneNode,
+  SemanticSceneNode,
 } from '../../../shared/projectTypes';
+import { semanticSceneNodes } from '../../../shared/projectTypes';
+import {
+  CG_GALLERY_SCENE_ID,
+  START_SCREEN_SCENE_ID,
+} from '../start-screen/startScreenScene';
+import { useEditorLabels } from '../../i18n/editorLocalization';
 
 type ScenePanelProps = {
   project: ProjectDocument;
@@ -15,7 +21,9 @@ type ScenePanelProps = {
   isBusy: boolean;
   onAddScene: () => Promise<void>;
   onSelectScene: (sceneId: string) => Promise<void>;
-  onSelectNode: (node: SceneNode) => Promise<void>;
+  onSelectStartScreen?: () => Promise<void>;
+  onSelectCgGallery?: () => Promise<void>;
+  onSelectNode: (node: SemanticSceneNode) => Promise<void>;
   onInsertBackground: () => Promise<void>;
   onInsertSceneJump: () => Promise<void>;
   onMoveNode: (
@@ -33,35 +41,39 @@ export function ScenePanel({
   isBusy,
   onAddScene,
   onSelectScene,
+  onSelectStartScreen,
+  onSelectCgGallery,
   onSelectNode,
   onInsertBackground,
   onInsertSceneJump,
   onMoveNode,
   onDeleteNode,
 }: ScenePanelProps) {
+  const labels = useEditorLabels();
   const [isSceneMenuOpen, setIsSceneMenuOpen] = useState(false);
   const sceneMenuRef = useRef<HTMLDivElement>(null);
   const imageAssets = assets.filter((asset) => asset.type === 'image');
   const audioAssets = assets.filter((asset) => asset.type === 'audio');
   const videoAssets = assets.filter((asset) => asset.type === 'video');
+  const storyNodes = semanticSceneNodes(scene);
   const currentSceneNumber =
     project.scenes.findIndex((projectScene) => projectScene.id === scene.id) +
     1;
   const assetName = (assetId: string | null) =>
     assetId === null
-      ? '无背景'
+      ? labels.resource.noBackground
       : imageAssets.find((asset) => asset.id === assetId)?.displayName ??
-        '缺失图片';
+        labels.common.missingImage;
   const audioName = (assetId: string | null) =>
     assetId === null
-      ? '停止背景音乐'
+      ? labels.scenes.stopBackgroundMusic
       : audioAssets.find((asset) => asset.id === assetId)?.displayName ??
-        '缺失音频';
+        labels.common.missingAudio;
   const videoName = (assetId: string | null) =>
     assetId === null
-      ? '未选择视频'
+      ? labels.scenes.noVideo
       : videoAssets.find((asset) => asset.id === assetId)?.displayName ??
-        '缺失视频';
+        labels.common.missingVideo;
 
   useEffect(() => {
     setIsSceneMenuOpen(false);
@@ -93,7 +105,7 @@ export function ScenePanel({
           <button
             type="button"
             className="scene-menu-trigger"
-            aria-label="选择当前场景"
+            aria-label={labels.scenes.selectCurrentScene}
             aria-haspopup="listbox"
             aria-expanded={isSceneMenuOpen}
             disabled={isBusy}
@@ -104,7 +116,7 @@ export function ScenePanel({
               }
             }}
           >
-            <span>场景 {currentSceneNumber}</span>
+            <span>{labels.common.scene} {currentSceneNumber}</span>
             <span aria-hidden="true" className="scene-menu-chevron">
               ▾
             </span>
@@ -112,6 +124,36 @@ export function ScenePanel({
 
           {isSceneMenuOpen ? (
             <div className="scene-menu-list" role="listbox">
+              {onSelectStartScreen ? (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={false}
+                  data-scene-id={START_SCREEN_SCENE_ID}
+                  onClick={() => {
+                    setIsSceneMenuOpen(false);
+                    void onSelectStartScreen();
+                  }}
+                >
+                  <strong>{labels.common.mainMenu}</strong>
+                  <span>{labels.scenes.managedStartScreen}</span>
+                </button>
+              ) : null}
+              {onSelectCgGallery ? (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={false}
+                  data-scene-id={CG_GALLERY_SCENE_ID}
+                  onClick={() => {
+                    setIsSceneMenuOpen(false);
+                    void onSelectCgGallery();
+                  }}
+                >
+                  <strong>{labels.common.cgGallery}</strong>
+                  <span>{labels.scenes.cgGalleryHelp}</span>
+                </button>
+              ) : null}
               {project.scenes.map((projectScene, index) => (
                 <button
                   key={projectScene.id}
@@ -126,7 +168,7 @@ export function ScenePanel({
                     void onSelectScene(projectScene.id);
                   }}
                 >
-                  <strong>场景 {index + 1}</strong>
+                  <strong>{labels.common.scene} {index + 1}</strong>
                   {projectScene.name !== `场景 ${index + 1}` ? (
                     <span>{projectScene.name}</span>
                   ) : null}
@@ -139,32 +181,32 @@ export function ScenePanel({
         <button
           type="button"
           className="scene-inline-action"
-          aria-label="新建场景"
-          title="新建空场景"
+          aria-label={labels.scenes.addScene}
+          title={labels.scenes.addEmptyScene}
           disabled={isBusy}
           onClick={() => void onAddScene()}
         >
-          <span aria-hidden="true">+</span> 场景
+          <span aria-hidden="true">+</span> {labels.common.scene}
         </button>
         <button
           type="button"
           className="scene-inline-action scene-jump-inline-action"
-          aria-label="在当前节点后插入场景跳转"
+          aria-label={labels.scenes.insertJump}
           disabled={isBusy || project.scenes.length < 2}
           title={
             project.scenes.length < 2
-              ? '至少需要两个场景'
-              : '在当前节点后插入场景跳转'
+              ? labels.scenes.needsTwoScenes
+              : labels.scenes.insertJump
           }
           onClick={() => void onInsertSceneJump()}
         >
-          <span aria-hidden="true">+</span> 跳转
+          <span aria-hidden="true">+</span> {labels.scenes.jump}
         </button>
       </div>
 
       <div className="scene-status">
-        <span>{project.scenes.length} 个场景</span>
-        <span>{scene.nodes.length} 个剧情节点</span>
+        <span>{project.scenes.length} {labels.scenes.sceneUnit}</span>
+        <span>{storyNodes.length} {labels.scenes.storyNodeUnit}</span>
       </div>
 
       <div className="timeline-add-actions">
@@ -174,12 +216,12 @@ export function ScenePanel({
           disabled={isBusy}
           onClick={() => void onInsertBackground()}
         >
-          <span aria-hidden="true">+</span> 背景
+          <span aria-hidden="true">+</span> {labels.scenes.background}
         </button>
       </div>
 
       <ol className="dialogue-list timeline-list">
-        {scene.nodes.map((node, index) => (
+        {storyNodes.map((node, index) => (
           <li
             key={node.id}
             className={`${node.id === selectedNodeId ? 'selected' : ''}${
@@ -210,32 +252,34 @@ export function ScenePanel({
               <div>
                 {node.type === 'dialogue' ? (
                   <>
-                    <strong>{node.speaker || '旁白'}</strong>
-                    <p>{node.text || '空对白'}</p>
+                    <strong>{node.speaker || labels.scenes.narrator}</strong>
+                    <p>{node.text || labels.scenes.emptyDialogue}</p>
                   </>
                 ) : node.type === 'background' ? (
                   <>
-                    <strong>背景切换</strong>
+                    <strong>{labels.scenes.backgroundChange}</strong>
                     <p>{assetName(node.assetId)}</p>
                   </>
                 ) : node.type === 'character' ? (
                   <>
                     <strong>
-                      人物立绘 · 第 {node.layer} 层
+                      {labels.scenes.character} · {node.layer} {labels.scenes.layer}
                     </strong>
                     <p>
-                      {assetName(node.assetId).replace('无背景', '无立绘')}
+                      {node.assetId === null
+                        ? labels.scenes.noPortrait
+                        : assetName(node.assetId)}
                       {' · '}
                       {node.slot === 'left'
-                        ? '左侧'
+                        ? labels.scenes.left
                         : node.slot === 'center'
-                          ? '中间'
-                          : '右侧'}
+                          ? labels.scenes.center
+                          : labels.scenes.right}
                     </p>
                   </>
                 ) : node.type === 'sceneJump' ? (
                   <>
-                    <strong>跳转场景</strong>
+                    <strong>{labels.scenes.jumpScene}</strong>
                     <p>
                       {(() => {
                         const targetIndex = project.scenes.findIndex(
@@ -243,28 +287,28 @@ export function ScenePanel({
                             projectScene.id === node.targetSceneId,
                         );
                         return targetIndex >= 0
-                          ? `场景 ${targetIndex + 1}`
-                          : '目标场景缺失';
+                          ? `${labels.common.scene} ${targetIndex + 1}`
+                          : labels.scenes.missingTargetScene;
                       })()}
                     </p>
                   </>
                 ) : node.type === 'bgm' ? (
                   <>
-                    <strong>背景音乐</strong>
+                    <strong>{labels.scenes.backgroundMusic}</strong>
                     <p>{audioName(node.assetId)}</p>
                   </>
                 ) : node.type === 'video' ? (
                   <>
-                    <strong>播放视频</strong>
+                    <strong>{labels.scenes.playVideo}</strong>
                     <p>{videoName(node.assetId)}</p>
                   </>
                 ) : (
                   <>
-                    <strong>场景选项</strong>
+                    <strong>{labels.scenes.sceneOptions}</strong>
                     <p>
                       {node.options.length > 0
-                        ? `${node.options.length} 个选项`
-                        : '未添加选项（预览时跳过）'}
+                        ? `${node.options.length} ${labels.scenes.optionUnit}`
+                        : labels.scenes.noOptionsSkip}
                     </p>
                   </>
                 )}
@@ -276,8 +320,8 @@ export function ScenePanel({
                 type="button"
                 className="dialogue-move-button"
                 disabled={isBusy || index === 0}
-                aria-label={`上移第 ${index + 1} 个剧情节点`}
-                title="上移"
+                aria-label={`${labels.scenes.moveUp}${labels.common.wordSeparator}${labels.scenes.nodeAriaPrefix}${index + 1}${labels.scenes.nodeAriaSuffix}`}
+                title={labels.scenes.moveUp}
                 onClick={() =>
                   void onMoveNode(node.id, -1)
                 }
@@ -289,10 +333,10 @@ export function ScenePanel({
                 type="button"
                 className="dialogue-move-button"
                 disabled={
-                  isBusy || index === scene.nodes.length - 1
+                  isBusy || index === storyNodes.length - 1
                 }
-                aria-label={`下移第 ${index + 1} 个剧情节点`}
-                title="下移"
+                aria-label={`${labels.scenes.moveDown}${labels.common.wordSeparator}${labels.scenes.nodeAriaPrefix}${index + 1}${labels.scenes.nodeAriaSuffix}`}
+                title={labels.scenes.moveDown}
                 onClick={() =>
                   void onMoveNode(node.id, 1)
                 }
@@ -303,14 +347,14 @@ export function ScenePanel({
               <button
                 type="button"
                 className="dialogue-delete-button"
-                aria-label={`删除第 ${index + 1} 个剧情节点`}
-                title="删除这个剧情节点"
+                aria-label={`${labels.scenes.delete}${labels.common.wordSeparator}${labels.scenes.nodeAriaPrefix}${index + 1}${labels.scenes.nodeAriaSuffix}`}
+                title={labels.scenes.deleteNode}
                 disabled={isBusy}
                 onClick={() =>
                   void onDeleteNode(node.id)
                 }
               >
-                删除
+                {labels.scenes.delete}
               </button>
             </div>
           </li>

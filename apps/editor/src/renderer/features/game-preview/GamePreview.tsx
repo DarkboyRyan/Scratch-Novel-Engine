@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { TitleScreen } from '@vnengine/player-ui';
 
 import type { AssetDocument } from '../../../shared/projectTypes';
 import type { MediaUrlResolver } from '../../application/mediaPort';
@@ -7,6 +8,10 @@ import { getGamePreviewChoices } from './previewRuntime';
 import type { GamePreviewSession } from './useGamePreview';
 import { usePreviewAudio } from './usePreviewAudio';
 import { PreviewVideo } from './PreviewVideo';
+import {
+  useEditorLabels,
+  useEditorLanguage,
+} from '../../i18n/editorLocalization';
 
 type GamePreviewProps = {
   session: GamePreviewSession;
@@ -16,10 +21,13 @@ type GamePreviewProps = {
   onAdvance: () => void;
   onVideoComplete: () => void;
   onChoiceSelect: (optionId: string) => void;
+  onEnterStory: () => void;
   onExit: () => void;
 };
 
-export function GamePreview({
+type StoryGamePreviewProps = Omit<GamePreviewProps, 'onEnterStory'>;
+
+function StoryGamePreview({
   session,
   assets,
   previewUrls,
@@ -28,7 +36,9 @@ export function GamePreview({
   onVideoComplete,
   onChoiceSelect,
   onExit,
-}: GamePreviewProps) {
+}: StoryGamePreviewProps) {
+  const labels = useEditorLabels();
+  const language = useEditorLanguage();
   const rootRef = useRef<HTMLDivElement>(null);
   const { runtime } = session;
   const choices = getGamePreviewChoices(session.project, runtime);
@@ -42,9 +52,10 @@ export function GamePreview({
       return {
         id: character.nodeId,
         url: previewUrls[character.assetId] ?? null,
-        name: asset?.displayName ?? '缺失立绘',
+        name: asset?.displayName ?? labels.preview.missingPortrait,
         slot: character.slot,
         layer: character.layer,
+        position: character.position,
       };
     },
   );
@@ -85,7 +96,7 @@ export function GamePreview({
       ref={rootRef}
       className="game-preview-overlay"
       tabIndex={-1}
-      aria-label="游戏预览"
+      aria-label={labels.preview.gamePreview}
       onPointerUp={(event) => {
         if (event.button === 0 && runtime.status === 'playing') {
           onAdvance();
@@ -102,18 +113,22 @@ export function GamePreview({
         backgroundName={backgroundAsset?.displayName ?? null}
         showDialogue={runtime.status === 'playing' && runtime.dialogue !== null}
         characters={characters}
-        placeholder="游戏预览"
+        placeholder={labels.preview.gamePreview}
       >
         {runtime.status === 'finished' ? (
           <div className="game-preview-finished" role="status">
-            <strong>预览结束</strong>
-            <span>按 Esc 或点击右上角返回编辑器</span>
+            <strong>{labels.preview.finished}</strong>
+            <span>{labels.preview.finishedHelp}</span>
           </div>
         ) : null}
         {runtime.status === 'runtimeError' ? (
           <div className="game-preview-finished game-preview-error" role="alert">
-            <strong>预览无法继续</strong>
-            <span>{runtime.errorMessage}</span>
+            <strong>{labels.preview.cannotContinue}</strong>
+            <span>
+              {language === 'zh-CN'
+                ? runtime.errorMessage
+                : labels.preview.runtimeErrorFallback}
+            </span>
           </div>
         ) : null}
         {runtime.status === 'playingVideo' && runtime.videoAssetId ? (
@@ -129,7 +144,7 @@ export function GamePreview({
             <div
               className="game-preview-choice-list"
               role="group"
-              aria-label="请选择接下来的行动"
+              aria-label={labels.preview.chooseAction}
             >
               {choices.map((option) => (
                 <button
@@ -138,7 +153,7 @@ export function GamePreview({
                   className="game-preview-choice-button"
                   onClick={() => onChoiceSelect(option.id)}
                 >
-                  {option.text || '未命名选项'}
+                  {option.text || labels.common.unnamedOption}
                 </button>
               ))}
             </div>
@@ -149,13 +164,160 @@ export function GamePreview({
       <button
         type="button"
         className="game-preview-exit"
-        aria-label="退出游戏预览"
-        title="退出游戏预览（Esc）"
+        aria-label={labels.preview.exit}
+        title={labels.preview.exitWithEscape}
         onPointerUp={(event) => event.stopPropagation()}
         onClick={onExit}
       >
         ×
       </button>
     </div>
+  );
+}
+
+type TitleGamePreviewProps = Pick<
+  GamePreviewProps,
+  'session' | 'resolveMediaUrl' | 'onEnterStory' | 'onExit'
+>;
+
+function TitleGamePreview({
+  session,
+  resolveMediaUrl,
+  onEnterStory,
+  onExit,
+}: TitleGamePreviewProps) {
+  const labels = useEditorLabels();
+  const language = useEditorLanguage();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const loadNoticeRef = useRef<HTMLDivElement>(null);
+  const loadNoticeTriggerRef = useRef<HTMLElement | null>(null);
+  const [loadPreviewNoticeOpen, setLoadPreviewNoticeOpen] = useState(false);
+
+  useLayoutEffect(() => {
+    if (!loadPreviewNoticeOpen) {
+      return;
+    }
+    const notice = loadNoticeRef.current;
+    const dismissButton = notice?.querySelector<HTMLButtonElement>('button');
+    (dismissButton ?? notice)?.focus();
+    return () => {
+      queueMicrotask(() => {
+        const trigger = loadNoticeTriggerRef.current;
+        if (
+          trigger?.isConnected
+          && !trigger.matches(':disabled')
+          && trigger.closest('[inert]') === null
+        ) {
+          trigger.focus();
+        }
+      });
+    };
+  }, [loadPreviewNoticeOpen]);
+
+  useEffect(() => {
+    if (!loadPreviewNoticeOpen) {
+      rootRef.current?.focus();
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (loadPreviewNoticeOpen && event.key === 'Tab') {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const dismissButton = loadNoticeRef.current
+          ?.querySelector<HTMLButtonElement>('button');
+        (dismissButton ?? loadNoticeRef.current)?.focus();
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (loadPreviewNoticeOpen) {
+          setLoadPreviewNoticeOpen(false);
+        } else {
+          onExit();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [loadPreviewNoticeOpen, onExit]);
+
+  return (
+    <div
+      ref={rootRef}
+      className="game-preview-overlay game-preview-title-overlay"
+      tabIndex={-1}
+      aria-label={labels.preview.fullTitlePreview}
+    >
+      <TitleScreen
+        language={language}
+        startScreen={session.project.startScreen}
+        cgGalleryPages={session.project.cgGallery?.pages ?? []}
+        resolveMediaUrl={resolveMediaUrl}
+        interactionBlocked={loadPreviewNoticeOpen}
+        onStart={onEnterStory}
+        onLoadGame={() => {
+          loadNoticeTriggerRef.current = document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null;
+          setLoadPreviewNoticeOpen(true);
+        }}
+        onExit={onExit}
+      />
+      {loadPreviewNoticeOpen ? (
+        <div
+          ref={loadNoticeRef}
+          className="player-menu-layer"
+          role="dialog"
+          aria-modal="true"
+          aria-label={labels.preview.loadNotice}
+          tabIndex={-1}
+        >
+          <section className="player-menu-card">
+            <p className="player-eyebrow">EDITOR PREVIEW</p>
+            <h2>{labels.preview.loadGame}</h2>
+            <p className="game-preview-load-note">{labels.preview.loadHelp}</p>
+            <button
+              type="button"
+              onClick={() => setLoadPreviewNoticeOpen(false)}
+            >
+              {labels.preview.understood}
+            </button>
+          </section>
+        </div>
+      ) : null}
+      <button
+        type="button"
+        className="game-preview-exit"
+        aria-label={labels.preview.exit}
+        title={labels.preview.exitWithEscape}
+        disabled={loadPreviewNoticeOpen}
+        aria-hidden={loadPreviewNoticeOpen || undefined}
+        onClick={onExit}
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
+export function GamePreview(props: GamePreviewProps) {
+  return props.session.phase === 'title' ? (
+    <TitleGamePreview
+      session={props.session}
+      resolveMediaUrl={props.resolveMediaUrl}
+      onEnterStory={props.onEnterStory}
+      onExit={props.onExit}
+    />
+  ) : (
+    <StoryGamePreview
+      session={props.session}
+      assets={props.assets}
+      previewUrls={props.previewUrls}
+      resolveMediaUrl={props.resolveMediaUrl}
+      onAdvance={props.onAdvance}
+      onVideoComplete={props.onVideoComplete}
+      onChoiceSelect={props.onChoiceSelect}
+      onExit={props.onExit}
+    />
   );
 }

@@ -86,6 +86,45 @@ const Asset* find_asset(
     const ProjectAggregate& aggregate,
     std::string_view asset_id);
 
+// The title and both title-screen media references form one authoring command.
+// The model validates the complete requested state before committing any
+// value, so an invalid field can never produce a partially updated screen.
+enum class UpdateStartScreenResult {
+  changed,
+  unchanged,
+  title_required,
+  background_asset_not_found,
+  background_asset_not_image,
+  music_asset_not_found,
+  music_asset_not_audio,
+};
+
+UpdateStartScreenResult update_start_screen(
+    ProjectAggregate& aggregate,
+    std::string title,
+    std::optional<std::string> background_asset_id,
+    std::optional<std::string> music_asset_id);
+
+enum class UpdateCgGalleryResult {
+  changed,
+  unchanged,
+  page_required,
+  asset_not_found,
+  asset_not_image,
+  duplicate_asset_id,
+};
+
+// Replaces the complete ordered CG selection as one aggregate mutation. The
+// candidate is fully validated before commit, so a bad Asset never partially
+// changes the gallery.
+UpdateCgGalleryResult update_cg_gallery(
+    ProjectAggregate& aggregate,
+    std::vector<CgGalleryPage> pages);
+
+// Title-screen names follow the same whitespace rules as project names but
+// remain an independent value after project creation/migration.
+std::optional<std::string> normalize_start_screen_title(std::string title);
+
 // Background changes are aggregate operations because a Scene may only
 // reference an existing image Asset. Expected validation failures are
 // reported without changing the aggregate; assigning the current value is a
@@ -196,6 +235,7 @@ enum class UpdateCharacterNodeResult {
   asset_not_image,
   invalid_slot,
   invalid_layer,
+  invalid_position,
 };
 
 UpdateCharacterNodeResult update_character_node(
@@ -204,7 +244,8 @@ UpdateCharacterNodeResult update_character_node(
     std::string_view node_id,
     std::optional<std::string> asset_id,
     CharacterSlot slot,
-    int layer);
+    int layer,
+    std::optional<CharacterPosition> position = std::nullopt);
 
 enum class AddBgmNodeStatus {
   added,
@@ -408,8 +449,30 @@ UpdateSceneJumpNodeResult update_scene_jump_node(
     std::string_view node_id,
     std::string target_scene_id);
 
+enum class AddStoryExtensionNodeStatus {
+  added,
+  scene_not_found,
+  placement_conflict,
+  anchor_not_found,
+};
+
+struct AddStoryExtensionNodeResult {
+  AddStoryExtensionNodeStatus status;
+  std::optional<std::string> node_id;
+};
+
+// Story extensions are authoring-only timeline markers. Their visual number
+// is derived from Scene order by the Editor and is intentionally not stored.
+AddStoryExtensionNodeResult add_story_extension_node(
+    Project& project,
+    IdGenerator& ids,
+    std::string_view scene_id,
+    std::optional<std::string> after_node_id = std::nullopt,
+    std::optional<std::string> before_node_id = std::nullopt);
+
 // Generic timeline ordering supports every SceneNode variant, including
-// Choice nodes. A null before ID means the end of the Scene.
+// Choice and authoring-only StoryExtension nodes. A null before ID means the
+// end of the Scene.
 bool reorder_scene_node(
     Project& project,
     std::string_view scene_id,

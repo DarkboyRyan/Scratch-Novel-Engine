@@ -1,4 +1,5 @@
 import { app, BrowserWindow, protocol } from 'electron';
+import path from 'node:path';
 import started from 'electron-squirrel-startup';
 
 import {
@@ -12,17 +13,29 @@ import {
 } from './main/createEditorWindow';
 import { registerAssetIpc } from './main/ipc/registerAssetIpc';
 import { registerEngineIpc } from './main/ipc/registerEngineIpc';
+import {
+  broadcastEditorSettings,
+  registerEditorSettingsIpc,
+} from './main/ipc/registerEditorSettingsIpc';
 import { registerExportIpc } from './main/ipc/registerExportIpc';
 import { registerProjectFileIpc } from './main/ipc/registerProjectFileIpc';
 import { installApplicationMenu } from './main/menu/installApplicationMenu';
 import { ProjectFileSession } from './main/project/ProjectFileSession';
 import { ProjectStorageSession } from './main/project/ProjectStorageSession';
+import { EditorSettingsManager } from './main/settings/EditorSettingsManager';
+import { EditorSettingsStore } from './main/settings/EditorSettingsStore';
 import type { EditorWindowContexts } from './main/window/EditorWindowContext';
 import { FileOperationCoordinator } from './main/window/FileOperationCoordinator';
 import { updateWindowDocumentPresentation } from './main/window/updateWindowDocumentPresentation';
+import { DEFAULT_EDITOR_LANGUAGE } from './shared/editorSettingsProtocol';
 
 const trustedEditorLocations = new Map<number, string>();
 const editorWindowContexts: EditorWindowContexts = new Map();
+let editorSettingsManager: EditorSettingsManager | null = null;
+
+function currentEditorLanguage() {
+  return editorSettingsManager?.language ?? DEFAULT_EDITOR_LANGUAGE;
+}
 
 // This declaration must run before app.ready. The scheme remains subject to
 // CSP and deliberately does not support fetch/CORS or bypass CSP.
@@ -101,6 +114,7 @@ async function openEditorWindow(
         editorWindow,
         result.project.name,
         session,
+        currentEditorLanguage(),
       );
     }
 
@@ -120,9 +134,21 @@ async function openEditorWindow(
   }
 }
 
-registerEngineIpc(editorWindowContexts, trustedEditorLocations);
-registerAssetIpc(editorWindowContexts, trustedEditorLocations);
-registerExportIpc(editorWindowContexts, trustedEditorLocations);
+registerEngineIpc(
+  editorWindowContexts,
+  trustedEditorLocations,
+  currentEditorLanguage,
+);
+registerAssetIpc(
+  editorWindowContexts,
+  trustedEditorLocations,
+  currentEditorLanguage,
+);
+registerExportIpc(
+  editorWindowContexts,
+  trustedEditorLocations,
+  currentEditorLanguage,
+);
 registerProjectFileIpc(
   editorWindowContexts,
   trustedEditorLocations,
@@ -133,11 +159,42 @@ registerProjectFileIpc(
       sourceWindow,
     });
   },
+  currentEditorLanguage,
 );
 
 app.on('ready', () => {
-  installApplicationMenu();
-  void openEditorWindow();
+  void (async () => {
+    const settingsRoot = path.join(
+      app.getPath('userData'),
+      'editor-settings',
+    );
+    const manager = new EditorSettingsManager(
+      new EditorSettingsStore(settingsRoot, (operation, error) => {
+        console.error(`[editor-settings] ${operation} failed`, error);
+      }),
+      (operation, error) => {
+        console.error(`[editor-settings] ${operation} failed`, error);
+      },
+    );
+    await manager.initialize();
+    editorSettingsManager = manager;
+    manager.subscribe((settings) => {
+      installApplicationMenu(settings.language);
+    });
+    manager.subscribe((settings) => {
+      broadcastEditorSettings(editorWindowContexts, settings);
+    });
+    registerEditorSettingsIpc(
+      editorWindowContexts,
+      trustedEditorLocations,
+      manager,
+    );
+    installApplicationMenu(manager.language);
+    await openEditorWindow();
+  })().catch((error: unknown) => {
+    console.error('[editor-startup] failed to initialize Editor', error);
+    app.quit();
+  });
 });
 
 app.on('before-quit', () => {

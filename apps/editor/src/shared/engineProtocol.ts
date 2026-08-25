@@ -1,5 +1,6 @@
 import type {
   AssetDocument,
+  CharacterPosition,
   CharacterSlot,
   ProjectDocument,
 } from './projectTypes';
@@ -53,6 +54,7 @@ export type UpdateCharacterParams = {
   assetId: string | null;
   slot: CharacterSlot;
   layer: number;
+  position: CharacterPosition | null;
 };
 
 export type AddSceneJumpParams = {
@@ -86,6 +88,16 @@ export type UpdateBgmParams = {
   assetId: string | null;
 };
 
+export type UpdateStartScreenParams = {
+  title: string;
+  backgroundAssetId: string | null;
+  musicAssetId: string | null;
+};
+
+export type UpdateCgGalleryParams = {
+  pages: ProjectDocument['cgGallery']['pages'];
+};
+
 export type AddVideoParams = {
   sceneId: string;
   afterNodeId?: string | null;
@@ -99,6 +111,12 @@ export type UpdateVideoParams = {
 };
 
 export type AddChoiceParams = {
+  sceneId: string;
+  afterNodeId?: string | null;
+  beforeNodeId?: string | null;
+};
+
+export type AddStoryExtensionParams = {
   sceneId: string;
   afterNodeId?: string | null;
   beforeNodeId?: string | null;
@@ -188,6 +206,8 @@ export const ENGINE_METHODS = [
   'project.ensure',
   'project.get',
   'project.rename',
+  'startScreen.update',
+  'cgGallery.update',
   'scene.add',
   'scene.rename',
   'scene.delete',
@@ -217,6 +237,7 @@ export const ENGINE_METHODS = [
   'choice.option.update',
   'choice.option.delete',
   'choice.option.reorder',
+  'storyExtension.add',
   'timeline.deleteMany',
   'timeline.reorder',
   'timeline.reorderMany',
@@ -233,6 +254,8 @@ export type EngineParamsByMethod = {
   'project.rename': {
     name: string;
   };
+  'startScreen.update': UpdateStartScreenParams;
+  'cgGallery.update': UpdateCgGalleryParams;
   'scene.add': {
     name?: string;
   };
@@ -284,6 +307,7 @@ export type EngineParamsByMethod = {
   'choice.option.update': UpdateChoiceOptionParams;
   'choice.option.delete': DeleteChoiceOptionParams;
   'choice.option.reorder': ReorderChoiceOptionParams;
+  'storyExtension.add': AddStoryExtensionParams;
   'timeline.deleteMany': TimelineDeleteManyParams;
   'timeline.reorder': TimelineReorderParams;
   'timeline.reorderMany': TimelineReorderManyParams;
@@ -355,6 +379,12 @@ export type VnEngineApi = {
   ensureProject(): Promise<EngineMutationResult>;
   getProject(): Promise<EngineMutationResult>;
   renameProject(name: string): Promise<EngineMutationResult>;
+  updateStartScreen(
+    params: UpdateStartScreenParams,
+  ): Promise<EngineMutationResult>;
+  updateCgGallery(
+    pages: ProjectDocument['cgGallery']['pages'],
+  ): Promise<EngineMutationResult>;
   addScene(name?: string): Promise<EngineMutationResult>;
   renameScene(
     sceneId: string,
@@ -445,6 +475,9 @@ export type VnEngineApi = {
   ): Promise<EngineMutationResult>;
   reorderChoiceOption(
     params: ReorderChoiceOptionParams,
+  ): Promise<EngineMutationResult>;
+  addStoryExtension(
+    params: AddStoryExtensionParams,
   ): Promise<EngineMutationResult>;
   deleteTimelineNodes(
     params: TimelineDeleteManyParams,

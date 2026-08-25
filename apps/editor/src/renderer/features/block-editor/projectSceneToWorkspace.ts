@@ -5,13 +5,20 @@ import type {
   SceneDocument,
 } from '../../../shared/projectTypes';
 import {
+  DEFAULT_EDITOR_LANGUAGE,
+  getEditorLabels,
+  type EditorLabels,
+} from '../../i18n/editorLocalization';
+import {
   BACKGROUND_BLOCK_TYPE,
   setBackgroundBlockAsset,
 } from './blocks/backgroundBlock';
 import {
   CHARACTER_BLOCK_FIELDS,
   CHARACTER_BLOCK_TYPE,
+  CLEAR_CHARACTER_BLOCK_TYPE,
   setCharacterBlockAsset,
+  setCharacterBlockPosition,
 } from './blocks/characterBlock';
 import {
   SCENE_JUMP_BLOCK_FIELDS,
@@ -36,11 +43,22 @@ import {
   CHOICE_OPTION_BLOCK_FIELDS,
   CHOICE_OPTION_BLOCK_TYPE,
 } from './blocks/choiceBlock';
+import {
+  setStoryContinuationBlockSequence,
+  STORY_CONTINUATION_BLOCK_TYPE,
+} from './blocks/storyContinuationBlock';
+import {
+  getSceneStartBlockId,
+  SCENE_START_BLOCK_TYPE,
+} from './blocks/sceneStartBlock';
 import type { WorkspacePoint } from './blockEditorLayout';
 import { SingleDialogueBlockDragStrategy } from './singleDialogueBlockDragStrategy';
+import { paginateStoryNodes } from './storyBlockPagination';
 
 const FIRST_BLOCK_X = 48;
 const FIRST_BLOCK_Y = 48;
+const MIN_STORY_PAGE_COLUMN_STEP = 420;
+const STORY_PAGE_COLUMN_GAP = 72;
 
 // 把 C++ 返回的 Scene 快照绘制成 Blockly 积木。
 // 本函数只读取 Scene，不修改 Scene，也不调用后端。
@@ -52,6 +70,7 @@ export function projectSceneToWorkspace(
     y: FIRST_BLOCK_Y,
   },
   assets: AssetDocument[] = [],
+  labels: EditorLabels = getEditorLabels(DEFAULT_EDITOR_LANGUAGE),
 ): void {
   // 程序创建积木时不要产生“用户编辑”事件。
   Blockly.Events.disable();
@@ -61,7 +80,26 @@ export function projectSceneToWorkspace(
     // 再根据最新快照完整重建。
     workspace.clear();
 
+    const startBlock = workspace.newBlock(
+      SCENE_START_BLOCK_TYPE,
+      getSceneStartBlockId(scene.id),
+    );
+    startBlock.setMovable(false);
+    startBlock.setDeletable(false);
+    startBlock.setEditable(false);
+    startBlock.contextMenu = false;
+    startBlock.initSvg();
+    startBlock.render();
+
     const blocks: Blockly.BlockSvg[] = [];
+    const storyPages = paginateStoryNodes(scene.nodes);
+    const continuationSequences = new Map(
+      storyPages.flatMap((page) =>
+        page.continuation
+          ? [[page.continuation.node.id, page.continuation.sequence] as const]
+          : [],
+      ),
+    );
 
     for (const node of scene.nodes) {
       const block = workspace.newBlock(
@@ -70,18 +108,24 @@ export function projectSceneToWorkspace(
           : node.type === 'background'
             ? BACKGROUND_BLOCK_TYPE
             : node.type === 'character'
-              ? CHARACTER_BLOCK_TYPE
+              ? node.assetId === null
+                ? CLEAR_CHARACTER_BLOCK_TYPE
+                : CHARACTER_BLOCK_TYPE
               : node.type === 'sceneJump'
                 ? SCENE_JUMP_BLOCK_TYPE
                 : node.type === 'bgm'
                   ? BGM_BLOCK_TYPE
                   : node.type === 'video'
                     ? VIDEO_BLOCK_TYPE
-                    : CHOICE_BLOCK_TYPE,
+                    : node.type === 'choice'
+                      ? CHOICE_BLOCK_TYPE
+                      : STORY_CONTINUATION_BLOCK_TYPE,
         node.id,
       );
 
-      block.setMovable(true);
+      // 延伸的页序只能通过数字字段改变；禁止单块拖拽
+      // 可避免只移动 marker 而把该页内容留在原地。
+      block.setMovable(node.type !== 'storyExtension');
       // Delete/垃圾桶由 backend-first 控件接管，不能让 Blockly 先删。
       block.setDeletable(false);
       block.setEditable(true);
@@ -105,23 +149,23 @@ export function projectSceneToWorkspace(
           node.voiceAssetId === null
             ? ''
             : assets.find((asset) => asset.id === node.voiceAssetId)
-                ?.displayName ?? '缺失音频';
+                ?.displayName ?? labels.common.missingAudio;
         setDialogueBlockVoice(block, node.voiceAssetId, voiceName);
       } else if (node.type === 'background') {
         const name =
           node.assetId === null
             ? ''
             : assets.find((asset) => asset.id === node.assetId)
-                ?.displayName ?? '缺失图片';
+                ?.displayName ?? labels.common.missingImage;
         setBackgroundBlockAsset(block, node.assetId, name);
       } else if (node.type === 'character') {
-        const name =
-          node.assetId === null
-            ? ''
-            : assets.find((asset) => asset.id === node.assetId)
-                ?.displayName ?? '缺失图片';
-        setCharacterBlockAsset(block, node.assetId, name);
-        block.setFieldValue(node.slot, CHARACTER_BLOCK_FIELDS.slot);
+        if (node.assetId !== null) {
+          const name =
+            assets.find((asset) => asset.id === node.assetId)
+              ?.displayName ?? labels.common.missingImage;
+          setCharacterBlockAsset(block, node.assetId, name);
+          setCharacterBlockPosition(block, node.slot, node.position);
+        }
         block.setFieldValue(String(node.layer), CHARACTER_BLOCK_FIELDS.layer);
       } else if (node.type === 'sceneJump') {
         block.setFieldValue(
@@ -133,15 +177,25 @@ export function projectSceneToWorkspace(
           node.assetId === null
             ? ''
             : assets.find((asset) => asset.id === node.assetId)
-                ?.displayName ?? '缺失音频';
+                ?.displayName ?? labels.common.missingAudio;
         setBgmBlockAsset(block, node.assetId, name);
       } else if (node.type === 'video') {
         const name =
           node.assetId === null
             ? ''
             : assets.find((asset) => asset.id === node.assetId)
-                ?.displayName ?? '缺失视频';
+                ?.displayName ?? labels.common.missingVideo;
         setVideoBlockAsset(block, node.assetId, name);
+      } else if (node.type === 'storyExtension') {
+        const continuationSequence = continuationSequences.get(node.id);
+        if (continuationSequence === undefined) {
+          throw new Error(`缺少延伸积木编号：${node.id}`);
+        }
+        setStoryContinuationBlockSequence(
+          block,
+          continuationSequence,
+          continuationSequences.size,
+        );
       }
 
       block.render();
@@ -212,33 +266,90 @@ export function projectSceneToWorkspace(
       blocks.push(block);
     }
 
-    // 从链尾向前连接：后一块先形成稳定的子链，再整体接到前一块。
-    // 这样不会在 Blockly 尚未完成父块重绘时读取过期的 next 坐标。
-    for (let index = blocks.length - 2; index >= 0; index -= 1) {
-      const currentBlock = blocks[index];
-      const nextBlock = blocks[index + 1];
-      const nextConnection = currentBlock.nextConnection;
-      const previousConnection = nextBlock.previousConnection;
+    const blocksByNodeId = new Map(
+      blocks.map((block) => [block.id, block]),
+    );
+    const pageRoots: Blockly.BlockSvg[] = [startBlock];
 
-      if (!nextConnection || !previousConnection) {
-        throw new Error('剧情积木缺少上下连接点');
+    storyPages.forEach((page, pageIndex) => {
+      const pageBlocks: Blockly.BlockSvg[] = [];
+
+      // 第一段直接从固定“开始”积木向下连接。若作者把“延伸”
+      // 放在最前面，它仍作为下一列页首，开始积木保持独立首列。
+      if (pageIndex === 0 && page.continuation === null) {
+        pageBlocks.push(startBlock);
       }
 
-      const connected = nextConnection.connect(previousConnection);
+      if (page.continuation) {
+        const continuationBlock = blocksByNodeId.get(
+          page.continuation.node.id,
+        );
+        if (!continuationBlock) {
+          throw new Error(
+            `缺少延伸积木：${page.continuation.node.id}`,
+          );
+        }
+        pageBlocks.push(continuationBlock);
+      }
 
-      if (!connected) {
-        throw new Error(
-          `无法连接剧情节点：${currentBlock.id} -> ${nextBlock.id}`,
+      pageBlocks.push(...page.nodes.map((node) => {
+        const block = blocksByNodeId.get(node.id);
+        if (!block) {
+          throw new Error(`缺少剧情节点积木：${node.id}`);
+        }
+        return block;
+      }));
+
+      // 从链尾向前连接：后一块先形成稳定的子链，再整体接到前一块。
+      // 这样不会在 Blockly 尚未完成父块重绘时读取过期的 next 坐标。
+      for (
+        let index = pageBlocks.length - 2;
+        index >= 0;
+        index -= 1
+      ) {
+        const currentBlock = pageBlocks[index];
+        const nextBlock = pageBlocks[index + 1];
+        const nextConnection = currentBlock.nextConnection;
+        const previousConnection = nextBlock.previousConnection;
+
+        if (!nextConnection || !previousConnection) {
+          throw new Error('剧情积木缺少上下连接点');
+        }
+
+        const connected = nextConnection.connect(previousConnection);
+
+        if (!connected) {
+          throw new Error(
+            `无法连接剧情节点：${currentBlock.id} -> ${nextBlock.id}`,
+          );
+        }
+
+        // connect 会把子块的定位放入 Blockly 渲染队列。这里同步刷新，
+        // 避免下一次连接仍读取 (0, 0) 而让多块对白叠在一起。
+        Blockly.renderManagement.triggerQueuedRenders(workspace);
+      }
+
+      const pageRoot = pageBlocks[0];
+      if (pageRoot && pageRoot !== startBlock) {
+        pageRoots.push(pageRoot);
+      }
+    });
+
+    // 每段剧情作为独立顶层链横向排列。宽积木使用实际包围盒增加列距，
+    // 确保长对白和 Choice 选项不会覆盖下一段。
+    let nextPageX = rootPosition.x;
+    pageRoots.forEach((pageRoot, pageIndex) => {
+      pageRoot.moveBy(nextPageX, rootPosition.y);
+      if (pageIndex < pageRoots.length - 1) {
+        const pageWidth = pageRoot
+          .getBoundingRectangle()
+          .getWidth();
+        nextPageX += Math.max(
+          MIN_STORY_PAGE_COLUMN_STEP,
+          pageWidth + STORY_PAGE_COLUMN_GAP,
         );
       }
-
-      // connect 会把子块的定位放入 Blockly 渲染队列。这里同步刷新，
-      // 避免下一次连接仍读取 (0, 0) 而让多块对白叠在一起。
-      Blockly.renderManagement.triggerQueuedRenders(workspace);
-    }
-
-    // 只定位第一块；后面的积木通过连接作为一条链一起移动。
-    blocks[0]?.moveBy(rootPosition.x, rootPosition.y);
+    });
   } finally {
     Blockly.Events.enable();
 

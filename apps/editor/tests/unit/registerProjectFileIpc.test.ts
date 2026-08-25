@@ -67,6 +67,14 @@ const projectResult: EngineMutationResult = {
     id: 'project-1',
     name: 'My story',
     entrySceneId: 'scene-1',
+    startScreen: {
+      title: 'My story',
+      backgroundAssetId: null,
+      musicAssetId: null,
+    },
+    cgGallery: {
+      pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+    },
     scenes: [
       {
         schemaVersion: 1,

@@ -26,6 +26,20 @@ const playerTemplateResourceDirectory =
     __dirname,
     '../../engine/stage/player-templates',
   );
+const configuredWebPlayerTemplateDirectory =
+  process.env.VN_EDITOR_WEB_PLAYER_TEMPLATE_DIR;
+if (
+  configuredWebPlayerTemplateDirectory !== undefined &&
+  (!path.isAbsolute(configuredWebPlayerTemplateDirectory) ||
+    configuredWebPlayerTemplateDirectory.includes('\0'))
+) {
+  throw new Error('VN_EDITOR_WEB_PLAYER_TEMPLATE_DIR 必须是安全的绝对路径');
+}
+const webPlayerTemplateResourceDirectory =
+  configuredWebPlayerTemplateDirectory ?? path.resolve(
+    __dirname,
+    '../../engine/stage/web-player-template',
+  );
 const configuredEditorOutDirectory = process.env.VN_EDITOR_OUT_DIR;
 if (
   configuredEditorOutDirectory !== undefined &&
@@ -60,6 +74,10 @@ const config: ForgeConfig = {
     // live outside app.asar so Electron Main can start it as a child process.
     extraResource: [
       backendResourceDirectory,
+      // The prebuilt browser Player is platform-independent and is consumed
+      // verbatim by Main when it creates a Web game ZIP. Export never runs
+      // Vite or package-manager commands from a user's project.
+      webPlayerTemplateResourceDirectory,
       // Only macOS Editor packages embed the local standalone-export
       // template. Windows/Linux standalone games are built on their native CI
       // runners and never consume this macOS payload.

@@ -1,6 +1,7 @@
 import * as Blockly from 'blockly';
 
 import type { SceneDocument } from '../../../../shared/projectTypes';
+import { DEFAULT_EDITOR_LANGUAGE, getEditorLabels, type EditorLabels } from '../../../i18n/editorLocalization';
 
 export const CHOICE_BLOCK_TYPE = 'vn_choice';
 export const CHOICE_OPTION_BLOCK_TYPE = 'vn_choice_option';
@@ -15,40 +16,70 @@ export const CHOICE_OPTION_BLOCK_FIELDS = {
   targetScene: 'TARGET_SCENE',
 } as const;
 
-let currentSceneOptions: Blockly.MenuOption[] = [['当前场景', '']];
+const LABEL_FIELDS = {
+  choice: 'VN_LABEL_CHOICE',
+  choices: 'VN_LABEL_CHOICES',
+  option: 'VN_LABEL_OPTION',
+  jump: 'VN_LABEL_OPTION_JUMP',
+} as const;
+let currentLabels = getEditorLabels(DEFAULT_EDITOR_LANGUAGE);
+let currentSceneOptions: Blockly.MenuOption[] = [[currentLabels.blockly.currentScene, '']];
 
-function sceneLabel(scene: SceneDocument, index: number): string {
+function sceneLabel(scene: SceneDocument, index: number, labels: EditorLabels): string {
   return scene.name === `场景 ${index + 1}`
-    ? `场景 ${index + 1}`
-    : `场景 ${index + 1} · ${scene.name}`;
+    ? `${labels.common.scene} ${index + 1}`
+    : `${labels.common.scene} ${index + 1} · ${scene.name}`;
+}
+
+export function applyChoiceBlockLocalization(block: Blockly.Block, labels: EditorLabels): void {
+  if (block.type === CHOICE_BLOCK_TYPE) {
+    block.setFieldValue(labels.blockly.showChoice, LABEL_FIELDS.choice);
+    block.setFieldValue(labels.blockly.choices, LABEL_FIELDS.choices);
+    block.setTooltip(labels.blockly.choiceTooltip);
+    return;
+  }
+  block.setFieldValue(labels.blockly.choice, LABEL_FIELDS.option);
+  block.setFieldValue(labels.blockly.choiceJumpTo, LABEL_FIELDS.jump);
+  const field = block.getField(CHOICE_OPTION_BLOCK_FIELDS.targetScene);
+  if (field instanceof Blockly.FieldDropdown) {
+    const value = String(field.getValue());
+    field.setOptions(() => currentSceneOptions);
+    if (currentSceneOptions.some((option) => option[1] === value)) {
+      field.setValue(value);
+    }
+  }
+  block.setTooltip(labels.blockly.choiceOptionTooltip);
 }
 
 export function setChoiceOptionSceneOptions(
   scenes: SceneDocument[],
+  labels: EditorLabels = currentLabels,
 ): void {
+  currentLabels = labels;
   currentSceneOptions = scenes.length > 0
     ? scenes.map(
         (scene, index) => [
-          sceneLabel(scene, index),
+          sceneLabel(scene, index, labels),
           scene.id,
         ] as Blockly.MenuOption,
       )
-    : [['暂无场景', '']];
+    : [[labels.blockly.noScenes, '']];
 }
 
-export function registerChoiceBlocks(): void {
+export function registerChoiceBlocks(labels: EditorLabels = currentLabels): void {
+  currentLabels = labels;
   if (!Blockly.Blocks[CHOICE_BLOCK_TYPE]) {
     Blockly.Blocks[CHOICE_BLOCK_TYPE] = {
       init(): void {
-        this.appendDummyInput().appendField('显示选择');
+        this.appendDummyInput().appendField(currentLabels.blockly.showChoice, LABEL_FIELDS.choice);
         this.appendStatementInput(CHOICE_BLOCK_INPUTS.options)
           .setCheck(CHOICE_OPTION_CONNECTION_TYPE)
-          .appendField('选项');
+          .appendField(currentLabels.blockly.choices, LABEL_FIELDS.choices);
         this.setPreviousStatement(true);
         this.setNextStatement(true);
         this.setColour(260);
         this.setTooltip(
-          '正式预览执行到这里时显示内部选项；没有选项时直接继续',
+          currentLabels.blockly.choiceTooltip,
         );
         this.setHelpUrl('');
       },
@@ -59,13 +90,13 @@ export function registerChoiceBlocks(): void {
     Blockly.Blocks[CHOICE_OPTION_BLOCK_TYPE] = {
       init(): void {
         this.appendDummyInput()
-          .appendField('选项')
+          .appendField(currentLabels.blockly.choice, LABEL_FIELDS.option)
           .appendField(
-            new Blockly.FieldTextInput('选项'),
+            new Blockly.FieldTextInput(currentLabels.blockly.choiceDefault),
             CHOICE_OPTION_BLOCK_FIELDS.text,
           );
         this.appendDummyInput()
-          .appendField('跳转到')
+          .appendField(currentLabels.blockly.choiceJumpTo, LABEL_FIELDS.jump)
           .appendField(
             new Blockly.FieldDropdown(() => currentSceneOptions),
             CHOICE_OPTION_BLOCK_FIELDS.targetScene,
@@ -79,7 +110,7 @@ export function registerChoiceBlocks(): void {
           CHOICE_OPTION_CONNECTION_TYPE,
         );
         this.setColour(285);
-        this.setTooltip('玩家选择这一项后跳转到指定场景');
+        this.setTooltip(currentLabels.blockly.choiceOptionTooltip);
         this.setHelpUrl('');
       },
     };

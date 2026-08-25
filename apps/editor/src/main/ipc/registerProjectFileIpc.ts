@@ -10,6 +10,7 @@ import {
   type TrustedEditorLocations,
 } from '../security/editorFrameTrust';
 import type { EditorWindowContexts } from '../window/EditorWindowContext';
+import type { EditorLanguage } from '../../shared/editorSettingsProtocol';
 import { isProjectFileInvocation } from './validateProjectFileInvocation';
 
 export type { OpenNewProjectWindow } from '../project/ProjectFileWorkflow';
@@ -18,6 +19,7 @@ export function registerProjectFileIpc(
   contexts: EditorWindowContexts,
   trustedEditorLocations: TrustedEditorLocations,
   openNewProjectWindow: OpenNewProjectWindow,
+  getLanguage: () => EditorLanguage = () => 'zh-CN',
 ): void {
   ipcMain.handle(
     PROJECT_FILE_IPC_CHANNEL,
@@ -39,6 +41,7 @@ export function registerProjectFileIpc(
         context,
         invocation,
         openNewProjectWindow,
+        getLanguage(),
       );
     },
   );

@@ -5,6 +5,11 @@ import {
   type PlayerInvocation,
   type PlayerLoadResult,
   type PlayerOpenResult,
+  type PlayerSaveListResult,
+  type PlayerSaveLoadResult,
+  type PlayerSaveWriteResult,
+  type PlayerSettingsReadResult,
+  type PlayerSettingsWriteResult,
   type VnPlayerApi,
 } from './shared/playerProtocol';
 
@@ -22,6 +27,43 @@ const vnPlayer: VnPlayerApi = {
       action: 'get-media-url',
       params: { assetId },
     }) as Promise<string | null>,
+  listSaveSlots: () =>
+    invokePlayer({
+      action: 'list-save-slots',
+      params: {},
+    }) as Promise<PlayerSaveListResult>,
+  saveGame: (slotId, snapshot) =>
+    invokePlayer({
+      action: 'save-game',
+      params: { slotId, snapshot },
+    }) as Promise<PlayerSaveWriteResult>,
+  loadGameSlot: (slotId) =>
+    invokePlayer({
+      action: 'load-game-slot',
+      params: { slotId },
+    }) as Promise<PlayerSaveLoadResult>,
+  quickSave: (snapshot) =>
+    invokePlayer({
+      action: 'quick-save',
+      params: { snapshot },
+    }) as Promise<PlayerSaveWriteResult>,
+  quickLoad: () =>
+    invokePlayer({
+      action: 'quick-load',
+      params: {},
+    }) as Promise<PlayerSaveLoadResult>,
+  getSettings: () =>
+    invokePlayer({
+      action: 'get-settings',
+      params: {},
+    }) as Promise<PlayerSettingsReadResult>,
+  updateSettings: (patch) =>
+    invokePlayer({
+      action: 'update-settings',
+      params: { patch },
+    }) as Promise<PlayerSettingsWriteResult>,
+  quitGame: () =>
+    invokePlayer({ action: 'quit-game', params: {} }) as Promise<void>,
 };
 
 contextBridge.exposeInMainWorld('vnPlayer', vnPlayer);

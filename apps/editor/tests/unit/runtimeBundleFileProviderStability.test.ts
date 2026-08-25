@@ -19,7 +19,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { compileAuthorProjectV9 } from '../../src/main/export/AuthorProjectCompiler';
+import { compileAuthorProjectV15 } from '../../src/main/export/AuthorProjectCompiler';
 import { exportRuntimeBundle } from '../../src/main/export/RuntimeBundleExporter';
 
 const temporaryDirectories: string[] = [];
@@ -40,12 +40,20 @@ type FileHandleMethodInterceptor = (
 function projectDocument(): unknown {
   return {
     format: 'vn-engine-project',
-    fileVersion: 9,
+    fileVersion: 15,
     project: {
       schemaVersion: 1,
       id: 'project-1',
       name: 'FileProvider Story',
       entrySceneId: 'scene-1',
+      startScreen: {
+        title: 'FileProvider Title',
+        backgroundAssetId: null,
+        musicAssetId: null,
+      },
+      cgGallery: {
+        pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+      },
       scenes: [
         {
           schemaVersion: 1,
@@ -76,8 +84,8 @@ async function createSavedProject(options: {
   assetPath: string;
   manifestContents: string;
   imageBytes: Buffer;
-  expectedProject: ReturnType<typeof compileAuthorProjectV9>['project'];
-  expectedAssets: ReturnType<typeof compileAuthorProjectV9>['publicAssets'];
+  expectedProject: ReturnType<typeof compileAuthorProjectV15>['sourceProject'];
+  expectedAssets: ReturnType<typeof compileAuthorProjectV15>['publicAssets'];
 }> {
   const root = await mkdtemp(path.join(tmpdir(), 'vn-file-provider-stability-'));
   temporaryDirectories.push(root);
@@ -96,7 +104,7 @@ async function createSavedProject(options: {
   }`;
   await writeFile(manifestPath, manifestContents);
   await writeFile(assetPath, imageBytes);
-  const compiled = compileAuthorProjectV9(manifestContents);
+  const compiled = compileAuthorProjectV15(manifestContents);
   return {
     projectRoot,
     outputParent,
@@ -104,7 +112,7 @@ async function createSavedProject(options: {
     assetPath,
     manifestContents,
     imageBytes,
-    expectedProject: compiled.project,
+    expectedProject: compiled.sourceProject,
     expectedAssets: compiled.publicAssets,
   };
 }

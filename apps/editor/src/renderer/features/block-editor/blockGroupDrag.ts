@@ -3,6 +3,11 @@ import * as Blockly from 'blockly';
 import type { TimelineReorderManyParams } from '../../../shared/engineProtocol';
 import type { SceneDocument } from '../../../shared/projectTypes';
 import {
+  DEFAULT_EDITOR_LANGUAGE,
+  getEditorLabels,
+  type EditorLabels,
+} from '../../i18n/editorLocalization';
+import {
   getBlockClientRectangle,
   type BlockSelectionController,
 } from './blockSelection';
@@ -77,6 +82,7 @@ export function createBlockGroupDragController(
   getScene: () => SceneDocument,
   selection: BlockSelectionController,
   callbacks: GroupDragCallbacks,
+  getLabels: () => EditorLabels = () => getEditorLabels(DEFAULT_EDITOR_LANGUAGE),
 ): BlockGroupDragController {
   let activeGesture: ActiveGesture | null = null;
 
@@ -122,9 +128,10 @@ export function createBlockGroupDragController(
     ghost.setAttribute('aria-hidden', 'true');
 
     const count = document.createElement('strong');
-    count.textContent = `${gesture.selectedNodeIds.length} 个剧情节点`;
+    const labels = getLabels();
+    count.textContent = `${gesture.selectedNodeIds.length}${labels.common.wordSeparator}${labels.scenes.storyNodeUnit}`;
     const hint = document.createElement('span');
-    hint.textContent = '作为一组移动';
+    hint.textContent = labels.blockEditor.groupMoveHint;
     ghost.append(count, hint);
 
     const indicator = document.createElement('div');
@@ -417,6 +424,11 @@ export function createBlockGroupDragController(
     const nodeId = blockElement?.getAttribute('data-id');
     const selectedNodeIds = selection.getSelectedNodeIds();
     const scene = getScene();
+    const selectedContainsExtension = scene.nodes.some(
+      (node) =>
+        node.type === 'storyExtension' &&
+        selectedNodeIds.includes(node.id),
+    );
 
     if (
       !nodeId ||
@@ -424,6 +436,18 @@ export function createBlockGroupDragController(
       !selectedNodeIds.includes(nodeId) ||
       !scene.nodes.some((node) => node.id === nodeId)
     ) {
+      return;
+    }
+
+    // 含延伸的局部组不能走通用拖拽排序；否则会绕过页码
+    // 输入口的“整页原子移动”约束。这里同时阻止 Blockly
+    // 退化为单块拖动；全选仍可仅移动画布布局。
+    if (
+      selectedContainsExtension &&
+      selectedNodeIds.length !== scene.nodes.length
+    ) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
       return;
     }
 

@@ -7,6 +7,16 @@ const validProject = {
   id: 'project-1',
   name: 'Story',
   entrySceneId: 'scene-1',
+  startScreen: {
+    title: 'Custom story title',
+    backgroundAssetId: 'asset-1',
+    musicAssetId: null,
+  },
+  cgGallery: {
+    pages: [{
+      imageAssetIds: ['asset-1', null, null, null, null, null, null, null, null],
+    }],
+  },
   scenes: [
     {
       schemaVersion: 1,
@@ -32,6 +42,7 @@ const validProject = {
           assetId: 'asset-1',
           slot: 'right',
           layer: 3,
+          position: { x: 73, y: 92 },
         },
         {
           id: 'jump-1',
@@ -106,6 +117,97 @@ describe('backend response validation', () => {
     });
   });
 
+  it('accepts and sanitizes the project start screen', () => {
+    const parsed = parseBackendResponse(
+      successResponse({
+        project: {
+          ...validProject,
+          startScreen: {
+            ...validProject.startScreen,
+            privateBackgroundPath: '/not/public/background.png',
+          },
+        },
+      }),
+    );
+
+    expect(parsed).toMatchObject({
+      ok: true,
+      result: {
+        project: {
+          startScreen: {
+            title: 'Custom story title',
+            backgroundAssetId: 'asset-1',
+            musicAssetId: null,
+          },
+        },
+      },
+    });
+    expect(JSON.stringify(parsed)).not.toContain('privateBackgroundPath');
+  });
+
+  it('accepts and sanitizes fixed CG gallery pages', () => {
+    const parsed = parseBackendResponse(successResponse({
+      project: {
+        ...validProject,
+        cgGallery: {
+          pages: [{
+            imageAssetIds: ['asset-1', null, null, null, null, null, null, null, null],
+            privatePath: '/not/public/cg-page',
+          }],
+          privatePath: '/not/public/cg',
+        },
+      },
+    }));
+
+    expect(parsed).toMatchObject({
+      ok: true,
+      result: {
+        project: {
+          cgGallery: {
+            pages: [{
+              imageAssetIds: ['asset-1', null, null, null, null, null, null, null, null],
+            }],
+          },
+        },
+      },
+    });
+    expect(JSON.stringify(parsed)).not.toContain('privatePath');
+  });
+
+  it.each([
+    undefined,
+    {},
+    { pages: [] },
+    { pages: 'page-1' },
+    { pages: [{ imageAssetIds: Array(8).fill(null) }] },
+    { pages: [{ imageAssetIds: ['asset-1', 2, ...Array(7).fill(null)] }] },
+    {
+      pages: [
+        { imageAssetIds: ['asset-1', ...Array(8).fill(null)] },
+        { imageAssetIds: ['asset-1', ...Array(8).fill(null)] },
+      ],
+    },
+  ])('rejects a malformed CG gallery: %j', (cgGallery) => {
+    expect(() => parseBackendResponse(successResponse({
+      project: { ...validProject, cgGallery },
+    }))).toThrow('project');
+  });
+
+  it.each([
+    undefined,
+    { title: 'Story', backgroundAssetId: null },
+    { backgroundAssetId: null, musicAssetId: null },
+    { title: 7, backgroundAssetId: null, musicAssetId: null },
+    { title: 'Story', backgroundAssetId: 7, musicAssetId: null },
+    { title: 'Story', backgroundAssetId: null, musicAssetId: false },
+  ])('rejects a malformed project start screen: %j', (startScreen) => {
+    expect(() =>
+      parseBackendResponse(
+        successResponse({ project: { ...validProject, startScreen } }),
+      ),
+    ).toThrow('project');
+  });
+
   it('accepts an optional generated choice option ID', () => {
     expect(
       parseBackendResponse(successResponse({ optionId: 'option-1' })),
@@ -153,6 +255,11 @@ describe('backend response validation', () => {
                     },
                   ],
                 },
+                {
+                  id: 'extension-1',
+                  type: 'storyExtension',
+                  privateLayoutPath: '/not/public',
+                },
               ],
             },
           ],
@@ -178,6 +285,7 @@ describe('backend response validation', () => {
                   assetId: 'asset-1',
                   slot: 'right',
                   layer: 3,
+                  position: { x: 73, y: 92 },
                 },
                 { type: 'sceneJump', targetSceneId: 'scene-2' },
                 { type: 'bgm', assetId: null },
@@ -192,6 +300,7 @@ describe('backend response validation', () => {
                     },
                   ],
                 },
+                { id: 'extension-1', type: 'storyExtension' },
               ],
             },
           ],
@@ -202,6 +311,7 @@ describe('backend response validation', () => {
     expect(JSON.stringify(parsed)).not.toContain('relativePath');
     expect(JSON.stringify(parsed)).not.toContain('privateChoiceMetadata');
     expect(JSON.stringify(parsed)).not.toContain('privateTargetPath');
+    expect(JSON.stringify(parsed)).not.toContain('privateLayoutPath');
   });
 
   it('accepts an explicit no-background timeline node', () => {

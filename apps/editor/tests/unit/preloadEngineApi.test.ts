@@ -50,7 +50,31 @@ describe('preload background and timeline engine API', () => {
     electron.invoke.mockResolvedValue({});
   });
 
+  it('forwards fixed CG pages through the engine channel', async () => {
+    const pages = [{
+      imageAssetIds: ['image-2', null, 'image-1', null, null, null, null, null, null],
+    }];
+    await engine.updateCgGallery(pages);
+
+    expect(electron.invoke).toHaveBeenCalledWith(
+      'vn-engine:request',
+      {
+        method: 'cgGallery.update',
+        params: { pages },
+      },
+    );
+  });
+
   it.each([
+    [
+      'updateStartScreen',
+      {
+        title: 'Custom title',
+        backgroundAssetId: 'background-1',
+        musicAssetId: 'music-1',
+      },
+      'startScreen.update',
+    ],
     [
       'addBackground',
       {
@@ -212,6 +236,14 @@ describe('preload background and timeline engine API', () => {
       'choice.option.reorder',
     ],
     [
+      'addStoryExtension',
+      {
+        sceneId: 'scene-1',
+        beforeNodeId: 'dialogue-2',
+      },
+      'storyExtension.add',
+    ],
+    [
       'deleteTimelineNodes',
       {
         sceneId: 'scene-1',
@@ -262,6 +294,15 @@ describe('preload background and timeline engine API', () => {
     expect(electron.invoke).toHaveBeenCalledWith(
       'vn-game-export:request',
       { action: 'export', params: { output: 'runtime-bundle' } },
+    );
+  });
+
+  it('forwards a pathless Web Player export on its dedicated channel', async () => {
+    await gameExport.exportGame({ output: 'web-player' });
+
+    expect(electron.invoke).toHaveBeenCalledWith(
+      'vn-game-export:request',
+      { action: 'export', params: { output: 'web-player' } },
     );
   });
 

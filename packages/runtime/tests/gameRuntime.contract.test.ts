@@ -18,13 +18,23 @@ function dialogue(id: string, voiceAssetId: string | null = null) {
   };
 }
 
-describe('runtime v1 execution contract', () => {
+function emptyCgGallery(): ProjectDocument['cgGallery'] {
+  return { pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }] };
+}
+
+describe('shared runtime execution contract', () => {
   it('applies background, character and BGM nodes before stopping at dialogue', () => {
     const project: ProjectDocument = {
       schemaVersion: 1,
       id: 'project',
       name: 'Contract',
       entrySceneId: 'entry',
+      startScreen: {
+        title: 'Story',
+        backgroundAssetId: null,
+        musicAssetId: null,
+      },
+      cgGallery: emptyCgGallery(),
       scenes: [{
         schemaVersion: 1,
         id: 'entry',
@@ -39,6 +49,7 @@ describe('runtime v1 execution contract', () => {
             assetId: 'hero-image',
             slot: 'center',
             layer: 2,
+            position: { x: 42, y: 91 },
           },
           dialogue('line', 'voice'),
         ],
@@ -57,6 +68,7 @@ describe('runtime v1 execution contract', () => {
         assetId: 'hero-image',
         slot: 'center',
         layer: 2,
+        position: { x: 42, y: 91 },
       }],
     });
   });
@@ -67,6 +79,12 @@ describe('runtime v1 execution contract', () => {
       id: 'video-project',
       name: 'Video',
       entrySceneId: 'entry',
+      startScreen: {
+        title: 'Story',
+        backgroundAssetId: null,
+        musicAssetId: null,
+      },
+      cgGallery: emptyCgGallery(),
       scenes: [{
         schemaVersion: 1,
         id: 'entry',
@@ -101,6 +119,12 @@ describe('runtime v1 execution contract', () => {
       id: 'choice-project',
       name: 'Choice',
       entrySceneId: 'entry',
+      startScreen: {
+        title: 'Story',
+        backgroundAssetId: null,
+        musicAssetId: null,
+      },
+      cgGallery: emptyCgGallery(),
       scenes: [
         {
           schemaVersion: 1,
@@ -115,6 +139,7 @@ describe('runtime v1 execution contract', () => {
               assetId: 'hero-image',
               slot: 'left',
               layer: 1,
+              position: null,
             },
             {
               id: 'choice',
@@ -161,6 +186,12 @@ describe('runtime v1 execution contract', () => {
       id: 'jump-project',
       name: 'Jump',
       entrySceneId: 'entry',
+      startScreen: {
+        title: 'Story',
+        backgroundAssetId: null,
+        musicAssetId: null,
+      },
+      cgGallery: emptyCgGallery(),
       scenes: [
         {
           schemaVersion: 1,
@@ -197,6 +228,12 @@ describe('runtime v1 execution contract', () => {
       id: 'finished',
       name: 'Finished',
       entrySceneId: 'entry',
+      startScreen: {
+        title: 'Story',
+        backgroundAssetId: null,
+        musicAssetId: null,
+      },
+      cgGallery: emptyCgGallery(),
       scenes: [{
         schemaVersion: 1,
         id: 'entry',
@@ -212,6 +249,12 @@ describe('runtime v1 execution contract', () => {
       id: 'cyclic',
       name: 'Cyclic',
       entrySceneId: 'a',
+      startScreen: {
+        title: 'Story',
+        backgroundAssetId: null,
+        musicAssetId: null,
+      },
+      cgGallery: emptyCgGallery(),
       scenes: [
         {
           schemaVersion: 1,
@@ -241,6 +284,12 @@ describe('runtime v1 execution contract', () => {
       id: 'voice-loop',
       name: 'Voice loop',
       entrySceneId: 'entry',
+      startScreen: {
+        title: 'Story',
+        backgroundAssetId: null,
+        musicAssetId: null,
+      },
+      cgGallery: emptyCgGallery(),
       scenes: [{
         schemaVersion: 1,
         id: 'entry',

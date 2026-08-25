@@ -23,6 +23,28 @@
   border-radius: 7px;
 }
 
+.editor-settings-bootstrap-indicator {
+  width: 22px;
+  height: 22px;
+  margin: 14px auto 0;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: editor-settings-spin 700ms linear infinite;
+}
+
+@keyframes editor-settings-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .editor-settings-bootstrap-indicator {
+    animation: none;
+  }
+}
+
 .editor {
   /* 两行内容共 92px，另加 1px 底边框，避免 border-box 裁掉末行。 */
   --toolbar-height: 93px;
@@ -161,6 +183,15 @@
   color: var(--danger, #b42318);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.editor-settings-dialog {
+  width: min(400px, 100%);
+}
+
+.editor-settings-status {
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .export-dialog-actions {
@@ -365,6 +396,16 @@
 .resource-clear-background:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+.resource-gallery-hint {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  color: #6f4c91;
+  font-size: 11px;
+  background: #f6effb;
+  border: 1px solid #d8c5e8;
+  border-radius: 6px;
 }
 
 .resource-list {
@@ -624,6 +665,463 @@
   border-radius: 999px;
 }
 
+.start-screen-editor-workspace {
+  background:
+    radial-gradient(circle at 24% 18%, rgb(83 117 154 / 8%), transparent 34%),
+    var(--panel);
+}
+
+.start-screen-preview-button {
+  flex: 0 0 auto;
+}
+
+.start-screen-blockly-workspace .blocklyEditableText > rect,
+.start-screen-blockly-workspace .blocklyEditableField > .blocklyFieldRect {
+  fill: #ffffff !important;
+  fill-opacity: 1 !important;
+  stroke: #c5cbd3 !important;
+  stroke-width: 1px !important;
+}
+
+.start-screen-blockly-workspace .blocklyEditableText text,
+.start-screen-blockly-workspace .blocklyEditableField text {
+  fill: #242a32 !important;
+}
+
+.start-screen-form-field {
+  display: grid;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.start-screen-form-field select,
+.inspector-panel.start-screen-form-inspector input,
+.inspector-panel.start-screen-form-inspector select {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 10px;
+  color: var(--text);
+  background: #ffffff;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+}
+
+.start-screen-form-note {
+  display: grid;
+  gap: 6px;
+  margin-top: 18px;
+  padding: 14px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.start-screen-form-note strong {
+  color: var(--text);
+}
+
+.start-screen-form-note p,
+.start-screen-form-help {
+  margin: 0;
+}
+
+.start-screen-form-preview {
+  min-width: 0;
+}
+
+.start-screen-design-preview {
+  position: relative;
+  isolation: isolate;
+  container-type: size;
+  width: min(100%, 960px);
+  aspect-ratio: 16 / 9;
+  display: grid;
+  overflow: hidden;
+  color: #ffffff;
+  background: #0b0c0f;
+  border: 1px solid #d9dde3;
+  border-radius: 12px;
+  box-shadow: 0 16px 42px rgb(35 42 52 / 10%);
+  place-items: center;
+}
+
+.start-screen-design-preview > img,
+.start-screen-design-scrim {
+  position: absolute;
+  z-index: -2;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.start-screen-design-preview > img {
+  object-fit: contain;
+  object-position: center;
+}
+
+.start-screen-design-scrim {
+  z-index: -1;
+  background:
+    linear-gradient(90deg, rgb(4 6 9 / 44%), rgb(4 6 9 / 12%) 44%, transparent 72%),
+    linear-gradient(0deg, rgb(4 6 9 / 32%), transparent 38%);
+}
+
+.start-screen-design-fit {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: clamp(8px, 4cqw, 38px);
+  overflow: hidden;
+}
+
+.start-screen-design-card {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(100%, 820px);
+  max-width: 100%;
+  display: grid;
+  grid-template-areas:
+    "eyebrow actions"
+    "title actions";
+  grid-template-columns: minmax(0, 1fr) minmax(118px, 28%);
+  gap: clamp(4px, 2cqh, 10px) clamp(16px, 6cqw, 54px);
+  align-items: center;
+  padding: clamp(8px, 4cqw, 34px);
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0;
+  transform: translate(-50%, -50%) scale(var(--auto-fit-scale, 1));
+  transform-origin: center;
+}
+
+.start-screen-design-card > p {
+  grid-area: eyebrow;
+  align-self: end;
+  margin: 0;
+  color: rgb(255 255 255 / 72%);
+  font-size: clamp(7px, 4cqh, 10px);
+  font-weight: 650;
+  letter-spacing: 0.24em;
+  text-shadow: 0 1px 10px rgb(0 0 0 / 58%);
+}
+
+.start-screen-design-card h2 {
+  grid-area: title;
+  max-width: 100%;
+  margin: 0;
+  color: #ffffff;
+  font-size: clamp(20px, 12cqh, 58px);
+  font-weight: 650;
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+  text-shadow: 0 2px 18px rgb(0 0 0 / 58%);
+}
+
+.start-screen-design-actions {
+  grid-area: actions;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: clamp(3px, 2cqh, 7px);
+}
+
+.start-screen-design-actions span {
+  width: 100%;
+  min-width: 0;
+  min-height: clamp(20px, 9cqh, 31px);
+  display: grid;
+  justify-content: start;
+  padding: 0 clamp(8px, 2cqw, 14px);
+  color: rgb(255 255 255 / 92%);
+  text-align: left;
+  font-size: clamp(8px, 4cqh, 11px);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  background: rgb(8 10 13 / 46%);
+  border: 1px solid rgb(255 255 255 / 28%);
+  border-radius: 5px;
+  box-shadow: 0 3px 12px rgb(0 0 0 / 12%);
+  place-items: center start;
+}
+
+.start-screen-design-actions span.is-primary {
+  color: #13161b;
+  background: rgb(255 255 255 / 94%);
+  border-color: rgb(255 255 255 / 88%);
+}
+
+@container (max-width: 520px) {
+  .start-screen-design-card {
+    width: min(420px, 100%);
+    grid-template-areas:
+      "eyebrow"
+      "title"
+      "actions";
+    grid-template-columns: minmax(0, 1fr);
+    gap: clamp(3px, 2cqh, 8px);
+    text-align: center;
+  }
+
+  .start-screen-design-card > p {
+    justify-self: center;
+  }
+
+  .start-screen-design-card h2 {
+    margin-bottom: clamp(5px, 3cqh, 12px);
+  }
+
+  .start-screen-design-actions {
+    width: min(180px, 100%);
+    justify-self: center;
+  }
+}
+
+.start-screen-form-help {
+  margin-top: 18px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.cg-gallery-editor-workspace {
+  background:
+    radial-gradient(circle at 75% 18%, rgb(137 92 180 / 10%), transparent 32%),
+    var(--panel);
+}
+
+.cg-gallery-blockly-workspace .blocklyEditableField > .blocklyFieldRect {
+  fill: #ffffff !important;
+  fill-opacity: 1 !important;
+  stroke: #c5cbd3 !important;
+  stroke-width: 1px !important;
+}
+
+.cg-gallery-blockly-workspace .blocklyEditableField text {
+  fill: #242a32 !important;
+}
+
+.cg-gallery-form-preview {
+  min-width: 0;
+}
+
+.cg-gallery-form-preview .preview-toolbar {
+  gap: 14px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.cg-gallery-design-preview {
+  display: grid;
+  width: min(100%, 960px);
+  min-height: min(70vh, 680px);
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 16px;
+  padding: 24px;
+  background: #15121d;
+  border: 1px solid #d9dde3;
+  border-radius: 12px;
+  box-shadow: 0 16px 42px rgb(35 42 52 / 10%);
+}
+
+.cg-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.cg-gallery-thumbnail {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) auto;
+  padding: 0;
+  overflow: hidden;
+  color: #ffffff;
+  cursor: zoom-in;
+  background: #262230;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 8px;
+}
+
+.cg-gallery-thumbnail img {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: cover;
+}
+
+.cg-gallery-thumbnail span {
+  padding: 6px 8px;
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cg-gallery-slot-empty {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  color: rgb(255 255 255 / 58%);
+  font-size: 12px;
+  background: #262230;
+  border: 1px dashed rgb(255 255 255 / 22%);
+  border-radius: 8px;
+  place-items: center;
+}
+
+.cg-gallery-empty {
+  align-self: center;
+  justify-self: center;
+  color: rgb(255 255 255 / 64%);
+}
+
+.cg-gallery-pagination {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.cg-gallery-pagination button,
+.cg-gallery-page-actions button,
+.cg-gallery-add-button,
+.cg-gallery-selected-list button {
+  padding: 7px 10px;
+  cursor: pointer;
+  background: #ffffff;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+}
+
+.cg-gallery-pagination button:disabled,
+.cg-gallery-page-actions button:disabled,
+.cg-gallery-add-button:disabled,
+.cg-gallery-selected-list button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.cg-gallery-form-inspector {
+  min-width: 0;
+  overflow: auto;
+}
+
+.cg-gallery-page-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.cg-gallery-slot-fields {
+  display: grid;
+  gap: 10px;
+}
+
+.cg-gallery-slot-fields > label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.cg-gallery-form-inspector > label {
+  display: grid;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.cg-gallery-form-inspector select {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 9px;
+  color: var(--text);
+  background: #ffffff;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+}
+
+.cg-gallery-add-button {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.cg-gallery-selected-list {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  margin: 18px 0 0;
+  list-style: none;
+}
+
+.cg-gallery-selected-list li {
+  display: grid;
+  gap: 7px;
+  padding: 9px;
+  background: var(--panel-subtle);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.cg-gallery-selected-list li > span {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cg-gallery-selected-list li > div {
+  display: flex;
+  gap: 5px;
+}
+
+.cg-gallery-lightbox {
+  position: fixed;
+  z-index: 1400;
+  inset: 0;
+  display: grid;
+  padding: 52px;
+  cursor: zoom-out;
+  background: rgb(4 3 8 / 92%);
+  place-items: center;
+}
+
+.cg-gallery-lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  box-shadow: 0 18px 80px rgb(0 0 0 / 52%);
+}
+
+.cg-gallery-lightbox-close {
+  position: absolute;
+  top: 18px;
+  right: 22px;
+  width: 38px;
+  height: 38px;
+  color: #ffffff;
+  font-size: 26px;
+  cursor: pointer;
+  background: rgb(255 255 255 / 10%);
+  border: 1px solid rgb(255 255 255 / 24%);
+  border-radius: 50%;
+}
+
 .block-editor-heading h1 {
   margin: 0;
   font-size: 18px;
@@ -649,6 +1147,19 @@
 .blockly-workspace {
   position: absolute;
   inset: 0;
+}
+
+/* 延伸页序是可写命令入口，白底与其它可编辑表单字段保持一致。 */
+.vn-story-continuation-sequence-field > rect,
+.vn-story-continuation-sequence-field > .blocklyFieldRect {
+  fill: #ffffff !important;
+  fill-opacity: 1 !important;
+  stroke: #c5cbd3 !important;
+  stroke-width: 1px !important;
+}
+
+.vn-story-continuation-sequence-field text {
+  fill: #242a32 !important;
 }
 
 .vn-block-selection-rectangle {
@@ -1025,6 +1536,35 @@
   font-size: 11px;
 }
 
+/*
+ * English interface labels are longer than their Chinese counterparts. Keep
+ * the authored scene names and timeline content at their normal size while
+ * giving the fixed scene controls a little more room.
+ */
+.editor[data-editor-language='en-US'] .scene-panel {
+  padding-right: 14px;
+  padding-left: 14px;
+}
+
+.editor[data-editor-language='en-US'] .scene-switcher {
+  gap: 6px;
+}
+
+.editor[data-editor-language='en-US'] .scene-menu-trigger {
+  padding-right: 8px;
+  padding-left: 8px;
+  font-size: 13px;
+}
+
+.editor[data-editor-language='en-US'] .scene-inline-action {
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+.editor[data-editor-language='en-US'] .timeline-add-actions button {
+  font-size: 12px;
+}
+
 .timeline-add-actions {
   display: grid;
   gap: 8px;
@@ -1312,6 +1852,690 @@
   place-items: center;
 }
 
+.game-preview-title-overlay {
+  padding: 0;
+  cursor: default;
+}
+
+.game-preview-title-overlay .player-shell {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  padding: clamp(24px, 5vw, 64px);
+  color: #f7f3ff;
+  background: #0b0c0f;
+  place-items: center;
+}
+
+.game-preview-title-overlay .player-title-page {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.game-preview-title-overlay .player-title-fit {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  container-type: size;
+  overflow: hidden;
+}
+
+.game-preview-title-overlay .player-title-background,
+.game-preview-title-overlay .player-title-scrim {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.game-preview-title-overlay .player-title-background {
+  z-index: -2;
+  object-fit: contain;
+  object-position: center;
+}
+
+.game-preview-title-overlay .player-title-scrim {
+  z-index: -1;
+  background:
+    linear-gradient(90deg, rgb(4 6 9 / 44%), rgb(4 6 9 / 12%) 44%, transparent 72%),
+    linear-gradient(0deg, rgb(4 6 9 / 32%), transparent 38%);
+}
+
+.game-preview-title-overlay .player-title-music {
+  display: none;
+}
+
+.game-preview-title-overlay .player-title-card {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(1040px, 100%);
+  max-width: 100%;
+  display: grid;
+  grid-template-areas:
+    "eyebrow actions"
+    "title actions";
+  grid-template-columns: minmax(0, 1fr) minmax(210px, 260px);
+  gap: 14px clamp(32px, 7vw, 96px);
+  align-items: center;
+  padding: clamp(18px, 4vw, 52px);
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0;
+  box-shadow: none;
+  transform: translate(-50%, -50%) scale(var(--auto-fit-scale, 1));
+  transform-origin: center;
+}
+
+.game-preview-title-overlay .player-title-card h1 {
+  grid-area: title;
+  max-width: 100%;
+  margin: 0;
+  color: #ffffff;
+  font-size: clamp(42px, 7vw, 88px);
+  font-weight: 650;
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+  text-shadow: 0 3px 28px rgb(0 0 0 / 58%);
+}
+
+.game-preview-title-overlay .player-title-card > .player-eyebrow {
+  grid-area: eyebrow;
+  align-self: end;
+  margin: 0;
+  color: rgb(255 255 255 / 72%);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.28em;
+  text-shadow: 0 2px 18px rgb(0 0 0 / 58%);
+}
+
+.game-preview-title-overlay .player-title-actions {
+  grid-area: actions;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 9px;
+}
+
+.game-preview-title-overlay .player-title-actions > button {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  justify-content: flex-start;
+  padding: 0 18px;
+  color: rgb(255 255 255 / 92%);
+  text-align: left;
+  letter-spacing: 0.035em;
+  background: rgb(8 10 13 / 46%);
+  border: 1px solid rgb(255 255 255 / 28%);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 12%);
+  backdrop-filter: blur(8px);
+}
+
+.game-preview-title-overlay .player-menu-card button,
+.game-preview-title-overlay .player-options-card button {
+  min-width: 180px;
+  min-height: 48px;
+  padding: 0 24px;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+  background: linear-gradient(135deg, #7557d9, #9c5fc4);
+  border: 1px solid rgb(255 255 255 / 24%);
+  border-radius: 12px;
+}
+
+.game-preview-title-overlay .player-menu-card button.secondary,
+.game-preview-title-overlay .player-options-card button.secondary {
+  color: #e9e1f6;
+  background: rgb(255 255 255 / 8%);
+}
+
+.game-preview-title-overlay .player-title-actions > button.secondary {
+  color: rgb(255 255 255 / 92%);
+  background: rgb(8 10 13 / 46%);
+}
+
+.game-preview-title-overlay .player-start-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+}
+
+.game-preview-title-overlay .player-title-actions > .player-start-button {
+  color: #13161b;
+  background: rgb(255 255 255 / 94%);
+  border-color: rgb(255 255 255 / 88%);
+}
+
+.game-preview-title-overlay .player-title-actions > button:hover:not(:disabled) {
+  background: rgb(25 28 33 / 72%);
+  border-color: rgb(255 255 255 / 52%);
+  transform: translateX(4px);
+}
+
+.game-preview-title-overlay .player-title-actions > .player-start-button:hover:not(:disabled) {
+  background: #ffffff;
+  border-color: #ffffff;
+}
+
+.game-preview-title-overlay .player-title-actions > button:focus-visible {
+  outline: 3px solid rgb(255 255 255 / 72%);
+  outline-offset: 3px;
+}
+
+.game-preview-title-overlay .player-title-actions > button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+  transform: none;
+}
+
+@container (max-width: 680px) {
+  .game-preview-title-overlay .player-title-card {
+    width: min(460px, 100%);
+    grid-template-areas:
+      "eyebrow"
+      "title"
+      "actions";
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    text-align: center;
+  }
+
+  .game-preview-title-overlay .player-title-card > .player-eyebrow {
+    justify-self: center;
+  }
+
+  .game-preview-title-overlay .player-title-card h1 {
+    margin-bottom: 18px;
+  }
+
+  .game-preview-title-overlay .player-title-actions {
+    width: min(280px, 100%);
+    justify-self: center;
+  }
+}
+
+.game-preview-title-overlay .player-menu-layer {
+  position: absolute;
+  z-index: 90;
+  inset: 0;
+  display: grid;
+  padding: 40px;
+  background: rgb(5 3 9 / 72%);
+  backdrop-filter: blur(12px);
+  place-items: center;
+}
+
+.game-preview-title-overlay .player-menu-card {
+  width: min(410px, calc(100vw - 64px));
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  padding: 38px;
+  text-align: center;
+  background: rgb(20 15 31 / 94%);
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 22px;
+  box-shadow: 0 30px 90px rgb(0 0 0 / 52%);
+}
+
+.game-preview-title-overlay .player-menu-card h2 {
+  margin: 4px 0 22px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 38px;
+  font-weight: 500;
+}
+
+.game-preview-title-overlay .game-preview-load-note {
+  margin: -10px 0 14px;
+  color: #d8cfe7;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.game-preview-title-overlay .player-menu-card button {
+  width: 100%;
+}
+
+.game-preview-title-overlay .player-options-layer {
+  position: absolute;
+  z-index: 140;
+  inset: 0;
+  display: grid;
+  padding: clamp(12px, 4vh, 32px);
+  color: #f7f8fa;
+  cursor: default;
+  background: rgb(4 6 9 / 82%);
+  outline: none;
+  backdrop-filter: blur(10px);
+  place-items: center;
+}
+
+.game-preview-title-overlay .player-options-card {
+  width: min(620px, calc(100% - 32px));
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(12px, 2.2vh, 20px);
+  padding: clamp(18px, 4vh, 32px);
+  overflow: auto;
+  background: rgb(12 15 20 / 96%);
+  border: 1px solid rgb(255 255 255 / 20%);
+  border-radius: 12px;
+  box-shadow: 0 24px 72px rgb(0 0 0 / 48%);
+}
+
+.game-preview-title-overlay .player-options-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.game-preview-title-overlay .player-options-header h2 {
+  margin: 4px 0 0;
+  color: #ffffff;
+  font-size: clamp(30px, 5vh, 38px);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+}
+
+.game-preview-title-overlay .player-options-header .player-eyebrow,
+.game-preview-title-overlay .player-cg-gallery-header .player-eyebrow {
+  color: rgb(255 255 255 / 64%);
+  font-weight: 650;
+}
+
+.game-preview-title-overlay .player-options-close {
+  width: 42px;
+  min-width: 42px;
+  height: 42px;
+  min-height: 42px;
+  padding: 0 0 3px;
+  color: rgb(255 255 255 / 88%);
+  background: rgb(8 10 13 / 46%);
+  border-color: rgb(255 255 255 / 26%);
+  border-radius: 50%;
+  font-size: 24px;
+}
+
+.game-preview-title-overlay .player-options-card button {
+  color: rgb(255 255 255 / 92%);
+  background: rgb(8 10 13 / 46%);
+  border: 1px solid rgb(255 255 255 / 26%);
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.game-preview-title-overlay .player-options-card button:hover:not(:disabled) {
+  color: #ffffff;
+  background: rgb(25 28 33 / 78%);
+  border-color: rgb(255 255 255 / 48%);
+  transform: translateY(-1px);
+}
+
+.game-preview-title-overlay .player-options-card .player-options-close {
+  width: 42px;
+  min-width: 42px;
+  height: 42px;
+  min-height: 42px;
+  padding: 0 0 3px;
+  color: rgb(255 255 255 / 88%);
+  background: rgb(8 10 13 / 46%);
+  border-color: rgb(255 255 255 / 26%);
+  border-radius: 50%;
+}
+
+.game-preview-title-overlay .player-options-card button.secondary {
+  color: rgb(255 255 255 / 92%);
+  background: rgb(8 10 13 / 46%);
+  border-color: rgb(255 255 255 / 26%);
+  border-radius: 8px;
+}
+
+.game-preview-title-overlay .player-options-card button.player-options-close.secondary {
+  width: 42px;
+  min-width: 42px;
+  height: 42px;
+  min-height: 42px;
+  padding: 0 0 3px;
+  border-radius: 50%;
+}
+
+.game-preview-title-overlay .player-options-card button:focus-visible,
+.game-preview-title-overlay .player-cg-gallery-layer button:focus-visible {
+  outline: 3px solid rgb(255 255 255 / 78%);
+  outline-offset: 3px;
+}
+
+.game-preview-title-overlay .player-options-section {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 14px 16px 16px;
+  background: rgb(255 255 255 / 2%);
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 8px;
+}
+
+.game-preview-title-overlay .player-options-section legend {
+  padding: 0 7px;
+  color: rgb(255 255 255 / 76%);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.game-preview-title-overlay .player-options-volume {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) 48px;
+  align-items: center;
+  gap: 12px;
+  color: rgb(255 255 255 / 84%);
+  font-size: 14px;
+}
+
+.game-preview-title-overlay .player-options-volume input {
+  width: 100%;
+  accent-color: #ffffff;
+}
+
+.game-preview-title-overlay .player-options-volume output {
+  color: rgb(255 255 255 / 62%);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.game-preview-title-overlay .player-options-select {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  color: rgb(255 255 255 / 84%);
+  font-size: 14px;
+}
+
+.game-preview-title-overlay .player-options-select select {
+  min-width: 0;
+  min-height: 40px;
+  padding: 7px 34px 7px 11px;
+  color: #f7f8fa;
+  color-scheme: dark;
+  background: rgb(8 10 13 / 72%);
+  border: 1px solid rgb(255 255 255 / 24%);
+  border-radius: 7px;
+  font: inherit;
+}
+
+.game-preview-title-overlay .player-options-select select:focus-visible {
+  outline: 2px solid rgb(255 255 255 / 74%);
+  outline-offset: 2px;
+}
+
+.game-preview-title-overlay .player-options-help,
+.game-preview-title-overlay .player-options-status,
+.game-preview-title-overlay .player-options-error {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.game-preview-title-overlay .player-options-help,
+.game-preview-title-overlay .player-options-status {
+  color: rgb(255 255 255 / 58%);
+}
+
+.game-preview-title-overlay .player-options-error {
+  color: #ffbdca;
+}
+
+.game-preview-title-overlay .player-options-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.game-preview-title-overlay .player-options-actions > button {
+  min-width: 132px;
+}
+
+.game-preview-title-overlay .player-options-actions > .player-options-primary {
+  color: #13161b;
+  background: rgb(255 255 255 / 94%);
+  border-color: rgb(255 255 255 / 88%);
+}
+
+.game-preview-title-overlay .player-options-actions > .player-options-primary:hover:not(:disabled) {
+  color: #0b0d10;
+  background: #ffffff;
+  border-color: #ffffff;
+}
+
+.game-preview-title-overlay .player-cg-gallery-layer {
+  position: absolute;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  padding: clamp(20px, 4vw, 48px);
+  color: #f7f8fa;
+  background: rgb(4 6 9 / 88%);
+  backdrop-filter: blur(10px);
+  place-items: center;
+}
+
+.game-preview-title-overlay .player-cg-gallery-card {
+  width: min(1120px, 100%);
+  height: min(820px, 100%);
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 20px;
+  padding: clamp(20px, 3vw, 36px);
+  overflow: hidden;
+  background: rgb(12 15 20 / 96%);
+  border: 1px solid rgb(255 255 255 / 20%);
+  border-radius: 12px;
+  box-shadow: 0 24px 72px rgb(0 0 0 / 52%);
+}
+
+.game-preview-title-overlay .player-cg-gallery-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.game-preview-title-overlay .player-cg-gallery-header h2 {
+  margin: 5px 0 0;
+  color: #ffffff;
+  font-size: clamp(28px, 4vw, 40px);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+}
+
+.game-preview-title-overlay .player-cg-gallery-layer .player-cg-close-button,
+.game-preview-title-overlay .player-cg-gallery-layer .player-cg-lightbox-close {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0 0 3px;
+  color: rgb(255 255 255 / 88%);
+  font-size: 28px;
+  cursor: pointer;
+  background: rgb(8 10 13 / 64%);
+  border: 1px solid rgb(255 255 255 / 26%);
+  border-radius: 50%;
+}
+
+.game-preview-title-overlay .player-cg-grid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: clamp(8px, 1.4vw, 16px);
+}
+
+.game-preview-title-overlay .player-cg-close-button:hover:not(:disabled),
+.game-preview-title-overlay .player-cg-lightbox-close:hover:not(:disabled),
+.game-preview-title-overlay .player-cg-pagination > button:hover:not(:disabled) {
+  color: #ffffff;
+  background: rgb(25 28 33 / 86%);
+  border-color: rgb(255 255 255 / 50%);
+  transform: translateY(-1px);
+}
+
+.game-preview-title-overlay .player-cg-thumbnail {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  color: rgb(255 255 255 / 52%);
+  cursor: pointer;
+  background: #080a0d;
+  border: 1px solid rgb(255 255 255 / 17%);
+  border-radius: 7px;
+  box-shadow: none;
+}
+
+.game-preview-title-overlay .player-cg-thumbnail:hover:not(:disabled) {
+  background: #080a0d;
+  border-color: rgb(255 255 255 / 48%);
+  transform: translateY(-1px);
+}
+
+.game-preview-title-overlay .player-cg-thumbnail:disabled {
+  cursor: default;
+  filter: none;
+  opacity: 1;
+  transform: none;
+}
+
+.game-preview-title-overlay .player-cg-thumbnail > img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
+
+.game-preview-title-overlay .player-cg-thumbnail > span {
+  display: grid;
+  height: 100%;
+  padding: 12px;
+  place-items: center;
+}
+
+.game-preview-title-overlay .player-cg-empty {
+  min-height: 0;
+  display: grid;
+  margin: 0;
+  color: #bcb2ca;
+  text-align: center;
+  place-items: center;
+}
+
+.game-preview-title-overlay .player-cg-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.game-preview-title-overlay .player-cg-pagination > button {
+  min-width: 112px;
+  min-height: 40px;
+  padding: 0 18px;
+  color: rgb(255 255 255 / 88%);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+  background: rgb(8 10 13 / 46%);
+  border: 1px solid rgb(255 255 255 / 26%);
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.game-preview-title-overlay .player-cg-pagination > button:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+
+.game-preview-title-overlay .player-cg-pagination > span {
+  min-width: 70px;
+  color: rgb(255 255 255 / 64%);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.game-preview-title-overlay .player-cg-lightbox {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  display: grid;
+  padding: clamp(24px, 5vw, 64px);
+  place-items: center;
+}
+
+.game-preview-title-overlay .player-cg-lightbox-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  cursor: pointer;
+  background: rgb(2 3 5 / 96%);
+  border: 0;
+}
+
+.game-preview-title-overlay .player-cg-lightbox figure {
+  z-index: 1;
+  max-width: 100%;
+  max-height: 100%;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 12px;
+  margin: 0;
+  pointer-events: none;
+}
+
+.game-preview-title-overlay .player-cg-lightbox img {
+  max-width: 100%;
+  max-height: calc(100vh - 140px);
+  object-fit: contain;
+  filter: drop-shadow(0 24px 64px rgb(0 0 0 / 72%));
+}
+
+.game-preview-title-overlay .player-cg-lightbox figcaption {
+  color: rgb(255 255 255 / 68%);
+  text-align: center;
+}
+
+.game-preview-title-overlay .player-cg-lightbox-close {
+  position: absolute;
+  z-index: 2;
+  top: 24px;
+  right: 76px;
+}
+
 .game-preview-stage {
   width: min(calc(100vw - 56px), 1600px);
   max-height: calc(100vh - 56px);
@@ -1565,6 +2789,25 @@
   gap: 16px;
 }
 
+.character-coordinate-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+
+.character-coordinate-fields legend {
+  grid-column: 1 / -1;
+  padding: 0;
+  margin-bottom: 8px;
+  color: #555c66;
+  font-size: 13px;
+  font-weight: 550;
+}
+
 .scene-jump-inspector {
   display: grid;
   align-content: start;
@@ -1706,4 +2949,39 @@
 
 .dialogue-submit-button:hover:not(:disabled) {
   background: var(--primary-hover);
+}
+
+/* Compact only fixed English timeline chrome, never authored field text. */
+.editor[data-editor-language='en-US'] .timeline-panel-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  margin-bottom: 15px;
+}
+
+.editor[data-editor-language='en-US'] .timeline-panel-heading h2 {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.editor[data-editor-language='en-US'] .timeline-panel-heading .panel-heading-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  width: 100%;
+}
+
+.editor[data-editor-language='en-US'] .timeline-panel-heading .panel-heading-action {
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  padding: 4px 6px;
+  font-size: 11px;
+}
+
+.editor[data-editor-language='en-US'] .dialogue-submit-button {
+  font-size: 12px;
 }

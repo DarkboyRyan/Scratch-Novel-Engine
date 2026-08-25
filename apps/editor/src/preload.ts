@@ -13,6 +13,15 @@ import {
   type VnEngineApi,
 } from './shared/engineProtocol';
 import {
+  EDITOR_SETTINGS_CHANGED_CHANNEL,
+  EDITOR_SETTINGS_IPC_CHANNEL,
+  isEditorSettings,
+  type EditorSettingsInvocation,
+  type EditorSettingsReadResult,
+  type EditorSettingsWriteResult,
+  type VnEditorSettingsApi,
+} from './shared/editorSettingsProtocol';
+import {
   type ExportGameInvocation,
   type ExportGameResult,
   type VnGameExportApi,
@@ -84,6 +93,13 @@ const vnEngine: VnEngineApi = {
     invokeEngine({ method: 'project.get', params: {} }),
   renameProject: (name) =>
     invokeEngine({ method: 'project.rename', params: { name } }),
+  updateStartScreen: (params) =>
+    invokeEngine({ method: 'startScreen.update', params }),
+  updateCgGallery: (pages) =>
+    invokeEngine({
+      method: 'cgGallery.update',
+      params: { pages },
+    }),
   addScene: (name) =>
     invokeEngine({ method: 'scene.add', params: { name } }),
   renameScene: (sceneId, name) =>
@@ -223,6 +239,11 @@ const vnEngine: VnEngineApi = {
       method: 'choice.option.reorder',
       params,
     }),
+  addStoryExtension: (params) =>
+    invokeEngine({
+      method: 'storyExtension.add',
+      params,
+    }),
   deleteTimelineNodes: (params) =>
     invokeEngine({
       method: 'timeline.deleteMany',
@@ -286,7 +307,48 @@ const vnGameExport: VnGameExportApi = {
     invokeGameExport({ action: 'export', params: request }),
 };
 
+type EditorSettingsResultByAction = {
+  'get-settings': EditorSettingsReadResult;
+  'update-settings': EditorSettingsWriteResult;
+};
+
+function invokeEditorSettings<
+  Action extends EditorSettingsInvocation['action'],
+>(
+  invocation: Extract<EditorSettingsInvocation, { action: Action }>,
+): Promise<EditorSettingsResultByAction[Action]> {
+  return ipcRenderer.invoke(EDITOR_SETTINGS_IPC_CHANNEL, invocation);
+}
+
+const vnEditorSettings: VnEditorSettingsApi = {
+  getSettings: () =>
+    invokeEditorSettings({ action: 'get-settings', params: {} }),
+  updateSettings: (patch) =>
+    invokeEditorSettings({
+      action: 'update-settings',
+      params: { patch },
+    }),
+  onChanged: (listener) => {
+    const handleChanged = (
+      _event: Electron.IpcRendererEvent,
+      settings: unknown,
+    ): void => {
+      if (isEditorSettings(settings)) {
+        listener({ ...settings });
+      }
+    };
+    ipcRenderer.on(EDITOR_SETTINGS_CHANGED_CHANNEL, handleChanged);
+    return () => {
+      ipcRenderer.removeListener(
+        EDITOR_SETTINGS_CHANGED_CHANNEL,
+        handleChanged,
+      );
+    };
+  },
+};
+
 contextBridge.exposeInMainWorld('vnAssets', vnAssets);
 contextBridge.exposeInMainWorld('vnEngine', vnEngine);
 contextBridge.exposeInMainWorld('vnProjectFiles', vnProjectFiles);
 contextBridge.exposeInMainWorld('vnGameExport', vnGameExport);
+contextBridge.exposeInMainWorld('vnEditorSettings', vnEditorSettings);

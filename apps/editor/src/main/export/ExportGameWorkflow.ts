@@ -5,6 +5,8 @@ import type {
   ExportGameResult,
   GameExportRequest,
 } from '../../shared/exportProtocol';
+import type { EditorLanguage } from '../../shared/editorSettingsProtocol';
+import { getEditorNativeLabels } from '../i18n/editorNativeLabels';
 import type { EditorWindowContext } from '../window/EditorWindowContext';
 import { exportRuntimeBundle } from './RuntimeBundleExporter';
 import {
@@ -15,11 +17,18 @@ import {
   loadStandalonePlayerTemplate,
   resolveStandalonePlayerTemplateRoot,
 } from './StandalonePlayerTemplate';
+import { exportWebPlayer } from './WebPlayerExporter';
+import {
+  loadWebPlayerTemplate,
+  resolveWebPlayerTemplateRoot,
+} from './WebPlayerTemplate';
 
 export const STANDALONE_TEMPLATE_UNAVAILABLE_MESSAGE =
   '当前平台的独立 Player 模板不可用，请安装对应模板后重试';
 export const STANDALONE_LOCAL_PLATFORM_UNSUPPORTED_MESSAGE =
   '当前 Editor 只支持在 macOS 本地组装独立应用；Windows/Linux 请使用对应平台 CI 构建';
+export const WEB_PLAYER_TEMPLATE_UNAVAILABLE_MESSAGE =
+  'Web Player 模板不可用，请重新安装 Editor 或生成开发模板后重试';
 
 function safeBundleBaseName(projectName: string): string {
   const withoutControlCharacters = [...projectName]
@@ -58,6 +67,15 @@ function safeStandaloneArchiveName(applicationName: string): string {
   return `${baseName.length === 0 ? '未命名游戏' : baseName}${suffix}`;
 }
 
+function safeWebArchiveName(projectName: string): string {
+  const suffix = '-Web.zip';
+  const baseName = truncateUtf8(
+    safeBundleBaseName(projectName),
+    240 - Buffer.byteLength(suffix, 'utf8'),
+  );
+  return `${baseName.length === 0 ? '未命名游戏' : baseName}${suffix}`;
+}
+
 function normalizeBundlePath(selectedPath: string): string {
   const absolutePath = path.resolve(selectedPath);
   if (absolutePath.toLowerCase().endsWith('.vngame')) {
@@ -78,6 +96,17 @@ function normalizeStandaloneArtifactPath(selectedPath: string): string {
     basePath = basePath.slice(0, -'-macOS'.length);
   }
   return `${basePath}-macOS.zip`;
+}
+
+function normalizeWebArtifactPath(selectedPath: string): string {
+  let basePath = path.resolve(selectedPath);
+  if (/\.zip$/iu.test(basePath)) {
+    basePath = basePath.slice(0, -'.zip'.length);
+  }
+  if (/-web$/iu.test(basePath)) {
+    basePath = basePath.slice(0, -'-Web'.length);
+  }
+  return `${basePath}-Web.zip`;
 }
 
 function assertExportableSession(context: EditorWindowContext): {
@@ -111,6 +140,7 @@ function assertExportableSession(context: EditorWindowContext): {
 export async function runExportGameWorkflow(
   context: EditorWindowContext,
   request: GameExportRequest,
+  language: EditorLanguage = 'zh-CN',
 ): Promise<ExportGameResult> {
   const frozen = assertExportableSession(context);
   const current = await context.backendClient.request({
@@ -143,23 +173,45 @@ export async function runExportGameWorkflow(
       console.error('[game-export] standalone player template unavailable', error);
       throw new Error(STANDALONE_TEMPLATE_UNAVAILABLE_MESSAGE);
     }
+  } else if (request.output === 'web-player') {
+    try {
+      templateRootPath = resolveWebPlayerTemplateRoot(
+        process.resourcesPath,
+        process.env,
+        { isPackaged: app.isPackaged, appPath: app.getAppPath() },
+      );
+      await loadWebPlayerTemplate(templateRootPath);
+    } catch (error) {
+      console.error('[game-export] web player template unavailable', error);
+      throw new Error(WEB_PLAYER_TEMPLATE_UNAVAILABLE_MESSAGE);
+    }
   }
 
   const standalone = request.output === 'standalone-application';
+  const webPlayer = request.output === 'web-player';
+  const labels = getEditorNativeLabels(language).export;
   const selection = await dialog.showSaveDialog(context.editorWindow, {
-    title: standalone ? '导出独立游戏 ZIP' : '导出 VN 游戏内容包',
-    buttonLabel: '导出',
+    title: standalone
+      ? labels.standaloneTitle
+      : webPlayer
+        ? labels.webTitle
+        : labels.bundleTitle,
+    buttonLabel: labels.button,
     defaultPath: path.join(
       path.dirname(frozen.projectRootPath),
       standalone
         ? safeStandaloneArchiveName(request.application.name)
+        : webPlayer
+          ? safeWebArchiveName(current.project.name)
         : `${safeBundleBaseName(current.project.name)}.vngame`,
     ),
-    filters: standalone && process.platform === 'darwin'
-      ? [{ name: 'macOS 游戏 ZIP', extensions: ['zip'] }]
-      : standalone
-        ? undefined
-        : [{ name: 'VN Game Bundle', extensions: ['vngame'] }],
+    filters: webPlayer
+      ? [{ name: labels.webFilter, extensions: ['zip'] }]
+      : standalone && process.platform === 'darwin'
+        ? [{ name: labels.macFilter, extensions: ['zip'] }]
+        : standalone
+          ? undefined
+          : [{ name: 'VN Game Bundle', extensions: ['vngame'] }],
     properties: ['createDirectory', 'dontAddToRecent'],
   });
   if (selection.canceled || !selection.filePath) {
@@ -205,6 +257,24 @@ export async function runExportGameWorkflow(
       };
     }
 
+    if (request.output === 'web-player') {
+      if (templateRootPath === null) {
+        throw new Error('Web Player 模板未解析');
+      }
+      const exported = await exportWebPlayer({
+        ...commonOptions,
+        targetArtifactPath: normalizeWebArtifactPath(selection.filePath),
+        templateRootPath,
+      });
+      return {
+        cancelled: false,
+        output: request.output,
+        artifactName: exported.artifactName,
+        sourceRevision: exported.sourceRevision,
+        assetCount: exported.assetCount,
+      };
+    }
+
     const exported = await exportRuntimeBundle({
       ...commonOptions,
       targetBundlePath: normalizeBundlePath(selection.filePath),
@@ -222,7 +292,9 @@ export async function runExportGameWorkflow(
     throw new Error(
       standalone
         ? '独立应用导出失败，源项目和已有导出内容均未修改'
-        : '游戏导出失败，源项目和已有导出内容均未修改',
+        : webPlayer
+          ? 'Web 游戏导出失败，源项目和已有导出内容均未修改'
+          : '游戏导出失败，源项目和已有导出内容均未修改',
     );
   }
 }

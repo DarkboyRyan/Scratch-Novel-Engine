@@ -1,4 +1,5 @@
 import * as Blockly from 'blockly';
+import { DEFAULT_EDITOR_LANGUAGE, getEditorLabels, type EditorLabels } from '../../../i18n/editorLocalization';
 
 export const BACKGROUND_BLOCK_TYPE = 'vn_background';
 
@@ -11,6 +12,13 @@ const ASSET_DATA_PREFIX = 'vn-background-asset:';
 // The field is disabled below, so its text can only be changed by dropping an
 // imported image onto the block.
 const EMPTY_BACKGROUND_FIELD_VALUE = '\u00a0'.repeat(12);
+const LABEL_FIELD = 'VN_LABEL_BACKGROUND';
+let currentLabels = getEditorLabels(DEFAULT_EDITOR_LANGUAGE);
+
+export function applyBackgroundBlockLocalization(block: Blockly.Block, labels: EditorLabels): void {
+  block.setFieldValue(labels.blockly.background, LABEL_FIELD);
+  block.setTooltip(labels.blockly.backgroundTooltip);
+}
 
 export function setBackgroundBlockAsset(
   block: Blockly.Block,
@@ -32,7 +40,8 @@ export function getBackgroundBlockAssetId(
     : null;
 }
 
-export function registerBackgroundBlock(): void {
+export function registerBackgroundBlock(labels: EditorLabels = currentLabels): void {
+  currentLabels = labels;
   if (Blockly.Blocks[BACKGROUND_BLOCK_TYPE]) {
     return;
   }
@@ -46,7 +55,7 @@ export function registerBackgroundBlock(): void {
       );
 
       this.appendDummyInput()
-        .appendField('切换背景')
+        .appendField(currentLabels.blockly.background, LABEL_FIELD)
         .appendField(assetField, BACKGROUND_BLOCK_FIELDS.assetName);
       // Retain the familiar white text-field shape without allowing users to
       // type a display name that is not backed by an imported Asset ID.
@@ -54,7 +63,7 @@ export function registerBackgroundBlock(): void {
       this.setPreviousStatement(true);
       this.setNextStatement(true);
       this.setColour(210);
-      this.setTooltip('从这里开始切换背景，直到下一个背景积木');
+      this.setTooltip(currentLabels.blockly.backgroundTooltip);
       this.setHelpUrl('');
     },
   };

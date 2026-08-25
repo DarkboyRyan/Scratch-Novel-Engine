@@ -5,6 +5,7 @@ import {
   getChoices as getGamePreviewChoices,
   selectChoice as selectGamePreviewChoice,
   startGame as startGamePreview,
+  startGameAtScene as startGamePreviewAtScene,
   type ProjectDocument,
 } from '@vnengine/runtime';
 
@@ -13,6 +14,14 @@ const project: ProjectDocument = {
   id: 'project-1',
   name: 'Preview',
   entrySceneId: 'scene-entry',
+  startScreen: {
+    title: 'Story',
+    backgroundAssetId: null,
+    musicAssetId: null,
+  },
+  cgGallery: {
+    pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+  },
   scenes: [
     {
       schemaVersion: 1,
@@ -35,6 +44,7 @@ const project: ProjectDocument = {
           assetId: 'alice-image',
           slot: 'left',
           layer: 1,
+          position: null,
         },
         {
           id: 'd1',
@@ -49,6 +59,7 @@ const project: ProjectDocument = {
           assetId: 'bob-image',
           slot: 'right',
           layer: 2,
+          position: { x: 82, y: 96 },
         },
         {
           id: 'replace',
@@ -56,6 +67,7 @@ const project: ProjectDocument = {
           assetId: 'carol-image',
           slot: 'center',
           layer: 1,
+          position: null,
         },
         {
           id: 'd2',
@@ -70,6 +82,7 @@ const project: ProjectDocument = {
           assetId: null,
           slot: 'right',
           layer: 2,
+          position: null,
         },
       ],
     },
@@ -77,6 +90,66 @@ const project: ProjectDocument = {
 };
 
 describe('game preview runtime', () => {
+  it('starts an Editor preview at the selected story scene instead of the project entry', () => {
+    const selectedSceneProject: ProjectDocument = structuredClone(project);
+    selectedSceneProject.scenes[0].backgroundAssetId = 'selected-background';
+    selectedSceneProject.scenes[0].nodes = [
+      {
+        id: 'selected-dialogue',
+        type: 'dialogue',
+        speaker: 'B',
+        text: 'selected scene',
+        voiceAssetId: null,
+      },
+    ];
+
+    expect(
+      startGamePreviewAtScene(selectedSceneProject, 'scene-other'),
+    ).toMatchObject({
+      status: 'playing',
+      sceneId: 'scene-other',
+      nextNodeIndex: 1,
+      backgroundAssetId: 'selected-background',
+      dialogue: { id: 'selected-dialogue' },
+    });
+  });
+
+  it('continues following authored scene jumps after starting from a selected scene', () => {
+    const jumping: ProjectDocument = structuredClone(project);
+    jumping.scenes[0].nodes = [
+      {
+        id: 'selected-dialogue',
+        type: 'dialogue',
+        speaker: 'B',
+        text: 'before jump',
+        voiceAssetId: null,
+      },
+      {
+        id: 'jump-to-entry',
+        type: 'sceneJump',
+        targetSceneId: 'scene-entry',
+      },
+    ];
+
+    const started = startGamePreviewAtScene(jumping, 'scene-other');
+    if (!started) throw new Error('preview did not start');
+    const afterJump = advanceGamePreview(jumping, started);
+
+    expect(afterJump).toMatchObject({
+      status: 'playing',
+      sceneId: 'scene-entry',
+      dialogue: { id: 'd1' },
+    });
+  });
+
+  it('refuses missing or empty Editor preview scene selections safely', () => {
+    const before = structuredClone(project);
+
+    expect(startGamePreviewAtScene(project, 'missing')).toBeNull();
+    expect(startGamePreviewAtScene(project, '')).toBeNull();
+    expect(project).toEqual(before);
+  });
+
   it('starts at the entry scene and auto-runs visual nodes to the first dialogue', () => {
     expect(startGamePreview(project)).toEqual({
       status: 'playing',
@@ -94,6 +167,7 @@ describe('game preview runtime', () => {
           assetId: 'alice-image',
           slot: 'left',
           layer: 1,
+          position: null,
         },
       ],
       dialogue: {
@@ -119,12 +193,14 @@ describe('game preview runtime', () => {
         assetId: 'carol-image',
         slot: 'center',
         layer: 1,
+        position: null,
       },
       {
         nodeId: 'bob',
         assetId: 'bob-image',
         slot: 'right',
         layer: 2,
+        position: { x: 82, y: 96 },
       },
     ]);
 
@@ -137,6 +213,7 @@ describe('game preview runtime', () => {
         assetId: 'carol-image',
         slot: 'center',
         layer: 1,
+        position: null,
       },
     ]);
   });
@@ -227,6 +304,14 @@ describe('game preview runtime', () => {
       id: 'looping-dialogue',
       name: 'Looping dialogue',
       entrySceneId: 'loop',
+      startScreen: {
+        title: 'Story',
+        backgroundAssetId: null,
+        musicAssetId: null,
+      },
+      cgGallery: {
+        pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+      },
       scenes: [
         {
           schemaVersion: 1,
@@ -300,6 +385,14 @@ describe('game preview runtime', () => {
       id: 'cycle',
       name: 'Cycle',
       entrySceneId: 'a',
+      startScreen: {
+        title: 'Story',
+        backgroundAssetId: null,
+        musicAssetId: null,
+      },
+      cgGallery: {
+        pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+      },
       scenes: [
         {
           schemaVersion: 1,
@@ -363,6 +456,14 @@ describe('game preview runtime', () => {
       id: 'branching',
       name: 'Branching',
       entrySceneId: 'entry',
+      startScreen: {
+        title: 'Story',
+        backgroundAssetId: null,
+        musicAssetId: null,
+      },
+      cgGallery: {
+        pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+      },
       scenes: [
         {
           schemaVersion: 1,
@@ -377,6 +478,7 @@ describe('game preview runtime', () => {
               assetId: 'hero',
               slot: 'center',
               layer: 1,
+              position: null,
             },
             {
               id: 'choice',
@@ -439,6 +541,14 @@ describe('game preview runtime', () => {
       id: 'missing-target',
       name: 'Missing target',
       entrySceneId: 'entry',
+      startScreen: {
+        title: 'Story',
+        backgroundAssetId: null,
+        musicAssetId: null,
+      },
+      cgGallery: {
+        pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+      },
       scenes: [
         {
           schemaVersion: 1,

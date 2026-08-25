@@ -13,11 +13,20 @@ vi.mock(
 );
 
 const session: GamePreviewSession = {
+  phase: 'story',
   project: {
     schemaVersion: 1,
     id: 'project-video-input',
     name: 'Video input',
     entrySceneId: 'scene-1',
+    startScreen: {
+      title: 'Story',
+      backgroundAssetId: null,
+      musicAssetId: null,
+    },
+    cgGallery: {
+      pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+    },
     scenes: [
       {
         schemaVersion: 1,
@@ -61,6 +70,8 @@ describe('GamePreview video input', () => {
       .mockImplementation(() => {});
     vi.spyOn(HTMLMediaElement.prototype, 'load')
       .mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, 'play')
+      .mockResolvedValue(undefined);
   });
 
   afterEach(async () => {
@@ -87,6 +98,7 @@ describe('GamePreview video input', () => {
           onAdvance={onAdvance}
           onVideoComplete={onVideoComplete}
           onChoiceSelect={vi.fn()}
+          onEnterStory={vi.fn()}
           onExit={onExit}
         />,
       );

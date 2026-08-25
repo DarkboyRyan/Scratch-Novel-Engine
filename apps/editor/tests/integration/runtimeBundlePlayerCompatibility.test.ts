@@ -11,7 +11,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { loadRuntimeBundle } from '../../../player/src/main/content/PlayerBundleLoader';
-import { compileAuthorProjectV9 } from '../../src/main/export/AuthorProjectCompiler';
+import { compileAuthorProjectV15 } from '../../src/main/export/AuthorProjectCompiler';
 import { exportRuntimeBundle } from '../../src/main/export/RuntimeBundleExporter';
 
 const temporaryDirectories: string[] = [];
@@ -25,7 +25,7 @@ afterEach(async () => {
 });
 
 describe('Editor export to Player compatibility', () => {
-  it('reopens an exported runtime v1 bundle through the Player strict reader', async () => {
+  it('reopens an exported runtime v6 bundle through the Player strict reader', async () => {
     const testRoot = await mkdtemp(
       path.join(tmpdir(), 'vn-export-player-contract-'),
     );
@@ -40,12 +40,26 @@ describe('Editor export to Player compatibility', () => {
 
     const authorDocument = {
       format: 'vn-engine-project',
-      fileVersion: 9,
+      fileVersion: 15,
       project: {
         schemaVersion: 1,
         id: 'contract-project',
         name: 'Contract Game',
         entrySceneId: 'scene-1',
+        startScreen: {
+          title: 'Contract Title',
+          backgroundAssetId: 'background-asset',
+          musicAssetId: null,
+        },
+        cgGallery: {
+          pages: [{
+            imageAssetIds: [
+              null,
+              'background-asset',
+              ...Array<string | null>(7).fill(null),
+            ],
+          }],
+        },
         scenes: [
           {
             schemaVersion: 1,
@@ -63,6 +77,7 @@ describe('Editor export to Player compatibility', () => {
                 text: 'Export contract',
                 voiceAssetId: null,
               },
+              { id: 'extension-1', type: 'storyExtension' },
             ],
           },
         ],
@@ -77,7 +92,7 @@ describe('Editor export to Player compatibility', () => {
       ],
     };
     const authorContents = JSON.stringify(authorDocument);
-    const compiled = compileAuthorProjectV9(authorContents);
+    const compiled = compileAuthorProjectV15(authorContents);
     await writeFile(path.join(projectRoot, 'project.vn.json'), authorContents);
     await writeFile(
       path.join(projectRoot, 'assets', 'images', 'background-asset.png'),
@@ -94,7 +109,7 @@ describe('Editor export to Player compatibility', () => {
       expectedManifestSha256: createHash('sha256')
         .update(authorContents)
         .digest('hex'),
-      expectedProject: compiled.project,
+      expectedProject: compiled.sourceProject,
       expectedAssets: compiled.publicAssets,
       buildId: 'contract-build',
       createdAt: '2026-08-18T00:00:00.000Z',
@@ -102,6 +117,9 @@ describe('Editor export to Player compatibility', () => {
     const loaded = await loadRuntimeBundle(bundlePath);
 
     expect(loaded.game.project).toEqual(compiled.project);
+    expect(loaded.game.project.scenes[0].nodes).not.toContainEqual(
+      expect.objectContaining({ type: 'storyExtension' }),
+    );
     expect([...loaded.assets.keys()]).toEqual(['background-asset']);
     expect(loaded.assets.get('background-asset')).toMatchObject({
       type: 'image',

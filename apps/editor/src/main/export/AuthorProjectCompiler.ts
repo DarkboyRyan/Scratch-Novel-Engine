@@ -2,41 +2,57 @@ import path from 'node:path';
 
 import type {
   ChoiceOption,
-  ProjectDocument,
-  SceneDocument,
-  SceneNode,
+  ProjectDocument as RuntimeProjectDocument,
+  SceneDocument as RuntimeSceneDocument,
 } from '@vnengine/runtime';
 
-import type { AssetDocument } from '../../shared/projectTypes';
+import {
+  toRuntimeProjectDocument,
+  type AssetDocument,
+  type ProjectDocument as AuthorProjectDocument,
+  type SceneDocument as AuthorSceneDocument,
+  type SceneNode as AuthorSceneNode,
+} from '../../shared/projectTypes';
 import {
   previewMimeForAsset,
   type PreviewMime,
 } from '../media/MediaFormat';
 
 export const AUTHOR_PROJECT_FORMAT = 'vn-engine-project';
-export const AUTHOR_PROJECT_FILE_VERSION = 9;
+export const AUTHOR_PROJECT_FILE_VERSION = 15;
 export const RUNTIME_FORMAT = 'vn-engine-runtime';
-export const RUNTIME_VERSION = 1;
+export const RUNTIME_VERSION = 6;
 
 export type AuthorAssetRecord = AssetDocument & {
   relativePath: string;
   mime: PreviewMime;
 };
 
-export type RuntimeGameDocumentV1 = {
+export type RuntimeGameDocumentV6 = {
   format: typeof RUNTIME_FORMAT;
   runtimeVersion: typeof RUNTIME_VERSION;
   game: {
     id: string;
     title: string;
     entrySceneId: string;
+    startScreen: {
+      title: string;
+      backgroundAssetId: string | null;
+      musicAssetId: string | null;
+    };
+    cgGallery: {
+      pages: Array<{
+        imageAssetIds: Array<string | null>;
+      }>;
+    };
   };
-  scenes: SceneDocument[];
+  scenes: RuntimeSceneDocument[];
 };
 
 export type CompiledAuthorProject = {
-  game: RuntimeGameDocumentV1;
-  project: ProjectDocument;
+  game: RuntimeGameDocumentV6;
+  sourceProject: AuthorProjectDocument;
+  project: RuntimeProjectDocument;
   referencedAssets: AuthorAssetRecord[];
   publicAssets: AssetDocument[];
   allAssetCount: number;
@@ -45,7 +61,7 @@ export type CompiledAuthorProject = {
 type JsonObject = Record<string, unknown>;
 
 type ParsedScene = {
-  scene: SceneDocument;
+  scene: AuthorSceneDocument;
   initialCharacterAssetIds: string[];
 };
 
@@ -71,7 +87,7 @@ function exactFields(
     actual.length !== wanted.length ||
     actual.some((field, index) => field !== wanted[index])
   ) {
-    throw new Error(`${context} 字段不符合作者项目 v9`);
+    throw new Error(`${context} 字段不符合作者项目 v15`);
   }
 }
 
@@ -159,7 +175,7 @@ function parseSceneNode(
   context: string,
   ids: Set<string>,
   referencedAssetIds: Set<string>,
-): SceneNode {
+): AuthorSceneNode {
   const value = objectValue(input, context);
   const type = stringValue(value, 'type', context, { maximum: 32 });
   const id = idValue(value, 'id', context);
@@ -202,7 +218,11 @@ function parseSceneNode(
         assetId: registerOptionalAsset(nullableId(value, 'assetId', context)),
       };
     case 'character': {
-      exactFields(value, ['id', 'type', 'assetId', 'slot', 'layer'], context);
+      exactFields(
+        value,
+        ['id', 'type', 'assetId', 'slot', 'layer', 'position'],
+        context,
+      );
       const slot = value.slot;
       const layer = value.layer;
       if (slot !== 'left' && slot !== 'center' && slot !== 'right') {
@@ -211,12 +231,32 @@ function parseSceneNode(
       if (!Number.isSafeInteger(layer) || (layer as number) < 1 || (layer as number) > 10) {
         throw new Error(`${context}.layer 必须是 1 到 10 的整数`);
       }
+      let position: { x: number; y: number } | null = null;
+      if (value.position !== null) {
+        const positionValue = objectValue(value.position, `${context}.position`);
+        exactFields(positionValue, ['x', 'y'], `${context}.position`);
+        const { x, y } = positionValue;
+        if (
+          typeof x !== 'number' ||
+          typeof y !== 'number' ||
+          !Number.isFinite(x) ||
+          !Number.isFinite(y) ||
+          x < 0 ||
+          x > 100 ||
+          y < 0 ||
+          y > 100
+        ) {
+          throw new Error(`${context}.position 坐标必须在 0 到 100 之间`);
+        }
+        position = { x, y };
+      }
       return {
         id,
         type,
         assetId: registerOptionalAsset(nullableId(value, 'assetId', context)),
         slot,
         layer: layer as number,
+        position,
       };
     }
     case 'sceneJump':
@@ -249,8 +289,11 @@ function parseSceneNode(
           parseChoiceOption(option, `${context}.options[${index}]`, ids),
         ),
       };
+    case 'storyExtension':
+      exactFields(value, ['id', 'type'], context);
+      return { id, type };
     default:
-      throw new Error(`${context}.type 不受 runtime v1 支持`);
+      throw new Error(`${context}.type 不受作者项目 v15 支持`);
   }
 }
 
@@ -296,7 +339,7 @@ function parseScene(
   });
 
   if (initialCharacterAssetIds.length > 0) {
-    throw new Error('runtime v1 不支持场景初始人物，请改用人物立绘时间线节点');
+    throw new Error('runtime v6 不支持场景初始人物，请改用人物立绘时间线节点');
   }
 
   return {
@@ -397,12 +440,30 @@ function requireAssetType(
 }
 
 function validateReferences(
-  project: ProjectDocument,
+  project: RuntimeProjectDocument,
   assets: ReadonlyMap<string, AuthorAssetRecord>,
 ): void {
   const scenes = new Map(project.scenes.map((scene) => [scene.id, scene]));
   if (!scenes.has(project.entrySceneId)) {
     throw new Error('入口场景不存在');
+  }
+
+  requireAssetType(
+    assets,
+    project.startScreen.backgroundAssetId,
+    'image',
+    '主界面背景',
+  );
+  requireAssetType(
+    assets,
+    project.startScreen.musicAssetId,
+    'audio',
+    '主界面音乐',
+  );
+  for (const page of project.cgGallery.pages) {
+    for (const assetId of page.imageAssetIds) {
+      requireAssetType(assets, assetId, 'image', 'CG 画廊');
+    }
   }
 
   for (const scene of project.scenes) {
@@ -449,18 +510,29 @@ function parseJson(contents: string): unknown {
   }
 }
 
-export function compileAuthorProjectV9(contents: string): CompiledAuthorProject {
+export function compileAuthorProjectV15(contents: string): CompiledAuthorProject {
   const root = objectValue(parseJson(contents), 'document');
   exactFields(root, ['format', 'fileVersion', 'project', 'assets'], 'document');
   requireLiteral(root, 'format', AUTHOR_PROJECT_FORMAT, 'document');
-  requireLiteral(root, 'fileVersion', AUTHOR_PROJECT_FILE_VERSION, 'document');
+  if (root.fileVersion !== 14 && root.fileVersion !== AUTHOR_PROJECT_FILE_VERSION) {
+    throw new Error('document.fileVersion 版本或格式不受支持');
+  }
+  const sourceFileVersion = root.fileVersion;
 
   const ids = new Set<string>();
   const referencedAssetIds = new Set<string>();
   const projectValue = objectValue(root.project, 'project');
   exactFields(
     projectValue,
-    ['schemaVersion', 'id', 'name', 'entrySceneId', 'scenes'],
+    [
+      'schemaVersion',
+      'id',
+      'name',
+      'entrySceneId',
+      'startScreen',
+      'cgGallery',
+      'scenes',
+    ],
     'project',
   );
   requireLiteral(projectValue, 'schemaVersion', 1, 'project');
@@ -470,6 +542,115 @@ export function compileAuthorProjectV9(contents: string): CompiledAuthorProject 
   if (trimAsciiWhitespace(projectName) !== projectName) {
     throw new Error('project.name 不能包含首尾空白');
   }
+  const startScreenValue = objectValue(projectValue.startScreen, 'project.startScreen');
+  exactFields(
+    startScreenValue,
+    ['title', 'backgroundAssetId', 'musicAssetId'],
+    'project.startScreen',
+  );
+  const startScreen = {
+    title: stringValue(startScreenValue, 'title', 'project.startScreen', {
+      maximum: 4096,
+    }),
+    backgroundAssetId: nullableId(
+      startScreenValue,
+      'backgroundAssetId',
+      'project.startScreen',
+    ),
+    musicAssetId: nullableId(
+      startScreenValue,
+      'musicAssetId',
+      'project.startScreen',
+    ),
+  };
+  if (trimAsciiWhitespace(startScreen.title) !== startScreen.title) {
+    throw new Error('project.startScreen.title 不能包含首尾空白');
+  }
+  if (startScreen.backgroundAssetId !== null) {
+    referencedAssetIds.add(startScreen.backgroundAssetId);
+  }
+  if (startScreen.musicAssetId !== null) {
+    referencedAssetIds.add(startScreen.musicAssetId);
+  }
+  const cgGalleryValue = objectValue(projectValue.cgGallery, 'project.cgGallery');
+  const seenCgAssetIds = new Set<string>();
+  const parseCgAssetId = (
+    assetId: unknown,
+    context: string,
+  ): string | null => {
+    if (assetId === null && sourceFileVersion >= 15) {
+      return null;
+    }
+    if (typeof assetId !== 'string') {
+      throw new Error(`${context} 不是有效资源 ID${
+        sourceFileVersion >= 15 ? ' 或 null' : ''
+      }`);
+    }
+    const parsed = idValue({ assetId }, 'assetId', context);
+    if (seenCgAssetIds.has(parsed)) {
+      throw new Error('project.cgGallery 不能包含重复资源 ID');
+    }
+    seenCgAssetIds.add(parsed);
+    referencedAssetIds.add(parsed);
+    return parsed;
+  };
+  let cgGallery: RuntimeProjectDocument['cgGallery'];
+  if (sourceFileVersion === 14) {
+    exactFields(cgGalleryValue, ['imageAssetIds'], 'project.cgGallery');
+    const packedAssetIds = arrayValue(
+      cgGalleryValue,
+      'imageAssetIds',
+      'project.cgGallery',
+    ).map((assetId, index) =>
+      parseCgAssetId(
+        assetId,
+        `project.cgGallery.imageAssetIds[${index}]`,
+      ) as string,
+    );
+    cgGallery = {
+      pages: packedAssetIds.length === 0
+        ? [{ imageAssetIds: Array<string | null>(9).fill(null) }]
+        : Array.from(
+            { length: Math.ceil(packedAssetIds.length / 9) },
+            (_, pageIndex) => ({
+              imageAssetIds: Array.from(
+                { length: 9 },
+                (_, slotIndex) =>
+                  packedAssetIds[(pageIndex * 9) + slotIndex] ?? null,
+              ),
+            }),
+          ),
+    };
+  } else {
+    exactFields(cgGalleryValue, ['pages'], 'project.cgGallery');
+    const cgGalleryPages = arrayValue(
+      cgGalleryValue,
+      'pages',
+      'project.cgGallery',
+    );
+    if (cgGalleryPages.length === 0) {
+      throw new Error('project.cgGallery.pages 至少需要一页');
+    }
+    cgGallery = {
+      pages: cgGalleryPages.map((page, pageIndex) => {
+        const context = `project.cgGallery.pages[${pageIndex}]`;
+        const pageValue = objectValue(page, context);
+        exactFields(pageValue, ['imageAssetIds'], context);
+        const slots = arrayValue(pageValue, 'imageAssetIds', context);
+        if (slots.length !== 9) {
+          throw new Error(`${context}.imageAssetIds 必须精确包含 9 个槽位`);
+        }
+        return {
+          imageAssetIds: slots.map((assetId, slotIndex) =>
+            parseCgAssetId(
+              assetId,
+              `${context}.imageAssetIds[${slotIndex}]`,
+            ),
+          ),
+        };
+      }),
+    };
+  }
   const scenes = arrayValue(projectValue, 'scenes', 'project').map((scene, index) =>
     parseScene(scene, index, ids, referencedAssetIds).scene,
   );
@@ -477,13 +658,16 @@ export function compileAuthorProjectV9(contents: string): CompiledAuthorProject 
     throw new Error('作者项目至少需要一个场景');
   }
 
-  const project: ProjectDocument = {
+  const sourceProject: AuthorProjectDocument = {
     schemaVersion: 1,
     id: projectId,
     name: projectName,
     entrySceneId: idValue(projectValue, 'entrySceneId', 'project'),
+    startScreen,
+    cgGallery,
     scenes,
   };
+  const project = toRuntimeProjectDocument(sourceProject);
 
   const allAssets = arrayValue(root, 'assets', 'document').map((asset, index) =>
     parseAsset(asset, index, ids),
@@ -506,6 +690,7 @@ export function compileAuthorProjectV9(contents: string): CompiledAuthorProject 
   }
 
   return {
+    sourceProject,
     project,
     game: {
       format: RUNTIME_FORMAT,
@@ -514,6 +699,8 @@ export function compileAuthorProjectV9(contents: string): CompiledAuthorProject 
         id: project.id,
         title: project.name,
         entrySceneId: project.entrySceneId,
+        startScreen: project.startScreen,
+        cgGallery: project.cgGallery,
       },
       scenes: project.scenes,
     },

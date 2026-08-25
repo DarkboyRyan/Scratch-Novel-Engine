@@ -1,4 +1,5 @@
 import * as Blockly from 'blockly';
+import { DEFAULT_EDITOR_LANGUAGE, getEditorLabels, type EditorLabels } from '../../../i18n/editorLocalization';
 
 export const BGM_BLOCK_TYPE = 'vn_bgm';
 
@@ -8,6 +9,13 @@ export const BGM_BLOCK_FIELDS = {
 
 const ASSET_DATA_PREFIX = 'vn-bgm-asset:';
 const EMPTY_BGM_FIELD_VALUE = '\u00a0'.repeat(12);
+const LABEL_FIELD = 'VN_LABEL_BGM';
+let currentLabels = getEditorLabels(DEFAULT_EDITOR_LANGUAGE);
+
+export function applyBgmBlockLocalization(block: Blockly.Block, labels: EditorLabels): void {
+  block.setFieldValue(labels.blockly.bgm, LABEL_FIELD);
+  block.setTooltip(labels.blockly.bgmTooltip);
+}
 
 export function setBgmBlockAsset(
   block: Blockly.Block,
@@ -29,7 +37,8 @@ export function getBgmBlockAssetId(
     : null;
 }
 
-export function registerBgmBlock(): void {
+export function registerBgmBlock(labels: EditorLabels = currentLabels): void {
+  currentLabels = labels;
   if (Blockly.Blocks[BGM_BLOCK_TYPE]) {
     return;
   }
@@ -43,13 +52,13 @@ export function registerBgmBlock(): void {
       );
 
       this.appendDummyInput()
-        .appendField('切换背景音乐')
+        .appendField(currentLabels.blockly.bgm, LABEL_FIELD)
         .appendField(assetField, BGM_BLOCK_FIELDS.assetName);
       assetField.setEnabled(false);
       this.setPreviousStatement(true);
       this.setNextStatement(true);
       this.setColour(120);
-      this.setTooltip('从这里开始播放或停止背景音乐');
+      this.setTooltip(currentLabels.blockly.bgmTooltip);
       this.setHelpUrl('');
     },
   };

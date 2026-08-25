@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react';
 
+import { useEditorLabels } from '../i18n/editorLocalization';
+
 type ErrorDialogProps = {
   open: boolean;
   title: string;
@@ -13,6 +15,7 @@ export function ErrorDialog({
   message,
   onConfirm,
 }: ErrorDialogProps) {
+  const labels = useEditorLabels();
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -51,7 +54,7 @@ export function ErrorDialog({
         <p id="error-dialog-message">{message}</p>
 
         <button type="button" autoFocus onClick={onConfirm}>
-          确认
+          {labels.common.confirm}
         </button>
       </div>
     </dialog>

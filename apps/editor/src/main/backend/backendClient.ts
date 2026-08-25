@@ -52,6 +52,24 @@ function clearRequestTimeout(
   }
 }
 
+function responseIdFromMalformedLine(line: string): number | null {
+  try {
+    const value = JSON.parse(line) as unknown;
+    if (
+      typeof value === 'object' &&
+      value !== null &&
+      Number.isInteger((value as { id?: unknown }).id)
+    ) {
+      return (value as { id: number }).id;
+    }
+  } catch {
+    // parseBackendResponse reports the detailed protocol error. This helper
+    // only tries to associate that malformed response with a pending request.
+  }
+
+  return null;
+}
+
 export class BackendClient {
   private child: ChildProcessWithoutNullStreams | null = null;
   private lineReader: Interface | null = null;
@@ -206,6 +224,24 @@ export class BackendClient {
       response = parseBackendResponse(line);
     } catch (error) {
       console.error(error);
+
+      const responseId = responseIdFromMalformedLine(line);
+      if (responseId === null) {
+        this.rejectAllPending(
+          new Error('C++ 后端输出无法关联到请求，协议连接已失去同步'),
+        );
+        return;
+      }
+
+      const pendingRequest =
+        this.pendingRequests.get(responseId);
+      if (pendingRequest) {
+        clearRequestTimeout(pendingRequest.timeout);
+        this.pendingRequests.delete(responseId);
+        pendingRequest.reject(
+          new Error(`C++ 后端响应格式不正确（请求 ${responseId}）`),
+        );
+      }
       return;
     }
 

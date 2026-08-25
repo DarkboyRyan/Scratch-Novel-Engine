@@ -50,7 +50,26 @@ const MANIFEST_FILE_FIELDS = [
   'sha256',
 ];
 const GAME_FIELDS = ['format', 'runtimeVersion', 'game', 'scenes'];
-const GAME_METADATA_FIELDS = ['id', 'title', 'entrySceneId'];
+const GAME_METADATA_FIELDS_V1 = ['id', 'title', 'entrySceneId'];
+const GAME_METADATA_FIELDS_V2 = [
+  'id',
+  'title',
+  'entrySceneId',
+  'startScreen',
+];
+const GAME_METADATA_FIELDS_V5 = [
+  ...GAME_METADATA_FIELDS_V2,
+  'cgGallery',
+];
+const START_SCREEN_FIELDS_V2 = ['backgroundAssetId', 'musicAssetId'];
+const START_SCREEN_FIELDS_V3 = [
+  'title',
+  'backgroundAssetId',
+  'musicAssetId',
+];
+const CG_GALLERY_FIELDS_V5 = ['imageAssetIds'];
+const CG_GALLERY_FIELDS_V6 = ['pages'];
+const CG_GALLERY_PAGE_FIELDS_V6 = ['imageAssetIds'];
 const ASSET_DIRECTORY = {
   image: 'images',
   audio: 'audio',
@@ -109,6 +128,73 @@ const RELEASE_TARGETS = [
 export const RECEIPT_SCHEMA_VERSION = 1;
 export const ARTIFACT_MANIFEST_SCHEMA_VERSION = 1;
 export const RELEASE_SET_SCHEMA_VERSION = 1;
+
+function safePnpmJavaScriptPath(candidate, platform, fileExists) {
+  if (typeof candidate !== 'string' || candidate.includes('\0')) {
+    return null;
+  }
+  const pathApi = platform === 'win32' ? path.win32 : path.posix;
+  if (!pathApi.isAbsolute(candidate)) {
+    return null;
+  }
+  const baseName = pathApi.basename(candidate).toLowerCase();
+  if (baseName !== 'pnpm.cjs' && baseName !== 'pnpm.js') {
+    return null;
+  }
+  return fileExists(candidate) ? candidate : null;
+}
+
+export function resolvePnpmLauncher({
+  platform = process.platform,
+  nodeExecutable = process.execPath,
+  npmExecPath = process.env.npm_execpath,
+  repositoryRoot,
+  fileExists = existsSync,
+} = {}) {
+  const lifecycleCli = safePnpmJavaScriptPath(
+    npmExecPath,
+    platform,
+    fileExists,
+  );
+  if (lifecycleCli !== null) {
+    return { command: nodeExecutable, args: [lifecycleCli] };
+  }
+
+  if (typeof repositoryRoot === 'string' && repositoryRoot.length > 0) {
+    const candidates = [
+      path.join(repositoryRoot, 'node_modules', 'pnpm', 'bin', 'pnpm.cjs'),
+      path.join(repositoryRoot, 'node_modules', 'pnpm', 'bin', 'pnpm.js'),
+    ];
+    try {
+      const packagePath = require.resolve('pnpm/package.json', {
+        paths: [repositoryRoot],
+      });
+      candidates.unshift(
+        path.join(path.dirname(packagePath), 'bin', 'pnpm.cjs'),
+        path.join(path.dirname(packagePath), 'bin', 'pnpm.js'),
+      );
+    } catch {
+      // pnpm is commonly supplied by Corepack or a user-level installation.
+    }
+    for (const candidate of candidates) {
+      const installedCli = safePnpmJavaScriptPath(
+        candidate,
+        platform,
+        fileExists,
+      );
+      if (installedCli !== null) {
+        return { command: nodeExecutable, args: [installedCli] };
+      }
+    }
+  }
+
+  if (platform === 'win32') {
+    throw new Error(
+      '无法定位安全的 pnpm JavaScript 入口；请通过 pnpm 运行 Editor 命令',
+    );
+  }
+  return { command: 'pnpm', args: [] };
+}
 
 export function commandOptions(definitions) {
   const { values, positionals } = parseArgs({
@@ -333,14 +419,26 @@ async function walkFiles(root, relative = '') {
   return files;
 }
 
-function validateManifestDocument(input, projectId) {
+function validateManifestDocument(input, projectId, runtimeVersion) {
   const root = objectValue(input, 'manifest.json');
   exactFields(root, MANIFEST_FIELDS, 'manifest.json');
   if (
     root.format !== 'vn-engine-runtime-manifest' ||
     root.manifestVersion !== 1 ||
-    root.runtimeVersion !== 1 ||
-    root.playerCompatibility !== '>=1 <2'
+    root.runtimeVersion !== runtimeVersion ||
+    root.playerCompatibility !== (
+      runtimeVersion === 1
+        ? '>=1 <2'
+        : runtimeVersion === 2
+          ? '>=2 <3'
+          : runtimeVersion === 3
+            ? '>=3 <4'
+            : runtimeVersion === 4
+              ? '>=4 <5'
+              : runtimeVersion === 5
+                ? '>=5 <6'
+                : '>=6 <7'
+    )
   ) {
     throw new Error('manifest.json 的格式或版本不受支持');
   }
@@ -409,11 +507,29 @@ function validateManifestDocument(input, projectId) {
 function validateGameDocument(input) {
   const root = objectValue(input, 'game.json');
   exactFields(root, GAME_FIELDS, 'game.json');
-  if (root.format !== 'vn-engine-runtime' || root.runtimeVersion !== 1) {
+  if (
+    root.format !== 'vn-engine-runtime' ||
+    (
+      root.runtimeVersion !== 1 &&
+      root.runtimeVersion !== 2 &&
+      root.runtimeVersion !== 3 &&
+      root.runtimeVersion !== 4 &&
+      root.runtimeVersion !== 5 &&
+      root.runtimeVersion !== 6
+    )
+  ) {
     throw new Error('game.json 的格式或版本不受支持');
   }
   const metadata = objectValue(root.game, 'game.json.game');
-  exactFields(metadata, GAME_METADATA_FIELDS, 'game.json.game');
+  exactFields(
+    metadata,
+    root.runtimeVersion === 1
+      ? GAME_METADATA_FIELDS_V1
+      : root.runtimeVersion < 5
+        ? GAME_METADATA_FIELDS_V2
+        : GAME_METADATA_FIELDS_V5,
+    'game.json.game',
+  );
   const projectId = boundedString(metadata.id, 'game.json.game.id', 256);
   boundedString(metadata.title, 'game.json.game.title');
   const entrySceneId = boundedString(metadata.entrySceneId, 'game.json.game.entrySceneId', 256);
@@ -432,7 +548,90 @@ function validateGameDocument(input) {
   if (!sceneIds.has(entrySceneId)) {
     throw new Error('game.json 的入口场景不存在');
   }
-  return projectId;
+  let startScreen = null;
+  if (root.runtimeVersion >= 2) {
+    const value = objectValue(metadata.startScreen, 'game.json.game.startScreen');
+    exactFields(
+      value,
+      root.runtimeVersion === 2
+        ? START_SCREEN_FIELDS_V2
+        : START_SCREEN_FIELDS_V3,
+      'game.json.game.startScreen',
+    );
+    const nullableAssetId = (field) => {
+      if (value[field] === null) {
+        return null;
+      }
+      return boundedString(value[field], `game.json.game.startScreen.${field}`, 256);
+    };
+    startScreen = {
+      ...(root.runtimeVersion >= 3
+        ? { title: boundedString(value.title, 'game.json.game.startScreen.title') }
+        : {}),
+      backgroundAssetId: nullableAssetId('backgroundAssetId'),
+      musicAssetId: nullableAssetId('musicAssetId'),
+    };
+  }
+  let cgGallery = null;
+  if (root.runtimeVersion === 5) {
+    const value = objectValue(metadata.cgGallery, 'game.json.game.cgGallery');
+    exactFields(value, CG_GALLERY_FIELDS_V5, 'game.json.game.cgGallery');
+    if (!Array.isArray(value.imageAssetIds)) {
+      throw new Error('game.json.game.cgGallery.imageAssetIds 必须是数组');
+    }
+    const seen = new Set();
+    const imageAssetIds = value.imageAssetIds.map((assetId, index) => {
+      const parsed = boundedString(
+        assetId,
+        `game.json.game.cgGallery.imageAssetIds[${index}]`,
+        256,
+      );
+      if (seen.has(parsed)) {
+        throw new Error('game.json.game.cgGallery.imageAssetIds 不能包含重复资源 ID');
+      }
+      seen.add(parsed);
+      return parsed;
+    });
+    cgGallery = { imageAssetIds };
+  } else if (root.runtimeVersion >= 6) {
+    const value = objectValue(metadata.cgGallery, 'game.json.game.cgGallery');
+    exactFields(value, CG_GALLERY_FIELDS_V6, 'game.json.game.cgGallery');
+    if (!Array.isArray(value.pages) || value.pages.length === 0) {
+      throw new Error('game.json.game.cgGallery.pages 至少需要一页');
+    }
+    const seen = new Set();
+    const imageAssetIds = [];
+    for (const [pageIndex, pageInput] of value.pages.entries()) {
+      const context = `game.json.game.cgGallery.pages[${pageIndex}]`;
+      const page = objectValue(pageInput, context);
+      exactFields(page, CG_GALLERY_PAGE_FIELDS_V6, context);
+      if (!Array.isArray(page.imageAssetIds) || page.imageAssetIds.length !== 9) {
+        throw new Error(`${context}.imageAssetIds 必须精确包含 9 个槽位`);
+      }
+      for (const [slotIndex, assetId] of page.imageAssetIds.entries()) {
+        if (assetId === null) {
+          continue;
+        }
+        const parsed = boundedString(
+          assetId,
+          `${context}.imageAssetIds[${slotIndex}]`,
+          256,
+        );
+        if (seen.has(parsed)) {
+          throw new Error('game.json.game.cgGallery.pages 不能包含重复资源 ID');
+        }
+        seen.add(parsed);
+        imageAssetIds.push(parsed);
+      }
+    }
+    cgGallery = { imageAssetIds };
+  }
+  return {
+    projectId,
+    runtimeVersion: root.runtimeVersion,
+    startScreen,
+    cgGallery,
+  };
 }
 
 export async function verifyRuntimeBundle(bundleRoot) {
@@ -454,8 +653,38 @@ export async function verifyRuntimeBundle(bundleRoot) {
   }
   const game = await parseJsonFile(root, 'game.json', 16 * 1024 * 1024);
   const manifest = await parseJsonFile(root, 'manifest.json', 16 * 1024 * 1024);
-  const projectId = validateGameDocument(game);
-  const files = validateManifestDocument(manifest, projectId);
+  const gameMetadata = validateGameDocument(game);
+  const files = validateManifestDocument(
+    manifest,
+    gameMetadata.projectId,
+    gameMetadata.runtimeVersion,
+  );
+  const filesById = new Map(files.map((file) => [file.assetId, file]));
+  const requireTypedAsset = (assetId, type, context) => {
+    if (assetId === null) {
+      return;
+    }
+    if (filesById.get(assetId)?.type !== type) {
+      throw new Error(`${context} 引用了缺失或类型错误的资源`);
+    }
+  };
+  if (gameMetadata.startScreen !== null) {
+    requireTypedAsset(
+      gameMetadata.startScreen.backgroundAssetId,
+      'image',
+      '主界面背景',
+    );
+    requireTypedAsset(
+      gameMetadata.startScreen.musicAssetId,
+      'audio',
+      '主界面音乐',
+    );
+  }
+  if (gameMetadata.cgGallery !== null) {
+    for (const assetId of gameMetadata.cgGallery.imageAssetIds) {
+      requireTypedAsset(assetId, 'image', 'CG 画廊');
+    }
+  }
   for (const file of files) {
     await verifyMediaFile(root, file);
   }
@@ -470,12 +699,16 @@ export async function verifyRuntimeBundle(bundleRoot) {
   }
   if (
     !isObject(strictMetadata) ||
-    strictMetadata.projectId !== projectId ||
+    strictMetadata.projectId !== gameMetadata.projectId ||
     strictMetadata.assetCount !== files.length
   ) {
     throw new Error('Player 严格内容包校验结果与最终文件清单不一致');
   }
-  return { root, projectId, assetCount: files.length };
+  return {
+    root,
+    projectId: gameMetadata.projectId,
+    assetCount: files.length,
+  };
 }
 
 export async function copyVerifiedDirectory(sourceDirectory, targetDirectory) {

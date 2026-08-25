@@ -5,6 +5,7 @@ export {
   getChoices as getGamePreviewChoices,
   selectChoice as selectGamePreviewChoice,
   startGame as startGamePreview,
+  startGameAtScene as startGamePreviewAtScene,
   type GameRuntime as GamePreviewRuntime,
   type RuntimeCharacterState,
 } from '@vnengine/runtime';

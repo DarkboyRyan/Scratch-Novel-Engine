@@ -18,12 +18,36 @@
 - [项目文件夹与媒体资源](./project-folder-storage.md)：项目目录格式、安全保存、资源导入、
   capability URL 与媒体读取。
 - [独立游戏 Player 与导出流程](./game-export-player.md)：记录已完成的共享 Runtime 与
-  Player、v9→runtime v1 内容包、macOS `*-macOS.zip` 独立应用导出（ZIP 内含唯一
+  Player、v15→runtime v6 内容包、runtime v1–v6 兼容读取、macOS `*-macOS.zip`
+  独立应用导出（ZIP 内含唯一
   已签名 `.app`）、embedded 模式和多平台
   workflow；也列出 `player-release`/`game-release` protected Environments、不可变 tag/
   Release 和 Environment Secrets 的上线配置，并区分“流水线已实现”与“正式发行尚未验收”。
+- [Web Player ZIP 导出](./web-player-export.md)：`web-player` 导出入口、HTML5 静态站点
+  ZIP 契约、预构建 Vite 模板、WebGateway、IndexedDB 存档/设置、跨平台 ZIP 事务、
+  部署限制、技术栈与浏览器验收矩阵。
+- [Player 保存与读取](./save-load-implementation.md)：3 个手动槽和独立快速槽、
+  `GameRuntimeSnapshot v1`、Main-owned 游戏身份、原子本地存储、标题页读取入口与
+  游戏内底栏，以及完整实现流程和技术栈。
+- [Player 选项系统](./player-options-implementation.md)：`PlayerSettingsV2`、中英界面切换、
+  四通道音量、窗口/全屏与三档尺寸、v1 严格迁移、userData 原子设置文件、
+  trusted-frame patch IPC、typed catalog / React Context、媒体生命周期、
+  启动 activation gate、纯音量 patch 不改窗口、CG/存档/选项焦点互斥、Editor 内存预览
+  和可复现测试矩阵。
+- [Editor 中英文切换](./editor-localization-implementation.md)：顶栏设置入口、全局 V1 偏好、
+  Main 原子存储、多窗口广播、原生菜单/对话框、typed catalog、Blockly 原位换语言、
+  作者内容不翻译及完整测试矩阵。
 
 ### 剧情与编辑器功能
+
+- [当前架构中的主界面合成场景](./architecture.md#81-软件托管的主界面合成场景)：
+  Editor 默认进入的表单/Blockly 双编辑主界面、完整标题页预览、
+  `project.startScreen` 和 Player 标题页。
+- [当前架构中的 CG 画廊合成场景](./architecture.md#82-软件托管的-cg-画廊合成场景)：
+  独立表单/Blockly 编辑入口、手动页面、每页固定九槽、Player 分页与大图浏览，以及
+  `project.cgGallery.pages[].imageAssetIds` 的结构与全局唯一引用契约。
+- [CG 画廊实现](./cg-gallery-implementation.md)：CG 数据模型、表单与 Blockly 页模块、
+  Player 九宫格/大图交互、版本迁移和导出资源闭包。
 
 - [人物立绘](./character-portrait-implementation.md)：人物资源、时间线节点、layer 和预览状态。
 - [场景跳转](./scene-jump-implementation.md)：SceneJumpNode 如何贯穿 C++、IPC、React、
@@ -45,7 +69,7 @@
 ## 面试准备推荐顺序
 
 1. [技术栈与面试讲解指南](./technical-stack-interview-guide.md)：先掌握 30 秒介绍、
-   总技术栈、五条调用链和常见问答。
+   总技术栈、六条调用链和常见问答。
 2. [当前架构](./architecture.md)：理解 Renderer、Preload、Main、C++ 和文件系统
    的职责边界。
 3. [代码结构整理与解耦](./code-organization-and-decoupling.md)：理解如何把现有编辑器
@@ -62,15 +86,28 @@
 11. [独立游戏 Player 与导出流程](./game-export-player.md)：最后理解编辑器预览、共享
     Runtime、独立 Player、内容包、Player 模板、平台桌面应用及正式发布门禁之间的
     关系。
+12. [Player 保存与读取](./save-load-implementation.md)：理解为什么只传版本化小快照、
+    如何按游戏身份隔离存档，以及 React、Preload、Main 和原子文件事务的完整调用链。
+13. [Player 选项系统](./player-options-implementation.md)：理解为什么 Renderer 只发送
+    exact patch、Main 如何同步原生全屏与 workArea，以及音量调整如何不重置播放位置。
+14. [Editor 中英文切换](./editor-localization-implementation.md)：理解全局偏好如何跨窗口同步，
+    以及 Blockly 如何只替换界面标签而不重建作者工作区。
 
 ## 当前真实技术栈
 
 Electron 43、React 19、TypeScript 5.9、Blockly 13、Vite 5、Electron Forge 7、
 C++20、CMake、nlohmann/json、Vitest、Node Test、CTest 和 GitHub Actions。
 
-当前项目 Writer 固定写 `fileVersion: 9`，Reader 支持 v1–v9。`SceneNode` 目前有
-Dialogue、Background、Character、SceneJump、Bgm、Video 和 Choice 七种类型；
-`ChoiceOption` 是 ChoiceNode 内部的子实体，不是第八种 SceneNode。
+当前项目 Writer 固定写 `fileVersion: 15`，Reader 支持 v1–v15。v10 新增项目级
+`project.startScreen` 背景/音乐配置，v11 新增与项目名彼此独立的主界面显示标题；
+它不是 Scene。v12 新增作者可从 Toolbox 主动插入的“延伸”节点，用于在 Blockly
+中建立向下连接的新分页；白色数字字段会原子调整整页先后。v13 为人物节点新增可空
+百分比坐标；v14 首次以扁平 `project.cgGallery.imageAssetIds` 加入 CG 画廊。v15 改为
+至少一项的 `pages`，每页精确保存九个 `string | null` 槽位，所有非空图片 ID 跨页唯一；
+旧 v14 会按顺序每九张分块并补 `null`，v1–v13 迁移为一张全空页面。表单会隐藏延伸节点，
+Compiler 会在生成 Runtime 前剥离它。可运行的
+`SceneNode` 仍是 Dialogue、Background、Character、SceneJump、Bgm、Video 和 Choice
+七种类型；`ChoiceOption` 是 ChoiceNode 内部的子实体。
 
-`archive/` 中的历史文档可能出现 PixiJS、Zod、Zustand、Playwright 或 Web 导出等
+`archive/` 中的历史文档可能出现 PixiJS、Zod、Zustand 或 Playwright 等
 尚未采用的技术。面试时不要把历史计划当作当前实现。

@@ -1,78 +1,20 @@
 import type { FileHandle } from 'node:fs/promises';
-import path from 'node:path';
 
-import type { PlayerAssetType } from '../../shared/playerProtocol';
+import type { PlayerMediaMime } from '../../shared/playerMediaContract';
 
-export type PlayerMediaMime =
-  | 'image/jpeg'
-  | 'image/png'
-  | 'image/webp'
-  | 'audio/mpeg'
-  | 'audio/ogg'
-  | 'audio/wav'
-  | 'video/mp4'
-  | 'video/webm';
+export {
+  expectedAssetDirectory,
+  maximumPlayerMediaBytes,
+  mimeForPlayerAsset,
+  mimeMatchesAssetType,
+  type PlayerMediaMime,
+} from '../../shared/playerMediaContract';
 
-const MAX_IMAGE_BYTES = 128 * 1024 * 1024;
-const MAX_AUDIO_BYTES = 512 * 1024 * 1024;
-const MAX_VIDEO_BYTES = 2 * 1024 * 1024 * 1024;
 const MAGIC_BYTE_COUNT = 12;
 // Keep Player probing aligned with the Editor and C++ importer. A single,
 // already validated file handle is used for every read so the checked bytes
 // cannot be swapped by resolving the path again between probes.
 const MEDIA_MAGIC_BYTE_COUNT = 4096;
-
-const MIME_BY_EXTENSION: Readonly<Record<string, PlayerMediaMime>> = {
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.png': 'image/png',
-  '.webp': 'image/webp',
-  '.mp3': 'audio/mpeg',
-  '.ogg': 'audio/ogg',
-  '.wav': 'audio/wav',
-  '.mp4': 'video/mp4',
-  '.webm': 'video/webm',
-};
-
-const MIME_TYPE: Readonly<Record<PlayerMediaMime, PlayerAssetType>> = {
-  'image/jpeg': 'image',
-  'image/png': 'image',
-  'image/webp': 'image',
-  'audio/mpeg': 'audio',
-  'audio/ogg': 'audio',
-  'audio/wav': 'audio',
-  'video/mp4': 'video',
-  'video/webm': 'video',
-};
-
-export function maximumPlayerMediaBytes(type: PlayerAssetType): number {
-  if (type === 'image') {
-    return MAX_IMAGE_BYTES;
-  }
-  return type === 'audio' ? MAX_AUDIO_BYTES : MAX_VIDEO_BYTES;
-}
-
-export function expectedAssetDirectory(type: PlayerAssetType): string {
-  if (type === 'image') {
-    return 'images';
-  }
-  return type === 'audio' ? 'audio' : 'videos';
-}
-
-export function mimeForPlayerAsset(
-  type: PlayerAssetType,
-  relativePath: string,
-): PlayerMediaMime | null {
-  const mime = MIME_BY_EXTENSION[path.posix.extname(relativePath).toLowerCase()];
-  return mime !== undefined && MIME_TYPE[mime] === type ? mime : null;
-}
-
-export function mimeMatchesAssetType(
-  type: PlayerAssetType,
-  mime: string,
-): mime is PlayerMediaMime {
-  return mime in MIME_TYPE && MIME_TYPE[mime as PlayerMediaMime] === type;
-}
 
 async function readBytes(
   file: FileHandle,

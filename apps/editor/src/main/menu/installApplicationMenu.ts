@@ -9,6 +9,8 @@ import {
   PROJECT_FILE_COMMAND_CHANNEL,
   type ProjectFileCommand,
 } from '../../shared/projectFileProtocol';
+import type { EditorLanguage } from '../../shared/editorSettingsProtocol';
+import { getEditorNativeLabels } from '../i18n/editorNativeLabels';
 
 function sendProjectCommand(command: ProjectFileCommand): void {
   const focusedWindow = BrowserWindow.getFocusedWindow();
@@ -19,7 +21,8 @@ function sendProjectCommand(command: ProjectFileCommand): void {
   focusedWindow.webContents.send(PROJECT_FILE_COMMAND_CHANNEL, command);
 }
 
-export function installApplicationMenu(): void {
+export function installApplicationMenu(language: EditorLanguage = 'zh-CN'): void {
+  const labels = getEditorNativeLabels(language).menu;
   const template: MenuItemConstructorOptions[] = [];
 
   if (process.platform === 'darwin') {
@@ -39,39 +42,42 @@ export function installApplicationMenu(): void {
 
   template.push(
     {
-      label: '文件',
+      label: labels.file,
       submenu: [
         {
-          label: '新建项目',
+          label: labels.newProject,
           accelerator: 'CmdOrCtrl+N',
           click: () => sendProjectCommand('new'),
         },
         {
-          label: '打开项目…',
+          label: labels.openProject,
           accelerator: 'CmdOrCtrl+O',
           click: () => sendProjectCommand('open'),
         },
         { type: 'separator' },
         {
-          label: '保存项目',
+          label: labels.saveProject,
           accelerator: 'CmdOrCtrl+S',
           click: () => sendProjectCommand('save'),
         },
         ...(process.platform === 'darwin'
           ? []
-          : ([{ type: 'separator' }, { role: 'quit' }] as MenuItemConstructorOptions[])),
+          : ([
+              { type: 'separator' },
+              { role: 'quit', label: labels.quit },
+            ] as MenuItemConstructorOptions[])),
       ],
     },
     {
-      label: '编辑',
+      label: labels.edit,
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
+        { role: 'undo', label: labels.undo },
+        { role: 'redo', label: labels.redo },
         { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' },
+        { role: 'cut', label: labels.cut },
+        { role: 'copy', label: labels.copy },
+        { role: 'paste', label: labels.paste },
+        { role: 'selectAll', label: labels.selectAll },
       ],
     },
   );

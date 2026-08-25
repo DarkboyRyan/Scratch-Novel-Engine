@@ -14,15 +14,19 @@ import {
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
-import type { ProjectDocument } from "@vnengine/runtime";
-
-import type { AssetDocument } from "../../shared/projectTypes";
+import type {
+  AssetDocument,
+  ProjectDocument,
+} from "../../shared/projectTypes";
 import { mediaMagicMatches } from "../media/MediaContentValidator";
 import { maximumPreviewBytes } from "../media/MediaFormat";
 import {
-  compileAuthorProjectV9,
+  AUTHOR_PROJECT_FILE_VERSION,
+  AUTHOR_PROJECT_FORMAT,
+  compileAuthorProjectV15,
   RUNTIME_VERSION,
   type AuthorAssetRecord,
+  type CompiledAuthorProject,
 } from "./AuthorProjectCompiler";
 import { acquireExportFileLock } from "./ExportFileLock";
 
@@ -33,7 +37,7 @@ const MAX_CTIME_ONLY_RETRY_ATTEMPTS = 3;
 
 export const RUNTIME_MANIFEST_FORMAT = "vn-engine-runtime-manifest";
 export const RUNTIME_MANIFEST_VERSION = 1;
-export const PLAYER_COMPATIBILITY = ">=1 <2";
+export const PLAYER_COMPATIBILITY = ">=6 <7";
 
 export type RuntimeManifestAssetV1 = {
   assetId: string;
@@ -92,6 +96,172 @@ type CompletedStableFileOperation<T> = {
   sha256: string;
   ctimeOnlyChange: boolean;
 };
+
+type SavedAuthorProjectEnvelope = {
+  fileVersion: number;
+  project: Record<string, unknown>;
+  assets: unknown[];
+};
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasExactFields(
+  value: Record<string, unknown>,
+  expected: readonly string[],
+): boolean {
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  return (
+    actual.length === wanted.length &&
+    actual.every((field, index) => field === wanted[index])
+  );
+}
+
+function parseSavedAuthorProjectEnvelope(
+  contents: string,
+): SavedAuthorProjectEnvelope {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(contents) as unknown;
+  } catch {
+    throw new Error("project.vn.json 不是有效 JSON");
+  }
+  if (
+    !isJsonObject(parsed) ||
+    !hasExactFields(parsed, ["format", "fileVersion", "project", "assets"])
+  ) {
+    throw new Error("document 字段不符合作者项目 v15");
+  }
+  if (parsed.format !== AUTHOR_PROJECT_FORMAT) {
+    throw new Error("document.format 版本或格式不受支持");
+  }
+  if (
+    !Number.isSafeInteger(parsed.fileVersion) ||
+    (parsed.fileVersion as number) < 1 ||
+    (parsed.fileVersion as number) > AUTHOR_PROJECT_FILE_VERSION
+  ) {
+    throw new Error("document.fileVersion 版本或格式不受支持");
+  }
+  if (!isJsonObject(parsed.project) || !Array.isArray(parsed.assets)) {
+    throw new Error("旧版作者项目结构无效");
+  }
+  return {
+    fileVersion: parsed.fileVersion as number,
+    project: parsed.project,
+    assets: parsed.assets,
+  };
+}
+
+function assertLegacyProjectMatchesBackendProjection(
+  envelope: SavedAuthorProjectEnvelope,
+  expectedProject: ProjectDocument,
+): void {
+  const sourceProject = envelope.project;
+  if (
+    sourceProject.schemaVersion !== 1 ||
+    sourceProject.id !== expectedProject.id ||
+    sourceProject.name !== expectedProject.name ||
+    sourceProject.entrySceneId !== expectedProject.entrySceneId ||
+    !Array.isArray(sourceProject.scenes) ||
+    sourceProject.scenes.length !== expectedProject.scenes.length
+  ) {
+    throw new Error("磁盘项目与当前编辑器项目不一致");
+  }
+
+  for (const [sceneIndex, sourceSceneValue] of sourceProject.scenes.entries()) {
+    const expectedScene = expectedProject.scenes[sceneIndex];
+    if (
+      !isJsonObject(sourceSceneValue) ||
+      expectedScene === undefined ||
+      sourceSceneValue.schemaVersion !== 1 ||
+      sourceSceneValue.id !== expectedScene.id ||
+      sourceSceneValue.name !== expectedScene.name ||
+      !Array.isArray(sourceSceneValue.nodes) ||
+      sourceSceneValue.nodes.length !== expectedScene.nodes.length
+    ) {
+      throw new Error("磁盘项目与当前编辑器项目不一致");
+    }
+
+    if (envelope.fileVersion === 1) {
+      if (expectedScene.backgroundAssetId !== null) {
+        throw new Error("磁盘项目与当前编辑器项目不一致");
+      }
+    } else {
+      if (!isJsonObject(sourceSceneValue.visuals)) {
+        throw new Error("旧版作者项目场景视觉结构无效");
+      }
+      const characters = sourceSceneValue.visuals.characters;
+      if (!Array.isArray(characters)) {
+        throw new Error("旧版作者项目场景人物结构无效");
+      }
+      // Initial character visuals are author-only state and are deliberately
+      // absent from the Backend Renderer projection. Never canonicalize by
+      // silently dropping them from an old project.
+      if (characters.length > 0) {
+        throw new Error("runtime v6 不支持场景初始人物，请改用人物立绘时间线节点");
+      }
+      if (sourceSceneValue.visuals.backgroundAssetId !== expectedScene.backgroundAssetId) {
+        throw new Error("磁盘项目与当前编辑器项目不一致");
+      }
+    }
+
+    for (const [nodeIndex, sourceNodeValue] of sourceSceneValue.nodes.entries()) {
+      const expectedNode = expectedScene.nodes[nodeIndex];
+      if (
+        !isJsonObject(sourceNodeValue) ||
+        expectedNode === undefined ||
+        sourceNodeValue.id !== expectedNode.id ||
+        sourceNodeValue.type !== expectedNode.type
+      ) {
+        throw new Error("磁盘项目与当前编辑器项目不一致");
+      }
+    }
+  }
+}
+
+function compileSavedAuthorProject(
+  contents: string,
+  expectedProject: ProjectDocument,
+): CompiledAuthorProject {
+  const envelope = parseSavedAuthorProjectEnvelope(contents);
+  if (envelope.fileVersion >= 14) {
+    return compileAuthorProjectV15(contents);
+  }
+
+  // v1-v13 have already been parsed, migrated and aggregate-validated by the
+  // window-owned C++ Backend. The caller-owned manifest digest proves these
+  // are the exact bytes that produced expectedProject. Reuse that canonical
+  // projection instead of duplicating thirteen migration readers in Main;
+  // retain the original private Asset records so paths still pass the strict
+  // v15 compiler and are compared with expectedAssets below.
+  assertLegacyProjectMatchesBackendProjection(envelope, expectedProject);
+  const canonicalContents = JSON.stringify({
+    format: AUTHOR_PROJECT_FORMAT,
+    fileVersion: AUTHOR_PROJECT_FILE_VERSION,
+    project: {
+      schemaVersion: expectedProject.schemaVersion,
+      id: expectedProject.id,
+      name: expectedProject.name,
+      entrySceneId: expectedProject.entrySceneId,
+      startScreen: expectedProject.startScreen,
+      cgGallery: expectedProject.cgGallery,
+      scenes: expectedProject.scenes.map((scene) => ({
+        schemaVersion: scene.schemaVersion,
+        id: scene.id,
+        name: scene.name,
+        visuals: {
+          backgroundAssetId: scene.backgroundAssetId,
+          characters: [],
+        },
+        nodes: scene.nodes,
+      })),
+    },
+    assets: envelope.assets,
+  });
+  return compileAuthorProjectV15(canonicalContents);
+}
 
 function errnoCode(error: unknown): string | undefined {
   return (error as NodeJS.ErrnoException | undefined)?.code;
@@ -511,7 +681,7 @@ async function copyAssetAndHash(
   stagingRootPath: string,
   asset: AuthorAssetRecord,
 ): Promise<RuntimeManifestAssetV1> {
-  // Author assets have no trusted digest in the saved v9 document. Treat even
+  // Author assets have no trusted digest in the saved v15 document. Treat even
   // ctime-only drift as a source change instead of learning a new hash here.
   return (await copyAssetAndHashAttempt(sourceRootPath, stagingRootPath, asset))
     .value;
@@ -728,8 +898,11 @@ export async function exportRuntimeBundle(
       sourceRootPath,
       options.expectedManifestSha256,
     );
-    const compiled = compileAuthorProjectV9(sourceManifestContents);
-    if (!isDeepStrictEqual(compiled.project, options.expectedProject)) {
+    const compiled = compileSavedAuthorProject(
+      sourceManifestContents,
+      options.expectedProject,
+    );
+    if (!isDeepStrictEqual(compiled.sourceProject, options.expectedProject)) {
       throw new Error("磁盘项目与当前编辑器项目不一致");
     }
     if (!isDeepStrictEqual(compiled.publicAssets, options.expectedAssets)) {

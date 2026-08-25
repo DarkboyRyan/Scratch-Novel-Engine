@@ -39,6 +39,8 @@
     "@types/electron-squirrel-startup": "^1.0.2",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
+    "@types/yauzl": "3.4.0",
+    "@types/yazl": "3.3.1",
     "@typescript-eslint/eslint-plugin": "^8.58.1",
     "@typescript-eslint/parser": "^8.58.1",
     "@vitejs/plugin-react": "^4.7.0",
@@ -56,6 +58,8 @@
     "electron-squirrel-startup": "1.0.1",
     "filenamify": "4.3.0",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "yauzl": "3.4.0",
+    "yazl": "3.3.1"
   }
 }

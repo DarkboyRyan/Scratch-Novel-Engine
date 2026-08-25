@@ -1,6 +1,8 @@
 import type { BrowserWindow } from 'electron';
 
 import type { ProjectFileSessionSnapshot } from '../../shared/projectFileProtocol';
+import type { EditorLanguage } from '../../shared/editorSettingsProtocol';
+import { getEditorNativeLabels } from '../i18n/editorNativeLabels';
 
 const PRODUCT_NAME = 'VN Engine Editor';
 
@@ -8,10 +10,12 @@ export function updateWindowDocumentPresentation(
   editorWindow: BrowserWindow,
   projectName: string,
   session: ProjectFileSessionSnapshot,
+  language: EditorLanguage = 'zh-CN',
 ): void {
-  const safeProjectName = projectName.trim() || '未命名项目';
+  const labels = getEditorNativeLabels(language).window;
+  const safeProjectName = projectName.trim() || labels.untitledProject;
   const dirtyMark = session.isDirty ? '● ' : '';
-  const unsavedLabel = session.hasStorage ? '' : ' [未保存]';
+  const unsavedLabel = session.hasStorage ? '' : ` [${labels.unsaved}]`;
 
   editorWindow.setTitle(
     `${dirtyMark}${safeProjectName}${unsavedLabel} — ${PRODUCT_NAME}`,

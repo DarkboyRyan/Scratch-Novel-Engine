@@ -4,12 +4,14 @@ import {
   VN_IMAGE_ASSET_DRAG_TYPE,
   VN_VIDEO_ASSET_DRAG_TYPE,
 } from './assetDragTypes';
+import { useEditorLabels } from '../../i18n/editorLocalization';
 
 type ResourcePanelProps = {
   assets: AssetDocument[];
   backgroundAssetId: string | null;
   previewUrls: Readonly<Record<string, string>>;
   isBusy: boolean;
+  imageSelectionPurpose?: 'background' | 'cg-gallery';
   onImportImage: () => Promise<void>;
   onImportAudio: () => Promise<void>;
   onImportVideo: () => Promise<void>;
@@ -21,11 +23,13 @@ export function ResourcePanel({
   backgroundAssetId,
   previewUrls,
   isBusy,
+  imageSelectionPurpose = 'background',
   onImportImage,
   onImportAudio,
   onImportVideo,
   onSelectBackground,
 }: ResourcePanelProps) {
+  const labels = useEditorLabels();
   const imageAssets = assets.filter((asset) => asset.type === 'image');
   const videoAssets = assets.filter((asset) => asset.type === 'video');
   const audioAssets = assets.filter((asset) => asset.type === 'audio');
@@ -33,8 +37,8 @@ export function ResourcePanel({
   return (
     <section className="resource-panel" aria-labelledby="resource-title">
       <div className="resource-panel-heading">
-        <strong id="resource-title">项目资源</strong>
-        <span>{assets.length} 项</span>
+        <strong id="resource-title">{labels.resource.title}</strong>
+        <span>{assets.length} {labels.resource.itemUnit}</span>
       </div>
 
       <button
@@ -43,7 +47,7 @@ export function ResourcePanel({
         disabled={isBusy}
         onClick={() => void onImportImage()}
       >
-        导入图片
+        {labels.resource.importImage}
       </button>
 
       <button
@@ -52,7 +56,7 @@ export function ResourcePanel({
         disabled={isBusy}
         onClick={() => void onImportAudio()}
       >
-        导入音频
+        {labels.resource.importAudio}
       </button>
 
       <button
@@ -61,42 +65,56 @@ export function ResourcePanel({
         disabled={isBusy}
         onClick={() => void onImportVideo()}
       >
-        导入视频
+        {labels.resource.importVideo}
       </button>
 
-      <button
-        type="button"
-        className="resource-clear-background"
-        aria-pressed={backgroundAssetId === null}
-        disabled={isBusy || backgroundAssetId === null}
-        onClick={() => void onSelectBackground(null)}
-      >
-        无背景
-      </button>
+      {imageSelectionPurpose === 'background' ? (
+        <button
+          type="button"
+          className="resource-clear-background"
+          aria-pressed={backgroundAssetId === null}
+          disabled={isBusy || backgroundAssetId === null}
+          onClick={() => void onSelectBackground(null)}
+        >
+          {labels.resource.noBackground}
+        </button>
+      ) : null}
 
-      <div className="resource-list" aria-label="已导入资源">
+      <div className="resource-list" aria-label={labels.resource.importedAssets}>
         {assets.length === 0 ? (
           <span className="resource-empty">
-            暂无资源。可导入图片、音频和视频。
+            {labels.resource.empty}
           </span>
         ) : (
           <>
             {imageAssets.length > 0 ? (
-              <div className="resource-group" aria-label="图片资源">
-                <span className="resource-group-label">图片</span>
+              <div className="resource-group" aria-label={labels.resource.imageAssets}>
+                <span className="resource-group-label">{labels.common.image}</span>
                 {imageAssets.map((asset) => (
                   <button
                     type="button"
                     key={asset.id}
-                    draggable={!isBusy}
+                    draggable={
+                      !isBusy && imageSelectionPurpose === 'background'
+                    }
                     className={`resource-item${
                       asset.id === backgroundAssetId
                         ? ' is-background'
                         : ''
                     }`}
-                    title={`将 ${asset.displayName} 设为当前场景背景`}
-                    aria-pressed={asset.id === backgroundAssetId}
-                    disabled={isBusy}
+                    title={
+                      imageSelectionPurpose === 'cg-gallery'
+                        ? asset.displayName
+                        : `${labels.resource.setSceneBackgroundPrefix}${asset.displayName}`
+                    }
+                    aria-pressed={
+                      imageSelectionPurpose === 'background'
+                        ? asset.id === backgroundAssetId
+                        : undefined
+                    }
+                    disabled={
+                      isBusy || imageSelectionPurpose === 'cg-gallery'
+                    }
                     onDragStart={(event) => {
                       event.dataTransfer.effectAllowed = 'copy';
                       event.dataTransfer.setData(
@@ -104,7 +122,11 @@ export function ResourcePanel({
                         asset.id,
                       );
                     }}
-                    onClick={() => void onSelectBackground(asset.id)}
+                    onClick={() => {
+                      if (imageSelectionPurpose === 'background') {
+                        void onSelectBackground(asset.id);
+                      }
+                    }}
                   >
                     {previewUrls[asset.id] ? (
                       <img
@@ -117,7 +139,7 @@ export function ResourcePanel({
                         className="resource-thumbnail-placeholder"
                         aria-hidden="true"
                       >
-                        图
+                        {labels.resource.imagePlaceholder}
                       </span>
                     )}
                     <span>{asset.displayName}</span>
@@ -127,14 +149,14 @@ export function ResourcePanel({
             ) : null}
 
             {audioAssets.length > 0 ? (
-              <div className="resource-group" aria-label="音频资源">
-                <span className="resource-group-label">音频</span>
+              <div className="resource-group" aria-label={labels.resource.audioAssets}>
+                <span className="resource-group-label">{labels.common.audio}</span>
                 {audioAssets.map((asset) => (
                   <div
                     key={asset.id}
                     draggable={!isBusy}
                     className="resource-item resource-audio-item"
-                    title={`拖到对白语音或背景音乐积木：${asset.displayName}`}
+                    title={`${labels.resource.dragAudioPrefix}${asset.displayName}`}
                     onDragStart={(event) => {
                       event.dataTransfer.effectAllowed = 'copy';
                       event.dataTransfer.setData(
@@ -156,14 +178,14 @@ export function ResourcePanel({
             ) : null}
 
             {videoAssets.length > 0 ? (
-              <div className="resource-group" aria-label="视频资源">
-                <span className="resource-group-label">视频</span>
+              <div className="resource-group" aria-label={labels.resource.videoAssets}>
+                <span className="resource-group-label">{labels.common.video}</span>
                 {videoAssets.map((asset) => (
                   <div
                     key={asset.id}
                     draggable={!isBusy}
                     className="resource-item resource-video-item"
-                    title={`拖到视频播放积木：${asset.displayName}`}
+                    title={`${labels.resource.dragVideoPrefix}${asset.displayName}`}
                     onDragStart={(event) => {
                       event.dataTransfer.effectAllowed = 'copy';
                       event.dataTransfer.setData(

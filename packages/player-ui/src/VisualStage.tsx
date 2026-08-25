@@ -1,4 +1,12 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
+
+import type { PlayerUiLocalizationProps } from './localization';
+import { usePlayerUiLabels } from './PlayerUiProvider';
 
 export type PreviewCharacter = {
   id: string;
@@ -6,9 +14,10 @@ export type PreviewCharacter = {
   name: string;
   slot: 'left' | 'center' | 'right';
   layer: number;
+  position: { x: number; y: number } | null;
 };
 
-export type VisualStageProps = {
+export type VisualStageProps = PlayerUiLocalizationProps & {
   speaker: string;
   text: string;
   backgroundUrl: string | null;
@@ -31,10 +40,21 @@ function CharacterPortrait({ character }: { character: PreviewCharacter }) {
     return null;
   }
 
+  const style: CSSProperties = character.position
+    ? {
+        zIndex: 10 + character.layer,
+        left: `${character.position.x}%`,
+        top: `${character.position.y}%`,
+        right: 'auto',
+        bottom: 'auto',
+        transform: 'translate(-50%, -100%)',
+      }
+    : { zIndex: 10 + character.layer };
+
   return (
     <img
       className={`preview-character preview-character-${character.slot}`}
-      style={{ zIndex: 10 + character.layer }}
+      style={style}
       src={character.url}
       alt={character.name}
       onError={() => setFailed(true)}
@@ -43,6 +63,8 @@ function CharacterPortrait({ character }: { character: PreviewCharacter }) {
 }
 
 export function VisualStage({
+  language,
+  labels: labelsOverride,
   speaker,
   text,
   backgroundUrl,
@@ -50,9 +72,10 @@ export function VisualStage({
   showDialogue = true,
   characters = [],
   className = '',
-  placeholder = '预览界面',
+  placeholder,
   children,
 }: VisualStageProps) {
+  const labels = usePlayerUiLabels(language, labelsOverride).visualStage;
   const [backgroundFailed, setBackgroundFailed] = useState(false);
 
   useEffect(() => {
@@ -73,8 +96,10 @@ export function VisualStage({
       ) : (
         <p className="preview-placeholder">
           {backgroundUrl && backgroundFailed
-            ? `无法读取背景：${backgroundName ?? '未知图片'}`
-            : placeholder}
+            ? labels.backgroundLoadFailed(
+                backgroundName ?? labels.unknownImage,
+              )
+            : placeholder ?? labels.previewPlaceholder}
         </p>
       )}
 

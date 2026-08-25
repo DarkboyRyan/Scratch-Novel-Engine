@@ -1,5 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useReducer, useRef, useState } from 'react';
 
+import {
+  type EditorLanguage,
+  type EditorSettings,
+} from '../shared/editorSettingsProtocol';
 import type { GameExportRequest } from '../shared/exportProtocol';
 import type { EditorMode } from './application/editorMode';
 import {
@@ -9,6 +13,7 @@ import {
 import { subscribeEditorProjectFileCommands } from './application/editorPlatformGateway';
 import { ErrorDialog } from './components/ErrorDialog';
 import { CreateProjectDialog } from './components/CreateProjectDialog';
+import { RendererErrorBoundary } from './components/RendererErrorBoundary';
 import { Toolbar } from './components/Toolbar';
 import {
   BlockEditor,
@@ -22,19 +27,71 @@ import { useFormEditor } from './features/form-editor/useFormEditor';
 import { deriveTimelinePreview } from './features/form-editor/timelinePreview';
 import { GamePreview } from './features/game-preview/GamePreview';
 import { useGamePreview } from './features/game-preview/useGamePreview';
+import {
+  CgGalleryEditor,
+} from './features/cg-gallery/CgGalleryEditor';
+import {
+  CgGalleryFormEditor,
+} from './features/cg-gallery/CgGalleryFormEditor';
+import type { CgGalleryEditorHandle } from './features/cg-gallery/CgGalleryBlocklyWorkspace';
+import {
+  StartScreenEditor,
+  type StartScreenEditorHandle,
+} from './features/start-screen/StartScreenEditor';
+import { StartScreenFormEditor } from './features/start-screen/StartScreenFormEditor';
+import {
+  editorSurfaceReducer,
+  CG_GALLERY_SCENE_ID,
+  initialEditorSurface,
+  START_SCREEN_SCENE_ID,
+  updateStartScreenFromLatest,
+} from './features/start-screen/startScreenScene';
 import { useEngineProject } from './hooks/useEngineProject';
+import { useEditorSettings } from './hooks/useEditorSettings';
+import {
+  EditorI18nProvider,
+  useEditorLabels,
+} from './i18n/editorLocalization';
 import { prepareProjectSave } from './projectSavePreparation';
 import { projectWindowTitle } from './projectSessionPresentation';
 
-export default function App() {
+type EditorApplicationProps = {
+  settings: EditorSettings;
+  isSettingsSaving: boolean;
+  settingsSaveFailed: boolean;
+  settingsRestartRequired: boolean;
+  onLanguageChange: (language: EditorLanguage) => Promise<void>;
+  onOpenSettings: () => void;
+};
+
+function EditorApplication({
+  settings,
+  isSettingsSaving,
+  settingsSaveFailed,
+  settingsRestartRequired,
+  onLanguageChange,
+  onOpenSettings,
+}: EditorApplicationProps) {
+  const labels = useEditorLabels();
   const [editorMode, setEditorMode] = useState<EditorMode>('form');
   const blockEditorLayouts =
     useRef<BlockEditorLayoutStore>(new Map());
   const blockEditorRef = useRef<BlockEditorHandle>(null);
+  const startScreenEditorRef = useRef<StartScreenEditorHandle>(null);
+  const cgGalleryEditorRef = useRef<CgGalleryEditorHandle>(null);
   const engine = useEngineProject();
   const editor = useFormEditor(engine);
   const gamePreview = useGamePreview();
   const { project, scene } = editor;
+  const [editorSurface, dispatchEditorSurface] = useReducer(
+    editorSurfaceReducer,
+    undefined,
+    initialEditorSurface,
+  );
+  const isStartScreenSelected = editorSurface === 'start-screen';
+  const isCgGallerySelected = editorSurface === 'cg-gallery';
+  const isSyntheticSurfaceSelected =
+    isStartScreenSelected || isCgGallerySelected;
   const assetPreviewUrls = useAssetPreviewUrls(
     project?.id ?? null,
     engine.projectGeneration,
@@ -44,7 +101,9 @@ export default function App() {
   const [isRenamingProject, setIsRenamingProject] = useState(false);
   const [projectNameDraft, setProjectNameDraft] = useState('');
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
-  const [newProjectName, setNewProjectName] = useState('未命名项目');
+  const [newProjectName, setNewProjectName] = useState(
+    labels.app.untitledProject,
+  );
   const [blockDraftDirty, setBlockDraftDirty] = useState(false);
   const projectNameCommitRef = useRef<Promise<boolean> | null>(null);
   const projectNameDraftDirty = Boolean(
@@ -64,14 +123,14 @@ export default function App() {
   });
 
   const handleCreateProject = async () => {
-    setNewProjectName('未命名项目');
+    setNewProjectName(labels.app.untitledProject);
     setIsCreateProjectOpen(true);
   };
 
   const confirmCreateProject = async () => {
     const normalizedName = newProjectName.trim();
     if (!normalizedName) {
-      engine.setEngineMessage('项目名不可为空');
+      engine.setEngineMessage(labels.app.projectNameRequired);
       return;
     }
 
@@ -85,7 +144,7 @@ export default function App() {
   const handleOpenProject = async () => {
     if (
       isDirty &&
-      !window.confirm('当前项目有未保存内容，仍要打开另一个项目吗？')
+      !window.confirm(labels.app.confirmOpenWithUnsavedChanges)
     ) {
       return;
     }
@@ -97,6 +156,7 @@ export default function App() {
       editor.resetEditorState();
       blockEditorLayouts.current.clear();
       setEditorMode('form');
+      dispatchEditorSurface({ type: 'project-loaded' });
     }
   };
 
@@ -142,13 +202,29 @@ export default function App() {
     const prepared = await prepareProjectSave({
       editorMode,
       flushBlockDraft: () =>
-        blockEditorRef.current?.flushPendingDraft() ??
-        Promise.resolve(true),
+        isCgGallerySelected
+          ? (cgGalleryEditorRef.current?.flushPendingDraft() ??
+            Promise.resolve(true))
+          : isStartScreenSelected
+          ? (startScreenEditorRef.current?.flushPendingDraft() ??
+            Promise.resolve(true))
+          : (blockEditorRef.current?.flushPendingDraft() ??
+            Promise.resolve(true)),
       commitProjectName,
-      commitFormDraft: editor.commitPendingDraft,
+      commitFormDraft: () =>
+        isCgGallerySelected
+          ? (cgGalleryEditorRef.current?.flushPendingDraft() ??
+            Promise.resolve(true))
+          : isStartScreenSelected
+          ? (startScreenEditorRef.current?.flushPendingDraft() ??
+            Promise.resolve(true))
+          : editor.commitPendingDraft(),
     });
 
-    if (prepared && editorMode === 'blocks') {
+    if (
+      prepared &&
+      (isSyntheticSurfaceSelected || editorMode === 'blocks')
+    ) {
       setBlockDraftDirty(false);
     }
     return prepared;
@@ -172,13 +248,28 @@ export default function App() {
     if (engine.isBusy || gamePreview.session) {
       return;
     }
+    const previewSceneId = isSyntheticSurfaceSelected ? null : scene?.id ?? null;
+    if (!isSyntheticSurfaceSelected && previewSceneId === null) {
+      engine.setEngineMessage(labels.app.currentSceneMissing);
+      return;
+    }
     if (!(await prepareCurrentEdits())) {
       return;
     }
 
     const latestProject = await engine.getProjectSnapshot();
-    if (!latestProject || !gamePreview.start(latestProject)) {
-      engine.setEngineMessage('项目入口场景不存在，无法开始预览');
+    const started = latestProject
+      ? isSyntheticSurfaceSelected
+        ? gamePreview.startWhole(latestProject)
+        : previewSceneId !== null &&
+          gamePreview.start(latestProject, previewSceneId)
+      : false;
+    if (!started) {
+      engine.setEngineMessage(
+        isSyntheticSurfaceSelected
+          ? labels.app.entrySceneMissing
+          : labels.app.currentSceneMissing,
+      );
     }
   };
 
@@ -211,7 +302,27 @@ export default function App() {
   const handleSelectBackground = async (
     assetId: string | null,
   ): Promise<void> => {
-    if (!scene || scene.backgroundAssetId === assetId) {
+    if (!project || !scene) {
+      return;
+    }
+
+    if (isCgGallerySelected) {
+      // CG images are assigned to explicit page slots in the CG editor.
+      // ResourcePanel is intentionally read-only while this surface is open.
+      return;
+    }
+
+    if (isStartScreenSelected) {
+      await updateStartScreenFromLatest(
+        { backgroundAssetId: assetId },
+        prepareCurrentEdits,
+        engine.getProjectSnapshot,
+        engine.updateStartScreen,
+      );
+      return;
+    }
+
+    if (scene.backgroundAssetId === assetId) {
       return;
     }
 
@@ -224,6 +335,57 @@ export default function App() {
     await engine.setSceneBackground(scene.id, assetId);
   };
 
+  const handleSceneChange = async (nextSceneId: string): Promise<void> => {
+    if (!project || engine.isBusy) {
+      return;
+    }
+
+    if (
+      nextSceneId === START_SCREEN_SCENE_ID ||
+      nextSceneId === CG_GALLERY_SCENE_ID
+    ) {
+      const selectingStartScreen = nextSceneId === START_SCREEN_SCENE_ID;
+      if (
+        (selectingStartScreen && isStartScreenSelected) ||
+        (!selectingStartScreen && isCgGallerySelected)
+      ) {
+        return;
+      }
+      const committed = isCgGallerySelected
+        ? await (cgGalleryEditorRef.current?.flushPendingDraft() ?? true)
+        : isStartScreenSelected
+          ? await (startScreenEditorRef.current?.flushPendingDraft() ?? true)
+          : editorMode === 'form'
+          ? await editor.commitPendingDraft()
+          : await (blockEditorRef.current?.flushPendingDraft() ?? true);
+      if (committed) {
+        dispatchEditorSurface({
+          type: selectingStartScreen
+            ? 'select-start-screen'
+            : 'select-cg-gallery',
+        });
+      }
+      return;
+    }
+
+    if (
+      !project.scenes.some((projectScene) => projectScene.id === nextSceneId)
+    ) {
+      return;
+    }
+
+    if (isSyntheticSurfaceSelected) {
+      const flushed = isCgGallerySelected
+        ? await (cgGalleryEditorRef.current?.flushPendingDraft() ?? true)
+        : await (startScreenEditorRef.current?.flushPendingDraft() ?? true);
+      if (!flushed) {
+        return;
+      }
+    }
+    await editor.selectScene(nextSceneId);
+    dispatchEditorSurface({ type: 'select-story' });
+  };
+
   const handleEditorModeChange = async (
     nextMode: EditorMode,
   ): Promise<void> => {
@@ -233,8 +395,11 @@ export default function App() {
 
     // 切换视图会卸载当前编辑器，所以先把它的草稿提交给
     // C++。提交失败就留在当前模式，避免隐藏或丢失用户输入。
-    const committed =
-      editorMode === 'form'
+    const committed = isCgGallerySelected
+      ? await (cgGalleryEditorRef.current?.flushPendingDraft() ?? true)
+      : isStartScreenSelected
+      ? await (startScreenEditorRef.current?.flushPendingDraft() ?? true)
+      : editorMode === 'form'
         ? await editor.commitPendingDraft()
         : await (blockEditorRef.current?.flushPendingDraft() ?? true);
 
@@ -276,6 +441,7 @@ export default function App() {
     // 同步规范化后的项目名，避免覆盖用户正在输入的草稿。
     setIsRenamingProject(false);
     setProjectNameDraft(project.name);
+    dispatchEditorSurface({ type: 'project-loaded' });
   }, [project?.id]);
 
   useEffect(() => {
@@ -292,19 +458,20 @@ export default function App() {
       project.name,
       engine.session.hasStorage,
       isDirty,
+      labels.app.unsavedWindowTitle,
     );
-  }, [engine.session.hasStorage, isDirty, project]);
+  }, [engine.session.hasStorage, isDirty, labels, project]);
 
   if (!project || !scene) {
     return (
       <main className="engine-startup" role="status">
         <strong>Scratch Novel Engine</strong>
         <p>
-          {editor.engineMessage || '正在启动……'}
+          {editor.engineMessage || labels.app.starting}
         </p>
         {editor.engineMessage && (
           <button type="button" onClick={() => window.location.reload()}>
-            重新连接
+            {labels.app.reconnect}
           </button>
         )}
       </main>
@@ -330,14 +497,18 @@ export default function App() {
     return {
       id: character.nodeId,
       url: assetPreviewUrls[character.assetId] ?? null,
-      name: asset?.displayName ?? '缺失立绘',
+      name: asset?.displayName ?? labels.app.missingPortrait,
       slot: character.slot,
       layer: character.layer,
+      position: character.position,
     };
   });
 
   return (
-    <div className="editor">
+    <div
+      className="editor"
+      data-editor-language={settings.language}
+    >
       <Toolbar
         projectName={project.name}
         projectNameDraft={projectNameDraft}
@@ -350,6 +521,10 @@ export default function App() {
         engineMessage={editor.engineMessage}
         operationMessage={engine.exportMessage}
         projectFolderName={engine.projectFolderName}
+        language={settings.language}
+        isSettingsSaving={isSettingsSaving}
+        settingsSaveFailed={settingsSaveFailed}
+        settingsRestartRequired={settingsRestartRequired}
         onCreateProject={() => void handleCreateProject()}
         onOpenProject={() => void handleOpenProject()}
         onSaveProject={() => void handleSaveProject()}
@@ -367,20 +542,87 @@ export default function App() {
         onEditorModeChange={(mode) => {
           void handleEditorModeChange(mode);
         }}
+        onLanguageChange={onLanguageChange}
+        onOpenSettings={onOpenSettings}
       />
 
       <ResourcePanel
         assets={engine.assets}
-        backgroundAssetId={scene.backgroundAssetId}
+        backgroundAssetId={
+          isStartScreenSelected
+            ? project.startScreen.backgroundAssetId
+            : isCgGallerySelected
+              ? null
+            : scene.backgroundAssetId
+        }
         previewUrls={assetPreviewUrls}
         isBusy={engine.isBusy}
+        imageSelectionPurpose={
+          isCgGallerySelected ? 'cg-gallery' : 'background'
+        }
         onImportImage={handleImportImage}
         onImportAudio={handleImportAudio}
         onImportVideo={handleImportVideo}
         onSelectBackground={handleSelectBackground}
       />
 
-      {editorMode === 'form' ? (
+      {isCgGallerySelected && editorMode === 'form' ? (
+        <CgGalleryFormEditor
+          ref={cgGalleryEditorRef}
+          project={project}
+          assets={engine.assets}
+          previewUrls={assetPreviewUrls}
+          isBusy={engine.isBusy}
+          isStartPreviewDisabled={engine.isBusy}
+          onSceneChange={handleSceneChange}
+          onUpdateCgGallery={engine.updateCgGallery}
+          onDraftDirtyChange={setBlockDraftDirty}
+          onStartPreview={() => void handleStartPreview()}
+        />
+      ) : isCgGallerySelected ? (
+        <CgGalleryEditor
+          ref={cgGalleryEditorRef}
+          project={project}
+          assets={engine.assets}
+          isBusy={engine.isBusy}
+          isStartPreviewDisabled={engine.isBusy}
+          onSceneChange={handleSceneChange}
+          onUpdateCgGallery={engine.updateCgGallery}
+          onDraftDirtyChange={setBlockDraftDirty}
+          onStartPreview={() => void handleStartPreview()}
+        />
+      ) : isStartScreenSelected && editorMode === 'form' ? (
+        <StartScreenFormEditor
+          ref={startScreenEditorRef}
+          project={project}
+          assets={engine.assets}
+          backgroundUrl={
+            project.startScreen.backgroundAssetId === null
+              ? null
+              : assetPreviewUrls[
+                  project.startScreen.backgroundAssetId
+                ] ?? null
+          }
+          isBusy={engine.isBusy}
+          isStartPreviewDisabled={engine.isBusy}
+          onSceneChange={handleSceneChange}
+          onUpdateStartScreen={engine.updateStartScreen}
+          onDraftDirtyChange={setBlockDraftDirty}
+          onStartPreview={() => void handleStartPreview()}
+        />
+      ) : isStartScreenSelected ? (
+        <StartScreenEditor
+          ref={startScreenEditorRef}
+          project={project}
+          assets={engine.assets}
+          isBusy={engine.isBusy}
+          isStartPreviewDisabled={engine.isBusy}
+          onSceneChange={handleSceneChange}
+          onUpdateStartScreen={engine.updateStartScreen}
+          onDraftDirtyChange={setBlockDraftDirty}
+          onStartPreview={() => void handleStartPreview()}
+        />
+      ) : editorMode === 'form' ? (
         <FormEditor
           editor={editor}
           assets={engine.assets}
@@ -390,6 +632,12 @@ export default function App() {
           characters={previewCharacters}
           isStartPreviewDisabled={engine.isBusy}
           onStartPreview={() => void handleStartPreview()}
+          onSelectStartScreen={() =>
+            handleSceneChange(START_SCREEN_SCENE_ID)
+          }
+          onSelectCgGallery={() =>
+            handleSceneChange(CG_GALLERY_SCENE_ID)
+          }
         />
       ) : (
         <BlockEditor
@@ -399,7 +647,13 @@ export default function App() {
           assets={engine.assets}
           layoutStore={blockEditorLayouts.current}
           isBusy={engine.isBusy}
-          onSceneChange={editor.selectScene}
+          onSceneChange={handleSceneChange}
+          onSelectStartScreen={() =>
+            handleSceneChange(START_SCREEN_SCENE_ID)
+          }
+          onSelectCgGallery={() =>
+            handleSceneChange(CG_GALLERY_SCENE_ID)
+          }
           onDialogueUpdate={engine.updateDialogue}
           onDialogueAdd={engine.addDialogue}
           onBackgroundAdd={engine.addBackground}
@@ -414,6 +668,7 @@ export default function App() {
           onVideoUpdate={engine.updateVideo}
           onChoiceAdd={engine.addChoice}
           onChoiceOptionAdd={engine.addChoiceOption}
+          onStoryExtensionAdd={engine.addStoryExtension}
           onChoiceOptionUpdate={engine.updateChoiceOption}
           onChoiceOptionDelete={engine.deleteChoiceOption}
           onChoiceOptionReorder={engine.reorderChoiceOption}
@@ -427,7 +682,7 @@ export default function App() {
 
       <ErrorDialog
         open={Boolean(editor.engineMessage)}
-        title="错误"
+        title={labels.common.error}
         message={editor.engineMessage}
         onConfirm={() => engine.setEngineMessage('')}
       />
@@ -450,9 +705,50 @@ export default function App() {
           onAdvance={gamePreview.advance}
           onVideoComplete={gamePreview.completeVideo}
           onChoiceSelect={gamePreview.selectChoice}
+          onEnterStory={gamePreview.enterStory}
           onExit={gamePreview.exit}
         />
       ) : null}
     </div>
+  );
+}
+
+export default function App() {
+  const editorSettings = useEditorSettings();
+  const { settings } = editorSettings;
+
+  useEffect(() => {
+    if (settings === null) {
+      return;
+    }
+    const previousLanguage = document.documentElement.lang;
+    document.documentElement.lang = settings.language;
+    return () => {
+      document.documentElement.lang = previousLanguage;
+    };
+  }, [settings?.language]);
+
+  if (settings === null) {
+    return (
+      <main className="engine-startup" role="status" aria-busy="true">
+        <strong>Scratch Novel Engine</strong>
+        <span className="editor-settings-bootstrap-indicator" aria-hidden="true" />
+      </main>
+    );
+  }
+
+  return (
+    <EditorI18nProvider language={settings.language}>
+      <RendererErrorBoundary language={settings.language}>
+        <EditorApplication
+          settings={settings}
+          isSettingsSaving={editorSettings.isSaving}
+          settingsSaveFailed={editorSettings.saveFailed}
+          settingsRestartRequired={editorSettings.restartRequired}
+          onLanguageChange={editorSettings.changeLanguage}
+          onOpenSettings={editorSettings.dismissSaveError}
+        />
+      </RendererErrorBoundary>
+    </EditorI18nProvider>
   );
 }

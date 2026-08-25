@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import type {
+  PlayerErrorCode,
   PlayerGameData,
   PlayerLoadResult,
   PlayerMode,
@@ -10,13 +11,21 @@ import type { PlayerMediaService } from '../media/PlayerMediaService';
 import {
   loadRuntimeBundle,
   type LoadedRuntimeBundle,
+  type PlayerBundleIdentity,
 } from './PlayerBundleLoader';
 
 export const PLAYER_BUNDLE_SUFFIX = '.vngame';
-export const PLAYER_BUNDLE_LOAD_ERROR =
-  '游戏内容包无效、已损坏或版本不受支持';
-export const PLAYER_BUNDLE_SELECTION_ERROR = '无法打开游戏内容包选择器';
-export const PLAYER_EMBEDDED_OPEN_ERROR = '当前是只读单游戏应用';
+export const PLAYER_BUNDLE_LOAD_ERROR: PlayerErrorCode = 'bundle-load-failed';
+export const PLAYER_BUNDLE_SELECTION_ERROR: PlayerErrorCode =
+  'bundle-selection-failed';
+export const PLAYER_EMBEDDED_OPEN_ERROR: PlayerErrorCode =
+  'embedded-open-disabled';
+
+export type PlayerActiveGameContext = {
+  game: PlayerGameData;
+  identity: PlayerBundleIdentity;
+  generation: number;
+};
 
 type BundleLoader = (bundleRoot: string) => Promise<LoadedRuntimeBundle>;
 type BundleSelector = () => Promise<string | null>;
@@ -43,9 +52,11 @@ function isVnGameBundleDirectory(candidatePath: string): boolean {
  */
 export class PlayerBundleSession {
   private game: PlayerGameData | null = null;
-  private loadError: string | null = null;
+  private loadError: PlayerErrorCode | null = null;
   private pendingOpen: Promise<PlayerOpenResult> | null = null;
   private disposed = false;
+  private identity: PlayerBundleIdentity | null = null;
+  private generation = 0;
 
   constructor(
     private readonly mediaService: PlayerMediaService,
@@ -137,6 +148,24 @@ export class PlayerBundleSession {
     return this.mediaService.getMediaUrl(assetId);
   }
 
+  getActiveGameContext(): PlayerActiveGameContext | null {
+    if (this.game === null || this.identity === null || this.disposed) {
+      return null;
+    }
+    return {
+      game: this.game,
+      identity: this.identity,
+      generation: this.generation,
+    };
+  }
+
+  isActiveGameContext(context: PlayerActiveGameContext): boolean {
+    return !this.disposed &&
+      this.game === context.game &&
+      this.identity === context.identity &&
+      this.generation === context.generation;
+  }
+
   dispose(): void {
     if (this.disposed) {
       return;
@@ -144,6 +173,8 @@ export class PlayerBundleSession {
     this.disposed = true;
     this.mediaService.dispose();
     this.game = null;
+    this.identity = null;
+    this.generation += 1;
     this.loadError = null;
   }
 
@@ -166,7 +197,7 @@ export class PlayerBundleSession {
       return { status: 'canceled' };
     }
     if (!isVnGameBundleDirectory(selectedPath)) {
-      return this.reject(`请选择名称以 ${PLAYER_BUNDLE_SUFFIX} 结尾的目录包`);
+      return this.reject(PLAYER_BUNDLE_LOAD_ERROR);
     }
 
     let bundle: LoadedRuntimeBundle;
@@ -190,10 +221,12 @@ export class PlayerBundleSession {
   private commit(bundle: LoadedRuntimeBundle): void {
     this.mediaService.activateBundle(bundle);
     this.game = bundle.game;
+    this.identity = bundle.identity;
+    this.generation += 1;
     this.loadError = null;
   }
 
-  private reject(error: string): PlayerOpenResult {
+  private reject(error: PlayerErrorCode): PlayerOpenResult {
     return { status: 'rejected', error };
   }
 }

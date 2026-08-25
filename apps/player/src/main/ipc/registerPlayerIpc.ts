@@ -1,10 +1,17 @@
 import type { IpcMain } from 'electron';
+import { isGameRuntimeSnapshot } from '@vnengine/runtime';
 
 import {
+  isPlayerSettingsPatch,
   PLAYER_IPC_CHANNEL,
   type PlayerInvocation,
   type PlayerLoadResult,
   type PlayerOpenResult,
+  type PlayerSaveListResult,
+  type PlayerSaveLoadResult,
+  type PlayerSaveWriteResult,
+  type PlayerSettingsReadResult,
+  type PlayerSettingsWriteResult,
 } from '../../shared/playerProtocol';
 import {
   isTrustedPlayerFrame,
@@ -37,8 +44,36 @@ function isPlayerInvocation(value: unknown): value is PlayerInvocation {
   if (!isObject(value.params)) {
     return false;
   }
-  if (value.action === 'load-game' || value.action === 'open-game') {
+  if (
+    value.action === 'load-game' ||
+    value.action === 'open-game' ||
+    value.action === 'quit-game' ||
+    value.action === 'list-save-slots' ||
+    value.action === 'quick-load' ||
+    value.action === 'get-settings'
+  ) {
     return hasExactFields(value.params, []);
+  }
+  if (value.action === 'update-settings') {
+    return hasExactFields(value.params, ['patch']) &&
+      isPlayerSettingsPatch(value.params.patch);
+  }
+  if (value.action === 'save-game') {
+    return hasExactFields(value.params, ['slotId', 'snapshot']) &&
+      (value.params.slotId === 1 ||
+        value.params.slotId === 2 ||
+        value.params.slotId === 3) &&
+      isGameRuntimeSnapshot(value.params.snapshot);
+  }
+  if (value.action === 'load-game-slot') {
+    return hasExactFields(value.params, ['slotId']) &&
+      (value.params.slotId === 1 ||
+        value.params.slotId === 2 ||
+        value.params.slotId === 3);
+  }
+  if (value.action === 'quick-save') {
+    return hasExactFields(value.params, ['snapshot']) &&
+      isGameRuntimeSnapshot(value.params.snapshot);
   }
   return (
     value.action === 'get-media-url' &&
@@ -53,13 +88,25 @@ export function registerPlayerIpc(
   ipcMain: IpcRegistrar,
   contexts: PlayerWindowContexts,
   trustedLocations: TrustedPlayerLocations,
+  quitPlayer: () => void,
 ): void {
   ipcMain.handle(
     PLAYER_IPC_CHANNEL,
     (
       event: Electron.IpcMainInvokeEvent,
       invocation: unknown,
-    ): PlayerLoadResult | PlayerOpenResult | Promise<PlayerOpenResult> | string | null => {
+    ):
+      | PlayerLoadResult
+      | PlayerOpenResult
+      | Promise<PlayerOpenResult>
+      | Promise<PlayerSaveListResult>
+      | Promise<PlayerSaveWriteResult>
+      | Promise<PlayerSaveLoadResult>
+      | Promise<PlayerSettingsReadResult>
+      | Promise<PlayerSettingsWriteResult>
+      | string
+      | null
+      | void => {
       if (!isTrustedPlayerFrame(event, trustedLocations)) {
         throw new Error('Player 请求来源不可信');
       }
@@ -77,7 +124,51 @@ export function registerPlayerIpc(
       if (invocation.action === 'open-game') {
         return context.bundleSession.openGame();
       }
-      return context.bundleSession.getMediaUrl(invocation.params.assetId);
+      if (invocation.action === 'quit-game') {
+        quitPlayer();
+        return;
+      }
+      if (invocation.action === 'get-media-url') {
+        return context.bundleSession.getMediaUrl(invocation.params.assetId);
+      }
+      if (invocation.action === 'get-settings') {
+        return context.settingsController.getSettings();
+      }
+      if (invocation.action === 'update-settings') {
+        return context.settingsController.updateSettings(invocation.params.patch);
+      }
+
+      const active = context.bundleSession.getActiveGameContext();
+      if (active === null) {
+        return Promise.resolve({
+          status: 'rejected' as const,
+          error: 'no-active-game' as const,
+        });
+      }
+      const isCurrent = () => context.bundleSession.isActiveGameContext(active);
+      if (invocation.action === 'list-save-slots') {
+        return context.saveStore.list(active, isCurrent);
+      }
+      if (invocation.action === 'save-game') {
+        return context.saveStore.write(
+          active,
+          invocation.params.slotId,
+          invocation.params.snapshot,
+          isCurrent,
+        );
+      }
+      if (invocation.action === 'load-game-slot') {
+        return context.saveStore.load(active, invocation.params.slotId, isCurrent);
+      }
+      if (invocation.action === 'quick-save') {
+        return context.saveStore.write(
+          active,
+          'quick',
+          invocation.params.snapshot,
+          isCurrent,
+        );
+      }
+      return context.saveStore.load(active, 'quick', isCurrent);
     },
   );
 }

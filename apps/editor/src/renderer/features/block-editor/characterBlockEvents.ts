@@ -1,15 +1,16 @@
 import * as Blockly from 'blockly';
 
 import type {
+  CharacterPosition,
   CharacterSlot,
   SceneDocument,
 } from '../../../shared/projectTypes';
 import {
   CHARACTER_BLOCK_FIELDS,
-  CHARACTER_BLOCK_TYPE,
   getCharacterBlockAssetId,
   getCharacterBlockLayer,
   getCharacterBlockSlot,
+  isCharacterBlockType,
 } from './blocks/characterBlock';
 
 export type CharacterFieldUpdate = {
@@ -17,6 +18,7 @@ export type CharacterFieldUpdate = {
   assetId: string | null;
   slot: CharacterSlot;
   layer: number;
+  position: CharacterPosition | null;
 };
 
 export function getCharacterFieldUpdate(
@@ -42,14 +44,25 @@ export function getCharacterFieldUpdate(
     (candidate) => candidate.id === changeEvent.blockId,
   );
   const block = workspace.getBlockById(changeEvent.blockId);
-  if (node?.type !== 'character' || block?.type !== CHARACTER_BLOCK_TYPE) {
+  if (
+    node?.type !== 'character' ||
+    !block ||
+    !isCharacterBlockType(block.type)
+  ) {
     return null;
   }
 
   return {
     nodeId: node.id,
     assetId: getCharacterBlockAssetId(block),
-    slot: getCharacterBlockSlot(block),
+    slot:
+      block.getFieldValue(CHARACTER_BLOCK_FIELDS.slot) === 'custom'
+        ? node.slot
+        : getCharacterBlockSlot(block),
     layer: getCharacterBlockLayer(block),
+    position:
+      block.getFieldValue(CHARACTER_BLOCK_FIELDS.slot) === 'custom'
+        ? node.position
+        : null,
   };
 }

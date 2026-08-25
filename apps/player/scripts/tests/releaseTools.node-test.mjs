@@ -20,6 +20,7 @@ import {
   collectArtifacts,
   copyVerifiedDirectory,
   expectedPackageDirectoryName,
+  resolvePnpmLauncher,
   verifyPackagedAsarMetadata,
   verifyReleaseSet,
   verifyRuntimeBundle,
@@ -67,7 +68,7 @@ function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-async function writeMediaBundle(root) {
+async function writeMediaBundle(root, runtimeVersion = 6) {
   const png = Buffer.from([
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
     0x00, 0x00, 0x00, 0x0d,
@@ -80,8 +81,36 @@ async function writeMediaBundle(root) {
     path.join(root, 'game.json'),
     `${JSON.stringify({
       format: 'vn-engine-runtime',
-      runtimeVersion: 1,
-      game: { id: 'project', title: 'Test', entrySceneId: 'scene' },
+      runtimeVersion,
+      game: {
+        id: 'project',
+        title: 'Test',
+        entrySceneId: 'scene',
+        ...(runtimeVersion >= 2
+          ? {
+              startScreen: {
+                ...(runtimeVersion >= 3 ? { title: 'Custom Title' } : {}),
+                backgroundAssetId: 'background',
+                musicAssetId: null,
+              },
+            }
+          : {}),
+        ...(runtimeVersion >= 5
+          ? {
+              cgGallery: runtimeVersion === 5
+                ? { imageAssetIds: ['background'] }
+                : {
+                    pages: [{
+                      imageAssetIds: [
+                        null,
+                        'background',
+                        ...Array(7).fill(null),
+                      ],
+                    }],
+                  },
+            }
+          : {}),
+      },
       scenes: [{
         schemaVersion: 1,
         id: 'scene',
@@ -99,8 +128,18 @@ async function writeMediaBundle(root) {
       buildId: randomUUID(),
       projectId: 'project',
       sourceRevision: 1,
-      runtimeVersion: 1,
-      playerCompatibility: '>=1 <2',
+      runtimeVersion,
+      playerCompatibility: runtimeVersion === 1
+        ? '>=1 <2'
+        : runtimeVersion === 2
+          ? '>=2 <3'
+          : runtimeVersion === 3
+            ? '>=3 <4'
+            : runtimeVersion === 4
+              ? '>=4 <5'
+              : runtimeVersion === 5
+                ? '>=5 <6'
+                : '>=6 <7',
       createdAt: '2026-08-18T00:00:00.000Z',
       files: [{
         assetId: 'background',
@@ -128,6 +167,19 @@ test('verifies a runtime bundle and rejects post-manifest tampering', async () =
     verifyRuntimeBundle(root),
     /内容与声明类型不一致|文件头与 MIME 不一致|SHA-256 与 manifest 不一致/u,
   );
+});
+
+test('keeps release verification compatible with legacy runtime v1/v2/v5 bundles', async () => {
+  const v1Root = await temporaryDirectory();
+  const v2Root = await temporaryDirectory();
+  const v5Root = await temporaryDirectory();
+  await writeMediaBundle(v1Root, 1);
+  await writeMediaBundle(v2Root, 2);
+  await writeMediaBundle(v5Root, 5);
+
+  await assert.doesNotReject(verifyRuntimeBundle(v1Root));
+  await assert.doesNotReject(verifyRuntimeBundle(v2Root));
+  await assert.doesNotReject(verifyRuntimeBundle(v5Root));
 });
 
 test('uses the production Player schema for scenes and references', async () => {
@@ -159,7 +211,39 @@ test('invokes Forge through Node instead of relying on package bin execute bits'
     'utf8',
   );
   assert.match(editorTemplateRunner, /runChecked\(process\.execPath, editorForgeArguments/u);
+  assert.match(editorTemplateRunner, /resolvePnpmLauncher\(\{ repositoryRoot \}\)/u);
   assert.doesNotMatch(editorTemplateRunner, /exec['"],\s*['"]electron-forge/u);
+  assert.doesNotMatch(editorTemplateRunner, /pnpm\.cmd|shell:\s*true/u);
+});
+
+test('executes pnpm JavaScript through Node without invoking a Windows cmd shim', () => {
+  const windows = resolvePnpmLauncher({
+    platform: 'win32',
+    nodeExecutable: 'C:\\Program Files\\nodejs\\node.exe',
+    npmExecPath: 'C:\\pnpm\\pnpm.cjs',
+    repositoryRoot: 'C:\\repository',
+    fileExists: (candidate) => candidate === 'C:\\pnpm\\pnpm.cjs',
+  });
+  assert.deepEqual(windows, {
+    command: 'C:\\Program Files\\nodejs\\node.exe',
+    args: ['C:\\pnpm\\pnpm.cjs'],
+  });
+  assert.equal(windows.command.endsWith('.cmd'), false);
+  assert.equal(windows.args.some((argument) => argument.endsWith('.cmd')), false);
+
+  assert.throws(() => resolvePnpmLauncher({
+    platform: 'win32',
+    npmExecPath: 'C:\\pnpm\\pnpm.cmd',
+    repositoryRoot: 'C:\\repository',
+    fileExists: () => false,
+  }), /无法定位安全的 pnpm JavaScript 入口/u);
+
+  assert.deepEqual(resolvePnpmLauncher({
+    platform: 'linux',
+    npmExecPath: '/usr/bin/npm-cli.js',
+    repositoryRoot: '/repository',
+    fileExists: () => false,
+  }), { command: 'pnpm', args: [] });
 });
 
 test('copies only a verified bundle into a new directory named game', async () => {

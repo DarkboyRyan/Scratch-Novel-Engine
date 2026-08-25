@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react';
 
+import { useEditorLabels } from '../i18n/editorLocalization';
+
 type CreateProjectDialogProps = {
   open: boolean;
   projectName: string;
@@ -17,6 +19,7 @@ export function CreateProjectDialog({
   onCancel,
   onConfirm,
 }: CreateProjectDialogProps) {
+  const labels = useEditorLabels();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -62,8 +65,8 @@ export function CreateProjectDialog({
           }
         }}
       >
-        <h2 id="create-project-dialog-title">新建项目</h2>
-        <label htmlFor="new-project-name">项目名称</label>
+        <h2 id="create-project-dialog-title">{labels.dialogs.createProject}</h2>
+        <label htmlFor="new-project-name">{labels.dialogs.projectName}</label>
         <input
           ref={inputRef}
           id="new-project-name"
@@ -76,10 +79,10 @@ export function CreateProjectDialog({
 
         <div className="create-project-dialog-actions">
           <button type="button" disabled={isBusy} onClick={onCancel}>
-            取消
+            {labels.common.cancel}
           </button>
           <button type="submit" disabled={isBusy}>
-            {isBusy ? '正在创建…' : '创建新窗口'}
+            {isBusy ? labels.dialogs.creating : labels.dialogs.createWindow}
           </button>
         </div>
       </form>

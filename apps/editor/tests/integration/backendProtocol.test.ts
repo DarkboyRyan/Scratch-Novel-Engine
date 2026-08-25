@@ -754,6 +754,7 @@ describe('C++ JSONL backend', () => {
         assetId: null,
         slot: 'center',
         layer: 1,
+        position: null,
       });
 
       const filledCharacter = await request('character.update', {
@@ -762,6 +763,7 @@ describe('C++ JSONL backend', () => {
         assetId: imageAssetId,
         slot: 'left',
         layer: 2,
+        position: { x: 24, y: 88 },
       });
       expect(filledCharacter.ok).toBe(true);
 

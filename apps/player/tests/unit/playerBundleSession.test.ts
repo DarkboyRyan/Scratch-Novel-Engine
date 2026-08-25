@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   PLAYER_BUNDLE_LOAD_ERROR,
+  PLAYER_BUNDLE_SELECTION_ERROR,
+  PLAYER_EMBEDDED_OPEN_ERROR,
   PlayerBundleSession,
 } from '../../src/main/content/PlayerBundleSession';
 import { PlayerMediaService } from '../../src/main/media/PlayerMediaService';
@@ -24,6 +26,7 @@ async function makeBundle(
   const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'vn-player-session-'));
   temporaryDirectories.push(temporaryRoot);
   const root = path.join(temporaryRoot, `${name}.vngame`);
+  const runtimeVersion = options.runtimeVersion ?? 1;
   const imagePath = path.join(root, 'assets/images/image.png');
   await mkdir(path.dirname(imagePath), { recursive: true });
   await writeFile(imagePath, PNG);
@@ -31,11 +34,20 @@ async function makeBundle(
     path.join(root, 'game.json'),
     JSON.stringify({
       format: 'vn-engine-runtime',
-      runtimeVersion: options.runtimeVersion ?? 1,
+      runtimeVersion,
       game: {
         id: `project-${name}`,
         title: name,
         entrySceneId: `scene-${name}`,
+        ...(runtimeVersion === 2 || runtimeVersion === 3
+          ? {
+              startScreen: {
+                ...(runtimeVersion === 3 ? { title: `${name} title` } : {}),
+                backgroundAssetId: 'image',
+                musicAssetId: null,
+              },
+            }
+          : {}),
       },
       scenes: [
         {
@@ -56,8 +68,12 @@ async function makeBundle(
       buildId: `build-${name}`,
       projectId: `project-${name}`,
       sourceRevision: 1,
-      runtimeVersion: 1,
-      playerCompatibility: '>=1 <2',
+      runtimeVersion,
+      playerCompatibility: runtimeVersion === 1
+        ? '>=1 <2'
+        : runtimeVersion === 2
+          ? '>=2 <3'
+          : '>=3 <4',
       createdAt: '2026-08-18T00:00:00.000Z',
       files: [
         {
@@ -128,6 +144,12 @@ describe('Player bundle session', () => {
       status: 'opened',
       game: { project: { name: 'first' } },
     });
+    const firstContext = session.getActiveGameContext();
+    expect(firstContext).toMatchObject({
+      generation: 1,
+      identity: { projectId: 'project-first', runtimeVersion: 1 },
+    });
+    expect(session.isActiveGameContext(firstContext!)).toBe(true);
     const firstUrl = session.getMediaUrl('image');
     expect(firstUrl).toBeTruthy();
     expect((await request(firstUrl!)).status).toBe(200);
@@ -136,6 +158,13 @@ describe('Player bundle session', () => {
       status: 'opened',
       game: { project: { name: 'second' } },
     });
+    const secondContext = session.getActiveGameContext();
+    expect(secondContext).toMatchObject({
+      generation: 2,
+      identity: { projectId: 'project-second', runtimeVersion: 1 },
+    });
+    expect(session.isActiveGameContext(firstContext!)).toBe(false);
+    expect(session.isActiveGameContext(secondContext!)).toBe(true);
     const secondUrl = session.getMediaUrl('image');
     expect(secondUrl).toBeTruthy();
     expect(secondUrl).not.toBe(firstUrl);
@@ -148,12 +177,14 @@ describe('Player bundle session', () => {
     });
 
     session.dispose();
+    expect(session.getActiveGameContext()).toBeNull();
+    expect(session.isActiveGameContext(secondContext!)).toBe(false);
   });
 
   it('rejects bad hashes and newer runtimes without disturbing the old game', async () => {
     const valid = await makeBundle('valid');
     const badHash = await makeBundle('bad-hash', { badHash: true });
-    const tooNew = await makeBundle('too-new', { runtimeVersion: 2 });
+    const tooNew = await makeBundle('too-new', { runtimeVersion: 7 });
     const selections = [valid, badHash, tooNew];
     const reportError = vi.fn();
     const { service, request } = makeMediaService();
@@ -232,10 +263,36 @@ describe('Player bundle session', () => {
     const secondOpen = session.openGame();
     expect(selectBundle).toHaveBeenCalledOnce();
     releaseSelection('/tmp/not-a-package');
-    await expect(firstOpen).resolves.toMatchObject({ status: 'rejected' });
-    await expect(secondOpen).resolves.toMatchObject({ status: 'rejected' });
+    await expect(firstOpen).resolves.toEqual({
+      status: 'rejected',
+      error: PLAYER_BUNDLE_LOAD_ERROR,
+    });
+    await expect(secondOpen).resolves.toEqual({
+      status: 'rejected',
+      error: PLAYER_BUNDLE_LOAD_ERROR,
+    });
     expect(loadBundle).not.toHaveBeenCalled();
 
+    session.dispose();
+  });
+
+  it('normalizes selector exceptions without exposing their messages', async () => {
+    const reportError = vi.fn();
+    const { service } = makeMediaService();
+    const session = new PlayerBundleSession(
+      service,
+      async () => { throw new Error('/private/selector failure'); },
+      undefined,
+      reportError,
+    );
+
+    const result = await session.openGame();
+    expect(result).toEqual({
+      status: 'rejected',
+      error: PLAYER_BUNDLE_SELECTION_ERROR,
+    });
+    expect(JSON.stringify(result)).not.toContain('/private');
+    expect(reportError).toHaveBeenCalledOnce();
     session.dispose();
   });
 
@@ -261,8 +318,9 @@ describe('Player bundle session', () => {
     const mediaUrl = session.getMediaUrl('image');
     expect(mediaUrl).toBeTruthy();
     expect((await request(mediaUrl!)).status).toBe(200);
-    await expect(session.openGame()).resolves.toMatchObject({
+    await expect(session.openGame()).resolves.toEqual({
       status: 'rejected',
+      error: PLAYER_EMBEDDED_OPEN_ERROR,
     });
     expect(selectBundle).not.toHaveBeenCalled();
 

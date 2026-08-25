@@ -1,5 +1,7 @@
 #include "serialization.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <initializer_list>
 #include <string>
 #include <string_view>
@@ -159,6 +161,10 @@ Json background_node_to_json(const BackgroundNode& background) {
 }
 
 Json character_node_to_json(const CharacterNode& character) {
+  Json position = nullptr;
+  if (character.position.has_value()) {
+    position = {{"x", character.position->x}, {"y", character.position->y}};
+  }
   return {
       {"id", character.id},
       {"type", "character"},
@@ -167,6 +173,7 @@ Json character_node_to_json(const CharacterNode& character) {
                                       : Json(nullptr)},
       {"slot", character_slot_to_string(character.slot)},
       {"layer", character.layer},
+      {"position", std::move(position)},
   };
 }
 
@@ -216,6 +223,13 @@ Json choice_node_to_json(const ChoiceNode& choice) {
   };
 }
 
+Json story_extension_node_to_json(const StoryExtensionNode& extension) {
+  return {
+      {"id", extension.id},
+      {"type", "storyExtension"},
+  };
+}
+
 Json scene_node_to_json(const SceneNode& node) {
   return std::visit(
       [](const auto& value) -> Json {
@@ -232,8 +246,10 @@ Json scene_node_to_json(const SceneNode& node) {
           return bgm_node_to_json(value);
         } else if constexpr (std::is_same_v<Value, VideoNode>) {
           return video_node_to_json(value);
-        } else {
+        } else if constexpr (std::is_same_v<Value, ChoiceNode>) {
           return choice_node_to_json(value);
+        } else {
+          return story_extension_node_to_json(value);
         }
       },
       node);
@@ -285,10 +301,17 @@ SceneNode scene_node_from_json(
     if (file_version < 5) {
       unsupported(context + ".type is not supported before file version 5");
     }
-    require_exact_fields(
-        value,
-        {"id", "type", "assetId", "slot", "layer"},
-        context);
+    if (file_version >= 13) {
+      require_exact_fields(
+          value,
+          {"id", "type", "assetId", "slot", "layer", "position"},
+          context);
+    } else {
+      require_exact_fields(
+          value,
+          {"id", "type", "assetId", "slot", "layer"},
+          context);
+    }
     const Json& asset_value = value.at("assetId");
     if (!asset_value.is_null() && !asset_value.is_string()) {
       invalid(context + ".assetId must be a string or null");
@@ -301,11 +324,28 @@ SceneNode scene_node_from_json(
     if (layer < 1 || layer > 10) {
       invalid(context + ".layer must be between 1 and 10");
     }
+    std::optional<CharacterPosition> position;
+    if (file_version >= 13 && !value.at("position").is_null()) {
+      const Json& position_value = value.at("position");
+      require_exact_fields(position_value, {"x", "y"}, context + ".position");
+      if (!position_value.at("x").is_number() ||
+          !position_value.at("y").is_number()) {
+        invalid(context + ".position coordinates must be numbers");
+      }
+      const double x = position_value.at("x").get<double>();
+      const double y = position_value.at("y").get<double>();
+      if (!std::isfinite(x) || !std::isfinite(y) || x < 0.0 || x > 100.0 ||
+          y < 0.0 || y > 100.0) {
+        invalid(context + ".position coordinates must be between 0 and 100");
+      }
+      position = CharacterPosition{.x = x, .y = y};
+    }
     return CharacterNode{
         .id = require_string(value, "id", context),
         .asset_id = std::move(asset_id),
         .slot = character_slot_from_json(value, context),
         .layer = layer,
+        .position = std::move(position),
     };
   }
   if (type == "sceneJump") {
@@ -388,6 +428,15 @@ SceneNode scene_node_from_json(
       });
     }
     return choice;
+  }
+  if (type == "storyExtension") {
+    if (file_version < 12) {
+      unsupported(context + ".type is not supported before file version 12");
+    }
+    require_exact_fields(value, {"id", "type"}, context);
+    return StoryExtensionNode{
+        .id = require_string(value, "id", context),
+    };
   }
   unsupported(context + ".type is not supported");
 }
@@ -505,6 +554,145 @@ SceneVisualState scene_visuals_from_json(
   return visuals;
 }
 
+Json start_screen_to_json(const StartScreen& start_screen) {
+  return {
+      {"title", start_screen.title},
+      {"backgroundAssetId",
+       start_screen.background_asset_id.has_value()
+           ? Json(*start_screen.background_asset_id)
+           : Json(nullptr)},
+      {"musicAssetId",
+       start_screen.music_asset_id.has_value()
+           ? Json(*start_screen.music_asset_id)
+           : Json(nullptr)},
+  };
+}
+
+StartScreen start_screen_from_json(
+    const Json& value,
+    const std::string_view context,
+    const int file_version,
+    const std::string& legacy_title) {
+  if (file_version >= 11) {
+    require_exact_fields(
+        value, {"title", "backgroundAssetId", "musicAssetId"}, context);
+  } else {
+    require_exact_fields(
+        value, {"backgroundAssetId", "musicAssetId"}, context);
+  }
+
+  const auto nullable_asset_id = [&value, context](
+                                     const std::string_view field) {
+    const Json& asset_id = value.at(std::string(field));
+    if (asset_id.is_null()) {
+      return std::optional<std::string>{};
+    }
+    if (!asset_id.is_string()) {
+      invalid(
+          std::string(context) + "." + std::string(field) +
+          " must be a string or null");
+    }
+    return std::optional<std::string>{asset_id.get<std::string>()};
+  };
+
+  return StartScreen{
+      .title = file_version >= 11
+          ? require_string(value, "title", context)
+          : legacy_title,
+      .background_asset_id = nullable_asset_id("backgroundAssetId"),
+      .music_asset_id = nullable_asset_id("musicAssetId"),
+  };
+}
+
+Json cg_gallery_to_json(const CgGallery& cg_gallery) {
+  Json pages = Json::array();
+  for (const CgGalleryPage& page : cg_gallery.pages) {
+    Json image_asset_ids = Json::array();
+    for (const std::optional<std::string>& asset_id : page.image_asset_ids) {
+      image_asset_ids.push_back(
+          asset_id.has_value() ? Json(*asset_id) : Json(nullptr));
+    }
+    pages.push_back({{"imageAssetIds", std::move(image_asset_ids)}});
+  }
+  return {{"pages", std::move(pages)}};
+}
+
+CgGallery cg_gallery_from_json(
+    const Json& value,
+    const int file_version) {
+  constexpr std::string_view context = "project.cgGallery";
+
+  // v14 stored one packed image list. Preserve its order while migrating to
+  // fixed nine-slot pages; an empty legacy list becomes one empty page.
+  if (file_version == 14) {
+    require_exact_fields(value, {"imageAssetIds"}, context);
+    const Json& image_asset_ids = value.at("imageAssetIds");
+    if (!image_asset_ids.is_array()) {
+      invalid("project.cgGallery.imageAssetIds must be an array");
+    }
+
+    CgGallery gallery;
+    const std::size_t page_count = std::max<std::size_t>(
+        1U,
+        (image_asset_ids.size() + kCgGalleryPageSize - 1U) /
+            kCgGalleryPageSize);
+    gallery.pages.assign(page_count, CgGalleryPage{});
+    for (std::size_t index = 0; index < image_asset_ids.size(); ++index) {
+      const Json& asset_id = image_asset_ids.at(index);
+      if (!asset_id.is_string()) {
+        invalid(
+            "project.cgGallery.imageAssetIds[" + std::to_string(index) +
+            "] must be a string");
+      }
+      gallery.pages[index / kCgGalleryPageSize]
+          .image_asset_ids[index % kCgGalleryPageSize] =
+          asset_id.get<std::string>();
+    }
+    return gallery;
+  }
+
+  require_exact_fields(value, {"pages"}, context);
+  const Json& pages = value.at("pages");
+  if (!pages.is_array() || pages.empty()) {
+    invalid("project.cgGallery.pages must be a non-empty array");
+  }
+
+  CgGallery gallery;
+  gallery.pages.clear();
+  gallery.pages.reserve(pages.size());
+  for (std::size_t page_index = 0; page_index < pages.size(); ++page_index) {
+    const std::string page_context =
+        "project.cgGallery.pages[" + std::to_string(page_index) + "]";
+    const Json& page_json = pages.at(page_index);
+    require_exact_fields(page_json, {"imageAssetIds"}, page_context);
+    const Json& image_asset_ids = page_json.at("imageAssetIds");
+    if (!image_asset_ids.is_array() ||
+        image_asset_ids.size() != kCgGalleryPageSize) {
+      invalid(
+          page_context + ".imageAssetIds must contain exactly " +
+          std::to_string(kCgGalleryPageSize) + " items");
+    }
+
+    CgGalleryPage page;
+    for (std::size_t slot_index = 0;
+         slot_index < kCgGalleryPageSize;
+         ++slot_index) {
+      const Json& asset_id = image_asset_ids.at(slot_index);
+      if (asset_id.is_null()) {
+        continue;
+      }
+      if (!asset_id.is_string()) {
+        invalid(
+            page_context + ".imageAssetIds[" +
+            std::to_string(slot_index) + "] must be a string or null");
+      }
+      page.image_asset_ids[slot_index] = asset_id.get<std::string>();
+    }
+    gallery.pages.push_back(std::move(page));
+  }
+  return gallery;
+}
+
 Json scene_to_file_json(const Scene& scene) {
   // Construct the persisted shape explicitly. The Renderer projection and
   // file format have separate version boundaries and must not accidentally
@@ -570,10 +758,33 @@ Scene scene_from_json(
 
 Project project_from_json(const Json& value, const int file_version) {
   constexpr std::string_view context = "project";
-  require_exact_fields(
-      value,
-      {"schemaVersion", "id", "name", "entrySceneId", "scenes"},
-      context);
+  if (file_version >= 14) {
+    require_exact_fields(
+        value,
+        {"schemaVersion",
+         "id",
+         "name",
+         "startScreen",
+         "cgGallery",
+         "entrySceneId",
+         "scenes"},
+        context);
+  } else if (file_version >= 10) {
+    require_exact_fields(
+        value,
+        {"schemaVersion",
+         "id",
+         "name",
+         "startScreen",
+         "entrySceneId",
+         "scenes"},
+        context);
+  } else {
+    require_exact_fields(
+        value,
+        {"schemaVersion", "id", "name", "entrySceneId", "scenes"},
+        context);
+  }
   require_schema_version(value, context);
 
   const Json& scenes = value.at("scenes");
@@ -581,10 +792,24 @@ Project project_from_json(const Json& value, const int file_version) {
     invalid("project.scenes must be an array");
   }
 
+  std::string project_name = require_string(value, "name", context);
+
+  CgGallery cg_gallery = file_version >= 14
+      ? cg_gallery_from_json(value.at("cgGallery"), file_version)
+      : CgGallery{};
+
   Project project{
       .schema_version = kSchemaVersion,
       .id = require_string(value, "id", context),
-      .name = require_string(value, "name", context),
+      .name = project_name,
+      .start_screen = file_version >= 10
+          ? start_screen_from_json(
+                value.at("startScreen"),
+                "project.startScreen",
+                file_version,
+                project_name)
+          : StartScreen{.title = project_name},
+      .cg_gallery = std::move(cg_gallery),
       .entry_scene_id = require_string(value, "entrySceneId", context),
       .scenes = {},
   };
@@ -663,6 +888,8 @@ Json project_to_file_json(const Project& project) {
       {"schemaVersion", project.schema_version},
       {"id", project.id},
       {"name", project.name},
+      {"startScreen", start_screen_to_json(project.start_screen)},
+      {"cgGallery", cg_gallery_to_json(project.cg_gallery)},
       {"entrySceneId", project.entry_scene_id},
       {"scenes", std::move(scenes)},
   };
@@ -689,6 +916,8 @@ Json project_to_json(const Project& project) {
       {"schemaVersion", project.schema_version},
       {"id", project.id},
       {"name", project.name},
+      {"startScreen", start_screen_to_json(project.start_screen)},
+      {"cgGallery", cg_gallery_to_json(project.cg_gallery)},
       {"entrySceneId", project.entry_scene_id},
       {"scenes", std::move(scenes)},
   };

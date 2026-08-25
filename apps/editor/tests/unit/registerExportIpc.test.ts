@@ -9,6 +9,7 @@ import { FileOperationCoordinator } from '../../src/main/window/FileOperationCoo
 import {
   EXPORT_GAME_IPC_CHANNEL,
   standaloneApplicationMetadataError,
+  standaloneApplicationMetadataErrorCode,
 } from '../../src/shared/exportProtocol';
 
 const electronMocks = vi.hoisted(() => ({
@@ -19,8 +20,11 @@ const electronMocks = vi.hoisted(() => ({
 const exportMocks = vi.hoisted(() => ({
   exportRuntimeBundle: vi.fn(),
   exportStandaloneApplication: vi.fn(),
+  exportWebPlayer: vi.fn(),
   loadStandalonePlayerTemplate: vi.fn(),
   resolveStandalonePlayerTemplateRoot: vi.fn(),
+  loadWebPlayerTemplate: vi.fn(),
+  resolveWebPlayerTemplateRoot: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -44,6 +48,15 @@ vi.mock('../../src/main/export/StandalonePlayerTemplate', () => ({
     exportMocks.resolveStandalonePlayerTemplateRoot,
 }));
 
+vi.mock('../../src/main/export/WebPlayerExporter', () => ({
+  exportWebPlayer: exportMocks.exportWebPlayer,
+}));
+
+vi.mock('../../src/main/export/WebPlayerTemplate', () => ({
+  loadWebPlayerTemplate: exportMocks.loadWebPlayerTemplate,
+  resolveWebPlayerTemplateRoot: exportMocks.resolveWebPlayerTemplateRoot,
+}));
+
 const projectRootPath = path.resolve('/projects/My Story');
 
 const runtimeInvocation = {
@@ -61,6 +74,11 @@ const standaloneInvocation = {
       applicationId: 'com.example.custom-story',
     },
   },
+} as const;
+
+const webInvocation = {
+  action: 'export',
+  params: { output: 'web-player' },
 } as const;
 
 type RegisteredHandler = (
@@ -174,6 +192,28 @@ describe('game export IPC', () => {
       version: `${'1'.repeat(30)}.1.1`,
       applicationId: 'com.example.unicode',
     })).not.toBeNull();
+    expect(standaloneApplicationMetadataErrorCode({
+      name: 'Invalid/Name',
+      version: '1.0.0',
+      applicationId: 'com.example.game',
+    })).toBe('application-name-invalid');
+    expect(standaloneApplicationMetadataErrorCode({
+      name: 'Story',
+      version: '1',
+      applicationId: 'com.example.game',
+    })).toBe('application-version-invalid');
+    expect(standaloneApplicationMetadataErrorCode({
+      name: 'Story',
+      version: '1.0.0',
+      applicationId: 'invalid',
+    })).toBe('application-id-invalid');
+    expect(standaloneApplicationMetadataError({
+      name: 'Invalid/Name',
+      version: '1.0.0',
+      applicationId: 'com.example.game',
+    })).toBe(
+      '应用名称需为 1–80 个字符、不能过长，且不能包含系统保留字符',
+    );
   });
   beforeEach(() => {
     vi.clearAllMocks();
@@ -194,10 +234,20 @@ describe('game export IPC', () => {
       platform: process.platform,
       arch: process.arch,
     });
+    exportMocks.exportWebPlayer.mockResolvedValue({
+      artifactName: 'My - Story-Web.zip',
+      buildId: 'private-web-build-id',
+      sourceRevision: 3,
+      assetCount: 2,
+    });
     exportMocks.resolveStandalonePlayerTemplateRoot.mockReturnValue(
       '/templates/current',
     );
     exportMocks.loadStandalonePlayerTemplate.mockResolvedValue({});
+    exportMocks.resolveWebPlayerTemplateRoot.mockReturnValue(
+      '/templates/web-current',
+    );
+    exportMocks.loadWebPlayerTemplate.mockResolvedValue({});
   });
 
   it('registers the dedicated channel and rejects paths or unknown fields', async () => {
@@ -208,6 +258,18 @@ describe('game export IPC', () => {
       handler(trustedEvent(), {
         action: 'export',
         params: { output: 'runtime-bundle', outputPath: '/tmp/game.vngame' },
+      }),
+    ).rejects.toThrow('无效的游戏导出请求');
+    await expect(
+      handler(trustedEvent(), {
+        action: 'export',
+        params: { output: 'web-player', outputPath: '/tmp/game.zip' },
+      }),
+    ).rejects.toThrow('无效的游戏导出请求');
+    await expect(
+      handler(trustedEvent(), {
+        action: 'export',
+        params: { output: 'web-player', application: { name: 'injected' } },
       }),
     ).rejects.toThrow('无效的游戏导出请求');
     await expect(
@@ -320,6 +382,59 @@ describe('game export IPC', () => {
     );
     expect(JSON.stringify(response)).not.toContain('/exports');
     expect(response).not.toHaveProperty('buildId');
+  });
+
+  it('exports a path-free cross-platform Web ZIP from the signed template', async () => {
+    electronMocks.showSaveDialog.mockResolvedValue({
+      canceled: false,
+      filePath: '/exports/Custom Web.ZIP',
+    });
+    const { handler } = registerSession({ saved: true });
+
+    await expect(handler(trustedEvent(), webInvocation)).resolves.toEqual({
+      cancelled: false,
+      output: 'web-player',
+      artifactName: 'My - Story-Web.zip',
+      sourceRevision: 3,
+      assetCount: 2,
+    });
+    expect(electronMocks.showSaveDialog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        defaultPath: path.join(
+          path.dirname(projectRootPath),
+          'My - Story-Web.zip',
+        ),
+        filters: [{ name: 'Web 游戏 ZIP', extensions: ['zip'] }],
+      }),
+    );
+    expect(exportMocks.loadWebPlayerTemplate).toHaveBeenCalledWith(
+      '/templates/web-current',
+    );
+    expect(exportMocks.exportWebPlayer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceProjectRootPath: projectRootPath,
+        targetArtifactPath: path.resolve('/exports/Custom Web-Web.zip'),
+        templateRootPath: '/templates/web-current',
+        sourceRevision: 3,
+      }),
+    );
+    expect(JSON.stringify(await handler(trustedEvent(), webInvocation))).not.toContain(
+      '/exports',
+    );
+  });
+
+  it('reports a stable path-free error when the Web Player template is unavailable', async () => {
+    exportMocks.loadWebPlayerTemplate.mockRejectedValue(
+      new Error('/private/template/web-player-template.json missing'),
+    );
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { handler } = registerSession({ saved: true });
+
+    const failure = handler(trustedEvent(), webInvocation);
+    await expect(failure).rejects.toThrow('Web Player 模板不可用');
+    await expect(failure).rejects.not.toThrow('/private/template');
+    expect(electronMocks.showSaveDialog).not.toHaveBeenCalled();
   });
 
   it('fails closed if the logical revision changes after target selection', async () => {

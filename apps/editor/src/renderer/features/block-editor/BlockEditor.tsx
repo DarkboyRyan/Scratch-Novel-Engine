@@ -14,6 +14,7 @@ import type {
   AddVideoAction,
   AddChoiceAction,
   AddChoiceOptionAction,
+  AddStoryExtensionAction,
   DeleteChoiceOptionAction,
   DeleteTimelineNodesAction,
   ReorderTimelineNodeAction,
@@ -40,6 +41,12 @@ import {
   type BlocklyWorkspaceHandle,
 } from './BlocklyWorkspace';
 import type { BlockEditorLayoutStore } from './blockEditorLayout';
+import {
+  createEditorSceneOptions,
+  CG_GALLERY_SCENE_ID,
+  START_SCREEN_SCENE_ID,
+} from '../start-screen/startScreenScene';
+import { useEditorLabels } from '../../i18n/editorLocalization';
 
 type BlockEditorProps = {
   project: ProjectDocument;
@@ -48,6 +55,8 @@ type BlockEditorProps = {
   isBusy: boolean;
   assets: AssetDocument[];
   onSceneChange: (sceneId: string) => Promise<void>;
+  onSelectStartScreen: () => Promise<void>;
+  onSelectCgGallery: () => Promise<void>;
   onDialogueUpdate: UpdateDialogueAction;
   onDialogueAdd: AddDialogueAction;
   onBackgroundAdd: AddBackgroundAction;
@@ -62,6 +71,7 @@ type BlockEditorProps = {
   onVideoUpdate: UpdateVideoAction;
   onChoiceAdd: AddChoiceAction;
   onChoiceOptionAdd: AddChoiceOptionAction;
+  onStoryExtensionAdd: AddStoryExtensionAction;
   onChoiceOptionUpdate: UpdateChoiceOptionAction;
   onChoiceOptionDelete: DeleteChoiceOptionAction;
   onChoiceOptionReorder: ReorderChoiceOptionAction;
@@ -85,6 +95,8 @@ export const BlockEditor = forwardRef<
     isBusy,
     assets,
     onSceneChange,
+    onSelectStartScreen,
+    onSelectCgGallery,
     onDialogueAdd,
     onBackgroundAdd,
     onBackgroundUpdate,
@@ -98,6 +110,7 @@ export const BlockEditor = forwardRef<
     onVideoUpdate,
     onChoiceAdd,
     onChoiceOptionAdd,
+    onStoryExtensionAdd,
     onChoiceOptionUpdate,
     onChoiceOptionDelete,
     onChoiceOptionReorder,
@@ -110,8 +123,10 @@ export const BlockEditor = forwardRef<
   },
   ref,
 ) {
+  const labels = useEditorLabels();
   const workspaceRef = useRef<BlocklyWorkspaceHandle>(null);
   const [isChangingScene, setIsChangingScene] = useState(false);
+  const sceneOptions = createEditorSceneOptions(project, labels);
   useImperativeHandle(ref, () => ({
     flushPendingDraft: () =>
       workspaceRef.current?.flushPendingDraft() ?? Promise.resolve(true),
@@ -124,15 +139,21 @@ export const BlockEditor = forwardRef<
     >
       <header className="block-editor-heading">
         <div>
-          <h1 id="block-editor-title">图形化编辑器</h1>
+          <h1 id="block-editor-title">{labels.blockEditor.title}</h1>
           <p>
-            当前项目：{project.name} · {scene.nodes.length} 个剧情节点
+            {labels.blockEditor.currentProject}：{project.name} ·{' '}
+            {
+              scene.nodes.filter(
+                (node) => node.type !== 'storyExtension',
+              ).length
+            }{' '}
+            {labels.scenes.storyNodeUnit}
           </p>
         </div>
 
         <div className="block-editor-heading-controls">
           <label className="block-editor-scene-picker">
-            <span>当前场景</span>
+            <span>{labels.scenes.currentScene}</span>
 
             <select
               className="scene-select block-editor-scene-select"
@@ -147,7 +168,11 @@ export const BlockEditor = forwardRef<
                       await (workspaceRef.current?.flushPendingDraft() ??
                         true);
                     if (flushed) {
-                      await onSceneChange(nextSceneId);
+                      await (nextSceneId === START_SCREEN_SCENE_ID
+                        ? onSelectStartScreen()
+                        : nextSceneId === CG_GALLERY_SCENE_ID
+                          ? onSelectCgGallery()
+                          : onSceneChange(nextSceneId));
                     }
                   } finally {
                     setIsChangingScene(false);
@@ -155,26 +180,23 @@ export const BlockEditor = forwardRef<
                 })();
               }}
             >
-              {project.scenes.map((projectScene) => (
-                <option
-                  key={projectScene.id}
-                  value={projectScene.id}
-                >
-                  {projectScene.name}
+              {sceneOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
                 </option>
               ))}
             </select>
           </label>
 
           <span className="block-editor-sync-badge">
-            长按空白框选 · 拖动选择组 · Delete 删除
+            {labels.blockEditor.selectionHelp}
           </span>
         </div>
       </header>
 
       <section
         className="block-editor-workspace"
-        aria-label="图形化积木工作区"
+        aria-label={labels.blockEditor.workspace}
       >
         <BlocklyWorkspace
           ref={workspaceRef}
@@ -197,6 +219,7 @@ export const BlockEditor = forwardRef<
           onVideoUpdate={onVideoUpdate}
           onChoiceAdd={onChoiceAdd}
           onChoiceOptionAdd={onChoiceOptionAdd}
+          onStoryExtensionAdd={onStoryExtensionAdd}
           onChoiceOptionUpdate={onChoiceOptionUpdate}
           onChoiceOptionDelete={onChoiceOptionDelete}
           onChoiceOptionReorder={onChoiceOptionReorder}

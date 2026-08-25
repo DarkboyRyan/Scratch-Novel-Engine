@@ -1,4 +1,13 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, protocol } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  protocol,
+  screen,
+} from 'electron';
+import path from 'node:path';
 
 import { PlayerBundleSession } from './main/content/PlayerBundleSession';
 import { resolvePlayerStartupContent } from './main/content/resolvePlayerStartupContent';
@@ -13,9 +22,30 @@ import {
   PlayerMediaService,
 } from './main/media/PlayerMediaService';
 import type { PlayerWindowContext } from './main/window/PlayerWindowContext';
+import { PlayerSaveStore } from './main/save/PlayerSaveStore';
+import { PlayerSettingsManager } from './main/settings/PlayerSettingsManager';
+import { PlayerSettingsQuitCoordinator } from './main/settings/PlayerSettingsQuitCoordinator';
+import { PlayerSettingsStore } from './main/settings/PlayerSettingsStore';
 
 const trustedPlayerLocations = new Map<number, string>();
 const playerWindowContexts = new Map<number, PlayerWindowContext>();
+let playerSaveStore: PlayerSaveStore | null = null;
+let playerSettingsManager: PlayerSettingsManager | null = null;
+
+const settingsQuitCoordinator = new PlayerSettingsQuitCoordinator({
+  flushSettings: () => playerSettingsManager?.shutdown() ?? Promise.resolve(),
+  quit: () => app.quit(),
+  cleanup: () => {
+    for (const context of playerWindowContexts.values()) {
+      context.bundleSession.dispose();
+    }
+    playerWindowContexts.clear();
+    trustedPlayerLocations.clear();
+  },
+  reportError: (error) => {
+    console.error('[player-settings] shutdown failed', error);
+  },
+});
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -40,10 +70,33 @@ async function openPlayerWindow(): Promise<void> {
   const mediaService = new PlayerMediaService(
     playerWindow.webContents.session.protocol,
   );
+  playerSettingsManager ??= new PlayerSettingsManager(
+    new PlayerSettingsStore(
+      path.join(app.getPath('userData'), 'settings'),
+      (operation, error) => {
+        console.error(`[player-settings] ${operation} failed`, error);
+      },
+    ),
+    (bounds) => screen.getDisplayMatching(bounds).workArea,
+    (operation, error) => {
+      console.error(`[player-settings] ${operation} failed`, error);
+    },
+  );
+  const settingsManager = playerSettingsManager;
+  const settingsController = await settingsManager.attachWindow(
+    playerWindow,
+  );
 
   const bundleSession = new PlayerBundleSession(
     mediaService,
-    () => selectPlayerBundleDirectory(playerWindow, dialog),
+    async () => {
+      const settings = await settingsController.getSettings();
+      return selectPlayerBundleDirectory(
+        playerWindow,
+        dialog,
+        settings.status === 'ready' ? settings.settings.language : 'zh-CN',
+      );
+    },
     undefined,
     (operation, error) => {
       // Filesystem exceptions remain in local Main diagnostics. No absolute
@@ -57,7 +110,17 @@ async function openPlayerWindow(): Promise<void> {
   } else if (startupContent.kind === 'embedded') {
     await bundleSession.loadEmbeddedGame(startupContent.bundleRoot);
   }
-  const context: PlayerWindowContext = { bundleSession };
+  playerSaveStore ??= new PlayerSaveStore(
+    path.join(app.getPath('userData'), 'saves'),
+    (operation, slotId, error) => {
+      console.error(`[player-save] ${operation} ${String(slotId)} failed`, error);
+    },
+  );
+  const context: PlayerWindowContext = {
+    bundleSession,
+    saveStore: playerSaveStore,
+    settingsController,
+  };
 
   trustedPlayerLocations.set(webContentsId, entryUrl);
   playerWindowContexts.set(webContentsId, context);
@@ -66,9 +129,15 @@ async function openPlayerWindow(): Promise<void> {
     playerWindowContexts.delete(webContentsId);
     bundleSession.dispose();
   });
-
   try {
     await playerWindow.loadURL(entryUrl);
+    // Keep the window hidden until persisted display settings have been
+    // applied. In particular, a saved fullscreen preference must not flash a
+    // windowed frame before the native transition completes (or times out).
+    await settingsManager.activateWindow(playerWindow);
+    if (!playerWindow.isDestroyed()) {
+      playerWindow.show();
+    }
   } catch (error) {
     if (!playerWindow.isDestroyed()) {
       playerWindow.destroy();
@@ -77,7 +146,12 @@ async function openPlayerWindow(): Promise<void> {
   }
 }
 
-registerPlayerIpc(ipcMain, playerWindowContexts, trustedPlayerLocations);
+registerPlayerIpc(
+  ipcMain,
+  playerWindowContexts,
+  trustedPlayerLocations,
+  () => app.quit(),
+);
 
 app.on('ready', () => {
   Menu.setApplicationMenu(null);
@@ -87,12 +161,8 @@ app.on('ready', () => {
   });
 });
 
-app.on('before-quit', () => {
-  for (const context of playerWindowContexts.values()) {
-    context.bundleSession.dispose();
-  }
-  playerWindowContexts.clear();
-  trustedPlayerLocations.clear();
+app.on('before-quit', (event) => {
+  settingsQuitCoordinator.handleBeforeQuit(event);
 });
 
 app.on('window-all-closed', () => {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ImportAssetResult } from '../../shared/assetProtocol';
 import type { EngineMutationResult } from '../../shared/engineProtocol';
@@ -16,7 +16,10 @@ import {
   getEditorPlatformGateway,
   type EditorPlatformGateway,
 } from '../application/editorPlatformGateway';
-import { EMPTY_DIALOGUE_MESSAGE } from '../editorMessages';
+import {
+  type EditorLabels,
+  useEditorLabels,
+} from '../i18n/editorLocalization';
 
 // Transitional re-export for callers outside feature code. Renderer features
 // import the port definitions directly from application/authoringPorts.
@@ -39,48 +42,135 @@ function requestInitialProject(
   return platform.engine.ensureProject();
 }
 
-function readableError(error: unknown): string {
+function withRendererProjectDefaults(
+  project: ProjectDocument,
+): ProjectDocument {
+  // Vite can hot-reload the Renderer while Electron Main, Preload and the C++
+  // backend keep running. A Project snapshot retained by React from before CG
+  // gallery support therefore has no `cgGallery` property. Treat that one
+  // legacy in-memory shape as an empty gallery so selecting the new surface
+  // cannot crash the complete Renderer. Fresh backend responses are still
+  // validated strictly by Main before they reach this boundary.
+  const gallery = (
+    project as ProjectDocument & {
+      cgGallery?: ProjectDocument['cgGallery'];
+    }
+  ).cgGallery;
+  const assetIds = new Set<string>();
+  const hasValidPages =
+    gallery &&
+    Array.isArray(gallery.pages) &&
+    gallery.pages.length > 0 &&
+    gallery.pages.every(
+      (page) =>
+        page !== null &&
+        typeof page === 'object' &&
+        Array.isArray(page.imageAssetIds) &&
+        page.imageAssetIds.length === 9 &&
+        page.imageAssetIds.every((assetId) => {
+          if (assetId === null) {
+            return true;
+          }
+          if (
+            typeof assetId !== 'string' ||
+            assetId.length === 0 ||
+            assetIds.has(assetId)
+          ) {
+            return false;
+          }
+          assetIds.add(assetId);
+          return true;
+        }),
+    );
+  if (hasValidPages) {
+    return project;
+  }
+
+  return {
+    ...project,
+    cgGallery: {
+      pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+    },
+  };
+}
+
+function readableError(error: unknown, labels: EditorLabels): string {
+  if (
+    error instanceof Error &&
+    (error.message.includes('updateCgGallery is not a function') ||
+      error.message.includes('unknown method: cgGallery.update'))
+  ) {
+    return labels.messages.cgModuleUnavailable;
+  }
+
+  if (
+    error instanceof Error &&
+    (error.message.includes('addStoryExtension is not a function') ||
+      error.message.includes('reorderTimelineNodes is not a function') ||
+      error.message.includes('unknown method: storyExtension') ||
+      error.message.includes('unknown method: timeline.reorderMany'))
+  ) {
+    return labels.messages.extensionModuleUnavailable;
+  }
+
   if (
     error instanceof Error &&
     (error.message.includes('addSceneJump is not a function') ||
       error.message.includes('updateSceneJump is not a function') ||
       error.message.includes('unknown method: sceneJump'))
   ) {
-    return '场景跳转模块尚未加载，请完全退出并重新启动编辑器';
+    return labels.messages.sceneJumpModuleUnavailable;
   }
 
   if (
     error instanceof Error &&
     error.message.includes('dialogue text must not be empty')
   ) {
-    return EMPTY_DIALOGUE_MESSAGE;
+    return labels.messages.emptyDialogue;
   }
 
   if (
     error instanceof Error &&
     error.message.includes('project name must not be empty')
   ) {
-    return '项目名不可为空';
+    return labels.messages.projectNameRequired;
+  }
+
+  if (
+    error instanceof Error &&
+    error.message.includes('start screen title must not be empty')
+  ) {
+    return labels.messages.gameTitleRequired;
   }
 
   if (
     error instanceof Error &&
     error.message.includes('project file could not be saved safely')
   ) {
-    return '项目保存失败，请检查文件夹权限或磁盘剩余空间';
+    return labels.messages.saveFailed;
   }
 
-  return error instanceof Error
-    ? error.message
-    : 'C++ 后端发生了未知错误';
+  if (!(error instanceof Error)) {
+    return labels.messages.unknownBackendError;
+  }
+  return labels.locale === 'en-US' && /[\p{Script=Han}]/u.test(error.message)
+    ? labels.messages.unknownBackendError
+    : error.message;
 }
 
 // 这一层只协调“Project 快照 ↔ C++ API”，不知道当前选中了哪个节点。
 export function useEngineProject(
   platform: EditorPlatformGateway = getEditorPlatformGateway(),
 ) {
+  const labels = useEditorLabels();
+  const labelsRef = useRef(labels);
+  labelsRef.current = labels;
   const [project, setProject] =
     useState<ProjectDocument | null>(null);
+  const rendererProject = useMemo(
+    () => project === null ? null : withRendererProjectDefaults(project),
+    [project],
+  );
   const [assets, setAssets] = useState<AssetDocument[]>([]);
   // 即使重新打开的是同一个 project.id，Main 也会轮换图片预览能力令牌。
   // 这个计数让 Renderer 丢弃旧 URL，并按新项目会话重新申请。
@@ -99,6 +189,11 @@ export function useEngineProject(
   const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportMessage, setExportMessage] = useState('');
+  useEffect(() => {
+    // Export summaries are localized at completion time. Do not leave a
+    // completed summary in the previous language after the UI switches.
+    setExportMessage('');
+  }, [labels]);
   const fileOperationInProgress = useRef(false);
   const engineActionQueue = useRef<Promise<void>>(Promise.resolve());
   const initializationRequest = useRef<Promise<[
@@ -115,8 +210,12 @@ export function useEngineProject(
   function applyResult(
     result: EngineMutationResult,
     fileSession?: ProjectFileSessionSnapshot,
-  ): void {
-    setProject(result.project);
+  ): EngineMutationResult {
+    const normalizedProject = withRendererProjectDefaults(result.project);
+    const normalizedResult = normalizedProject === result.project
+      ? result
+      : { ...result, project: normalizedProject };
+    setProject(normalizedProject);
     setAssets(result.assets);
 
     if (fileSession) {
@@ -124,13 +223,14 @@ export function useEngineProject(
         ...fileSession,
         ...result.session,
       });
-      return;
+      return normalizedResult;
     }
 
     setSession((current) => ({
       ...current,
       ...result.session,
     }));
+    return normalizedResult;
   }
 
   useEffect(() => {
@@ -154,7 +254,7 @@ export function useEngineProject(
       })
       .catch((error: unknown) => {
         if (isActive) {
-          setEngineMessage(readableError(error));
+          setEngineMessage(readableError(error, labelsRef.current));
         }
       })
       .finally(() => {
@@ -189,10 +289,10 @@ export function useEngineProject(
 
       try {
         const result = await action();
-        applyResult(result);
-        resolveQueuedResult(result);
+        const normalizedResult = applyResult(result);
+        resolveQueuedResult(normalizedResult);
       } catch (error: unknown) {
-        setEngineMessage(readableError(error));
+        setEngineMessage(readableError(error, labelsRef.current));
         resolveQueuedResult(null);
       } finally {
         setPendingEngineActions((current) => Math.max(0, current - 1));
@@ -208,14 +308,19 @@ export function useEngineProject(
 
   async function getProjectSnapshot(): Promise<ProjectDocument | null> {
     const result = await runEngineAction(() => platform.engine.getProject());
-    return result?.project ?? null;
+    return result === null
+      ? null
+      : withRendererProjectDefaults(result.project);
   }
 
   const authoringActions = createAuthoringActions({
     commands: platform.engine,
     run: runEngineAction,
     onSceneJumpUnavailable: () => {
-      setEngineMessage('场景跳转模块尚未加载，请完全退出并重新启动编辑器');
+      setEngineMessage(labelsRef.current.messages.sceneJumpModuleUnavailable);
+    },
+    onStoryExtensionUnavailable: () => {
+      setEngineMessage(labelsRef.current.messages.extensionModuleUnavailable);
     },
   });
 
@@ -233,7 +338,7 @@ export function useEngineProject(
       await platform.projectFiles.createProject(name);
       return true;
     } catch (error: unknown) {
-      setEngineMessage(readableError(error));
+      setEngineMessage(readableError(error, labelsRef.current));
       return false;
     } finally {
       fileOperationInProgress.current = false;
@@ -265,7 +370,7 @@ export function useEngineProject(
       return 'opened';
     } catch (error: unknown) {
       // 失败时不调用 setProject，因此当前编辑内容会原样保留。
-      setEngineMessage(readableError(error));
+      setEngineMessage(readableError(error, labelsRef.current));
       return 'failed';
     } finally {
       fileOperationInProgress.current = false;
@@ -304,7 +409,7 @@ export function useEngineProject(
       setProjectGeneration((current) => current + 1);
       return true;
     } catch (error: unknown) {
-      setEngineMessage(readableError(error));
+      setEngineMessage(readableError(error, labelsRef.current));
       return false;
     } finally {
       fileOperationInProgress.current = false;
@@ -339,7 +444,7 @@ export function useEngineProject(
 
       if (saveOutcome.cancelled) {
         setSession(saveOutcome.session);
-        setExportMessage('已取消保存，未开始导出');
+        setExportMessage(labelsRef.current.messages.saveCancelledBeforeExport);
         return 'cancelled';
       }
 
@@ -355,23 +460,23 @@ export function useEngineProject(
         savedSession.isDirty ||
         savedSession.savedRevision !== savedSession.revision
       ) {
-        throw new Error('项目尚未完整保存，无法导出游戏');
+        throw new Error(labelsRef.current.messages.projectNotSavedForExport);
       }
 
       const outcome = await platform.gameExport.exportGame(request);
       if (outcome.cancelled) {
-        setExportMessage('已取消导出');
+        setExportMessage(labelsRef.current.messages.exportCancelled);
         return 'cancelled';
       }
 
       if (outcome.sourceRevision !== savedSession.revision) {
-        throw new Error('导出版本与已保存项目不一致，请重试');
+        throw new Error(labelsRef.current.messages.exportRevisionMismatch);
       }
 
-      setExportMessage(exportCompletedMessage(outcome));
+      setExportMessage(exportCompletedMessage(outcome, labelsRef.current));
       return 'exported';
     } catch (error: unknown) {
-      setEngineMessage(readableError(error));
+      setEngineMessage(readableError(error, labelsRef.current));
       return 'failed';
     } finally {
       fileOperationInProgress.current = false;
@@ -397,6 +502,30 @@ export function useEngineProject(
     return result !== null;
   }
 
+  async function updateStartScreen(
+    title: string,
+    backgroundAssetId: string | null,
+    musicAssetId: string | null,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      platform.engine.updateStartScreen({
+        title,
+        backgroundAssetId,
+        musicAssetId,
+      }),
+    );
+    return result !== null;
+  }
+
+  async function updateCgGallery(
+    pages: ProjectDocument['cgGallery']['pages'],
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      platform.engine.updateCgGallery(pages),
+    );
+    return result !== null;
+  }
+
   async function importImage(): Promise<ImportImageStatus> {
     if (fileOperationInProgress.current) {
       return 'failed';
@@ -418,7 +547,7 @@ export function useEngineProject(
       applyResult(outcome.result);
       return outcome.status;
     } catch (error: unknown) {
-      setEngineMessage(readableError(error));
+      setEngineMessage(readableError(error, labelsRef.current));
       return 'failed';
     } finally {
       fileOperationInProgress.current = false;
@@ -447,7 +576,7 @@ export function useEngineProject(
       applyResult(outcome.result);
       return outcome.status;
     } catch (error: unknown) {
-      setEngineMessage(readableError(error));
+      setEngineMessage(readableError(error, labelsRef.current));
       return 'failed';
     } finally {
       fileOperationInProgress.current = false;
@@ -476,7 +605,7 @@ export function useEngineProject(
       applyResult(outcome.result);
       return outcome.status;
     } catch (error: unknown) {
-      setEngineMessage(readableError(error));
+      setEngineMessage(readableError(error, labelsRef.current));
       return 'failed';
     } finally {
       fileOperationInProgress.current = false;
@@ -485,7 +614,7 @@ export function useEngineProject(
   }
 
   return {
-    project,
+    project: rendererProject,
     assets,
     projectGeneration,
     projectFolderName: session.projectFolderName,
@@ -507,6 +636,8 @@ export function useEngineProject(
     importVideo,
     importAudio,
     renameProject,
+    updateStartScreen,
+    updateCgGallery,
     setSceneBackground,
     waitForEngineActions,
     getProjectSnapshot,
@@ -515,12 +646,18 @@ export function useEngineProject(
 
 function exportCompletedMessage(
   outcome: ExportGameCompletedResult,
+  labels: EditorLabels,
 ): string {
   const kind =
     outcome.output === 'standalone-application'
-      ? '独立游戏 ZIP'
-      : '内容包';
-  return `已导出${kind} ${outcome.artifactName}（${outcome.assetCount} 项资源）`;
+      ? labels.messages.standaloneZip
+      : outcome.output === 'web-player'
+        ? labels.messages.webZip
+        : labels.messages.contentBundle;
+  const count = labels.locale === 'zh-CN'
+    ? `（${outcome.assetCount} ${labels.messages.assetUnit}）`
+    : ` (${outcome.assetCount} ${labels.messages.assetUnit})`;
+  return `${labels.messages.exportedPrefix}${labels.common.wordSeparator}${kind} ${outcome.artifactName}${count}`;
 }
 
 export type EngineProjectState = ReturnType<typeof useEngineProject>;

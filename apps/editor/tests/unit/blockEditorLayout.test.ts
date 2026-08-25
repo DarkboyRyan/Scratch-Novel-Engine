@@ -9,6 +9,7 @@ import {
 import { DIALOGUE_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/dialogueBlock';
 import { BGM_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/bgmBlock';
 import { CHOICE_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/choiceBlock';
+import { STORY_CONTINUATION_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/storyContinuationBlock';
 import type { SceneDocument } from '../../src/shared/projectTypes';
 
 const scene: SceneDocument = {
@@ -199,6 +200,61 @@ describe('captureSceneWorkspaceLayout', () => {
         createWorkspace([root]),
       ).rootPosition,
     ).toEqual({ x: 410, y: 260 });
+  });
+
+  it('uses a complete manually extended first page as the anchor', () => {
+    const paginatedScene: SceneDocument = {
+      ...scene,
+      nodes: [
+        scene.nodes[0],
+        { id: 'extension-1', type: 'storyExtension' },
+        scene.nodes[1],
+      ],
+    };
+    const firstPage = createRootBlock(
+      'node-1',
+      ['node-1'],
+      470,
+      290,
+    );
+    const secondPage = createRootBlock(
+      'extension-1',
+      ['extension-1', 'node-2'],
+      890,
+      290,
+      STORY_CONTINUATION_BLOCK_TYPE,
+    );
+
+    expect(
+      captureSceneWorkspaceLayout(
+        paginatedScene,
+        createWorkspace([firstPage, secondPage]),
+      ).rootPosition,
+    ).toEqual({ x: 470, y: 290 });
+  });
+
+  it('uses a marker-only first page as a stable anchor', () => {
+    const markerScene: SceneDocument = {
+      ...scene,
+      nodes: [
+        { id: 'extension-1', type: 'storyExtension' },
+        ...scene.nodes,
+      ],
+    };
+    const marker = createRootBlock(
+      'extension-1',
+      ['extension-1', 'node-1', 'node-2'],
+      510,
+      320,
+      STORY_CONTINUATION_BLOCK_TYPE,
+    );
+
+    expect(
+      captureSceneWorkspaceLayout(
+        markerScene,
+        createWorkspace([marker]),
+      ).rootPosition,
+    ).toEqual({ x: 510, y: 320 });
   });
 });
 

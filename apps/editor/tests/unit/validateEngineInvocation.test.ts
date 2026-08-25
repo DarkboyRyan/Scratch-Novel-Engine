@@ -27,6 +27,89 @@ describe('engine IPC validation', () => {
     ).toBe(false);
   });
 
+  it('accepts only the exact title and nullable start screen resources', () => {
+    expect(
+      isEngineInvocation({
+        method: 'startScreen.update',
+        params: {
+          title: 'Custom title',
+          backgroundAssetId: 'image-1',
+          musicAssetId: null,
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isEngineInvocation({
+        method: 'startScreen.update',
+        params: {
+          title: 'Custom title',
+          backgroundAssetId: null,
+          musicAssetId: 'audio-1',
+        },
+      }),
+    ).toBe(true);
+
+    for (const params of [
+      { backgroundAssetId: 'image-1' },
+      { title: 7, backgroundAssetId: null, musicAssetId: null },
+      {
+        title: 'Custom title',
+        backgroundAssetId: 7,
+        musicAssetId: null,
+      },
+      {
+        title: 'Custom title',
+        backgroundAssetId: null,
+        musicAssetId: false,
+      },
+      {
+        title: 'Custom title',
+        backgroundAssetId: null,
+        musicAssetId: null,
+        sceneId: 'scene-1',
+      },
+    ]) {
+      expect(
+        isEngineInvocation({ method: 'startScreen.update', params }),
+      ).toBe(false);
+    }
+  });
+
+  it('accepts only exact non-empty nine-slot CG pages', () => {
+    const emptyPage = { imageAssetIds: Array(9).fill(null) };
+    const populatedPage = {
+      imageAssetIds: ['image-2', null, 'image-1', null, null, null, null, null, null],
+    };
+    expect(isEngineInvocation({
+      method: 'cgGallery.update',
+      params: { pages: [emptyPage] },
+    })).toBe(true);
+    expect(isEngineInvocation({
+      method: 'cgGallery.update',
+      params: { pages: [populatedPage, emptyPage] },
+    })).toBe(true);
+
+    for (const params of [
+      {},
+      { pages: [] },
+      { pages: 'page-1' },
+      { pages: [{ imageAssetIds: Array(8).fill(null) }] },
+      { pages: [{ imageAssetIds: [2, ...Array(8).fill(null)] }] },
+      {
+        pages: [
+          { imageAssetIds: ['image-1', ...Array(8).fill(null)] },
+          { imageAssetIds: ['image-1', ...Array(8).fill(null)] },
+        ],
+      },
+      { pages: [emptyPage], unexpected: true },
+    ]) {
+      expect(isEngineInvocation({
+        method: 'cgGallery.update',
+        params,
+      })).toBe(false);
+    }
+  });
+
   it('accepts setting or clearing a scene background by Asset ID', () => {
     expect(
       isEngineInvocation({
@@ -212,14 +295,17 @@ describe('engine IPC validation', () => {
           assetId: null,
           slot: 'center',
           layer: 10,
+          position: { x: 37.5, y: 92 },
         },
       }),
     ).toBe(true);
 
     for (const invalid of [
-      { assetId: null, slot: 'top', layer: 1 },
-      { assetId: null, slot: 'left', layer: 0 },
-      { assetId: null, slot: 'right', layer: 1.5 },
+      { assetId: null, slot: 'top', layer: 1, position: null },
+      { assetId: null, slot: 'left', layer: 0, position: null },
+      { assetId: null, slot: 'right', layer: 1.5, position: null },
+      { assetId: null, slot: 'center', layer: 1, position: { x: -1, y: 50 } },
+      { assetId: null, slot: 'center', layer: 1, position: { x: 50, y: 101 } },
     ]) {
       expect(
         isEngineInvocation({
@@ -264,6 +350,34 @@ describe('engine IPC validation', () => {
         beforeNodeId: 'b',
       },
     })).toBe(false);
+  });
+
+  it('validates story extension insertion anchors', () => {
+    for (const placement of [
+      {},
+      { afterNodeId: 'dialogue-1' },
+      { beforeNodeId: 'dialogue-2' },
+    ]) {
+      expect(isEngineInvocation({
+        method: 'storyExtension.add',
+        params: { sceneId: 'scene-1', ...placement },
+      })).toBe(true);
+    }
+
+    for (const params of [
+      {},
+      { sceneId: 'scene-1', beforeNodeId: 7 },
+      {
+        sceneId: 'scene-1',
+        afterNodeId: 'dialogue-1',
+        beforeNodeId: 'dialogue-2',
+      },
+    ]) {
+      expect(isEngineInvocation({
+        method: 'storyExtension.add',
+        params,
+      })).toBe(false);
+    }
   });
 
   it('validates dialogue voice and BGM commands with nullable audio IDs', () => {

@@ -16,7 +16,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { compileAuthorProjectV9 } from '../../src/main/export/AuthorProjectCompiler';
+import { compileAuthorProjectV15 } from '../../src/main/export/AuthorProjectCompiler';
 import {
   exportRuntimeBundle,
   type RuntimeBundleExportFaultPoint,
@@ -33,19 +33,33 @@ async function makeDirectory(): Promise<string> {
 function projectDocument(relativePath = 'assets/images/image-1.png'): unknown {
   return {
     format: 'vn-engine-project',
-    fileVersion: 9,
+    fileVersion: 15,
     project: {
       schemaVersion: 1,
       id: 'project-1',
       name: 'Export Game',
       entrySceneId: 'scene-1',
+      startScreen: {
+        title: 'Custom Title',
+        backgroundAssetId: 'image-1',
+        musicAssetId: 'title-music',
+      },
+      cgGallery: {
+        pages: [{
+          imageAssetIds: [
+            null,
+            'gallery-image',
+            ...Array<string | null>(7).fill(null),
+          ],
+        }],
+      },
       scenes: [
         {
           schemaVersion: 1,
           id: 'scene-1',
           name: 'Scene 1',
           visuals: { backgroundAssetId: 'image-1', characters: [] },
-          nodes: [],
+          nodes: [{ id: 'extension-1', type: 'storyExtension' }],
         },
       ],
     },
@@ -57,10 +71,22 @@ function projectDocument(relativePath = 'assets/images/image-1.png'): unknown {
         displayName: 'Background.png',
       },
       {
-        id: 'unused-audio',
+        id: 'title-music',
         type: 'audio',
-        relativePath: 'assets/audio/unused-audio.mp3',
-        displayName: 'Unused.mp3',
+        relativePath: 'assets/audio/title-music.mp3',
+        displayName: 'Title.mp3',
+      },
+      {
+        id: 'unused-video',
+        type: 'video',
+        relativePath: 'assets/videos/unused-video.mp4',
+        displayName: 'Unused.mp4',
+      },
+      {
+        id: 'gallery-image',
+        type: 'image',
+        relativePath: 'assets/images/gallery-image.png',
+        displayName: 'Gallery.png',
       },
     ],
   };
@@ -68,13 +94,83 @@ function projectDocument(relativePath = 'assets/images/image-1.png'): unknown {
 
 function currentSnapshot() {
   const manifestContents = JSON.stringify(projectDocument());
-  const compiled = compileAuthorProjectV9(manifestContents);
+  const compiled = compileAuthorProjectV15(manifestContents);
   return {
     expectedManifestSha256: createHash('sha256')
       .update(manifestContents)
       .digest('hex'),
-    expectedProject: compiled.project,
+    expectedProject: compiled.sourceProject,
     expectedAssets: compiled.publicAssets,
+  };
+}
+
+function legacyV12Document(): ReturnType<typeof projectDocument> {
+  const document = structuredClone(projectDocument()) as {
+    fileVersion: number;
+    project: Record<string, unknown> & {
+      scenes: Array<{ nodes: unknown[] }>;
+    };
+  };
+  document.fileVersion = 12;
+  delete document.project.cgGallery;
+  document.project.scenes[0].nodes = [
+    {
+      id: 'legacy-character',
+      type: 'character',
+      assetId: 'image-1',
+      slot: 'right',
+      layer: 1,
+    },
+    {
+      id: 'legacy-dialogue',
+      type: 'dialogue',
+      speaker: '旁白',
+      text: '旧项目对白',
+      voiceAssetId: null,
+    },
+    { id: 'extension-1', type: 'storyExtension' },
+  ];
+  return document;
+}
+
+function legacyV12Snapshot(contents: string) {
+  const current = currentSnapshot();
+  return {
+    expectedManifestSha256: createHash('sha256')
+      .update(contents)
+      .digest('hex'),
+    expectedProject: {
+      ...current.expectedProject,
+      cgGallery: {
+        pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+      },
+      scenes: current.expectedProject.scenes.map((scene, sceneIndex) =>
+        sceneIndex === 0
+          ? {
+              ...scene,
+              nodes: [
+                {
+                  id: 'legacy-character',
+                  type: 'character' as const,
+                  assetId: 'image-1',
+                  slot: 'right' as const,
+                  layer: 1,
+                  position: null,
+                },
+                {
+                  id: 'legacy-dialogue',
+                  type: 'dialogue' as const,
+                  speaker: '旁白',
+                  text: '旧项目对白',
+                  voiceAssetId: null,
+                },
+                { id: 'extension-1', type: 'storyExtension' as const },
+              ],
+            }
+          : scene,
+      ),
+    },
+    expectedAssets: current.expectedAssets,
   };
 }
 
@@ -82,19 +178,42 @@ async function createSavedProject(): Promise<{
   projectRoot: string;
   outputParent: string;
   imageBytes: Buffer;
+  galleryImageBytes: Buffer;
+  audioBytes: Buffer;
 }> {
   const testRoot = await makeDirectory();
   const projectRoot = path.join(testRoot, 'Author Project');
   const outputParent = path.join(testRoot, 'Exports');
   await mkdir(path.join(projectRoot, 'assets', 'images'), { recursive: true });
+  await mkdir(path.join(projectRoot, 'assets', 'audio'), { recursive: true });
   await mkdir(outputParent);
   const imageBytes = Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     Buffer.from('runtime-export-test'),
   ]);
+  const audioBytes = Buffer.alloc(417);
+  audioBytes.set([0xff, 0xfb, 0x90, 0x64]);
+  const galleryImageBytes = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    Buffer.from('runtime-gallery-export-test'),
+  ]);
   await writeFile(path.join(projectRoot, 'project.vn.json'), JSON.stringify(projectDocument()));
   await writeFile(path.join(projectRoot, 'assets', 'images', 'image-1.png'), imageBytes);
-  return { projectRoot, outputParent, imageBytes };
+  await writeFile(
+    path.join(projectRoot, 'assets', 'images', 'gallery-image.png'),
+    galleryImageBytes,
+  );
+  await writeFile(
+    path.join(projectRoot, 'assets', 'audio', 'title-music.mp3'),
+    audioBytes,
+  );
+  return {
+    projectRoot,
+    outputParent,
+    imageBytes,
+    galleryImageBytes,
+    audioBytes,
+  };
 }
 
 afterEach(async () => {
@@ -106,8 +225,14 @@ afterEach(async () => {
 });
 
 describe('runtime bundle exporter', () => {
-  it('publishes a verified runtime v1 directory bundle with referenced assets only', async () => {
-    const { projectRoot, outputParent, imageBytes } = await createSavedProject();
+  it('publishes a verified runtime v6 bundle with start-screen and CG assets', async () => {
+    const {
+      projectRoot,
+      outputParent,
+      imageBytes,
+      galleryImageBytes,
+      audioBytes,
+    } = await createSavedProject();
     const targetPath = path.join(outputParent, 'Custom Name.vngame');
 
     await expect(
@@ -123,7 +248,7 @@ describe('runtime bundle exporter', () => {
       bundleName: 'Custom Name.vngame',
       buildId: 'build-fixed',
       sourceRevision: 12,
-      assetCount: 1,
+      assetCount: 3,
     });
 
     const game = JSON.parse(await readFile(path.join(targetPath, 'game.json'), 'utf8'));
@@ -131,11 +256,42 @@ describe('runtime bundle exporter', () => {
       await readFile(path.join(targetPath, 'manifest.json'), 'utf8'),
     );
     expect(Object.keys(game)).toEqual(['format', 'runtimeVersion', 'game', 'scenes']);
+    expect(Object.keys(game.game)).toEqual([
+      'id',
+      'title',
+      'entrySceneId',
+      'startScreen',
+      'cgGallery',
+    ]);
+    expect(Object.keys(game.game.startScreen)).toEqual([
+      'title',
+      'backgroundAssetId',
+      'musicAssetId',
+    ]);
     expect(game).toMatchObject({
       format: 'vn-engine-runtime',
-      runtimeVersion: 1,
-      game: { id: 'project-1', title: 'Export Game', entrySceneId: 'scene-1' },
+      runtimeVersion: 6,
+      game: {
+        id: 'project-1',
+        title: 'Export Game',
+        entrySceneId: 'scene-1',
+        startScreen: {
+          title: 'Custom Title',
+          backgroundAssetId: 'image-1',
+          musicAssetId: 'title-music',
+        },
+        cgGallery: {
+          pages: [{
+            imageAssetIds: [
+              null,
+              'gallery-image',
+              ...Array<string | null>(7).fill(null),
+            ],
+          }],
+        },
+      },
     });
+    expect(game.scenes[0].nodes).toEqual([]);
     expect(Object.keys(manifest)).toEqual([
       'format',
       'manifestVersion',
@@ -147,6 +303,10 @@ describe('runtime bundle exporter', () => {
       'createdAt',
       'files',
     ]);
+    expect(manifest).toMatchObject({
+      runtimeVersion: 6,
+      playerCompatibility: '>=6 <7',
+    });
     expect(manifest.files).toEqual([
       {
         assetId: 'image-1',
@@ -157,14 +317,262 @@ describe('runtime bundle exporter', () => {
         bytes: imageBytes.length,
         sha256: createHash('sha256').update(imageBytes).digest('hex'),
       },
+      {
+        assetId: 'title-music',
+        type: 'audio',
+        displayName: 'Title.mp3',
+        path: 'assets/audio/title-music.mp3',
+        mime: 'audio/mpeg',
+        bytes: audioBytes.length,
+        sha256: createHash('sha256').update(audioBytes).digest('hex'),
+      },
+      {
+        assetId: 'gallery-image',
+        type: 'image',
+        displayName: 'Gallery.png',
+        path: 'assets/images/gallery-image.png',
+        mime: 'image/png',
+        bytes: galleryImageBytes.length,
+        sha256: createHash('sha256').update(galleryImageBytes).digest('hex'),
+      },
     ]);
     await expect(
       readFile(path.join(targetPath, 'assets', 'images', 'image-1.png')),
     ).resolves.toEqual(imageBytes);
     await expect(
-      access(path.join(targetPath, 'assets', 'audio', 'unused-audio.mp3')),
+      readFile(path.join(targetPath, 'assets', 'images', 'gallery-image.png')),
+    ).resolves.toEqual(galleryImageBytes);
+    await expect(
+      access(path.join(targetPath, 'assets', 'videos', 'unused-video.mp4')),
     ).rejects.toMatchObject({ code: 'ENOENT' });
     expect(JSON.stringify({ game, manifest })).not.toContain(projectRoot);
+  });
+
+  it('exports an opened v14 project without requiring an extra save', async () => {
+    const { projectRoot, outputParent } = await createSavedProject();
+    const legacyDocument = projectDocument() as {
+      fileVersion: number;
+      project: { cgGallery: unknown };
+    };
+    legacyDocument.fileVersion = 14;
+    legacyDocument.project.cgGallery = {
+      imageAssetIds: ['gallery-image'],
+    };
+    const legacyContents = JSON.stringify(legacyDocument);
+    await writeFile(
+      path.join(projectRoot, 'project.vn.json'),
+      legacyContents,
+    );
+    const migratedSnapshot = compileAuthorProjectV15(legacyContents);
+    const targetPath = path.join(outputParent, 'Legacy.vngame');
+
+    await expect(exportRuntimeBundle({
+      sourceProjectRootPath: projectRoot,
+      targetBundlePath: targetPath,
+      sourceRevision: 0,
+      expectedManifestSha256: createHash('sha256')
+        .update(legacyContents)
+        .digest('hex'),
+      expectedProject: migratedSnapshot.sourceProject,
+      expectedAssets: migratedSnapshot.publicAssets,
+      buildId: 'legacy-build',
+      createdAt: '2026-08-18T00:00:00.000Z',
+    })).resolves.toMatchObject({ assetCount: 3 });
+
+    const game = JSON.parse(
+      await readFile(path.join(targetPath, 'game.json'), 'utf8'),
+    ) as { game: { cgGallery: unknown } };
+    expect(game.game.cgGallery).toEqual({
+      pages: [{
+        imageAssetIds: [
+          'gallery-image',
+          ...Array(8).fill(null),
+        ],
+      }],
+    });
+  });
+
+  it('exports an opened v12 project from the Backend-migrated snapshot', async () => {
+    const { projectRoot, outputParent } = await createSavedProject();
+    const legacyContents = JSON.stringify(legacyV12Document());
+    await writeFile(path.join(projectRoot, 'project.vn.json'), legacyContents);
+    const targetPath = path.join(outputParent, 'Legacy v12.vngame');
+
+    await expect(exportRuntimeBundle({
+      sourceProjectRootPath: projectRoot,
+      targetBundlePath: targetPath,
+      sourceRevision: 0,
+      ...legacyV12Snapshot(legacyContents),
+      buildId: 'legacy-v12-build',
+      createdAt: '2026-08-18T00:00:00.000Z',
+    })).resolves.toMatchObject({ assetCount: 2 });
+
+    const game = JSON.parse(
+      await readFile(path.join(targetPath, 'game.json'), 'utf8'),
+    ) as {
+      runtimeVersion: number;
+      game: { cgGallery: unknown };
+      scenes: Array<{ nodes: unknown[] }>;
+    };
+    const manifest = JSON.parse(
+      await readFile(path.join(targetPath, 'manifest.json'), 'utf8'),
+    ) as { files: Array<{ assetId: string }> };
+    expect(game.runtimeVersion).toBe(6);
+    expect(game.game.cgGallery).toEqual({
+      pages: [{ imageAssetIds: Array(9).fill(null) }],
+    });
+    expect(game.scenes[0].nodes).toEqual([
+      {
+        id: 'legacy-character',
+        type: 'character',
+        assetId: 'image-1',
+        slot: 'right',
+        layer: 1,
+        position: null,
+      },
+      {
+        id: 'legacy-dialogue',
+        type: 'dialogue',
+        speaker: '旁白',
+        text: '旧项目对白',
+        voiceAssetId: null,
+      },
+    ]);
+    expect(manifest.files.map((file) => file.assetId)).toEqual([
+      'image-1',
+      'title-music',
+    ]);
+  });
+
+  it('exports the earliest v1 author shape through the canonical Backend projection', async () => {
+    const { projectRoot, outputParent } = await createSavedProject();
+    const legacyDocument = {
+      format: 'vn-engine-project',
+      fileVersion: 1,
+      project: {
+        schemaVersion: 1,
+        id: 'legacy-v1-project',
+        name: 'Legacy v1',
+        entrySceneId: 'legacy-scene',
+        scenes: [{
+          schemaVersion: 1,
+          id: 'legacy-scene',
+          name: 'Legacy Scene',
+          nodes: [{
+            id: 'legacy-dialogue',
+            type: 'dialogue',
+            speaker: 'Alice',
+            text: 'Hello',
+          }],
+        }],
+      },
+      assets: [],
+    };
+    const legacyContents = JSON.stringify(legacyDocument);
+    await writeFile(path.join(projectRoot, 'project.vn.json'), legacyContents);
+    const targetPath = path.join(outputParent, 'Legacy v1.vngame');
+
+    await expect(exportRuntimeBundle({
+      sourceProjectRootPath: projectRoot,
+      targetBundlePath: targetPath,
+      sourceRevision: 0,
+      expectedManifestSha256: createHash('sha256')
+        .update(legacyContents)
+        .digest('hex'),
+      expectedProject: {
+        schemaVersion: 1,
+        id: 'legacy-v1-project',
+        name: 'Legacy v1',
+        entrySceneId: 'legacy-scene',
+        startScreen: {
+          title: 'Legacy v1',
+          backgroundAssetId: null,
+          musicAssetId: null,
+        },
+        cgGallery: {
+          pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+        },
+        scenes: [{
+          schemaVersion: 1,
+          id: 'legacy-scene',
+          name: 'Legacy Scene',
+          backgroundAssetId: null,
+          nodes: [{
+            id: 'legacy-dialogue',
+            type: 'dialogue',
+            speaker: 'Alice',
+            text: 'Hello',
+            voiceAssetId: null,
+          }],
+        }],
+      },
+      expectedAssets: [],
+      buildId: 'legacy-v1-build',
+      createdAt: '2026-08-18T00:00:00.000Z',
+    })).resolves.toMatchObject({ assetCount: 0 });
+
+    const game = JSON.parse(
+      await readFile(path.join(targetPath, 'game.json'), 'utf8'),
+    ) as {
+      runtimeVersion: number;
+      game: { startScreen: unknown; cgGallery: unknown };
+      scenes: Array<{ backgroundAssetId: string | null; nodes: unknown[] }>;
+    };
+    expect(game.runtimeVersion).toBe(6);
+    expect(game.game.startScreen).toEqual({
+      title: 'Legacy v1',
+      backgroundAssetId: null,
+      musicAssetId: null,
+    });
+    expect(game.game.cgGallery).toEqual({
+      pages: [{ imageAssetIds: Array(9).fill(null) }],
+    });
+    expect(game.scenes[0]).toMatchObject({
+      backgroundAssetId: null,
+      nodes: [{
+        id: 'legacy-dialogue',
+        type: 'dialogue',
+        speaker: 'Alice',
+        text: 'Hello',
+        voiceAssetId: null,
+      }],
+    });
+  });
+
+  it('never falls back for future or mismatched legacy project bytes', async () => {
+    const { projectRoot, outputParent } = await createSavedProject();
+    const expected = currentSnapshot();
+
+    const future = projectDocument() as { fileVersion: number };
+    future.fileVersion = 16;
+    const futureContents = JSON.stringify(future);
+    await writeFile(path.join(projectRoot, 'project.vn.json'), futureContents);
+    await expect(exportRuntimeBundle({
+      sourceProjectRootPath: projectRoot,
+      targetBundlePath: path.join(outputParent, 'Future.vngame'),
+      sourceRevision: 0,
+      ...expected,
+      expectedManifestSha256: createHash('sha256')
+        .update(futureContents)
+        .digest('hex'),
+    })).rejects.toThrow('document.fileVersion 版本或格式不受支持');
+
+    const mismatched = legacyV12Document() as {
+      project: { id: string };
+    };
+    mismatched.project.id = 'forged-project';
+    const mismatchedContents = JSON.stringify(mismatched);
+    await writeFile(
+      path.join(projectRoot, 'project.vn.json'),
+      mismatchedContents,
+    );
+    await expect(exportRuntimeBundle({
+      sourceProjectRootPath: projectRoot,
+      targetBundlePath: path.join(outputParent, 'Mismatched.vngame'),
+      sourceRevision: 0,
+      ...legacyV12Snapshot(mismatchedContents),
+      expectedProject: expected.expectedProject,
+    })).rejects.toThrow('磁盘项目与当前编辑器项目不一致');
   });
 
   it('removes staging and leaves no final bundle after any injected failure', async () => {
