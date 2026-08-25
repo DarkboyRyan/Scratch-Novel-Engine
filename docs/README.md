@@ -23,6 +23,13 @@
   已签名 `.app`）、embedded 模式和多平台
   workflow；也列出 `player-release`/`game-release` protected Environments、不可变 tag/
   Release 和 Environment Secrets 的上线配置，并区分“流水线已实现”与“正式发行尚未验收”。
+- [Player 保存与读取](./save-load-implementation.md)：3 个手动槽和独立快速槽、
+  `GameRuntimeSnapshot v1`、Main-owned 游戏身份、原子本地存储、标题页读取入口与
+  游戏内底栏，以及完整实现流程和技术栈。
+- [Player 选项系统](./player-options-implementation.md)：`PlayerSettingsV1`、四通道音量、
+  窗口/全屏与三档尺寸、userData 原子设置文件、trusted-frame patch IPC、媒体生命周期、
+  启动 activation gate、纯音量 patch 不改窗口、CG/存档/选项焦点互斥、Editor 内存预览
+  和可复现测试矩阵。
 
 ### 剧情与编辑器功能
 
@@ -72,6 +79,10 @@
 11. [独立游戏 Player 与导出流程](./game-export-player.md)：最后理解编辑器预览、共享
     Runtime、独立 Player、内容包、Player 模板、平台桌面应用及正式发布门禁之间的
     关系。
+12. [Player 保存与读取](./save-load-implementation.md)：理解为什么只传版本化小快照、
+    如何按游戏身份隔离存档，以及 React、Preload、Main 和原子文件事务的完整调用链。
+13. [Player 选项系统](./player-options-implementation.md)：理解为什么 Renderer 只发送
+    exact patch、Main 如何同步原生全屏与 workArea，以及音量调整如何不重置播放位置。
 
 ## 当前真实技术栈
 

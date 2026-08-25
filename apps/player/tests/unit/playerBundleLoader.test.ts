@@ -129,6 +129,16 @@ describe('runtime bundle loader', () => {
     expect(bundle.game.assets).toEqual([]);
     expect(JSON.stringify(bundle.game)).not.toContain('relativePath');
     expect(JSON.stringify(bundle.game)).not.toContain(fixture);
+    const gameContents = await readFile(path.join(fixture, 'game.json'), 'utf8');
+    const runtimeVersion = (JSON.parse(gameContents) as { runtimeVersion: number })
+      .runtimeVersion;
+    expect(bundle.identity).toEqual({
+      projectId: 'development-player-fixture',
+      runtimeVersion,
+      contentFingerprint: createHash('sha256')
+        .update(gameContents, 'utf8')
+        .digest('hex'),
+    });
   });
 
   it('verifies media type, byte size, sha256 and content before activation', async () => {

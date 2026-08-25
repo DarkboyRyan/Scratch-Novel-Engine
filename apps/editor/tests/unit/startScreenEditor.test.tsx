@@ -488,12 +488,18 @@ describe('start screen Editor projection', () => {
     ).toContain('vn-asset://preview/night-sky');
     expect(container.textContent).toContain('自定义游戏名');
     expect(container.textContent).toContain('开始游戏');
+    expect(container.textContent).toContain('读取游戏');
     expect(container.textContent).toContain('CG 画廊');
     expect(container.textContent).toContain('选项');
     expect(container.textContent).toContain('退出游戏');
     expect(
       container.querySelector('.start-screen-design-actions')?.children,
-    ).toHaveLength(4);
+    ).toHaveLength(5);
+    expect(
+      container.querySelector(
+        '.start-screen-design-fit > .start-screen-design-card',
+      ),
+    ).not.toBeNull();
     expect(container.textContent).not.toContain('清除背景');
     expect(container.textContent).not.toContain('清除音乐');
 

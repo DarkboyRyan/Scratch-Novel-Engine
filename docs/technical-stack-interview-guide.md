@@ -13,6 +13,8 @@
 - [选项分支](./choice-branch-implementation.md)
 - [CG 画廊](./cg-gallery-implementation.md)
 - [独立游戏导出与 Player](./game-export-player.md)
+- [Player 保存与读取](./save-load-implementation.md)
+- [Player 选项系统](./player-options-implementation.md)
 
 ## 1. 30 秒项目介绍
 
@@ -36,7 +38,9 @@ JSON Lines 协议通信，而不是 HTTP。C++ 返回完整权威快照，表单
 - 正式顺序预览、阻塞式视频/选项、鼠标/键盘推进和跳转循环检测；
 - 共享 Runtime/Player UI、v15→runtime v6 `.vngame` 目录导出和通用 Player；
 - Player 兼容 runtime v1–v6，v6 标题页渲染独立标题、自定义背景、循环标题音乐，以及固定的
-  “开始游戏 / CG 画廊 / 选项 / 退出游戏”入口；画廊每页固定九格，支持分页、点击放大和 Esc 返回；
+  正式 Player 的“开始游戏 / 读取游戏 / CG 画廊 / 选项 / 退出游戏”入口；
+  读取游戏使用 3 个手动槽和独立快速槽；选项支持四路音量、窗口/全屏和三档窗口尺寸；
+  画廊每页固定九格，支持分页、点击放大和 Esc 返回；
 - macOS Editor 本地每游戏 `*-macOS.zip` 导出（内含唯一已签名 `.app`）、embedded
   Player，以及通用/每游戏三平台 GitHub Actions 发布门禁；
 - 原子清单保存、IPC 权限收窄和真实 C++ 集成测试。
@@ -68,7 +72,14 @@ JSON Lines 协议通信，而不是 HTTP。C++ 返回完整权威快照，表单
 > 后停止，不会与剧情 BGM 共享生命周期；runtime v5 扁平 CG 会分块补空槽，v1–v4
 > 迁移为一张全空页。
 > 通用 Player 通过 Main 原生目录选择器打开 `.vngame`，候选完整验证后才切换会话，
-> Renderer 始终拿不到路径。独立应用模式在 macOS 使用平台/架构严格匹配的 Player
+> Renderer 始终拿不到路径。玩家存档同样不信任 Renderer 提供路径或游戏身份：
+> Renderer 只发送版本化的小型进度快照，Main 用当前 bundle 的 projectId、runtimeVersion
+> 和 game.json SHA-256 恢复校验，再通过临时文件、fsync、备份和 rename 发布固定槽。
+> Player 选项是另一份独立的 `PlayerSettingsV1`：Renderer 只发送 exact 非空 patch，
+> Main 在 `userData` 原子保存设置并拥有窗口控制。四路有效音量统一按
+> `master × channel` 计算，更新 `volume` 而不重建音轨；窗口预设会限制在当前 Display
+> workArea 内并同步操作系统原生全屏状态。它不改变 author v15、runtime v6 或存档快照。
+> 独立应用模式在 macOS 使用平台/架构严格匹配的 Player
 > 模板，先在私有目录注入 `Resources/game`，再改显示名/ID/版本、ad-hoc 签名；随后
 > 用 `ditto` 生成 `*-macOS.zip`，在另一私有目录解压并复验唯一 `.app` 的签名，最后
 > 以单个文件、无覆盖方式发布。为兼容
@@ -96,6 +107,7 @@ JSON Lines 协议通信，而不是 HTTP。C++ 返回完整权威快照，表单
 | Runtime 导出 | TypeScript strict parser、Node streams、SHA-256 | 已保存 v15→runtime v6、只复制剧情/主界面/CG 非空槽引用资产、staging 原子发布 |
 | 安全资源读取 | Electron 自定义 `vn-asset://` 协议 | 用 capability token 加载图片/音频/视频，用 Range 播放音频和视频且不暴露路径 |
 | 独立 Player | Electron、`vn-game-asset://`、原生目录选择器 | 候选先校验后 commit，成功换包轮换 token，失败保留旧包 |
+| Player 选项 | `PlayerSettingsV1`、React 模态层、Node `fs`、Electron BrowserWindow/Display | 四路音量即时预览、exact patch IPC、userData 原子持久化、workArea 尺寸与原生全屏同步 |
 | 独立应用导出 | exact Player template、私有 staging、`plutil`、`codesign`、`ditto` | macOS 先组装/签名，再 ZIP、私有解压验签，失败不覆盖已有 ZIP |
 | 前端构建 | Vite 5、Electron Forge 7、pnpm | 构建时 metadata/icon/extraResource 与通用、embedded 两种 Player |
 | 发布流水线 | GitHub Actions reusable workflow、protected Environment、build receipt、SHA-256/GPG | 三平台在原生 runner 构建；签名/图标/GPG key 只来自 Environment Secrets；缺正式凭据不允许 unsigned fallback |
@@ -405,7 +417,33 @@ ended 或非长按 Enter 才恢复扫描。非空 ChoiceNode 是选择阻塞点�
 补空媒体或从 `game.title` 补标题。runtime v6 严格读取固定页面；runtime v5 的扁平
 列表按序分块补空，v1–v4 规范化为一张全空页。
 
-### 4.12 构建、打包和测试
+### 4.12 Player 本地选项
+
+使用技术：React 19、共享 `OptionsDialog`、`HTMLAudioElement`/`HTMLVideoElement`、
+Electron contextBridge/IPC、BrowserWindow/Display、Node `fs/promises`。
+
+正式 Player 从标题页、游戏内底栏和暂停菜单进入同一个选项弹层。设置模型是独立的
+`PlayerSettingsV1`：四路音量默认均为 1，窗口模式默认 windowed，窗口尺寸默认 medium。
+Renderer 启动时先等 Main 读取设置，再挂载标题媒体，避免已静音用户听到 100% 音量
+闪现；滑杆先即时预览，提交时只发送相对最近确认值的 exact 非空 patch。
+
+Main 在可信主 frame 校验后串行合并 patch，并把 exact v1 文档原子写入
+`userData/settings/settings.json`。窗口预设为 960×600、1280×800、1600×1000；Main
+按当前 Display `workArea` 等比缩小并居中。原生 enter/leave-full-screen 事件会反写
+权威模式，全屏转换有 5 秒上限。窗口启动时在 `loadURL` 完成后、`show()` 前执行显示
+激活，设置 IPC 会等待 activation gate；只有包含显示字段的 patch 才应用几何，因此
+纯音量更新不会缩放或重新居中用户手动调整过的窗口。退出前会等待最后一次已接受写入
+完成，重复 `before-quit` 也不能绕过 flush。
+
+标题音乐和剧情 BGM 使用 `masterVolume × bgmVolume`，对白语音使用
+`masterVolume × voiceVolume`，视频使用 `masterVolume × videoVolume`。改变音量只更新
+现有媒体元素的 `volume`，不会重置 `currentTime`。弹层实现 focus trap、Esc 捕获、busy
+防重复提交和关闭后焦点恢复。CG 画廊、存档、选项和打开失败弹层由同步 latch 保持
+互斥，底层界面进入 `inert`，同一时刻只保留一个有效模态层。Editor 标题页预览只使用
+组件内存，窗口控件禁用且不会调用 Player IPC。详见
+[Player 选项系统](./player-options-implementation.md)。
+
+### 4.13 构建、打包和测试
 
 使用技术：CMake、CTest、Vitest、Node Test、TypeScript、ESLint、Vite、Electron
 Forge、GitHub Actions。
@@ -428,7 +466,7 @@ Forge、GitHub Actions。
 - 通用 Player 的 `SHA256SUMS` 同时覆盖三平台 ZIP 和最终 `release-set.json`，随后用
   GPG detached signature 签名；所有第三方 Action 固定完整 commit SHA。
 
-## 5. 六条重点调用链
+## 5. 七条重点调用链
 
 ### 5.1 编辑主界面与 CG 画廊
 
@@ -536,7 +574,8 @@ FileProvider 目录只接触最终 ZIP，不直接接触签名后的 `.app` 树�
 runtime v6 manifest 使用 `playerCompatibility: ">=6 <7"`；Player Reader 同时接受
 runtime v1–v6，而当前 Player 模板用 `runtimeCompatibility: ">=1 <7"` 明确覆盖六代
 输入。运行 v6 时标题页使用独立标题与固定九槽 CG 画廊，并固定显示
-“开始游戏 / CG 画廊 / 选项 / 退出游戏”，通用 Player 的
+“开始游戏 / 读取游戏 / CG 画廊 / 选项 / 退出游戏”。Editor 整体预览也显示完整菜单，
+但读取入口只弹出说明、不访问磁盘；正式 Player 才注入存档操作。通用 Player 的
 “打开其他游戏”入口放在“选项”中。
 
 正式 Windows/Linux 每游戏产物不会由 macOS Editor 修改现成可执行文件，而由
@@ -545,6 +584,25 @@ Forge，随后执行平台签名、验证、checksum 和 build receipt。workflo
 但 GitHub 外部的 protected Environments/Rulesets、真实 Environment Secrets runner
 执行和干净机器 smoke 尚未完成正式验收。配置清单见
 [独立游戏导出文档](./game-export-player.md#91-上线前必须完成的-github-外部配置)。
+
+### 5.7 调整 Player 选项
+
+```text
+标题页 / 游戏内底栏 / 暂停菜单点击“选项”
+  → 共享 OptionsDialog 打开并锁住剧情交互、捕获 Tab/Esc
+  → 音量滑杆先更新 React 状态，现有媒体元素立即应用 master × channel
+  → 指针/键盘调整结束时生成相对已确认设置的非空 patch
+  → PlayerGateway / Preload contextBridge
+  → Main 校验可信主 frame、exact invocation 和 PlayerSettingsV1 值域
+  → PlayerSettingsManager 串行合并最新原生窗口状态
+  → PlayerSettingsStore 以 temp + fsync + backup + rename 发布到 userData
+  → patch 含显示字段时，Main 才应用 workArea 安全尺寸或原生全屏
+  → 纯音量 patch 保留用户手动窗口几何；Main 返回完整权威设置
+  → Renderer 接受结果；失败时回滚并显示不含路径的稳定错误
+```
+
+Editor 的标题页整体预览复用相同弹层，但只更新组件内存；窗口模式和尺寸禁用，
+没有 `window.vnPlayer` 设置调用。选项设置与作者项目 v15、runtime v6 和存档快照相互独立。
 
 ## 6. 面试常见问题与回答
 
@@ -578,6 +636,13 @@ Renderer 没有 Node 权限，只能调用 contextBridge 暴露的具名 API；�
 保存采用“资源先、清单后”。新数据先写同目录临时文件并 flush/fsync，资源发布
 完成后，最后一步才原子替换固定 manifest。旧 manifest 从不先删除或 truncate，
 因此失败时仍能打开旧版本。
+
+### 为什么 Player 的窗口选项必须由 Main 管理？
+
+Renderer 是低权限且可被运行时输入影响的一层，不应获得任意 BrowserWindow 控制。
+它只能发送不含路径或宽高的 `small | medium | large` / windowed/fullscreen patch；Main
+再按当前 Display `workArea` 限制尺寸、同步系统原生全屏事件并原子保存。这样既避免
+超出屏幕，也不会因为 Renderer 的旧快照覆盖用户刚刚用系统按钮改变的真实窗口状态。
 
 ### 为什么 Blockly 不是权威数据源？
 
@@ -615,6 +680,8 @@ StrictMode 会在开发环境重复执行 effect。hook 使用实例级 `useRef`
 
 - 视频已支持安全导入、VideoNode、Range streaming 与阻塞式正式预览；当前还没有裁剪、字幕或转码；
 - 音频已能安全导入并播放对白语音/BGM；当前还没有淡入淡出、波形和音效节点；
+- Player 选项已支持主/BGM/语音/视频音量、窗口/全屏和三档尺寸；当前还没有文字速度、
+  自动播放速度、SFX 通道、无边框窗口或设置云同步；
 - 正式预览已有背景、人物、对白、BGM、视频、选项和跳转；选项暂不支持变量、条件可见性或副作用；
 - 项目 Writer 为 v15、Reader 支持 v1–v15；v9 保存 ChoiceNode/ChoiceOption，v10
   新增项目级主界面背景/音乐配置，v11 新增独立标题，v12 新增作者手动延伸，v13

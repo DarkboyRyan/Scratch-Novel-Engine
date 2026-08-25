@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { useAutoFitScale } from '@vnengine/player-ui';
 
 import type {
   AssetDocument,
@@ -62,6 +63,7 @@ export const StartScreenFormEditor = forwardRef<
   );
   const titleDraftRef = useRef(titleDraft);
   const [isMutating, setIsMutating] = useState(false);
+  const titleFit = useAutoFitScale<HTMLDivElement, HTMLDivElement>();
   const controlsDisabled = isBusy || isMutating;
   const imageAssets = assets.filter((asset) => asset.type === 'image');
   const audioAssets = assets.filter((asset) => asset.type === 'audio');
@@ -183,7 +185,10 @@ export const StartScreenFormEditor = forwardRef<
         </label>
         <div className="start-screen-form-note">
           <strong>软件托管结构</strong>
-          <p>开始游戏、CG 画廊、选项和退出游戏由 Player 自动提供。</p>
+          <p>
+            开始游戏、读取游戏、CG 画廊、选项和退出游戏由 Player
+            自动提供。
+          </p>
         </div>
       </aside>
 
@@ -208,14 +213,17 @@ export const StartScreenFormEditor = forwardRef<
             <img src={backgroundUrl} alt="" aria-hidden="true" />
           ) : null}
           <div className="start-screen-design-scrim" aria-hidden="true" />
-          <div className="start-screen-design-card">
-            <p>A VN ENGINE STORY</p>
-            <h2>{titleDraft || '未命名游戏'}</h2>
-            <div className="start-screen-design-actions">
-              <span className="is-primary">▶ 开始游戏</span>
-              <span>CG 画廊</span>
-              <span>选项</span>
-              <span>退出游戏</span>
+          <div ref={titleFit.containerRef} className="start-screen-design-fit">
+            <div ref={titleFit.contentRef} className="start-screen-design-card">
+              <p>A VN ENGINE STORY</p>
+              <h2>{titleDraft || '未命名游戏'}</h2>
+              <div className="start-screen-design-actions">
+                <span className="is-primary">▶ 开始游戏</span>
+                <span>读取游戏</span>
+                <span>CG 画廊</span>
+                <span>选项</span>
+                <span>退出游戏</span>
+              </div>
             </div>
           </div>
         </div>

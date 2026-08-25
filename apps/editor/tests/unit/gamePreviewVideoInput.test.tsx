@@ -70,6 +70,8 @@ describe('GamePreview video input', () => {
       .mockImplementation(() => {});
     vi.spyOn(HTMLMediaElement.prototype, 'load')
       .mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, 'play')
+      .mockResolvedValue(undefined);
   });
 
   afterEach(async () => {

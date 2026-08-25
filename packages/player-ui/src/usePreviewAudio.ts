@@ -5,20 +5,32 @@ import type { MediaUrlResolver } from './mediaPort';
 import {
   createPreviewAudioController,
   type PreviewAudioController,
+  type PreviewAudioSyncOptions,
 } from './previewAudioController';
 
 export function usePreviewAudio(
   runtime: GameRuntime,
   resolveMediaUrl: MediaUrlResolver,
+  {
+    bgmVolume = 1,
+    voiceVolume = 1,
+    paused = false,
+  }: PreviewAudioSyncOptions = {},
 ): void {
   const controllerRef = useRef<PreviewAudioController | null>(null);
   const latestRuntimeRef = useRef(runtime);
+  const latestOptionsRef = useRef<PreviewAudioSyncOptions>({
+    bgmVolume,
+    voiceVolume,
+    paused,
+  });
   latestRuntimeRef.current = runtime;
+  latestOptionsRef.current = { bgmVolume, voiceVolume, paused };
 
   useEffect(() => {
     const controller = createPreviewAudioController({ resolveMediaUrl });
     controllerRef.current = controller;
-    controller.sync(latestRuntimeRef.current);
+    controller.sync(latestRuntimeRef.current, latestOptionsRef.current);
 
     return () => {
       controller.stop();
@@ -27,6 +39,10 @@ export function usePreviewAudio(
   }, [resolveMediaUrl]);
 
   useEffect(() => {
-    controllerRef.current?.sync(runtime);
-  }, [runtime]);
+    controllerRef.current?.sync(runtime, {
+      bgmVolume,
+      voiceVolume,
+      paused,
+    });
+  }, [bgmVolume, paused, runtime, voiceVolume]);
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import {
+  GameActionBar,
   PreviewVideo,
   VisualStage,
   usePreviewAudio,
@@ -20,6 +21,13 @@ type GameScreenProps = {
   assets: readonly PlayerAssetView[];
   runtime: GameRuntime;
   paused: boolean;
+  mediaPaused: boolean;
+  interactionBlocked: boolean;
+  bgmVolume: number;
+  voiceVolume: number;
+  videoVolume: number;
+  quickSaveBusy: boolean;
+  quickLoadBusy: boolean;
   canOpenGame: boolean;
   openingGame: boolean;
   resolveMediaUrl: MediaUrlResolver;
@@ -28,26 +36,28 @@ type GameScreenProps = {
   onSelectChoice(optionId: string): void;
   onPause(): void;
   onResume(): void;
+  onSave(): void;
+  onLoad(): void;
+  onQuickSave(): void;
+  onQuickLoad(): void;
+  onOptions(): void;
   onRestart(): void;
   onOpenGame(): void;
   onExit(): void;
 };
-
-function stoppedAudioRuntime(runtime: GameRuntime): GameRuntime {
-  return {
-    ...runtime,
-    status: 'finished',
-    videoAssetId: null,
-    dialogue: null,
-    choices: [],
-  };
-}
 
 export function GameScreen({
   project,
   assets,
   runtime,
   paused,
+  mediaPaused,
+  interactionBlocked,
+  bgmVolume,
+  voiceVolume,
+  videoVolume,
+  quickSaveBusy,
+  quickLoadBusy,
   canOpenGame,
   openingGame,
   resolveMediaUrl,
@@ -56,16 +66,21 @@ export function GameScreen({
   onSelectChoice,
   onPause,
   onResume,
+  onSave,
+  onLoad,
+  onQuickSave,
+  onQuickLoad,
+  onOptions,
   onRestart,
   onOpenGame,
   onExit,
 }: GameScreenProps) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const audioRuntime = useMemo(
-    () => paused ? stoppedAudioRuntime(runtime) : runtime,
-    [paused, runtime],
-  );
-  usePreviewAudio(audioRuntime, resolveMediaUrl);
+  usePreviewAudio(runtime, resolveMediaUrl, {
+    bgmVolume,
+    voiceVolume,
+    paused: paused || mediaPaused,
+  });
 
   const visibleAssetIds = [
     runtime.backgroundAssetId,
@@ -100,16 +115,22 @@ export function GameScreen({
     if (!video) {
       return;
     }
-    if (paused) {
+    if (paused || interactionBlocked) {
       video.pause();
     } else if (runtime.status === 'playingVideo') {
       void video.play().catch(() => {});
     }
-  }, [paused, runtime.status]);
+  }, [interactionBlocked, paused, runtime.status]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.repeat) {
+        return;
+      }
+      if (interactionBlocked) {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+        }
         return;
       }
       if (event.key === 'Escape') {
@@ -148,6 +169,7 @@ export function GameScreen({
     onCompleteVideo,
     onPause,
     onResume,
+    interactionBlocked,
     paused,
     runtime.status,
   ]);
@@ -162,6 +184,7 @@ export function GameScreen({
         if (
           event.button === 0 &&
           !paused &&
+          !interactionBlocked &&
           runtime.status === 'playing'
         ) {
           onAdvance();
@@ -190,10 +213,12 @@ export function GameScreen({
             sequence={runtime.videoSequence}
             resolveMediaUrl={resolveMediaUrl}
             onComplete={onCompleteVideo}
+            paused={paused || interactionBlocked}
+            volume={videoVolume}
           />
         ) : null}
 
-        {!paused && runtime.status === 'choosing' ? (
+        {!paused && !interactionBlocked && runtime.status === 'choosing' ? (
           <div className="player-choice-layer">
             <div
               className="player-choice-list"
@@ -219,26 +244,53 @@ export function GameScreen({
           <div
             className="player-menu-layer"
             role="dialog"
-            aria-modal="true"
+            aria-modal={interactionBlocked ? undefined : true}
+            aria-hidden={interactionBlocked || undefined}
             aria-label="暂停菜单"
+            inert={interactionBlocked}
             onPointerUp={(event) => event.stopPropagation()}
           >
             <section className="player-menu-card">
               <p className="player-eyebrow">PAUSED</p>
               <h2>游戏已暂停</h2>
-              <button type="button" onClick={onResume}>继续游戏</button>
-              <button type="button" onClick={onRestart}>重新开始</button>
+              <button
+                type="button"
+                disabled={interactionBlocked}
+                onClick={onResume}
+              >
+                继续游戏
+              </button>
+              <button
+                type="button"
+                disabled={interactionBlocked}
+                onClick={onRestart}
+              >
+                重新开始
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={interactionBlocked}
+                onClick={onOptions}
+              >
+                选项
+              </button>
               {canOpenGame ? (
                 <button
                   type="button"
                   className="secondary"
-                  disabled={openingGame}
+                  disabled={interactionBlocked || openingGame}
                   onClick={onOpenGame}
                 >
                   {openingGame ? '正在打开…' : '打开其他游戏'}
                 </button>
               ) : null}
-              <button type="button" className="secondary" onClick={onExit}>
+              <button
+                type="button"
+                className="secondary"
+                disabled={interactionBlocked}
+                onClick={onExit}
+              >
                 退出游戏
               </button>
             </section>
@@ -249,8 +301,10 @@ export function GameScreen({
           <div
             className="player-menu-layer"
             role="dialog"
-            aria-modal="true"
+            aria-modal={interactionBlocked ? undefined : true}
+            aria-hidden={interactionBlocked || undefined}
             aria-label="游戏结束"
+            inert={interactionBlocked}
             onPointerUp={(event) => event.stopPropagation()}
           >
             <section className="player-menu-card">
@@ -278,8 +332,10 @@ export function GameScreen({
           <div
             className="player-menu-layer"
             role="alertdialog"
-            aria-modal="true"
+            aria-modal={interactionBlocked ? undefined : true}
+            aria-hidden={interactionBlocked || undefined}
             aria-label="运行错误"
+            inert={interactionBlocked}
             onPointerUp={(event) => event.stopPropagation()}
           >
             <section className="player-menu-card player-error-card">
@@ -308,16 +364,31 @@ export function GameScreen({
       {!paused &&
       runtime.status !== 'finished' &&
       runtime.status !== 'runtimeError' ? (
-        <button
-          type="button"
-          className="player-pause-button"
-          aria-label="暂停游戏"
-          title="暂停游戏（Esc）"
-          onPointerUp={(event) => event.stopPropagation()}
-          onClick={onPause}
-        >
-          <span aria-hidden="true">Ⅱ</span>
-        </button>
+        <>
+          {!interactionBlocked ? (
+            <button
+              type="button"
+              className="player-pause-button"
+              aria-label="暂停游戏"
+              title="暂停游戏（Esc）"
+              onPointerUp={(event) => event.stopPropagation()}
+              onClick={onPause}
+            >
+              <span aria-hidden="true">Ⅱ</span>
+            </button>
+          ) : null}
+          <GameActionBar
+            disabled={interactionBlocked}
+            quickSaveBusy={quickSaveBusy}
+            quickLoadBusy={quickLoadBusy}
+            onSave={onSave}
+            onLoad={onLoad}
+            onQuickSave={onQuickSave}
+            onQuickLoad={onQuickLoad}
+            onOptions={onOptions}
+            onExit={onExit}
+          />
+        </>
       ) : null}
     </main>
   );

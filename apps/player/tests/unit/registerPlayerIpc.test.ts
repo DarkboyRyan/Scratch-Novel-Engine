@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createGameRuntimeSnapshot, startGame } from '@vnengine/runtime';
 
 import { registerPlayerIpc } from '../../src/main/ipc/registerPlayerIpc';
 import type { PlayerWindowContexts } from '../../src/main/window/PlayerWindowContext';
@@ -15,7 +16,7 @@ function trustedEvent(): Electron.IpcMainInvokeEvent {
   return { sender, senderFrame: mainFrame } as Electron.IpcMainInvokeEvent;
 }
 
-describe('Player read-only IPC', () => {
+describe('Player trusted IPC', () => {
   const handle = vi.fn();
   const getMediaUrl = vi.fn((assetId: string) =>
     assetId === 'image'
@@ -53,11 +54,70 @@ describe('Player read-only IPC', () => {
     const loadGame = vi.fn(() => game === null
       ? { status: 'error' as const, mode: 'generic' as const, error: 'runtime v1 无效' }
       : { status: 'loaded' as const, mode: 'generic' as const, game });
+    const active = game === null ? null : {
+      game,
+      generation: 1,
+      identity: {
+        projectId: game.project.id,
+        runtimeVersion: 6,
+        contentFingerprint: 'a'.repeat(64),
+      },
+    };
+    const getActiveGameContext = vi.fn(() => active);
+    const isActiveGameContext = vi.fn((candidate) => candidate === active);
+    const saveStore = {
+      list: vi.fn().mockResolvedValue({ status: 'ready', slots: [] }),
+      write: vi.fn().mockResolvedValue({
+        status: 'saved',
+        slot: {
+          slotId: 1,
+          savedAt: '2026-08-24T06:00:00.000Z',
+          sceneName: 'Scene',
+          summary: '剧情结束',
+        },
+      }),
+      load: vi.fn().mockResolvedValue({ status: 'empty' }),
+    };
+    const settingsController = {
+      getSettings: vi.fn().mockResolvedValue({
+        status: 'ready',
+        settings: {
+          settingsVersion: 1,
+          masterVolume: 1,
+          bgmVolume: 1,
+          voiceVolume: 1,
+          videoVolume: 1,
+          windowMode: 'windowed',
+          windowSizePreset: 'medium',
+        },
+      }),
+      updateSettings: vi.fn().mockImplementation(async (patch) => ({
+        status: 'updated',
+        settings: {
+          settingsVersion: 1,
+          masterVolume: 1,
+          bgmVolume: 1,
+          voiceVolume: 1,
+          videoVolume: 1,
+          windowMode: 'windowed',
+          windowSizePreset: 'medium',
+          ...patch,
+        },
+      })),
+    };
     const contexts = new Map([
       [
         42,
         {
-          bundleSession: { loadGame, openGame, getMediaUrl },
+          bundleSession: {
+            loadGame,
+            openGame,
+            getMediaUrl,
+            getActiveGameContext,
+            isActiveGameContext,
+          },
+          saveStore,
+          settingsController,
         },
       ],
     ]) as unknown as PlayerWindowContexts;
@@ -74,6 +134,8 @@ describe('Player read-only IPC', () => {
     return {
       handler: handle.mock.calls[0][1] as RegisteredHandler,
       quitPlayer,
+      saveStore,
+      settingsController,
     };
   }
 
@@ -131,6 +193,106 @@ describe('Player read-only IPC', () => {
     expect(quitPlayer).toHaveBeenCalledOnce();
   });
 
+  it('routes strict settings patches without requiring an active game', async () => {
+    const { handler, settingsController } = register(null);
+    await expect(handler(trustedEvent(), {
+      action: 'get-settings',
+      params: {},
+    })).resolves.toMatchObject({
+      status: 'ready',
+      settings: { settingsVersion: 1, windowMode: 'windowed' },
+    });
+    await expect(handler(trustedEvent(), {
+      action: 'update-settings',
+      params: { patch: { bgmVolume: 0.25 } },
+    })).resolves.toMatchObject({
+      status: 'updated',
+      settings: { bgmVolume: 0.25 },
+    });
+    expect(settingsController.updateSettings).toHaveBeenCalledWith({
+      bgmVolume: 0.25,
+    });
+  });
+
+  it('routes manual and quick saves through the active bundle context', async () => {
+    const { handler, saveStore } = register();
+    const runtime = startGame(publicGame.project)!;
+    const snapshot = createGameRuntimeSnapshot(publicGame.project, runtime)!;
+
+    await expect(handler(trustedEvent(), {
+      action: 'list-save-slots',
+      params: {},
+    })).resolves.toEqual({ status: 'ready', slots: [] });
+    await expect(handler(trustedEvent(), {
+      action: 'save-game',
+      params: { slotId: 2, snapshot },
+    })).resolves.toMatchObject({ status: 'saved' });
+    await expect(handler(trustedEvent(), {
+      action: 'load-game-slot',
+      params: { slotId: 2 },
+    })).resolves.toEqual({ status: 'empty' });
+    await expect(handler(trustedEvent(), {
+      action: 'quick-save',
+      params: { snapshot },
+    })).resolves.toMatchObject({ status: 'saved' });
+    await expect(handler(trustedEvent(), {
+      action: 'quick-load',
+      params: {},
+    })).resolves.toEqual({ status: 'empty' });
+
+    expect(saveStore.write).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ generation: 1 }),
+      2,
+      snapshot,
+      expect.any(Function),
+    );
+    expect(saveStore.write).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ generation: 1 }),
+      'quick',
+      snapshot,
+      expect.any(Function),
+    );
+  });
+
+  it('rejects save requests without an active game or a canonical snapshot', async () => {
+    const empty = register(null);
+    await expect(empty.handler(trustedEvent(), {
+      action: 'list-save-slots',
+      params: {},
+    })).resolves.toEqual({
+      status: 'rejected',
+      error: '当前没有已加载的游戏',
+    });
+
+    const { handler, saveStore } = register();
+    const runtime = startGame(publicGame.project)!;
+    const snapshot = createGameRuntimeSnapshot(publicGame.project, runtime)!;
+    for (const invocation of [
+      { action: 'save-game', params: { slotId: 4, snapshot } },
+      {
+        action: 'save-game',
+        params: {
+          slotId: 1,
+          snapshot: { ...snapshot, privatePath: '/tmp/a' },
+        },
+      },
+      {
+        action: 'quick-save',
+        params: { snapshot: { ...snapshot, snapshotVersion: 2 } },
+      },
+      {
+        action: 'quick-save',
+        params: { snapshot: { ...snapshot, sceneId: 's'.repeat(257) } },
+      },
+      { action: 'load-game-slot', params: { slotId: '1' } },
+    ]) {
+      expect(() => handler(trustedEvent(), invocation)).toThrow('格式无效');
+    }
+    expect(saveStore.write).not.toHaveBeenCalled();
+  });
+
   it('rejects subframes, extra fields and any path-shaped request', () => {
     const { handler } = register();
     const event = trustedEvent();
@@ -148,6 +310,32 @@ describe('Player read-only IPC', () => {
         params: { assetId: 'image', path: '/private/secret' },
       }),
     ).toThrow('格式无效');
+    for (const invocation of [
+      { action: 'get-settings', params: { path: '/private/secret' } },
+      { action: 'update-settings', params: { patch: {} } },
+      {
+        action: 'update-settings',
+        params: { patch: { masterVolume: Number.NaN } },
+      },
+      {
+        action: 'update-settings',
+        params: { patch: { videoVolume: 1.1 } },
+      },
+      {
+        action: 'update-settings',
+        params: { patch: { windowMode: 'borderless' } },
+      },
+      {
+        action: 'update-settings',
+        params: { patch: { windowSizePreset: 'custom', width: 1920 } },
+      },
+      {
+        action: 'update-settings',
+        params: { patch: { bgmVolume: 0.5 }, path: '/private/secret' },
+      },
+    ]) {
+      expect(() => handler(event, invocation)).toThrow('格式无效');
+    }
     expect(() =>
       handler(event, {
         action: 'quit-game',

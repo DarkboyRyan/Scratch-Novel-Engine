@@ -2,8 +2,9 @@
 一个使用 Electron + React 构建编辑器界面、使用 C++20 构建业务核心的视觉小说引擎。
 
 Editor 默认进入软件托管的“主界面”合成场景，可通过表单或固定 Blockly 结构自定义
-游戏显示名、背景图片和循环音乐，并在 Editor 内预览完整标题页流程；Player 提供固定的
-“开始游戏 / CG 画廊 / 选项 / 退出游戏”入口。CG 画廊是独立的软件托管编辑场景：
+游戏显示名、背景图片和循环音乐，并在 Editor 内预览完整标题页流程；正式 Player 提供固定的
+“开始游戏 / 读取游戏 / CG 画廊 / 选项 / 退出游戏”入口，以及 3 个手动存档槽、
+独立快速槽和游戏内操作栏。CG 画廊是独立的软件托管编辑场景：
 表单可手动新增/删除页面，Blockly 从工具箱拖入一个大模块来新增页面；每页固定保留
 九个图片槽位，白色下拉框的“无”表示空槽。Player 原样显示九格并支持分页、点击放大
 和 Esc 返回。作者可在 Blockly 中主动插入向下开放的“延伸”页首来拆分长剧情，并通过
@@ -12,6 +13,8 @@ Editor 默认进入软件托管的“主界面”合成场景，可通过表单�
 
 - [当前架构说明](./docs/architecture.md)
 - [独立游戏导出与 Player](./docs/game-export-player.md)
+- [Player 保存与读取](./docs/save-load-implementation.md)
+- [Player 选项系统](./docs/player-options-implementation.md)
 - [技术栈与面试讲解指南](./docs/technical-stack-interview-guide.md)
 - [C++ Core 构建与协议](./engine/README.md)
 

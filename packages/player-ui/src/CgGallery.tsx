@@ -1,14 +1,23 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { MediaUrlResolver } from './mediaPort';
 
 const IMAGES_PER_PAGE = 9;
+
+function focusableElements(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>(
+    'button:not(:disabled), [href], input:not(:disabled), '
+      + 'select:not(:disabled), textarea:not(:disabled), '
+      + '[tabindex]:not([tabindex="-1"])',
+  )).filter((element) => !element.closest('[inert]'));
+}
 
 export type CgGalleryProps = {
   pages: ReadonlyArray<{
     imageAssetIds: readonly (string | null)[];
   }>;
   resolveMediaUrl: MediaUrlResolver;
+  restoreFocusTo?: HTMLElement | null;
   onClose: () => void;
 };
 
@@ -46,10 +55,16 @@ function useResolvedGalleryImages(
 export function CgGallery({
   pages,
   resolveMediaUrl,
+  restoreFocusTo = null,
   onClose,
 }: CgGalleryProps) {
   const [page, setPage] = useState(0);
   const [enlargedIndex, setEnlargedIndex] = useState<number | null>(null);
+  const layerRef = useRef<HTMLDivElement>(null);
+  const lightboxRef = useRef<HTMLDivElement>(null);
+  const enlargedTriggerRef = useRef<HTMLButtonElement>(null);
+  const previousEnlargedIndexRef = useRef<number | null>(null);
+  const restoreFocusToRef = useRef(restoreFocusTo);
   const pageCount = Math.max(1, pages.length);
   const pageAssetIds = pages[page]?.imageAssetIds ?? [];
   const resolvableAssetIds = useMemo(
@@ -62,8 +77,74 @@ export function CgGallery({
     setPage((current) => Math.min(current, pageCount - 1));
   }, [pageCount]);
 
+  useLayoutEffect(() => {
+    const previousFocus = restoreFocusToRef.current ?? (
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null
+    );
+    const layer = layerRef.current;
+    (layer === null ? null : focusableElements(layer)[0] ?? layer)?.focus();
+    return () => {
+      queueMicrotask(() => {
+        if (
+          previousFocus?.isConnected
+          && !previousFocus.matches(':disabled')
+          && previousFocus.closest('[inert]') === null
+        ) {
+          previousFocus.focus();
+        }
+      });
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    const previousEnlargedIndex = previousEnlargedIndexRef.current;
+    previousEnlargedIndexRef.current = enlargedIndex;
+    if (enlargedIndex === null) {
+      if (previousEnlargedIndex !== null) {
+        queueMicrotask(() => {
+          if (enlargedTriggerRef.current?.isConnected) {
+            enlargedTriggerRef.current.focus();
+          }
+        });
+      }
+      return;
+    }
+    const lightbox = lightboxRef.current;
+    const closeButton = lightbox?.querySelector<HTMLElement>(
+      '.player-cg-lightbox-close',
+    );
+    (closeButton ?? lightbox)?.focus();
+  }, [enlargedIndex]);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Tab') {
+        const activeLayer = enlargedIndex === null
+          ? layerRef.current
+          : lightboxRef.current;
+        if (activeLayer === null) {
+          return;
+        }
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const focusable = focusableElements(activeLayer);
+        if (focusable.length === 0) {
+          activeLayer.focus();
+          return;
+        }
+        const currentIndex = document.activeElement instanceof HTMLElement
+          ? focusable.indexOf(document.activeElement)
+          : -1;
+        const nextIndex = event.shiftKey
+          ? currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1
+          : currentIndex < 0 || currentIndex === focusable.length - 1
+            ? 0
+            : currentIndex + 1;
+        focusable[nextIndex]?.focus();
+        return;
+      }
       if (event.key !== 'Escape') {
         return;
       }
@@ -90,12 +171,18 @@ export function CgGallery({
 
   return (
     <div
+      ref={layerRef}
       className="player-cg-gallery-layer"
       role="dialog"
-      aria-modal="true"
+      aria-modal={enlargedIndex === null ? 'true' : undefined}
       aria-label="CG画廊"
+      tabIndex={-1}
     >
-      <section className="player-cg-gallery-card">
+      <section
+        className="player-cg-gallery-card"
+        aria-hidden={enlargedIndex !== null || undefined}
+        inert={enlargedIndex !== null}
+      >
         <header className="player-cg-gallery-header">
           <div>
             <p className="player-eyebrow">CG GALLERY</p>
@@ -106,7 +193,6 @@ export function CgGallery({
             className="player-cg-close-button secondary"
             aria-label="关闭CG画廊"
             title="关闭（Esc）"
-            autoFocus
             onClick={onClose}
           >
             ×
@@ -127,7 +213,10 @@ export function CgGallery({
                   ? `CG ${imageNumber}：无`
                   : `放大 CG ${imageNumber}`}
                 disabled={assetId === null || typeof imageUrl !== 'string'}
-                onClick={() => setEnlargedIndex(index)}
+                onClick={(event) => {
+                  enlargedTriggerRef.current = event.currentTarget;
+                  setEnlargedIndex(index);
+                }}
               >
                 {assetId === null ? (
                   <span>无</span>
@@ -168,10 +257,14 @@ export function CgGallery({
 
       {enlargedIndex !== null && enlargedUrl !== null ? (
         <div
+          ref={lightboxRef}
           className="player-cg-lightbox"
+          role="dialog"
+          aria-modal="true"
           aria-label={
             `CG ${(page * IMAGES_PER_PAGE) + enlargedIndex + 1} 大图`
           }
+          tabIndex={-1}
         >
           <button
             type="button"

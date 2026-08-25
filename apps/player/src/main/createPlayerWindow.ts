@@ -49,9 +49,6 @@ export function createPlayerWindow(entryUrl: string): BrowserWindow {
     },
   });
 
-  playerWindow.once('ready-to-show', () => {
-    playerWindow.show();
-  });
   playerWindow.webContents.on('will-navigate', (event, targetUrl) => {
     if (!isSamePlayerLocation(targetUrl, entryUrl)) {
       event.preventDefault();

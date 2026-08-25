@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { TitleScreen } from '@vnengine/player-ui';
 
 import type { AssetDocument } from '../../../shared/projectTypes';
@@ -177,18 +177,57 @@ function TitleGamePreview({
   onExit,
 }: TitleGamePreviewProps) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const loadNoticeRef = useRef<HTMLDivElement>(null);
+  const loadNoticeTriggerRef = useRef<HTMLElement | null>(null);
+  const [loadPreviewNoticeOpen, setLoadPreviewNoticeOpen] = useState(false);
+
+  useLayoutEffect(() => {
+    if (!loadPreviewNoticeOpen) {
+      return;
+    }
+    const notice = loadNoticeRef.current;
+    const dismissButton = notice?.querySelector<HTMLButtonElement>('button');
+    (dismissButton ?? notice)?.focus();
+    return () => {
+      queueMicrotask(() => {
+        const trigger = loadNoticeTriggerRef.current;
+        if (
+          trigger?.isConnected
+          && !trigger.matches(':disabled')
+          && trigger.closest('[inert]') === null
+        ) {
+          trigger.focus();
+        }
+      });
+    };
+  }, [loadPreviewNoticeOpen]);
 
   useEffect(() => {
-    rootRef.current?.focus();
+    if (!loadPreviewNoticeOpen) {
+      rootRef.current?.focus();
+    }
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (loadPreviewNoticeOpen && event.key === 'Tab') {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const dismissButton = loadNoticeRef.current
+          ?.querySelector<HTMLButtonElement>('button');
+        (dismissButton ?? loadNoticeRef.current)?.focus();
+        return;
+      }
       if (event.key === 'Escape') {
         event.preventDefault();
-        onExit();
+        event.stopImmediatePropagation();
+        if (loadPreviewNoticeOpen) {
+          setLoadPreviewNoticeOpen(false);
+        } else {
+          onExit();
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onExit]);
+  }, [loadPreviewNoticeOpen, onExit]);
 
   return (
     <div
@@ -201,14 +240,48 @@ function TitleGamePreview({
         startScreen={session.project.startScreen}
         cgGalleryPages={session.project.cgGallery?.pages ?? []}
         resolveMediaUrl={resolveMediaUrl}
+        interactionBlocked={loadPreviewNoticeOpen}
         onStart={onEnterStory}
+        onLoadGame={() => {
+          loadNoticeTriggerRef.current = document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null;
+          setLoadPreviewNoticeOpen(true);
+        }}
         onExit={onExit}
       />
+      {loadPreviewNoticeOpen ? (
+        <div
+          ref={loadNoticeRef}
+          className="player-menu-layer"
+          role="dialog"
+          aria-modal="true"
+          aria-label="读取游戏预览说明"
+          tabIndex={-1}
+        >
+          <section className="player-menu-card">
+            <p className="player-eyebrow">EDITOR PREVIEW</p>
+            <h2>读取游戏</h2>
+            <p className="game-preview-load-note">
+              Editor 只预览读取入口，不会访问或修改 Player
+              的本地存档。请在运行或导出的游戏中测试实际读取。
+            </p>
+            <button
+              type="button"
+              onClick={() => setLoadPreviewNoticeOpen(false)}
+            >
+              知道了
+            </button>
+          </section>
+        </div>
+      ) : null}
       <button
         type="button"
         className="game-preview-exit"
         aria-label="退出游戏预览"
         title="退出游戏预览（Esc）"
+        disabled={loadPreviewNoticeOpen}
+        aria-hidden={loadPreviewNoticeOpen || undefined}
         onClick={onExit}
       >
         ×

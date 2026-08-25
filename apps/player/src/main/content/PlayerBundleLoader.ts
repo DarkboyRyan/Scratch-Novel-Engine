@@ -1,4 +1,5 @@
 import type { Stats } from 'node:fs';
+import { createHash } from 'node:crypto';
 
 import type { PlayerGameData } from '../../shared/playerProtocol';
 import {
@@ -29,6 +30,13 @@ export type LoadedRuntimeBundle = {
   rootPath: string;
   game: PlayerGameData;
   assets: ReadonlyMap<string, LoadedPlayerAsset>;
+  identity: PlayerBundleIdentity;
+};
+
+export type PlayerBundleIdentity = {
+  projectId: string;
+  runtimeVersion: number;
+  contentFingerprint: string;
 };
 
 async function validateAssetFile(
@@ -101,5 +109,12 @@ export async function loadRuntimeBundle(
     rootPath,
     game: parsed.game,
     assets,
+    identity: {
+      projectId: parsed.game.project.id,
+      runtimeVersion: parsed.runtimeVersion,
+      contentFingerprint: createHash('sha256')
+        .update(gameContents, 'utf8')
+        .digest('hex'),
+    },
   };
 }

@@ -208,8 +208,12 @@ describe('GamePreview choices', () => {
     expect(container.querySelector('h1')?.textContent).toBe('自定义预览标题');
     expect(container.textContent).toContain('开始游戏');
     expect(container.textContent).toContain('CG画廊');
+    expect(container.textContent).toContain('读取游戏');
     expect(container.textContent).toContain('选项');
     expect(container.textContent).toContain('退出游戏');
+    expect(
+      container.querySelector('.player-title-fit > .player-title-card'),
+    ).not.toBeNull();
     expect(resolveMediaUrl).toHaveBeenCalledWith('title-background');
     expect(resolveMediaUrl).toHaveBeenCalledWith('title-music');
     expect(
@@ -223,6 +227,45 @@ describe('GamePreview choices', () => {
     expect(music?.src).toContain('vn-asset://preview/title-music');
     expect(music?.loop).toBe(true);
     expect(play).toHaveBeenCalled();
+
+    const loadButton = [...container.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === '读取游戏',
+    );
+    loadButton?.focus();
+    await act(async () => loadButton?.click());
+    const loadPreviewNotice = container.querySelector(
+      '[aria-label="读取游戏预览说明"]',
+    );
+    expect(loadPreviewNotice?.textContent).toContain(
+      'Editor 只预览读取入口',
+    );
+    expect(loadPreviewNotice?.textContent).toContain(
+      '不会访问或修改 Player',
+    );
+    const dismissLoadNotice = [...container.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === '知道了',
+    );
+    expect(document.activeElement).toBe(dismissLoadNotice);
+    expect(loadButton?.disabled).toBe(true);
+    expect(container.querySelector<HTMLButtonElement>(
+      '[aria-label="退出游戏预览"]',
+    )?.disabled).toBe(true);
+    const trappedTab = new KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'Tab',
+    });
+    await act(async () => window.dispatchEvent(trappedTab));
+    expect(trappedTab.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(dismissLoadNotice);
+    await act(async () => {
+      dismissLoadNotice?.click();
+      await Promise.resolve();
+    });
+    expect(
+      container.querySelector('[aria-label="读取游戏预览说明"]'),
+    ).toBeNull();
+    expect(document.activeElement).toBe(loadButton);
 
     const galleryButton = [...container.querySelectorAll('button')].find(
       (button) => button.textContent?.trim() === 'CG画廊',
@@ -243,7 +286,11 @@ describe('GamePreview choices', () => {
     );
     await act(async () => optionsButton?.click());
     const optionsDialog = container.querySelector('[role="dialog"]');
-    expect(optionsDialog?.textContent).toContain('关闭主界面音乐');
+    expect(optionsDialog?.textContent).toContain('主音量');
+    expect(optionsDialog?.textContent).toContain('背景音乐');
+    expect(optionsDialog?.textContent).toContain(
+      '窗口模式和尺寸仅在正式 Player 中应用',
+    );
     expect(optionsDialog?.textContent).not.toContain('打开其他游戏');
     const returnButton = [...container.querySelectorAll('button')].find(
       (button) => button.textContent?.trim() === '返回',

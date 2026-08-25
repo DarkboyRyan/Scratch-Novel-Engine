@@ -27,6 +27,7 @@ export type RuntimeManifestAsset = PlayerAsset & {
 export type ParsedRuntimeBundle = {
   game: PlayerGameData;
   files: RuntimeManifestAsset[];
+  runtimeVersion: SupportedRuntimeVersion;
 };
 
 type SupportedRuntimeVersion = 1 | 2 | 3 | 4 | 5 | 6;
@@ -719,5 +720,6 @@ export function parseRuntimeBundleDocuments(
       })),
     },
     files,
+    runtimeVersion: parsedGame.runtimeVersion,
   };
 }

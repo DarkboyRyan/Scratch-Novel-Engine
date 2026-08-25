@@ -1,10 +1,18 @@
 import type { GameRuntime } from '@vnengine/runtime';
 
 import type { MediaUrlResolver } from './mediaPort';
+import { clampMediaVolume } from './mediaVolume';
 
 export type PreviewAudioElement = Pick<
   HTMLAudioElement,
-  'currentTime' | 'load' | 'loop' | 'pause' | 'play' | 'removeAttribute' | 'src'
+  | 'currentTime'
+  | 'load'
+  | 'loop'
+  | 'pause'
+  | 'play'
+  | 'removeAttribute'
+  | 'src'
+  | 'volume'
 >;
 
 type ChannelState = {
@@ -15,8 +23,14 @@ type ChannelState = {
 };
 
 export type PreviewAudioController = {
-  sync(runtime: GameRuntime): void;
+  sync(runtime: GameRuntime, options?: PreviewAudioSyncOptions): void;
   stop(): void;
+};
+
+export type PreviewAudioSyncOptions = {
+  bgmVolume?: number;
+  voiceVolume?: number;
+  paused?: boolean;
 };
 
 export type PreviewAudioControllerOptions = {
@@ -106,7 +120,20 @@ export function createPreviewAudioController({
   }
 
   return {
-    sync(runtime) {
+    sync(runtime, {
+      bgmVolume = 1,
+      voiceVolume = 1,
+      paused = false,
+    } = {}) {
+      bgm.audio.volume = clampMediaVolume(bgmVolume);
+      voice.audio.volume = clampMediaVolume(voiceVolume);
+
+      if (paused) {
+        suspendChannel(bgm);
+        suspendChannel(voice);
+        return;
+      }
+
       const isBgmActive =
         runtime.status === 'playing' || runtime.status === 'choosing';
       const bgmAssetId = isBgmActive ? runtime.bgmAssetId : null;

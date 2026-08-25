@@ -33,7 +33,8 @@
 
 当前预览已经完成了“执行剧情”的核心语义；第一版独立 Player 已补齐独立启动、
 只读内容加载、安全媒体服务、可配置独立标题/背景/音乐的标题页、暂停/结束界面和错误页。
-标题页固定按“开始游戏 / CG 画廊 / 选项 / 退出游戏”提供四个入口；画廊每页九张，
+正式 Player 标题页固定按“开始游戏 / 读取游戏 / CG 画廊 / 选项 / 退出游戏”提供五个入口；
+Editor 整体预览不注入存档能力。画廊每页九张，
 支持分页、点击放大和 Esc 返回。开发模式自动读取仓库内
 受控 fixture。packaged Player 有两种互斥模式：通用空壳由玩家主动选择 Editor
 导出的目录包；embedded Player 在启动时严格加载 `Resources/game`，并隐藏“打开
@@ -66,9 +67,9 @@ engine/                      # C++20 领域模型、v15 校验、revision 与保
 | 剧情来源 | 当前窗口的 C++ Project 权威快照 | 导出后冻结的只读 runtime bundle |
 | 生命周期 | 退出预览后回到编辑器 | 自定义标题背景/音乐、游戏、暂停/结束、退出应用 |
 | 媒体服务 | 编辑器 `AssetPreviewService` | Player 自己的只读媒体协议服务 |
-| Preload API | 编辑、保存、导入和预览等多组 API | 只暴露加载/换包、申请资源 URL 与退出应用 |
+| Preload API | 编辑、作者项目保存、导入和预览等多组 API | 只暴露加载/换包、申请资源 URL、固定槽存读与退出应用 |
 | C++ 后端 | 每个编辑器窗口启动一个可修改 Project 的子进程 | MVP 不需要携带编辑后端，只消费冻结数据 |
-| 文件权限 | 可以选择项目和导入源文件 | 只能读取自己的游戏内容包 |
+| 文件权限 | 可以选择项目和导入源文件 | 只读游戏内容包；玩家进度只写 `userData` 下的固定槽 |
 | 发布形式 | VN Engine Editor | 某一款具体游戏或通用 VN Player |
 
 当前运行核心已经迁到
@@ -87,20 +88,26 @@ protected Environments/Rulesets、Environment Secrets、GitHub runner 和干净�
 
 ### 2.1 当前 Player 的只读 API
 
-Preload 只公开四个方法：
+Preload 只公开窄业务方法：
 
 ```ts
 window.vnPlayer.loadGame();
 window.vnPlayer.openGame();
 window.vnPlayer.getMediaUrl(assetId);
+window.vnPlayer.listSaveSlots();
+window.vnPlayer.saveGame(slotId, snapshot);
+window.vnPlayer.loadGameSlot(slotId);
+window.vnPlayer.quickSave(snapshot);
+window.vnPlayer.quickLoad();
 window.vnPlayer.quitGame();
 ```
 
 `loadGame()` 读取当前已激活会话；`openGame()` 不接受路径，只请求 Main 打开原生
 `openDirectory` 选择器；`getMediaUrl()` 只接受 Asset ID；`quitGame()` 发送无参数、
-来源受校验的请求，由 Main 调用 Electron `app.quit()`。剧情 DTO 和公开资源 DTO
+来源受校验的请求，由 Main 调用 Electron `app.quit()`。存档 API 只接受固定槽位和
+严格 `GameRuntimeSnapshot`，路径和游戏身份由 Main 决定。剧情 DTO 和公开资源 DTO
 可以进入 Renderer，路径、大小、hash 和 capability token 始终留在 Main。Player
-没有保存、导入、Renderer 指定路径或 C++ mutation API。
+没有作者项目保存、导入、Renderer 指定路径或 C++ mutation API。
 
 ### 2.2 哪些语义必须原样复用
 
@@ -113,6 +120,13 @@ window.vnPlayer.quitGame();
 `project.cgGallery.pages[].imageAssetIds`：至少一页、每页精确九个 `string | null`，
 所有非空图片 ID 跨页唯一；它不是剧情节点。Compiler 会剥离延伸，因此 Runtime 保持以下
 七种可执行节点：
+
+导出不会要求旧项目先另存升级：v14/v15 磁盘文件仍由 TypeScript Compiler 直接严格解析；
+v1–v13 则复用当前窗口 C++ Reader 已迁移和校验的 canonical v15 快照，同时继续从原文件
+读取并严格校验 Asset 私有路径记录。源 manifest SHA、当前 revision、Project/Asset 对账与
+导出期间稳定性检查仍全部保留，因此兼容迁移不会改写源项目，也不会放宽未来版本或畸形文件。
+旧文件若仍包含 scene-level 初始人物，则会明确拒绝导出并要求改成 Character 时间线节点，
+不会在迁移时静默丢弃人物状态。
 
 1. `Dialogue`：对白停顿点，可选绑定一次性语音；
 2. `BackgroundNode`：切换背景或显式进入无背景；
@@ -526,7 +540,8 @@ flowchart TD
   VERIFY["完整验证候选 game/manifest/媒体"]
   COMMIT["成功后 commit 并轮换 capability token"]
   TITLE["Renderer 渲染标题背景并循环标题音乐"]
-  MENU["固定开始游戏 / CG 画廊 / 选项 / 退出游戏"]
+  MENU["固定开始游戏 / 读取游戏 / CG 画廊 / 选项 / 退出游戏"]
+  SAVES["3 个手动槽 + 独立 quick 槽"]
   GALLERY["每页九张 / 分页 / 点击大图 / Esc 返回"]
   STOP["开始游戏时停止并归零标题音乐"]
   RUNTIME["Shared Runtime 从 entrySceneId 归约"]
@@ -537,6 +552,7 @@ flowchart TD
   MODE -->|"否"| EMPTY --> PICKER --> VERIFY
   VERIFY --> COMMIT --> TITLE --> MENU
   MENU -->|"开始游戏"| STOP --> RUNTIME --> UI
+  MENU -->|"读取游戏"| SAVES --> UI
   MENU -->|"CG 画廊"| GALLERY --> MENU
 ```
 
@@ -551,7 +567,9 @@ Player 可以分成两层状态：
 - 剧情 Runtime：沿用当前 `playing`、`playingVideo`、`choosing`、`finished`、
   `runtimeError`。
 
-标题页固定按“开始游戏 / CG 画廊 / 选项 / 退出游戏”纵向显示。CG 画廊按
+正式 Player 标题页固定按“开始游戏 / 读取游戏 / CG 画廊 / 选项 / 退出游戏”纵向显示。
+“读取游戏”会列出当前游戏的手动槽和快速槽；Editor 整体预览显示该入口，但只弹出
+预览说明且不会访问 Player 用户数据。CG 画廊按
 `pages` 顺序每页固定显示九格，空槽显示“无”，提供上一页/下一页并可点击非空缩略图查看大图；
 Esc 会先关闭大图，再关闭画廊返回标题页。通用 Player 的“打开其他游戏”和标题
 音乐开关位于“选项”，embedded Player 不显示换包入口。“退出游戏”通过受校验 IPC
@@ -655,8 +673,9 @@ file protocol 兼容 Fuse。后续应增加只服务 `app.asar` 静态文件的�
 
 1. 启动 packaged `VN Engine Player`，初始页不会内嵌开发 fixture；
 2. 点击“选择游戏包”，在原生目录选择器中选择整个 `MyGame.vngame` 目录；
-3. 验证成功后进入标题页，可点击“开始游戏”或打开“CG 画廊”；
-4. 标题页固定按“开始游戏 / CG 画廊 / 选项 / 退出游戏”排列；画廊每页固定九格，
+3. 验证成功后进入标题页，可点击“开始游戏”、“读取游戏”或打开“CG 画廊”；
+4. 标题页固定按“开始游戏 / 读取游戏 / CG 画廊 / 选项 / 退出游戏”排列；
+   “读取游戏”列出当前游戏的 3 个手动槽和快速槽。画廊每页固定九格，
    空槽显示“无”，并支持分页、点击放大和 Esc 返回。通用 Player 可在“选项”中点击
    “打开其他游戏”，候选无效或取消时已经打开的游戏保持可用；
 5. runtime v3–v6 会显示作者配置的独立标题与背景并循环标题音乐；runtime v5/v6
@@ -990,7 +1009,8 @@ DoD：
 
 DoD：
 
-- 不启动 C++ 编辑后端，不暴露保存、导入或任意文件读取 API；
+- 不启动 C++ 编辑后端，不暴露作者项目保存、导入或任意文件读取 API；玩家进度只能
+  通过固定槽位的窄 IPC 写入 `userData`；
 - 能在没有 Editor 的情况下打开 fixture 并执行全部七类节点；
 - 标题页点击后音频可播放，视频和选择阻塞语义正确；
 - 损坏 fixture 显示明确错误而不是白屏或崩溃；
@@ -1105,7 +1125,8 @@ DoD：
 - Editor 使用 `vn-asset://`；Player 使用隔离的 `vn-game-asset://` capability，
   音视频均支持单段 Range；
 - Player 有独立 Forge 配置、标题页、暂停页、结束页和错误页；标题页渲染自定义背景、
-  循环播放独立标题音乐并固定显示“开始游戏 / CG 画廊 / 选项 / 退出游戏”；画廊每页固定九格，
+  循环播放独立标题音乐并固定显示“开始游戏 / 读取游戏 / CG 画廊 / 选项 / 退出游戏”；
+  读取入口、3 个手动槽、独立快速槽和游戏内操作栏已接通；画廊每页固定九格，
   空槽显示“无”，并支持分页、点击放大和 Esc 返回；通用与 embedded 两种
   packaged 启动模式已有测试。当前本机验证属于 internal/ad-hoc，不是 Developer ID
   正式签名或 Apple 公证；
@@ -1115,14 +1136,15 @@ DoD：
 - macOS packaged Editor 能导出每游戏 `*-macOS.zip`，内含唯一使用模板默认图标和
   ad-hoc 签名的 `.app`，适合内部测试；目标 FileProvider 不直接接触应用树。
   Windows/Linux 及正式品牌产物必须由目标平台 workflow 构建；
-- Player 暂不保存游戏进度；
+- Player 已支持本地手动保存/读取与快速保存/读取；存档使用独立版本化快照、按游戏内容
+  指纹隔离并写入用户数据目录，完整流程见 [Player 保存与读取](./save-load-implementation.md)；
 - 当前 Esc 暂停会停止音频，恢复后 BGM/voice 从头开始；“退出游戏”已通过 Main 的
   `app.quit()` 收口 macOS 应用进程生命周期；
 - 开发 fixture 覆盖七类节点，但不携带真实二进制媒体；正式导出前还需补 packaged
   图片/音频/视频端到端用例；
 - Player 与 Editor/C++ 的媒体探测现在行为对齐但仍有重复实现，后续应抽取共享
   测试向量，防止三份校验规则漂移；
-- 还没有变量、条件表达式、存档/读档、历史回看、自动播放、快进、逐字显示、
+- 还没有变量、条件表达式、历史回看、自动播放、快进、逐字显示、
   音量设置、媒体转码或自动更新；
 - `player-ci.yml`、`player-game-build.yml` 和 `player-release.yml` 已实现，但 protected
   Environments、不可变 tag/release 规则、真实凭据 GitHub runner 执行和干净机器 smoke
@@ -1136,4 +1158,5 @@ DoD：
 > embedded game build，核验 Developer ID/公证、Authenticode/时间戳、Linux 制品、
 > GPG 签名的 checksums、`release-set.json` 与 build receipts，并在干净机器测试安装、
 > 启动、音视频、退出和卸载。
-> `.vngame` 双击关联、存档等产品能力仍是独立后续需求。
+> `.vngame` 双击关联、存档删除/跨版本迁移和云同步等产品能力仍是独立后续需求；
+> 本地手动保存/读取与快速槽已经完成。

@@ -3,6 +3,24 @@ import type { StartScreenDocument } from '@vnengine/runtime';
 
 import type { MediaUrlResolver } from './mediaPort';
 import { CgGallery } from './CgGallery';
+import {
+  effectiveMediaVolume,
+} from './mediaVolume';
+import {
+  OptionsDialog,
+  type OptionsSettingsValue,
+} from './OptionsDialog';
+import { useAutoFitScale } from './useAutoFitScale';
+
+const DEFAULT_PREVIEW_OPTIONS: OptionsSettingsValue = {
+  settingsVersion: 1,
+  masterVolume: 1,
+  bgmVolume: 1,
+  voiceVolume: 1,
+  videoVolume: 1,
+  windowMode: 'windowed',
+  windowSizePreset: 'medium',
+};
 
 export type TitleScreenProps = {
   startScreen: StartScreenDocument;
@@ -11,8 +29,15 @@ export type TitleScreenProps = {
   }>;
   resolveMediaUrl: MediaUrlResolver;
   openingGame?: boolean;
+  loadingSaveGame?: boolean;
+  mediaPaused?: boolean;
+  interactionBlocked?: boolean;
+  bgmVolume?: number;
   onStart: () => void;
+  onLoadGame?: () => void;
+  onOpenOptions?: () => void;
   onOpenGame?: () => void;
+  onModalStateChange?: (open: boolean) => void;
   onExit: () => void;
 };
 
@@ -54,14 +79,25 @@ export function TitleScreen({
   cgGalleryPages = [],
   resolveMediaUrl,
   openingGame = false,
+  loadingSaveGame = false,
+  mediaPaused = false,
+  interactionBlocked = false,
+  bgmVolume = 1,
   onStart,
+  onLoadGame,
+  onOpenOptions,
   onOpenGame,
+  onModalStateChange,
   onExit,
 }: TitleScreenProps) {
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [cgGalleryOpen, setCgGalleryOpen] = useState(false);
-  const [musicEnabled, setMusicEnabled] = useState(true);
+  const [previewOptions, setPreviewOptions] = useState<OptionsSettingsValue>(
+    DEFAULT_PREVIEW_OPTIONS,
+  );
   const audioRef = useRef<HTMLAudioElement>(null);
+  const modalTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const titleFit = useAutoFitScale<HTMLDivElement, HTMLElement>();
   const backgroundUrl = useResolvedTitleAsset(
     startScreen.backgroundAssetId,
     resolveMediaUrl,
@@ -70,22 +106,42 @@ export function TitleScreen({
     startScreen.musicAssetId,
     resolveMediaUrl,
   );
+  const effectiveBgmVolume = onOpenOptions
+    ? effectiveMediaVolume(1, bgmVolume)
+    : effectiveMediaVolume(
+        previewOptions.masterVolume,
+        previewOptions.bgmVolume,
+      );
+  const titleActionsBlocked =
+    interactionBlocked || optionsOpen || cgGalleryOpen;
+
+  useEffect(() => {
+    if (audioRef.current !== null) {
+      audioRef.current.volume = effectiveBgmVolume;
+    }
+  }, [effectiveBgmVolume, musicUrl]);
 
   useEffect(() => {
     const audio = audioRef.current;
-    if (audio === null || musicUrl === null || !musicEnabled) {
+    if (audio === null || musicUrl === null || mediaPaused) {
       audio?.pause();
       return;
     }
     audio.loop = true;
     // Browser autoplay policy may reject this promise. The title screen stays
-    // interactive; the user can retry by toggling music in Options.
+    // interactive; changing a volume control provides another user gesture.
     void audio.play().catch(() => undefined);
+  }, [mediaPaused, musicUrl]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
     return () => {
-      audio.pause();
-      audio.currentTime = 0;
+      audio?.pause();
+      if (audio) {
+        audio.currentTime = 0;
+      }
     };
-  }, [musicEnabled, musicUrl]);
+  }, [musicUrl]);
 
   return (
     <main className="player-shell player-title-page">
@@ -107,80 +163,103 @@ export function TitleScreen({
           preload="auto"
         />
       ) : null}
-      <section className="player-title-card">
-        <p className="player-eyebrow">A VN ENGINE STORY</p>
-        <h1>{startScreen.title || '未命名游戏'}</h1>
-        <div className="player-title-actions player-title-actions-vertical">
-          <button
-            type="button"
-            className="player-start-button"
-            onClick={onStart}
-          >
-            <span aria-hidden="true">▶</span>
-            开始游戏
-          </button>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => setCgGalleryOpen(true)}
-          >
-            CG画廊
-          </button>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => setOptionsOpen(true)}
-          >
-            选项
-          </button>
-          <button type="button" className="secondary" onClick={onExit}>
-            退出游戏
-          </button>
-        </div>
-      </section>
-      {optionsOpen ? (
-        <div
-          className="player-menu-layer"
-          role="dialog"
-          aria-modal="true"
-          aria-label="选项"
-        >
-          <section className="player-menu-card">
-            <p className="player-eyebrow">OPTIONS</p>
-            <h2>选项</h2>
-            {musicUrl !== null ? (
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => setMusicEnabled((enabled) => !enabled)}
-              >
-                {musicEnabled ? '关闭主界面音乐' : '开启主界面音乐'}
-              </button>
-            ) : null}
-            {onOpenGame ? (
-              <button
-                type="button"
-                className="secondary"
-                disabled={openingGame}
-                onClick={() => {
-                  setOptionsOpen(false);
-                  onOpenGame();
-                }}
-              >
-                {openingGame ? '正在打开…' : '打开其他游戏'}
-              </button>
-            ) : null}
-            <button type="button" onClick={() => setOptionsOpen(false)}>
-              返回
+      <div
+        ref={titleFit.containerRef}
+        className="player-title-fit"
+        aria-hidden={titleActionsBlocked || undefined}
+        inert={titleActionsBlocked}
+      >
+        <section ref={titleFit.contentRef} className="player-title-card">
+          <p className="player-eyebrow">A VN ENGINE STORY</p>
+          <h1>{startScreen.title || '未命名游戏'}</h1>
+          <div className="player-title-actions player-title-actions-vertical">
+            <button
+              type="button"
+              className="player-start-button"
+              disabled={titleActionsBlocked}
+              onClick={onStart}
+            >
+              <span aria-hidden="true">▶</span>
+              开始游戏
             </button>
-          </section>
-        </div>
+            {onLoadGame !== undefined ? (
+              <button
+                type="button"
+                className="secondary"
+                disabled={titleActionsBlocked || loadingSaveGame}
+                onClick={onLoadGame}
+              >
+                {loadingSaveGame ? '正在读取…' : '读取游戏'}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="secondary"
+              disabled={titleActionsBlocked}
+              onClick={(event) => {
+                modalTriggerRef.current = event.currentTarget;
+                onModalStateChange?.(true);
+                setCgGalleryOpen(true);
+              }}
+            >
+              CG画廊
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={titleActionsBlocked}
+              onClick={(event) => {
+                modalTriggerRef.current = event.currentTarget;
+                if (onOpenOptions) {
+                  onOpenOptions();
+                } else {
+                  onModalStateChange?.(true);
+                  setOptionsOpen(true);
+                }
+              }}
+            >
+              选项
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={titleActionsBlocked}
+              onClick={onExit}
+            >
+              退出游戏
+            </button>
+          </div>
+        </section>
+      </div>
+      {optionsOpen ? (
+        <OptionsDialog
+          settings={previewOptions}
+          openingGame={openingGame}
+          windowControlsEnabled={false}
+          onPreviewSettingsChange={setPreviewOptions}
+          onCommitSettings={setPreviewOptions}
+          onReset={() => setPreviewOptions(DEFAULT_PREVIEW_OPTIONS)}
+          restoreFocusTo={modalTriggerRef.current}
+          onOpenGame={onOpenGame ? () => {
+            setOptionsOpen(false);
+            onModalStateChange?.(false);
+            onOpenGame();
+          } : undefined}
+          onClose={() => {
+            setOptionsOpen(false);
+            onModalStateChange?.(false);
+          }}
+        />
       ) : null}
       {cgGalleryOpen ? (
         <CgGallery
           pages={cgGalleryPages}
           resolveMediaUrl={resolveMediaUrl}
-          onClose={() => setCgGalleryOpen(false)}
+          restoreFocusTo={modalTriggerRef.current}
+          onClose={() => {
+            setCgGalleryOpen(false);
+            onModalStateChange?.(false);
+          }}
         />
       ) : null}
     </main>

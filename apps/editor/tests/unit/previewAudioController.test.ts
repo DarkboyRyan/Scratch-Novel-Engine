@@ -18,6 +18,7 @@ function createMockAudio(): MockAudio {
     currentTime: 0,
     loop: false,
     src: '',
+    volume: 1,
     load: vi.fn(),
     pause: vi.fn(),
     play: vi.fn().mockResolvedValue(undefined),
@@ -234,5 +235,43 @@ describe('preview audio controller', () => {
     expect(bgm.src).toBe('vn-asset://audio/bgm-1');
     expect(voice.pause).toHaveBeenCalledTimes(2);
     expect(voice.src).toBe('');
+  });
+
+  it('updates volume and resumes paused channels without resetting playback', async () => {
+    const bgm = createMockAudio();
+    const voice = createMockAudio();
+    const channels = [bgm, voice];
+    const resolveMediaUrl = vi.fn(
+      async (assetId: string) => `vn-asset://audio/${assetId}`,
+    );
+    const controller = createPreviewAudioController({
+      createAudio: () => channels.shift()!,
+      resolveMediaUrl,
+    });
+
+    controller.sync(runtime(), { bgmVolume: 0.4, voiceVolume: 0.25 });
+    await flushPromises();
+    bgm.currentTime = 19;
+    voice.currentTime = 2;
+
+    controller.sync(runtime(), {
+      bgmVolume: 0.3,
+      voiceVolume: 0.2,
+      paused: true,
+    });
+    expect(bgm.volume).toBe(0.3);
+    expect(voice.volume).toBe(0.2);
+    expect(bgm.currentTime).toBe(19);
+    expect(voice.currentTime).toBe(2);
+    expect(bgm.src).toBe('vn-asset://audio/bgm-1');
+    expect(voice.src).toBe('vn-asset://audio/voice-1');
+
+    controller.sync(runtime(), { bgmVolume: 0.3, voiceVolume: 0.2 });
+    expect(bgm.play).toHaveBeenCalledTimes(2);
+    expect(voice.play).toHaveBeenCalledTimes(2);
+    expect(resolveMediaUrl.mock.calls.filter(([id]) => id === 'bgm-1'))
+      .toHaveLength(1);
+    expect(resolveMediaUrl.mock.calls.filter(([id]) => id === 'voice-1'))
+      .toHaveLength(1);
   });
 });

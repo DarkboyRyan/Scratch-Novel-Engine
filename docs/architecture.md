@@ -28,7 +28,10 @@
 - 平台无关的共享 Runtime/Player UI，以及只读独立 Electron Player MVP；
 - Editor 的 v15→runtime v6 `.vngame` 目录包导出，以及 Player 原生目录选择换包；
 - Player 兼容 runtime v1–v6；runtime v6 标题页渲染独立标题、自定义背景、循环标题音乐和固定的
-  “开始游戏 / CG 画廊 / 选项 / 退出游戏”入口；CG 画廊保留每页九个固定槽位，支持分页、点击放大和 Esc 返回；
+  “开始游戏 / 读取游戏 / CG 画廊 / 选项 / 退出游戏”入口；正式 Player 还提供
+  3 个手动存档槽、独立快速槽和游戏内底栏；标题页、底栏与暂停菜单共用持久化选项，
+  支持主/BGM/语音/视频音量、窗口/全屏和三档窗口尺寸；CG 画廊保留每页九个固定槽位，
+  支持分页、点击放大和 Esc 返回；
 - macOS Editor 基于严格 Player 模板的每游戏 `*-macOS.zip` 事务导出；ZIP 内含唯一
   已签名 `.app`，embedded Player 以固定内容启动；
 - 通用 Player 正式发布和每游戏三平台构建的 GitHub Actions 门禁代码；
@@ -121,6 +124,11 @@ Main 负责：
 - 提供带能力令牌的安全图片/音频/视频 protocol，以及音频和视频 Range 响应。
 
 Main 不决定“场景是否能删除”或“人物层是否合法”，最终领域规则仍由 C++ 决定。
+
+独立 Player 不启动 C++ 作者后端。它的 Main 还负责可信 frame 的只读内容/存档/设置
+IPC、`userData` 下的原子存档与 `PlayerSettingsV1` 设置文件，以及 BrowserWindow
+的 workArea 安全尺寸和原生全屏同步。Player Renderer 只发送 exact 非空设置 patch，
+不能指定路径或任意窗口宽高。
 
 ### 4.4 C++ Backend
 
@@ -314,7 +322,9 @@ CG 画廊在场景选择器中作为另一个保留 ID 的 synthetic scene 独�
 只展示已导入图片，点击或拖拽不会直接加入画廊，作者必须在当前页的明确槽位中选择。
 切换模式、场景、保存或开始预览前，同样会等待当前 CG 更新提交完成。
 
-Player 主界面按钮固定按“开始游戏 / CG 画廊 / 选项 / 退出游戏”纵向排列。画廊每页固定
+正式 Player 主界面按钮固定按“开始游戏 / 读取游戏 / CG 画廊 / 选项 / 退出游戏”
+纵向排列；Editor 整体预览也显示完整菜单，但点击“读取游戏”只显示预览说明，不注入
+磁盘存档能力。画廊每页固定
 显示九格，空槽显示“无”，提供上一页/下一页；点击非空缩略图打开大图。Esc 在大图打开时先关闭大图，
 再次按下才关闭画廊返回主界面。Editor 从 CG 合成场景启动预览时，会显示完整主界面，
 便于通过同一条正式入口检查画廊。
@@ -347,6 +357,12 @@ v13 为人物节点新增可空百分比 `position`；v14 首次以扁平
 `project.cgGallery.imageAssetIds` 新增画廊。v15 改为固定九槽的 `pages`；Reader 打开
 v14 时按原顺序每九张分成一页并用 `null` 补满最后一页，打开 v1–v13 时生成一张全空页。
 Writer 再保存时统一写 v15。
+
+旧项目未另存时也可以直接导出。v1–v13 的磁盘字节先由窗口独享的 C++ Reader 迁移并
+聚合校验，Main 再以保存时记录的 manifest SHA 绑定该 canonical 快照；Asset 路径仍取自
+原文件并经过 v15 Compiler 的 strict 校验。v14/v15 继续直接走严格 Compiler，未来版本
+和投影不一致均 fail closed，导出不会为兼容而改写作者项目。旧 scene-level 初始人物
+不在 Renderer 投影内，因此会明确要求作者改用 Character 时间线节点，而不会被静默删除。
 
 详见 [项目文件夹存储与媒体资源实现](./project-folder-storage.md)。
 
@@ -404,9 +420,29 @@ v5 以扁平列表加入 `cgGallery`，v6 改为至少一页、每页固定九�
 分块并补 `null`，runtime v1–v4 加载后得到一张全空页。当前 v6 manifest
 声明 `playerCompatibility: ">=6 <7"`；模板声明
 `runtimeCompatibility: ">=1 <7"`，因此同一模板可以运行六代内容包。标题页会渲染
-独立标题和配置背景，循环播放标题音乐，并固定显示“开始游戏 / CG 画廊 / 选项 / 退出游戏”；通用 Player
+独立标题和配置背景，循环播放标题音乐，并固定显示“开始游戏 / 读取游戏 / CG 画廊 /
+选项 / 退出游戏”；通用 Player
 的“打开其他游戏”位于“选项”内。标题音乐拥有独立的 `<audio>` 生命周期，开始剧情、
 切换内容包或卸载标题页时会停止并归零，不与剧情时间线 BGM 共享控制器。
+
+正式 Player 的“读取游戏”和游戏内底栏使用外部用户数据目录中的版本化快照，不写回
+作者项目或只读 runtime bundle。Renderer 只传小型 `GameRuntimeSnapshot`，Main 依据
+当前 bundle identity 恢复并校验，固定槽通过临时文件、fsync、备份和 rename 发布。
+完整边界、文件格式和技术栈见 [Player 保存与读取](./save-load-implementation.md)。
+
+标题页、游戏内底栏和暂停菜单进入共享 `OptionsDialog`。Player 设置独立使用
+`settingsVersion: 1`，默认四路音量均为 1、窗口模式为 windowed、尺寸为 medium；
+Main 把 exact 设置写到 `userData/settings/settings.json`，并用临时文件、fsync、备份与
+rename 原子发布。窗口预设为 960×600、1280×800、1600×1000，放不下当前 Display
+`workArea` 时按比例缩小并居中；原生全屏事件会反写权威模式，全屏转换以 5 秒为上限。
+隐藏窗口在 `loadURL` 完成后、`show()` 前通过 activation gate 应用持久化显示状态；
+该 gate 释放前设置 IPC 不会返回。只有显示字段 patch 才应用窗口几何，纯音量 patch
+不会缩放或重新居中用户手动调整的窗口。媒体有效音量统一为 `master × channel`，改变
+音量不重建音轨或重置播放位置。选项、存档、CG 画廊和打开失败弹层使用同步 latch
+保持互斥，底层界面进入 `inert`，关闭后恢复触发按钮焦点。Editor 标题页预览只保存
+组件内存状态并禁用窗口控制。完整契约、安全边界与测试矩阵见
+[Player 选项系统](./player-options-implementation.md)。该功能不改变 author v15、
+runtime v6 或 `GameRuntimeSnapshot v1`。
 
 Windows/Linux 独立游戏和带正式图标的三平台产物不由 macOS Editor 后处理二进制，
 而由 `player-game-build.yml` 在对应 runner 用 Forge 重新构建。`player-release.yml`
@@ -479,9 +515,9 @@ apps/editor/src/
     └── global.d.ts
 
 apps/player/
-├── src/main/                 # bundle Reader/Session、只读 IPC 与媒体 capability
-├── src/preload.ts            # loadGame/openGame/getMediaUrl/quitGame
-├── src/renderer/             # 标题、游戏、暂停、结束与错误页面
+├── src/main/                 # bundle、存档、设置/窗口管理、只读 IPC 与媒体 capability
+├── src/preload.ts            # 内容、媒体、存档、设置与退出的 contextBridge 窄 API
+├── src/renderer/             # 标题、游戏、保存读取、选项、暂停、结束与错误页面
 ├── fixtures/game/            # 开发期受控 runtime v3 内容包
 ├── scripts/                  # 模板 staging、构建验证、签名与 release 工具
 └── forge.config.ts           # 独立 Player 打包配置
@@ -520,12 +556,13 @@ C++ Backend，通过 `cmake --install` 放入 `engine/stage/backend`，Forge 再
 
 已完成的能力不等于完整游戏引擎。当前尚未完成：
 
-- 变量、条件表达式、选项可见性和游戏存档；
+- 变量、条件表达式和选项可见性；
 - Undo/Redo；
 - 同一项目根的多窗口排他锁；
 - Blockly 布局持久化和未引用资源回收；
 - `.vngame` 双击/UTI 关联；
-- Player 存档；
+- 存档删除、跨内容版本迁移和云同步；
+- 文字/自动播放速度、SFX 通道、无边框窗口和 Player 设置云同步；
 - GitHub `player-release`/`game-release` protected Environments、required reviewers、
   deployment ref rules、不可变 `player-v*` tag/Release 和 Environment Secrets 的外部
   配置验收；

@@ -316,7 +316,8 @@ apps/editor/src/renderer/styles/editor.css
 ## 13. 当前边界
 
 - 当前选择是“点击后直接跳到目标场景”，尚无变量赋值、条件表达式和选项可见性；
-- 尚无键盘上下选择、历史返回、限时选项、已选标记和存档；
+- 尚无键盘上下选择、历史返回、限时选项和已选标记；正式 Player 可以在 choosing
+  阻塞态保存并从当前 `game.json` 重建选项，Editor 预览本身不持久化存档；
 - 正式预览状态机仍在 TypeScript。独立 Player 的 MVP 应复用抽离后的共享
   TypeScript Runtime；只有在变量、脚本、跨版本存档或确定性回放变得复杂后，
   才评估把同一 Choice 运行语义下沉到 C++ Runtime。

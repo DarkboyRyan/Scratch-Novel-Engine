@@ -1,12 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { MediaUrlResolver } from './mediaPort';
+import { clampMediaVolume } from './mediaVolume';
 
 export type PreviewVideoProps = {
   assetId: string;
   sequence: number;
   resolveMediaUrl: MediaUrlResolver;
   onComplete: () => void;
+  paused?: boolean;
+  volume?: number;
 };
 
 type VideoSourceState = {
@@ -20,6 +23,8 @@ export function PreviewVideo({
   sequence,
   resolveMediaUrl,
   onComplete,
+  paused = false,
+  volume = 1,
 }: PreviewVideoProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const playbackKey = `${sequence}:${assetId}`;
@@ -70,6 +75,42 @@ export function PreviewVideo({
   const isCurrentSource = source.key === playbackKey;
   const url = isCurrentSource ? source.url : null;
   const errorMessage = isCurrentSource ? source.errorMessage : null;
+  const normalizedVolume = clampMediaVolume(volume);
+  const volumeRef = useRef(normalizedVolume);
+  volumeRef.current = normalizedVolume;
+  const playVideo = useCallback((video: HTMLVideoElement) => {
+    video.volume = volumeRef.current;
+    if (paused) {
+      video.pause();
+      return;
+    }
+    void video.play().catch(() => {
+      setSource((current) => current.key === playbackKey
+          ? {
+            ...current,
+            errorMessage: '自动播放被阻止，按 Enter 跳过后继续剧情',
+          }
+        : current);
+    });
+  }, [paused, playbackKey]);
+
+  useEffect(() => {
+    if (videoRef.current !== null) {
+      videoRef.current.volume = normalizedVolume;
+    }
+  }, [normalizedVolume]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video === null) {
+      return;
+    }
+    if (paused) {
+      video.pause();
+    } else if (url !== null) {
+      playVideo(video);
+    }
+  }, [paused, playVideo, url]);
 
   return (
     <div
@@ -82,21 +123,18 @@ export function PreviewVideo({
         className="game-preview-video"
         aria-label="剧情视频，按 Enter 跳过"
         src={url ?? undefined}
-        autoPlay
         disablePictureInPicture
         playsInline
         preload="auto"
         onCanPlay={(event) => {
-          void event.currentTarget.play().catch(() => {
-            setSource((current) => current.key === playbackKey
-                ? {
-                  ...current,
-                  errorMessage: '自动播放被阻止，按 Enter 跳过后继续剧情',
-                }
-              : current);
-          });
+          event.currentTarget.volume = normalizedVolume;
+          playVideo(event.currentTarget);
         }}
-        onEnded={onComplete}
+        onEnded={() => {
+          if (!paused) {
+            onComplete();
+          }
+        }}
         onError={() => {
           if (url !== null) {
             setSource((current) => current.key === playbackKey

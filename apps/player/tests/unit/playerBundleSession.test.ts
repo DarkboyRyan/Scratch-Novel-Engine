@@ -142,6 +142,12 @@ describe('Player bundle session', () => {
       status: 'opened',
       game: { project: { name: 'first' } },
     });
+    const firstContext = session.getActiveGameContext();
+    expect(firstContext).toMatchObject({
+      generation: 1,
+      identity: { projectId: 'project-first', runtimeVersion: 1 },
+    });
+    expect(session.isActiveGameContext(firstContext!)).toBe(true);
     const firstUrl = session.getMediaUrl('image');
     expect(firstUrl).toBeTruthy();
     expect((await request(firstUrl!)).status).toBe(200);
@@ -150,6 +156,13 @@ describe('Player bundle session', () => {
       status: 'opened',
       game: { project: { name: 'second' } },
     });
+    const secondContext = session.getActiveGameContext();
+    expect(secondContext).toMatchObject({
+      generation: 2,
+      identity: { projectId: 'project-second', runtimeVersion: 1 },
+    });
+    expect(session.isActiveGameContext(firstContext!)).toBe(false);
+    expect(session.isActiveGameContext(secondContext!)).toBe(true);
     const secondUrl = session.getMediaUrl('image');
     expect(secondUrl).toBeTruthy();
     expect(secondUrl).not.toBe(firstUrl);
@@ -162,6 +175,8 @@ describe('Player bundle session', () => {
     });
 
     session.dispose();
+    expect(session.getActiveGameContext()).toBeNull();
+    expect(session.isActiveGameContext(secondContext!)).toBe(false);
   });
 
   it('rejects bad hashes and newer runtimes without disturbing the old game', async () => {
