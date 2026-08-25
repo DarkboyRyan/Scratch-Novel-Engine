@@ -691,7 +691,13 @@ export async function archiveWebPlayerTree(
   const completed = pipeline(zip.outputStream as Readable, output);
   zip.end({ forceZip64Format: false, comment: '' });
   await completed;
-  const archive = await open(archivePath, constants.O_RDONLY);
+  // Windows rejects fsync on a read-only handle with EPERM. This archive is
+  // private, newly created by this transaction, and must be durably flushed
+  // before verification, so reopen it read/write without following links.
+  const archive = await open(
+    archivePath,
+    constants.O_RDWR | (constants.O_NOFOLLOW ?? 0),
+  );
   try {
     await archive.sync();
   } finally {
@@ -1045,7 +1051,10 @@ export async function exportWebPlayer(
     await chmod(publishingArchivePath, 0o600);
     const publishingArchive = await open(
       publishingArchivePath,
-      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+      // Windows requires write access on the handle used for fsync. The file
+      // is still opened without following links and is verified immediately
+      // after this durability boundary.
+      constants.O_RDWR | (constants.O_NOFOLLOW ?? 0),
     );
     try {
       await publishingArchive.sync();

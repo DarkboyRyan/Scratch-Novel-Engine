@@ -401,7 +401,10 @@ describe('game export IPC', () => {
     expect(electronMocks.showSaveDialog).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
-        defaultPath: '/projects/My - Story-Web.zip',
+        defaultPath: path.join(
+          path.dirname(projectRootPath),
+          'My - Story-Web.zip',
+        ),
         filters: [{ name: 'Web 游戏 ZIP', extensions: ['zip'] }],
       }),
     );
@@ -410,8 +413,8 @@ describe('game export IPC', () => {
     );
     expect(exportMocks.exportWebPlayer).toHaveBeenCalledWith(
       expect.objectContaining({
-        sourceProjectRootPath: '/projects/My Story',
-        targetArtifactPath: '/exports/Custom Web-Web.zip',
+        sourceProjectRootPath: projectRootPath,
+        targetArtifactPath: path.resolve('/exports/Custom Web-Web.zip'),
         templateRootPath: '/templates/web-current',
         sourceRevision: 3,
       }),
