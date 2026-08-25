@@ -1,35 +1,45 @@
 import type { PointerEvent } from 'react';
 
-export type GameActionBarProps = {
+import type { PlayerUiLocalizationProps } from './localization';
+import { usePlayerUiLabels } from './PlayerUiProvider';
+
+export type GameActionBarProps = PlayerUiLocalizationProps & {
   disabled?: boolean;
+  fastForwardActive?: boolean;
   quickSaveBusy?: boolean;
   quickLoadBusy?: boolean;
   onSave: () => void;
   onLoad: () => void;
   onQuickSave: () => void;
   onQuickLoad: () => void;
+  onToggleFastForward: () => void;
   onOptions: () => void;
-  onExit: () => void;
+  onReturnToTitle: () => void;
 };
 
 export function GameActionBar({
+  language,
+  labels: labelsOverride,
   disabled = false,
+  fastForwardActive = false,
   quickSaveBusy = false,
   quickLoadBusy = false,
   onSave,
   onLoad,
   onQuickSave,
   onQuickLoad,
+  onToggleFastForward,
   onOptions,
-  onExit,
+  onReturnToTitle,
 }: GameActionBarProps) {
+  const labels = usePlayerUiLabels(language, labelsOverride).actionBar;
   const stopPointerUp = (event: PointerEvent<HTMLButtonElement>) => {
     event.stopPropagation();
   };
   return (
     <nav
       className="player-game-action-bar"
-      aria-label="游戏操作"
+      aria-label={labels.ariaLabel}
       onPointerUp={(event) => event.stopPropagation()}
     >
       <button
@@ -38,7 +48,7 @@ export function GameActionBar({
         onPointerUp={stopPointerUp}
         onClick={onSave}
       >
-        保存
+        {labels.save}
       </button>
       <button
         type="button"
@@ -46,7 +56,7 @@ export function GameActionBar({
         onPointerUp={stopPointerUp}
         onClick={onLoad}
       >
-        读取
+        {labels.load}
       </button>
       <button
         type="button"
@@ -54,7 +64,7 @@ export function GameActionBar({
         onPointerUp={stopPointerUp}
         onClick={onQuickSave}
       >
-        {quickSaveBusy ? '保存中…' : '快速保存'}
+        {quickSaveBusy ? labels.saving : labels.quickSave}
       </button>
       <button
         type="button"
@@ -62,15 +72,20 @@ export function GameActionBar({
         onPointerUp={stopPointerUp}
         onClick={onQuickLoad}
       >
-        {quickLoadBusy ? '读取中…' : '快速读取'}
+        {quickLoadBusy ? labels.loading : labels.quickLoad}
       </button>
       <button
         type="button"
-        disabled
-        title="暂未开放"
+        disabled={disabled}
+        aria-keyshortcuts="Space"
+        aria-pressed={fastForwardActive}
+        title={fastForwardActive
+          ? labels.disableFastForward
+          : labels.enableFastForward}
         onPointerUp={stopPointerUp}
+        onClick={onToggleFastForward}
       >
-        快进
+        {labels.fastForward}
       </button>
       <button
         type="button"
@@ -78,15 +93,15 @@ export function GameActionBar({
         onPointerUp={stopPointerUp}
         onClick={onOptions}
       >
-        选项
+        {labels.options}
       </button>
       <button
         type="button"
         disabled={disabled}
         onPointerUp={stopPointerUp}
-        onClick={onExit}
+        onClick={onReturnToTitle}
       >
-        退出游戏
+        {labels.returnToTitle}
       </button>
     </nav>
   );

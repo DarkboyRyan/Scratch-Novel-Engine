@@ -9,6 +9,8 @@ import {
   type ProjectFileResponse,
 } from '../../shared/projectFileProtocol';
 import type { EditorWindowContext } from '../window/EditorWindowContext';
+import type { EditorLanguage } from '../../shared/editorSettingsProtocol';
+import { getEditorNativeLabels } from '../i18n/editorNativeLabels';
 import { updateWindowDocumentPresentation } from '../window/updateWindowDocumentPresentation';
 import {
   createProjectRootInParent,
@@ -44,10 +46,12 @@ function cancelledResult(
 
 async function openProject(
   context: EditorWindowContext,
+  language: EditorLanguage,
 ): Promise<ProjectFileOperationResult> {
+  const labels = getEditorNativeLabels(language).project;
   const selection = await dialog.showOpenDialog(context.editorWindow, {
-    title: '打开 VN Engine 项目',
-    buttonLabel: '打开项目',
+    title: labels.openTitle,
+    buttonLabel: labels.openButton,
     properties: ['openDirectory', 'noResolveAliases'],
   });
 
@@ -110,6 +114,7 @@ async function openProject(
     context.editorWindow,
     result.project.name,
     session,
+    language,
   );
   await context.projectStorageSession
     .discardTemporaryWorkspace()
@@ -123,6 +128,7 @@ async function openProject(
 async function chooseProjectSavePath(
   context: EditorWindowContext,
   projectName: string,
+  language: EditorLanguage,
 ): Promise<string | null> {
   const currentProjectRootPath =
     context.projectFileSession.getProjectRootPath();
@@ -132,10 +138,11 @@ async function chooseProjectSavePath(
 
   // 用户选择父目录，Main 再用可编辑的项目名创建同名项目文件夹。
   // 这样原生对话框不会退化为“选择一个 JSON 文件”。
+  const labels = getEditorNativeLabels(language).project;
   const selection = await dialog.showOpenDialog(context.editorWindow, {
-    title: '选择项目保存位置',
-    buttonLabel: '创建项目文件夹',
-    message: `将在所选位置创建“${projectName}”项目文件夹，内部清单固定为 ${PROJECT_FILE_NAME}`,
+    title: labels.saveLocationTitle,
+    buttonLabel: labels.createFolderButton,
+    message: labels.saveLocationMessage(projectName, PROJECT_FILE_NAME),
     properties: [
       'openDirectory',
       'createDirectory',
@@ -161,6 +168,7 @@ async function chooseProjectSavePath(
 
 async function saveProject(
   context: EditorWindowContext,
+  language: EditorLanguage,
 ): Promise<ProjectFileOperationResult> {
   const isFirstSave =
     context.projectFileSession.getProjectRootPath() === null;
@@ -175,6 +183,7 @@ async function saveProject(
   const projectRootPath = await chooseProjectSavePath(
     context,
     projectName,
+    language,
   );
   if (!projectRootPath) {
     return cancelledResult(context);
@@ -272,6 +281,7 @@ async function saveProject(
     context.editorWindow,
     result.project.name,
     session,
+    language,
   );
   await context.projectStorageSession
     .completeSuccessfulSave(backendFilePath)
@@ -288,6 +298,7 @@ export async function runProjectFileWorkflow(
   context: EditorWindowContext,
   invocation: ProjectFileInvocation,
   openNewProjectWindow: OpenNewProjectWindow,
+  language: EditorLanguage = 'zh-CN',
 ): Promise<ProjectFileResponse> {
   switch (invocation.action) {
     case 'get-session':
@@ -300,11 +311,11 @@ export async function runProjectFileWorkflow(
       return { opened: true };
     case 'open':
       return context.fileOperationCoordinator.runExclusive(() =>
-        openProject(context),
+        openProject(context, language),
       );
     case 'save':
       return context.fileOperationCoordinator.runExclusive(() =>
-        saveProject(context),
+        saveProject(context, language),
       );
   }
 }

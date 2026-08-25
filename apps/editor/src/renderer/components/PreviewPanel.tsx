@@ -2,6 +2,7 @@ import {
   VisualStage,
   type PreviewCharacter,
 } from './VisualStage';
+import { useEditorLabels } from '../i18n/editorLocalization';
 
 type PreviewPanelProps = {
   speaker: string;
@@ -26,15 +27,16 @@ export function PreviewPanel({
   isStartDisabled = false,
   onStartPreview,
 }: PreviewPanelProps) {
+  const labels = useEditorLabels();
   return (
     <main className="preview-panel">
       {onStartPreview ? (
-        <div className="preview-toolbar" aria-label="游戏预览控制">
+        <div className="preview-toolbar" aria-label={labels.preview.controls}>
           <button
             type="button"
             className="preview-play-button"
-            aria-label="开始游戏预览"
-            title="开始游戏预览"
+            aria-label={labels.preview.start}
+            title={labels.preview.start}
             disabled={isStartDisabled}
             onClick={onStartPreview}
           >

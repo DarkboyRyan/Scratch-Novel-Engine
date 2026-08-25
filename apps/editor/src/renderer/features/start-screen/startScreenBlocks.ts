@@ -4,6 +4,11 @@ import type {
   AssetDocument,
   ProjectDocument,
 } from '../../../shared/projectTypes';
+import {
+  DEFAULT_EDITOR_LANGUAGE,
+  getEditorLabels,
+  type EditorLabels,
+} from '../../i18n/editorLocalization';
 
 export const START_SCREEN_ROOT_BLOCK_TYPE = 'vn_start_screen';
 export const START_SCREEN_BACKGROUND_BLOCK_TYPE =
@@ -21,6 +26,14 @@ export const START_SCREEN_BLOCK_FIELDS = {
   backgroundAssetId: 'BACKGROUND_ASSET_ID',
   musicAssetId: 'MUSIC_ASSET_ID',
 } as const;
+
+const START_SCREEN_LABEL_FIELDS = {
+  title: 'VN_LABEL_START_SCREEN_TITLE',
+  contents: 'VN_LABEL_START_SCREEN_CONTENTS',
+  background: 'VN_LABEL_START_SCREEN_BACKGROUND',
+  music: 'VN_LABEL_START_SCREEN_MUSIC',
+} as const;
+let currentLabels = getEditorLabels(DEFAULT_EDITOR_LANGUAGE);
 
 type StartScreenDocument = ProjectDocument['startScreen'];
 
@@ -52,21 +65,22 @@ function assetLabel(
 export function resolveStartScreenAssetLabels(
   startScreen: StartScreenDocument,
   assets: AssetDocument[],
+  labels: EditorLabels = currentLabels,
 ): StartScreenAssetLabels {
   return {
     background: assetLabel(
       assets,
       startScreen.backgroundAssetId,
       'image',
-      '未选择背景图片',
-      '缺失图片',
+      `${labels.common.none} ${labels.startScreen.backgroundImage}`,
+      labels.common.missingImage,
     ),
     music: assetLabel(
       assets,
       startScreen.musicAssetId,
       'audio',
-      '未选择背景音乐',
-      '缺失音频',
+      `${labels.common.none} ${labels.startScreen.backgroundMusic}`,
+      labels.common.missingAudio,
     ),
   };
 }
@@ -76,9 +90,10 @@ function assetOptions(
   selectedAssetId: string | null,
   expectedType: AssetDocument['type'],
   missingLabel: string,
+  labels: EditorLabels,
 ): StartScreenAssetOption[] {
   const options: StartScreenAssetOption[] = [
-    ['无', ''],
+    [labels.common.none, ''],
     ...assets
       .filter((asset) => asset.type === expectedType)
       .map((asset): StartScreenAssetOption => [
@@ -101,24 +116,28 @@ function assetOptions(
 export function createStartScreenBackgroundOptions(
   startScreen: StartScreenDocument,
   assets: AssetDocument[],
+  labels: EditorLabels = currentLabels,
 ): StartScreenAssetOption[] {
   return assetOptions(
     assets,
     startScreen.backgroundAssetId,
     'image',
-    '缺失图片',
+    labels.common.missingImage,
+    labels,
   );
 }
 
 export function createStartScreenMusicOptions(
   startScreen: StartScreenDocument,
   assets: AssetDocument[],
+  labels: EditorLabels = currentLabels,
 ): StartScreenAssetOption[] {
   return assetOptions(
     assets,
     startScreen.musicAssetId,
     'audio',
-    '缺失音频',
+    labels.common.missingAudio,
+    labels,
   );
 }
 
@@ -130,14 +149,14 @@ function registerRootBlock(): void {
   Blockly.Blocks[START_SCREEN_ROOT_BLOCK_TYPE] = {
     init(): void {
       this.appendDummyInput()
-        .appendField('主界面游戏名')
+        .appendField(currentLabels.blockly.startScreenTitle, START_SCREEN_LABEL_FIELDS.title)
         .appendField(
-          new Blockly.FieldTextInput('未命名游戏'),
+          new Blockly.FieldTextInput(currentLabels.blockly.startScreenDefaultTitle),
           START_SCREEN_BLOCK_FIELDS.title,
         );
-      this.appendStatementInput('CONTENTS').appendField('界面内容');
+      this.appendStatementInput('CONTENTS').appendField(currentLabels.blockly.startScreenContents, START_SCREEN_LABEL_FIELDS.contents);
       this.setColour(260);
-      this.setTooltip('设置游戏主界面显示的名称');
+      this.setTooltip(currentLabels.blockly.startScreenTooltip);
       this.setHelpUrl('');
     },
   };
@@ -151,15 +170,15 @@ function registerBackgroundBlock(): void {
   Blockly.Blocks[START_SCREEN_BACKGROUND_BLOCK_TYPE] = {
     init(): void {
       this.appendDummyInput()
-        .appendField('背景图片')
+        .appendField(currentLabels.blockly.startScreenBackground, START_SCREEN_LABEL_FIELDS.background)
         .appendField(
-          new Blockly.FieldDropdown([['无', '']]),
+          new Blockly.FieldDropdown([[currentLabels.common.none, '']]),
           START_SCREEN_BLOCK_FIELDS.backgroundAssetId,
         );
       this.setPreviousStatement(true);
       this.setNextStatement(true);
       this.setColour(210);
-      this.setTooltip('选择图片资源，或将图片资源拖到此积木');
+      this.setTooltip(currentLabels.blockly.startScreenBackgroundTooltip);
       this.setHelpUrl('');
     },
   };
@@ -173,24 +192,76 @@ function registerMusicBlock(): void {
   Blockly.Blocks[START_SCREEN_MUSIC_BLOCK_TYPE] = {
     init(): void {
       this.appendDummyInput()
-        .appendField('背景音乐')
+        .appendField(currentLabels.blockly.startScreenMusic, START_SCREEN_LABEL_FIELDS.music)
         .appendField(
-          new Blockly.FieldDropdown([['无', '']]),
+          new Blockly.FieldDropdown([[currentLabels.common.none, '']]),
           START_SCREEN_BLOCK_FIELDS.musicAssetId,
         );
       this.setPreviousStatement(true);
       this.setNextStatement(true);
       this.setColour(120);
-      this.setTooltip('选择音频资源，或将音频资源拖到此积木');
+      this.setTooltip(currentLabels.blockly.startScreenMusicTooltip);
       this.setHelpUrl('');
     },
   };
 }
 
-export function registerStartScreenBlocks(): void {
+export function registerStartScreenBlocks(labels: EditorLabels = currentLabels): void {
+  currentLabels = labels;
   registerRootBlock();
   registerBackgroundBlock();
   registerMusicBlock();
+}
+
+export function applyStartScreenBlocksLocalization(
+  workspace: Blockly.Workspace,
+  startScreen: StartScreenDocument,
+  assets: AssetDocument[],
+  labels: EditorLabels,
+): void {
+  registerStartScreenBlocks(labels);
+  const root = workspace.getBlockById(START_SCREEN_BLOCK_IDS.root);
+  const background = workspace.getBlockById(START_SCREEN_BLOCK_IDS.background);
+  const music = workspace.getBlockById(START_SCREEN_BLOCK_IDS.music);
+  Blockly.Events.disable();
+  try {
+    root?.setFieldValue(labels.blockly.startScreenTitle, START_SCREEN_LABEL_FIELDS.title);
+    root?.setFieldValue(labels.blockly.startScreenContents, START_SCREEN_LABEL_FIELDS.contents);
+    root?.setTooltip(labels.blockly.startScreenTooltip);
+
+    background?.setFieldValue(labels.blockly.startScreenBackground, START_SCREEN_LABEL_FIELDS.background);
+    background?.setTooltip(labels.blockly.startScreenBackgroundTooltip);
+    if (background) {
+      configureDropdown(
+        background,
+        START_SCREEN_BLOCK_FIELDS.backgroundAssetId,
+        createStartScreenBackgroundOptions(startScreen, assets, labels),
+        startScreen.backgroundAssetId,
+      );
+    }
+
+    music?.setFieldValue(labels.blockly.startScreenMusic, START_SCREEN_LABEL_FIELDS.music);
+    music?.setTooltip(labels.blockly.startScreenMusicTooltip);
+    if (music) {
+      configureDropdown(
+        music,
+        START_SCREEN_BLOCK_FIELDS.musicAssetId,
+        createStartScreenMusicOptions(startScreen, assets, labels),
+        startScreen.musicAssetId,
+      );
+    }
+
+    for (const block of [root, background, music]) {
+      if (block instanceof Blockly.BlockSvg) {
+        block.render();
+      }
+    }
+    if (workspace instanceof Blockly.WorkspaceSvg) {
+      Blockly.renderManagement.triggerQueuedRenders(workspace);
+    }
+  } finally {
+    Blockly.Events.enable();
+  }
 }
 
 function lockManagedBlock(
@@ -229,8 +300,9 @@ export function renderStartScreenBlocks(
   startScreen: StartScreenDocument,
   assets: AssetDocument[],
   resourceFieldsEditable = true,
+  labels: EditorLabels = currentLabels,
 ): void {
-  registerStartScreenBlocks();
+  registerStartScreenBlocks(labels);
 
   Blockly.Events.disable();
   try {
@@ -257,13 +329,13 @@ export function renderStartScreenBlocks(
     configureDropdown(
       background,
       START_SCREEN_BLOCK_FIELDS.backgroundAssetId,
-      createStartScreenBackgroundOptions(startScreen, assets),
+      createStartScreenBackgroundOptions(startScreen, assets, labels),
       startScreen.backgroundAssetId,
     );
     configureDropdown(
       music,
       START_SCREEN_BLOCK_FIELDS.musicAssetId,
-      createStartScreenMusicOptions(startScreen, assets),
+      createStartScreenMusicOptions(startScreen, assets, labels),
       startScreen.musicAssetId,
     );
 

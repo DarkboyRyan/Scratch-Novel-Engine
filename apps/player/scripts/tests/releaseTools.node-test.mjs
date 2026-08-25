@@ -20,6 +20,7 @@ import {
   collectArtifacts,
   copyVerifiedDirectory,
   expectedPackageDirectoryName,
+  resolvePnpmLauncher,
   verifyPackagedAsarMetadata,
   verifyReleaseSet,
   verifyRuntimeBundle,
@@ -210,7 +211,39 @@ test('invokes Forge through Node instead of relying on package bin execute bits'
     'utf8',
   );
   assert.match(editorTemplateRunner, /runChecked\(process\.execPath, editorForgeArguments/u);
+  assert.match(editorTemplateRunner, /resolvePnpmLauncher\(\{ repositoryRoot \}\)/u);
   assert.doesNotMatch(editorTemplateRunner, /exec['"],\s*['"]electron-forge/u);
+  assert.doesNotMatch(editorTemplateRunner, /pnpm\.cmd|shell:\s*true/u);
+});
+
+test('executes pnpm JavaScript through Node without invoking a Windows cmd shim', () => {
+  const windows = resolvePnpmLauncher({
+    platform: 'win32',
+    nodeExecutable: 'C:\\Program Files\\nodejs\\node.exe',
+    npmExecPath: 'C:\\pnpm\\pnpm.cjs',
+    repositoryRoot: 'C:\\repository',
+    fileExists: (candidate) => candidate === 'C:\\pnpm\\pnpm.cjs',
+  });
+  assert.deepEqual(windows, {
+    command: 'C:\\Program Files\\nodejs\\node.exe',
+    args: ['C:\\pnpm\\pnpm.cjs'],
+  });
+  assert.equal(windows.command.endsWith('.cmd'), false);
+  assert.equal(windows.args.some((argument) => argument.endsWith('.cmd')), false);
+
+  assert.throws(() => resolvePnpmLauncher({
+    platform: 'win32',
+    npmExecPath: 'C:\\pnpm\\pnpm.cmd',
+    repositoryRoot: 'C:\\repository',
+    fileExists: () => false,
+  }), /无法定位安全的 pnpm JavaScript 入口/u);
+
+  assert.deepEqual(resolvePnpmLauncher({
+    platform: 'linux',
+    npmExecPath: '/usr/bin/npm-cli.js',
+    repositoryRoot: '/repository',
+    fileExists: () => false,
+  }), { command: 'pnpm', args: [] });
 });
 
 test('copies only a verified bundle into a new directory named game', async () => {

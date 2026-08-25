@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { StartScreenDocument } from '@vnengine/runtime';
 
+import type { PlayerUiLocalizationProps } from './localization';
 import type { MediaUrlResolver } from './mediaPort';
 import { CgGallery } from './CgGallery';
 import {
@@ -10,10 +11,11 @@ import {
   OptionsDialog,
   type OptionsSettingsValue,
 } from './OptionsDialog';
+import { usePlayerUiLocalization } from './PlayerUiProvider';
 import { useAutoFitScale } from './useAutoFitScale';
 
-const DEFAULT_PREVIEW_OPTIONS: OptionsSettingsValue = {
-  settingsVersion: 1,
+const DEFAULT_PREVIEW_OPTIONS: Omit<OptionsSettingsValue, 'language'> = {
+  settingsVersion: 2,
   masterVolume: 1,
   bgmVolume: 1,
   voiceVolume: 1,
@@ -22,7 +24,7 @@ const DEFAULT_PREVIEW_OPTIONS: OptionsSettingsValue = {
   windowSizePreset: 'medium',
 };
 
-export type TitleScreenProps = {
+export type TitleScreenProps = PlayerUiLocalizationProps & {
   startScreen: StartScreenDocument;
   cgGalleryPages?: ReadonlyArray<{
     imageAssetIds: readonly (string | null)[];
@@ -75,6 +77,8 @@ function useResolvedTitleAsset(
 }
 
 export function TitleScreen({
+  language,
+  labels: labelsOverride,
   startScreen,
   cgGalleryPages = [],
   resolveMediaUrl,
@@ -90,11 +94,28 @@ export function TitleScreen({
   onModalStateChange,
   onExit,
 }: TitleScreenProps) {
+  const inheritedLocalization = usePlayerUiLocalization(
+    language,
+    labelsOverride,
+  );
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [cgGalleryOpen, setCgGalleryOpen] = useState(false);
   const [previewOptions, setPreviewOptions] = useState<OptionsSettingsValue>(
-    DEFAULT_PREVIEW_OPTIONS,
+    () => ({
+      ...DEFAULT_PREVIEW_OPTIONS,
+      language: inheritedLocalization.language,
+    }),
   );
+  const previewLocalization = usePlayerUiLocalization(
+    previewOptions.language,
+    labelsOverride?.locale === previewOptions.language
+      ? labelsOverride
+      : undefined,
+  );
+  const activeLocalization = onOpenOptions === undefined
+    ? previewLocalization
+    : inheritedLocalization;
+  const labels = activeLocalization.labels.title;
   const audioRef = useRef<HTMLAudioElement>(null);
   const modalTriggerRef = useRef<HTMLButtonElement | null>(null);
   const titleFit = useAutoFitScale<HTMLDivElement, HTMLElement>();
@@ -170,8 +191,8 @@ export function TitleScreen({
         inert={titleActionsBlocked}
       >
         <section ref={titleFit.contentRef} className="player-title-card">
-          <p className="player-eyebrow">A VN ENGINE STORY</p>
-          <h1>{startScreen.title || '未命名游戏'}</h1>
+          <p className="player-eyebrow">{labels.eyebrow}</p>
+          <h1>{startScreen.title || labels.untitledGame}</h1>
           <div className="player-title-actions player-title-actions-vertical">
             <button
               type="button"
@@ -180,7 +201,7 @@ export function TitleScreen({
               onClick={onStart}
             >
               <span aria-hidden="true">▶</span>
-              开始游戏
+              {labels.startGame}
             </button>
             {onLoadGame !== undefined ? (
               <button
@@ -189,7 +210,7 @@ export function TitleScreen({
                 disabled={titleActionsBlocked || loadingSaveGame}
                 onClick={onLoadGame}
               >
-                {loadingSaveGame ? '正在读取…' : '读取游戏'}
+                {loadingSaveGame ? labels.loadingSave : labels.loadGame}
               </button>
             ) : null}
             <button
@@ -202,7 +223,7 @@ export function TitleScreen({
                 setCgGalleryOpen(true);
               }}
             >
-              CG画廊
+              {labels.cgGallery}
             </button>
             <button
               type="button"
@@ -218,7 +239,7 @@ export function TitleScreen({
                 }
               }}
             >
-              选项
+              {labels.options}
             </button>
             <button
               type="button"
@@ -226,19 +247,26 @@ export function TitleScreen({
               disabled={titleActionsBlocked}
               onClick={onExit}
             >
-              退出游戏
+              {labels.exitGame}
             </button>
           </div>
         </section>
       </div>
       {optionsOpen ? (
         <OptionsDialog
+          language={previewOptions.language}
+          labels={labelsOverride?.locale === previewOptions.language
+            ? labelsOverride
+            : undefined}
           settings={previewOptions}
           openingGame={openingGame}
           windowControlsEnabled={false}
           onPreviewSettingsChange={setPreviewOptions}
           onCommitSettings={setPreviewOptions}
-          onReset={() => setPreviewOptions(DEFAULT_PREVIEW_OPTIONS)}
+          onReset={() => setPreviewOptions({
+            ...DEFAULT_PREVIEW_OPTIONS,
+            language: inheritedLocalization.language,
+          })}
           restoreFocusTo={modalTriggerRef.current}
           onOpenGame={onOpenGame ? () => {
             setOptionsOpen(false);
@@ -253,6 +281,10 @@ export function TitleScreen({
       ) : null}
       {cgGalleryOpen ? (
         <CgGallery
+          language={activeLocalization.language}
+          labels={labelsOverride?.locale === activeLocalization.language
+            ? labelsOverride
+            : undefined}
           pages={cgGalleryPages}
           resolveMediaUrl={resolveMediaUrl}
           restoreFocusTo={modalTriggerRef.current}

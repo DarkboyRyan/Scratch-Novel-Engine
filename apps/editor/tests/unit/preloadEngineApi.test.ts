@@ -297,6 +297,15 @@ describe('preload background and timeline engine API', () => {
     );
   });
 
+  it('forwards a pathless Web Player export on its dedicated channel', async () => {
+    await gameExport.exportGame({ output: 'web-player' });
+
+    expect(electron.invoke).toHaveBeenCalledWith(
+      'vn-game-export:request',
+      { action: 'export', params: { output: 'web-player' } },
+    );
+  });
+
   it('forwards standalone metadata without accepting an output path', async () => {
     await gameExport.exportGame({
       output: 'standalone-application',

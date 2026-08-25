@@ -183,6 +183,27 @@ describe('runtime bundle loader', () => {
     ).toThrow('不安全的资源相对路径');
   });
 
+  it('keeps desktop parsing compatible with URL-special legacy file names', () => {
+    for (const relativePath of [
+      'assets/images/a?b.png',
+      'assets/images/a#b.png',
+      'assets/images/a%23b.png',
+    ]) {
+      expect(() => parseRuntimeBundleDocuments(
+        JSON.stringify(gameDocument('background')),
+        JSON.stringify(manifestDocument([{
+          assetId: 'background',
+          type: 'image',
+          displayName: 'Background',
+          path: relativePath,
+          mime: 'image/png',
+          bytes: 12,
+          sha256: '0'.repeat(64),
+        }])),
+      )).not.toThrow();
+    }
+  });
+
   it('normalizes runtime v1 and strictly validates runtime v2 start screens', () => {
     const legacy = parseRuntimeBundleDocuments(
       JSON.stringify(gameDocument()),

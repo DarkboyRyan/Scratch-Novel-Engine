@@ -49,3 +49,23 @@ export {
 } from './previewAudioController';
 export { usePreviewAudio } from './usePreviewAudio';
 export type { MediaUrlResolver } from './mediaPort';
+export {
+  DEFAULT_PLAYER_LANGUAGE,
+  PLAYER_LANGUAGES,
+  PLAYER_UI_LABELS,
+  getPlayerUiLabels,
+  normalizePlayerLanguage,
+  resolvePlayerUiLabels,
+  type PlayerLanguage,
+  type PlayerUiErrorCode,
+  type PlayerUiLabels,
+  type PlayerUiLocalizationProps,
+} from './localization';
+export {
+  PlayerUiProvider,
+  usePlayerLanguage,
+  usePlayerUiLabels,
+  usePlayerUiLocalization,
+  type PlayerUiLocalization,
+  type PlayerUiProviderProps,
+} from './PlayerUiProvider';

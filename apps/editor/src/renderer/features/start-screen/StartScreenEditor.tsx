@@ -17,6 +17,7 @@ import {
   createEditorSceneOptions,
   START_SCREEN_SCENE_ID,
 } from './startScreenScene';
+import { useEditorLabels } from '../../i18n/editorLocalization';
 
 type StartScreenEditorProps = {
   project: ProjectDocument;
@@ -51,13 +52,14 @@ export const StartScreenEditor = forwardRef<
   },
   ref,
 ) {
+  const labels = useEditorLabels();
   const workspaceRef = useRef<StartScreenBlocklyWorkspaceHandle>(null);
   const [isChangingScene, setIsChangingScene] = useState(false);
   useImperativeHandle(ref, () => ({
     flushPendingDraft: () =>
       workspaceRef.current?.flushPendingDraft() ?? Promise.resolve(true),
   }));
-  const sceneOptions = createEditorSceneOptions(project);
+  const sceneOptions = createEditorSceneOptions(project, labels);
 
   return (
     <main
@@ -66,15 +68,13 @@ export const StartScreenEditor = forwardRef<
     >
       <header className="block-editor-heading">
         <div>
-          <h1 id="start-screen-editor-title">主界面编辑器</h1>
-          <p>
-            软件托管结构 · 使用白色下拉框选择素材，也可拖入对应积木
-          </p>
+          <h1 id="start-screen-editor-title">{labels.startScreen.editorTitle}</h1>
+          <p>{labels.startScreen.editorHelp}</p>
         </div>
 
         <div className="block-editor-heading-controls">
           <label className="block-editor-scene-picker">
-            <span>当前场景</span>
+            <span>{labels.scenes.currentScene}</span>
             <select
               className="scene-select block-editor-scene-select"
               value={START_SCREEN_SCENE_ID}
@@ -108,13 +108,13 @@ export const StartScreenEditor = forwardRef<
           </label>
 
           <span className="block-editor-sync-badge">
-            主界面结构由软件管理
+            {labels.startScreen.managedStructure}
           </span>
           <button
             type="button"
             className="preview-play-button start-screen-preview-button"
-            aria-label="预览完整主界面"
-            title="预览完整主界面"
+            aria-label={labels.startScreen.previewFull}
+            title={labels.startScreen.previewFull}
             disabled={isStartPreviewDisabled}
             onClick={onStartPreview}
           >
@@ -125,7 +125,7 @@ export const StartScreenEditor = forwardRef<
 
       <section
         className="block-editor-workspace start-screen-editor-workspace"
-        aria-label="主界面积木工作区"
+        aria-label={labels.startScreen.workspace}
       >
         <StartScreenBlocklyWorkspace
           ref={workspaceRef}

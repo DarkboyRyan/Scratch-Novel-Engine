@@ -1,9 +1,16 @@
 import { useLayoutEffect, useRef } from 'react';
 
+import {
+  PLAYER_LANGUAGES,
+  type PlayerLanguage,
+  type PlayerUiLocalizationProps,
+} from './localization';
 import { clampMediaVolume } from './mediaVolume';
+import { usePlayerUiLocalization } from './PlayerUiProvider';
 
 export type OptionsSettingsValue = {
-  settingsVersion: 1;
+  settingsVersion: 2;
+  language: PlayerLanguage;
   masterVolume: number;
   bgmVolume: number;
   voiceVolume: number;
@@ -12,13 +19,15 @@ export type OptionsSettingsValue = {
   windowSizePreset: 'small' | 'medium' | 'large';
 };
 
-export type OptionsDialogProps = {
+export type OptionsDialogProps = PlayerUiLocalizationProps & {
   settings: OptionsSettingsValue;
   loading?: boolean;
   busy?: boolean;
   error?: string | null;
   openingGame?: boolean;
   windowControlsEnabled?: boolean;
+  fullscreenControlsEnabled?: boolean;
+  windowSizeControlsEnabled?: boolean;
   onPreviewSettingsChange: (settings: OptionsSettingsValue) => void;
   onCommitSettings: (settings: OptionsSettingsValue) => void;
   onReset: () => void;
@@ -47,20 +56,24 @@ type VolumeKey =
   | 'voiceVolume'
   | 'videoVolume';
 
-const VOLUME_FIELDS: ReadonlyArray<{ key: VolumeKey; label: string }> = [
-  { key: 'masterVolume', label: '主音量' },
-  { key: 'bgmVolume', label: '背景音乐' },
-  { key: 'voiceVolume', label: '语音' },
-  { key: 'videoVolume', label: '视频' },
+const VOLUME_FIELDS: readonly VolumeKey[] = [
+  'masterVolume',
+  'bgmVolume',
+  'voiceVolume',
+  'videoVolume',
 ];
 
 export function OptionsDialog({
+  language,
+  labels: labelsOverride,
   settings,
   loading = false,
   busy = false,
   error = null,
   openingGame = false,
   windowControlsEnabled = true,
+  fullscreenControlsEnabled = windowControlsEnabled,
+  windowSizeControlsEnabled = windowControlsEnabled,
   onPreviewSettingsChange,
   onCommitSettings,
   onReset,
@@ -68,6 +81,11 @@ export function OptionsDialog({
   restoreFocusTo = null,
   onClose,
 }: OptionsDialogProps) {
+  const { labels: allLabels } = usePlayerUiLocalization(
+    language ?? settings.language,
+    labelsOverride,
+  );
+  const labels = allLabels.options;
   const layerRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const restoreFocusToRef = useRef(restoreFocusTo);
@@ -172,7 +190,7 @@ export function OptionsDialog({
       className="player-options-layer"
       role="dialog"
       aria-modal="true"
-      aria-label="选项"
+      aria-label={labels.title}
       aria-busy={loading || busy}
       tabIndex={-1}
       onClick={(event) => event.stopPropagation()}
@@ -181,13 +199,13 @@ export function OptionsDialog({
       <section className="player-options-card">
         <header className="player-options-header">
           <div>
-            <p className="player-eyebrow">OPTIONS</p>
-            <h2>选项</h2>
+            <p className="player-eyebrow">{labels.eyebrow}</p>
+            <h2>{labels.title}</h2>
           </div>
           <button
             type="button"
             className="player-options-close secondary"
-            aria-label="关闭选项"
+            aria-label={labels.closeAria}
             disabled={loading || busy}
             onClick={onClose}
           >
@@ -197,13 +215,44 @@ export function OptionsDialog({
 
         {loading ? (
           <p className="player-options-status" role="status">
-            正在读取设置…
+            {labels.loadingSettings}
           </p>
         ) : (
           <>
             <fieldset className="player-options-section">
-              <legend>音量</legend>
-              {VOLUME_FIELDS.map(({ key, label }) => {
+              <legend>{labels.languageSection}</legend>
+              <label className="player-options-select">
+                <span>{labels.language}</span>
+                <select
+                  aria-label={labels.language}
+                  value={settings.language}
+                  disabled={busy}
+                  onChange={(event) => {
+                    commitControlRef.current = event.currentTarget;
+                    const nextLanguage = event.currentTarget.value === 'en-US'
+                      ? 'en-US'
+                      : 'zh-CN';
+                    const nextSettings: OptionsSettingsValue = {
+                      ...settings,
+                      language: nextLanguage,
+                    };
+                    onPreviewSettingsChange(nextSettings);
+                    onCommitSettings(nextSettings);
+                  }}
+                >
+                  {PLAYER_LANGUAGES.map((supportedLanguage) => (
+                    <option key={supportedLanguage} value={supportedLanguage}>
+                      {labels.languageNames[supportedLanguage]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </fieldset>
+
+            <fieldset className="player-options-section">
+              <legend>{labels.volumeSection}</legend>
+              {VOLUME_FIELDS.map((key) => {
+                const label = labels[key];
                 const percentage = Math.round(
                   clampMediaVolume(settings[key]) * 100,
                 );
@@ -257,13 +306,13 @@ export function OptionsDialog({
             </fieldset>
 
             <fieldset className="player-options-section">
-              <legend>显示</legend>
+              <legend>{labels.displaySection}</legend>
               <label className="player-options-select">
-                <span>窗口模式</span>
+                <span>{labels.windowMode}</span>
                 <select
-                  aria-label="窗口模式"
+                  aria-label={labels.windowMode}
                   value={settings.windowMode}
-                  disabled={busy || !windowControlsEnabled}
+                  disabled={busy || !fullscreenControlsEnabled}
                   onChange={(event) => {
                     commitControlRef.current = event.currentTarget;
                     const nextSettings: OptionsSettingsValue = {
@@ -276,18 +325,18 @@ export function OptionsDialog({
                     onCommitSettings(nextSettings);
                   }}
                 >
-                  <option value="windowed">窗口</option>
-                  <option value="fullscreen">全屏</option>
+                  <option value="windowed">{labels.windowed}</option>
+                  <option value="fullscreen">{labels.fullscreen}</option>
                 </select>
               </label>
               <label className="player-options-select">
-                <span>窗口尺寸</span>
+                <span>{labels.windowSize}</span>
                 <select
-                  aria-label="窗口尺寸"
+                  aria-label={labels.windowSize}
                   value={settings.windowSizePreset}
                   disabled={
                     busy ||
-                    !windowControlsEnabled ||
+                    !windowSizeControlsEnabled ||
                     settings.windowMode === 'fullscreen'
                   }
                   onChange={(event) => {
@@ -304,19 +353,24 @@ export function OptionsDialog({
                     onCommitSettings(nextSettings);
                   }}
                 >
-                  <option value="small">小（960 × 600）</option>
-                  <option value="medium">中（1280 × 800）</option>
-                  <option value="large">大（1600 × 1000）</option>
+                  <option value="small">{labels.smallWindow}</option>
+                  <option value="medium">{labels.mediumWindow}</option>
+                  <option value="large">{labels.largeWindow}</option>
                 </select>
               </label>
-              {settings.windowMode === 'fullscreen' ? (
+              {settings.windowMode === 'fullscreen' &&
+              windowSizeControlsEnabled ? (
                 <p className="player-options-help">
-                  全屏模式会使用当前显示器尺寸；返回窗口模式后应用所选尺寸。
+                  {labels.fullscreenHelp}
                 </p>
               ) : null}
-              {!windowControlsEnabled ? (
+              {!fullscreenControlsEnabled && !windowSizeControlsEnabled ? (
                 <p className="player-options-help">
-                  窗口模式和尺寸仅在正式 Player 中应用。
+                  {labels.windowControlsUnavailable}
+                </p>
+              ) : fullscreenControlsEnabled && !windowSizeControlsEnabled ? (
+                <p className="player-options-help">
+                  {labels.browserWindowSizeUnavailable}
                 </p>
               ) : null}
             </fieldset>
@@ -325,7 +379,7 @@ export function OptionsDialog({
 
         {busy ? (
           <p className="player-options-status" role="status">
-            正在应用设置…
+            {labels.applyingSettings}
           </p>
         ) : null}
         {error !== null ? (
@@ -340,7 +394,9 @@ export function OptionsDialog({
               disabled={loading || busy || openingGame}
               onClick={onOpenGame}
             >
-              {openingGame ? '正在打开…' : '打开其他游戏'}
+              {openingGame
+                ? allLabels.common.openingGame
+                : allLabels.common.openOtherGame}
             </button>
           ) : null}
           <button
@@ -352,7 +408,7 @@ export function OptionsDialog({
               onReset();
             }}
           >
-            恢复默认
+            {labels.resetDefaults}
           </button>
           <button
             type="button"
@@ -360,7 +416,7 @@ export function OptionsDialog({
             disabled={loading || busy}
             onClick={onClose}
           >
-            返回
+            {labels.back}
           </button>
         </div>
       </section>

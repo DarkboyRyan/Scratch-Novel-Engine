@@ -48,7 +48,8 @@ export function isExportGameInvocation(
   }
   if (
     hasExactKeys(value.params, ['output']) &&
-    value.params.output === 'runtime-bundle'
+    (value.params.output === 'runtime-bundle' ||
+      value.params.output === 'web-player')
   ) {
     return true;
   }

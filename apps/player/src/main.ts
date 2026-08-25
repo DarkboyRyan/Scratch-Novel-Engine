@@ -89,7 +89,14 @@ async function openPlayerWindow(): Promise<void> {
 
   const bundleSession = new PlayerBundleSession(
     mediaService,
-    () => selectPlayerBundleDirectory(playerWindow, dialog),
+    async () => {
+      const settings = await settingsController.getSettings();
+      return selectPlayerBundleDirectory(
+        playerWindow,
+        dialog,
+        settings.status === 'ready' ? settings.settings.language : 'zh-CN',
+      );
+    },
     undefined,
     (operation, error) => {
       // Filesystem exceptions remain in local Main diagnostics. No absolute

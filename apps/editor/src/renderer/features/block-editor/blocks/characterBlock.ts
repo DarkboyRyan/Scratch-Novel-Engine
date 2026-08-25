@@ -4,6 +4,7 @@ import type {
   CharacterPosition,
   CharacterSlot,
 } from '../../../../shared/projectTypes';
+import { DEFAULT_EDITOR_LANGUAGE, getEditorLabels, type EditorLabels } from '../../../i18n/editorLocalization';
 
 export const CHARACTER_BLOCK_TYPE = 'vn_character';
 export const CLEAR_CHARACTER_BLOCK_TYPE = 'vn_clear_character';
@@ -16,11 +17,56 @@ export const CHARACTER_BLOCK_FIELDS = {
 
 const ASSET_DATA_PREFIX = 'vn-character-asset:';
 const EMPTY_CHARACTER_FIELD_VALUE = '\u00a0'.repeat(12);
-const CHARACTER_SLOT_OPTIONS: [string, string][] = [
-  ['左侧', 'left'],
-  ['中间', 'center'],
-  ['右侧', 'right'],
-];
+const LABEL_FIELDS = {
+  character: 'VN_LABEL_CHARACTER',
+  position: 'VN_LABEL_POSITION',
+  layer: 'VN_LABEL_LAYER',
+  clear: 'VN_LABEL_CLEAR_CHARACTER',
+  clearLayer: 'VN_LABEL_CLEAR_LAYER',
+} as const;
+let currentLabels = getEditorLabels(DEFAULT_EDITOR_LANGUAGE);
+
+function characterSlotOptions(labels: EditorLabels): [string, string][] {
+  return [
+    [labels.blockly.left, 'left'],
+    [labels.blockly.center, 'center'],
+    [labels.blockly.right, 'right'],
+  ];
+}
+
+export function applyCharacterBlockLocalization(
+  block: Blockly.Block,
+  labels: EditorLabels,
+): void {
+  const isClear = block.type === CLEAR_CHARACTER_BLOCK_TYPE;
+  block.setFieldValue(
+    isClear ? labels.blockly.clearCharacter : labels.blockly.character,
+    isClear ? LABEL_FIELDS.clear : LABEL_FIELDS.character,
+  );
+  block.setFieldValue(
+    labels.blockly.layer,
+    isClear ? LABEL_FIELDS.clearLayer : LABEL_FIELDS.layer,
+  );
+  if (!isClear) {
+    block.setFieldValue(labels.blockly.position, LABEL_FIELDS.position);
+    const field = block.getField(CHARACTER_BLOCK_FIELDS.slot);
+    if (field instanceof Blockly.FieldDropdown) {
+      const value = String(field.getValue());
+      field.setOptions([
+        ...characterSlotOptions(labels),
+        ...(value === 'custom'
+          ? [[labels.blockly.custom, 'custom'] as [string, string]]
+          : []),
+      ]);
+      field.setValue(value);
+    }
+  }
+  block.setTooltip(
+    isClear
+      ? labels.blockly.clearCharacterTooltip
+      : labels.blockly.characterTooltip,
+  );
+}
 
 export function setCharacterBlockAsset(
   block: Blockly.Block,
@@ -59,8 +105,8 @@ export function setCharacterBlockPosition(
     return;
   }
   field.setOptions([
-    ...CHARACTER_SLOT_OPTIONS,
-    ...(position ? [['自定义', 'custom'] as [string, string]] : []),
+    ...characterSlotOptions(currentLabels),
+    ...(position ? [[currentLabels.blockly.custom, 'custom'] as [string, string]] : []),
   ]);
   block.setFieldValue(
     position ? 'custom' : slot,
@@ -88,7 +134,8 @@ function createLayerField(): Blockly.FieldDropdown {
   );
 }
 
-export function registerCharacterBlock(): void {
+export function registerCharacterBlock(labels: EditorLabels = currentLabels): void {
+  currentLabels = labels;
   if (!Blockly.Blocks[CHARACTER_BLOCK_TYPE]) {
     Blockly.Blocks[CHARACTER_BLOCK_TYPE] = {
       init(): void {
@@ -99,19 +146,19 @@ export function registerCharacterBlock(): void {
         );
 
         this.appendDummyInput()
-          .appendField('人物立绘')
+          .appendField(currentLabels.blockly.character, LABEL_FIELDS.character)
           .appendField(assetField, CHARACTER_BLOCK_FIELDS.assetName);
         assetField.setEnabled(false);
 
         this.appendDummyInput()
-          .appendField('位置')
+          .appendField(currentLabels.blockly.position, LABEL_FIELDS.position)
           .appendField(
             new Blockly.FieldDropdown([
-              ...CHARACTER_SLOT_OPTIONS,
+              ...characterSlotOptions(currentLabels),
             ]),
             CHARACTER_BLOCK_FIELDS.slot,
           )
-          .appendField('层级')
+          .appendField(currentLabels.blockly.layer, LABEL_FIELDS.layer)
           .appendField(
             createLayerField(),
             CHARACTER_BLOCK_FIELDS.layer,
@@ -120,7 +167,7 @@ export function registerCharacterBlock(): void {
         this.setPreviousStatement(true);
         this.setNextStatement(true);
         this.setColour(285);
-        this.setTooltip('显示或替换一个人物立绘层');
+        this.setTooltip(currentLabels.blockly.characterTooltip);
         this.setHelpUrl('');
       },
     };
@@ -130,8 +177,8 @@ export function registerCharacterBlock(): void {
     Blockly.Blocks[CLEAR_CHARACTER_BLOCK_TYPE] = {
       init(): void {
         this.appendDummyInput()
-          .appendField('清除立绘')
-          .appendField('层级')
+          .appendField(currentLabels.blockly.clearCharacter, LABEL_FIELDS.clear)
+          .appendField(currentLabels.blockly.layer, LABEL_FIELDS.clearLayer)
           .appendField(
             createLayerField(),
             CHARACTER_BLOCK_FIELDS.layer,
@@ -140,7 +187,7 @@ export function registerCharacterBlock(): void {
         this.setPreviousStatement(true);
         this.setNextStatement(true);
         this.setColour(330);
-        this.setTooltip('从画面中清除指定层级的人物立绘');
+        this.setTooltip(currentLabels.blockly.clearCharacterTooltip);
         this.setHelpUrl('');
       },
     };

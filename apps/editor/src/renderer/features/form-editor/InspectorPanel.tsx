@@ -7,6 +7,7 @@ import type {
   SemanticSceneNode,
   SceneDocument,
 } from '../../../shared/projectTypes';
+import { useEditorLabels } from '../../i18n/editorLocalization';
 
 type InspectorPanelProps = {
   selectedNode?: SemanticSceneNode;
@@ -56,6 +57,7 @@ export function InspectorPanel({
   onInsertBgm,
   onSubmit,
 }: InspectorPanelProps) {
+  const labels = useEditorLabels();
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void onSubmit();
@@ -66,8 +68,8 @@ export function InspectorPanel({
 
     return (
       <aside className="panel inspector-panel background-inspector">
-        <div className="panel-heading">
-          <h2>背景切换</h2>
+        <div className="panel-heading timeline-panel-heading">
+          <h2>{labels.scenes.backgroundChange}</h2>
           <TimelineInsertActions
             isBusy={isBusy}
             onInsertCharacter={onInsertCharacter}
@@ -77,7 +79,7 @@ export function InspectorPanel({
         </div>
 
         <label>
-          从这里开始显示
+          {labels.inspector.showFromHere}
           <select
             value={selectedNode.assetId ?? ''}
             disabled={isBusy}
@@ -85,7 +87,7 @@ export function InspectorPanel({
               void onBackgroundChange(event.target.value || null)
             }
           >
-            <option value="">无背景</option>
+            <option value="">{labels.inspector.noBackground}</option>
             {imageAssets.map((asset) => (
               <option key={asset.id} value={asset.id}>
                 {asset.displayName}
@@ -95,7 +97,7 @@ export function InspectorPanel({
         </label>
 
         <p className="background-node-help">
-          这个背景会持续显示，直到时间线遇到下一个背景切换节点。
+          {labels.inspector.backgroundHelp}
         </p>
       </aside>
     );
@@ -122,8 +124,8 @@ export function InspectorPanel({
 
     return (
       <aside className="panel inspector-panel character-inspector">
-        <div className="panel-heading">
-          <h2>人物立绘</h2>
+        <div className="panel-heading timeline-panel-heading">
+          <h2>{labels.scenes.character}</h2>
           <TimelineInsertActions
             isBusy={isBusy}
             onInsertCharacter={onInsertCharacter}
@@ -133,7 +135,7 @@ export function InspectorPanel({
         </div>
 
         <label>
-          图片
+          {labels.inspector.image}
           <select
             value={selectedNode.assetId ?? ''}
             disabled={isBusy}
@@ -141,7 +143,7 @@ export function InspectorPanel({
               void update({ assetId: event.target.value || null })
             }
           >
-            <option value="">无立绘（清空这一层）</option>
+            <option value="">{labels.inspector.clearLayer}</option>
             {imageAssets.map((asset) => (
               <option key={asset.id} value={asset.id}>
                 {asset.displayName}
@@ -151,7 +153,7 @@ export function InspectorPanel({
         </label>
 
         <label>
-          位置
+          {labels.inspector.position}
           <select
             value={selectedNode.position ? 'custom' : selectedNode.slot}
             disabled={isBusy}
@@ -162,19 +164,19 @@ export function InspectorPanel({
               })
             }
           >
-            <option value="left">左侧</option>
-            <option value="center">中间</option>
-            <option value="right">右侧</option>
+            <option value="left">{labels.scenes.left}</option>
+            <option value="center">{labels.scenes.center}</option>
+            <option value="right">{labels.scenes.right}</option>
             {selectedNode.position ? (
-              <option value="custom">自定义</option>
+              <option value="custom">{labels.inspector.custom}</option>
             ) : null}
           </select>
         </label>
 
         <fieldset className="character-coordinate-fields">
-          <legend>具体坐标</legend>
+          <legend>{labels.inspector.coordinates}</legend>
           <label>
-            X 坐标（%）
+            {labels.inspector.xCoordinate}
             <input
               key={`${selectedNode.id}:x:${selectedNode.position?.x ?? selectedNode.slot}`}
               type="number"
@@ -190,14 +192,15 @@ export function InspectorPanel({
                     : 50)
               }
               disabled={isBusy}
-              aria-label="立绘 X 坐标"
+              aria-label={labels.inspector.portraitX}
+              data-coordinate="x"
               onBlur={(event) => {
                 const x = Number(event.currentTarget.value);
                 const y = Number(
                   event.currentTarget
                     .closest('.character-coordinate-fields')
                     ?.querySelector<HTMLInputElement>(
-                      '[aria-label="立绘 Y 坐标"]',
+                      '[data-coordinate="y"]',
                     )?.value ?? selectedNode.position?.y ?? 100,
                 );
                 if (
@@ -225,7 +228,7 @@ export function InspectorPanel({
             />
           </label>
           <label>
-            Y 坐标（%）
+            {labels.inspector.yCoordinate}
             <input
               key={`${selectedNode.id}:y:${selectedNode.position?.y ?? 'default'}`}
               type="number"
@@ -234,14 +237,15 @@ export function InspectorPanel({
               step="0.1"
               defaultValue={selectedNode.position?.y ?? 100}
               disabled={isBusy}
-              aria-label="立绘 Y 坐标"
+              aria-label={labels.inspector.portraitY}
+              data-coordinate="y"
               onBlur={(event) => {
                 const y = Number(event.currentTarget.value);
                 const x = Number(
                   event.currentTarget
                     .closest('.character-coordinate-fields')
                     ?.querySelector<HTMLInputElement>(
-                      '[aria-label="立绘 X 坐标"]',
+                      '[data-coordinate="x"]',
                     )?.value ??
                     selectedNode.position?.x ??
                     (selectedNode.slot === 'left'
@@ -272,7 +276,7 @@ export function InspectorPanel({
         </fieldset>
 
         <label>
-          人物层级
+          {labels.inspector.characterLayer}
           <select
             value={selectedNode.layer}
             disabled={isBusy}
@@ -283,7 +287,7 @@ export function InspectorPanel({
             {Array.from({ length: 10 }, (_, index) => index + 1).map(
               (layer) => (
                 <option key={layer} value={layer}>
-                  第 {layer} 层
+                  {layer} {labels.scenes.layer}
                 </option>
               ),
             )}
@@ -291,7 +295,7 @@ export function InspectorPanel({
         </label>
 
         <p className="character-node-help">
-          坐标以画面左上角为原点；修改坐标后，图形化编辑器的位置会显示为“自定义”。后出现的同层立绘会替换之前的立绘；层级越大越靠前。
+          {labels.inspector.coordinateHelp}
         </p>
       </aside>
     );
@@ -300,8 +304,8 @@ export function InspectorPanel({
   if (selectedNode?.type === 'sceneJump') {
     return (
       <aside className="panel inspector-panel scene-jump-inspector">
-        <div className="panel-heading">
-          <h2>跳转场景</h2>
+        <div className="panel-heading timeline-panel-heading">
+          <h2>{labels.scenes.jumpScene}</h2>
           <TimelineInsertActions
             isBusy={isBusy}
             onInsertCharacter={onInsertCharacter}
@@ -310,7 +314,7 @@ export function InspectorPanel({
           />
         </div>
         <label>
-          目标场景
+          {labels.inspector.targetScene}
           <select
             value={selectedNode.targetSceneId}
             disabled={isBusy}
@@ -321,7 +325,7 @@ export function InspectorPanel({
             {scenes.map((scene, index) =>
               scene.id === currentSceneId ? null : (
                 <option key={scene.id} value={scene.id}>
-                  场景 {index + 1}
+                  {labels.common.scene} {index + 1}
                   {scene.name !== `场景 ${index + 1}`
                     ? ` · ${scene.name}`
                     : ''}
@@ -331,7 +335,7 @@ export function InspectorPanel({
           </select>
         </label>
         <p className="scene-jump-node-help">
-          正式预览执行到这里时进入目标场景；没有跳转节点时，本场景结束即停止。
+          {labels.inspector.sceneJumpHelp}
         </p>
       </aside>
     );
@@ -342,8 +346,8 @@ export function InspectorPanel({
 
     return (
       <aside className="panel inspector-panel bgm-inspector">
-        <div className="panel-heading">
-          <h2>背景音乐</h2>
+        <div className="panel-heading timeline-panel-heading">
+          <h2>{labels.scenes.backgroundMusic}</h2>
           <TimelineInsertActions
             isBusy={isBusy}
             onInsertCharacter={onInsertCharacter}
@@ -352,7 +356,7 @@ export function InspectorPanel({
           />
         </div>
         <label>
-          从这里开始
+          {labels.inspector.startFromHere}
           <select
             value={selectedNode.assetId ?? ''}
             disabled={isBusy}
@@ -360,7 +364,7 @@ export function InspectorPanel({
               void onBgmChange(event.target.value || null)
             }
           >
-            <option value="">停止背景音乐</option>
+            <option value="">{labels.scenes.stopBackgroundMusic}</option>
             {audioAssets.map((asset) => (
               <option key={asset.id} value={asset.id}>
                 {asset.displayName}
@@ -369,7 +373,7 @@ export function InspectorPanel({
           </select>
         </label>
         <p className="bgm-node-help">
-          背景音乐会循环播放，并持续到下一个背景音乐积木。
+          {labels.inspector.bgmHelp}
         </p>
       </aside>
     );
@@ -380,8 +384,8 @@ export function InspectorPanel({
 
     return (
       <aside className="panel inspector-panel video-inspector">
-        <div className="panel-heading">
-          <h2>播放视频</h2>
+        <div className="panel-heading timeline-panel-heading">
+          <h2>{labels.scenes.playVideo}</h2>
           <TimelineInsertActions
             isBusy={isBusy}
             onInsertCharacter={onInsertCharacter}
@@ -390,7 +394,7 @@ export function InspectorPanel({
           />
         </div>
         <label>
-          视频资源
+          {labels.inspector.videoAsset}
           <select
             value={selectedNode.assetId ?? ''}
             disabled={isBusy}
@@ -398,7 +402,7 @@ export function InspectorPanel({
               void onVideoChange(event.target.value || null)
             }
           >
-            <option value="">未选择视频</option>
+            <option value="">{labels.scenes.noVideo}</option>
             {videoAssets.map((asset) => (
               <option key={asset.id} value={asset.id}>
                 {asset.displayName}
@@ -407,7 +411,7 @@ export function InspectorPanel({
           </select>
         </label>
         <p className="video-node-help">
-          正式预览会播放这个视频；视频结束后继续执行下一条剧情。
+          {labels.inspector.videoHelp}
         </p>
       </aside>
     );
@@ -416,8 +420,8 @@ export function InspectorPanel({
   if (selectedNode?.type === 'choice') {
     return (
       <aside className="panel inspector-panel choice-inspector">
-        <div className="panel-heading">
-          <h2>场景选项</h2>
+        <div className="panel-heading timeline-panel-heading">
+          <h2>{labels.scenes.sceneOptions}</h2>
           <TimelineInsertActions
             isBusy={isBusy}
             onInsertCharacter={onInsertCharacter}
@@ -434,11 +438,11 @@ export function InspectorPanel({
               );
               return (
                 <li key={option.id}>
-                  <strong>{option.text || '未命名选项'}</strong>
+                  <strong>{option.text || labels.common.unnamedOption}</strong>
                   <span>
                     {targetIndex >= 0
-                      ? `跳转到场景 ${targetIndex + 1}`
-                      : '目标场景缺失'}
+                      ? `${labels.blockly.jumpTo}${labels.common.wordSeparator}${labels.common.scene} ${targetIndex + 1}`
+                      : labels.scenes.missingTargetScene}
                   </span>
                 </li>
               );
@@ -446,11 +450,11 @@ export function InspectorPanel({
           </ol>
         ) : (
           <p className="choice-node-empty">
-            当前没有选项，正式预览会直接执行下一条剧情。
+            {labels.inspector.choiceEmpty}
           </p>
         )}
         <p className="choice-node-help">
-          选项内容和目标场景请在图形化编辑中设置。
+          {labels.inspector.choiceHelp}
         </p>
       </aside>
     );
@@ -461,8 +465,8 @@ export function InspectorPanel({
 
   return (
     <aside className="panel inspector-panel">
-      <div className="panel-heading">
-        <h2>{dialogueNode ? '编辑对白' : '对话管理'}</h2>
+      <div className="panel-heading timeline-panel-heading">
+        <h2>{dialogueNode ? labels.inspector.editDialogue : labels.inspector.dialogueManager}</h2>
         <TimelineInsertActions
           isBusy={isBusy}
           onInsertCharacter={onInsertCharacter}
@@ -473,30 +477,30 @@ export function InspectorPanel({
 
       <form onSubmit={handleSubmit}>
         <label>
-          角色名
+          {labels.inspector.speaker}
           <input
             value={speaker}
             disabled={isBusy}
             onChange={(event) =>
               onSpeakerChange(event.target.value)
             }
-            placeholder="例如：Alice"
+            placeholder={labels.inspector.speakerPlaceholder}
           />
         </label>
 
         <label>
-          具体文本
+          {labels.inspector.text}
           <textarea
             value={text}
             disabled={isBusy}
             onChange={(event) => onTextChange(event.target.value)}
-            placeholder="输入对白内容……"
+            placeholder={labels.inspector.textPlaceholder}
             rows={7}
           />
         </label>
 
         <label>
-          人物语音
+          {labels.inspector.voice}
           <select
             value={dialogueNode?.voiceAssetId ?? ''}
             disabled={isBusy || !dialogueNode}
@@ -504,7 +508,7 @@ export function InspectorPanel({
               void onDialogueVoiceChange(event.target.value || null)
             }
           >
-            <option value="">无语音</option>
+            <option value="">{labels.inspector.noVoice}</option>
             {assets
               .filter((asset) => asset.type === 'audio')
               .map((asset) => (
@@ -520,7 +524,7 @@ export function InspectorPanel({
           className="dialogue-submit-button"
           disabled={isBusy}
         >
-          {dialogueNode ? '保存修改' : '加入剧情'}
+          {dialogueNode ? labels.inspector.saveChanges : labels.inspector.addToStory}
         </button>
       </form>
     </aside>
@@ -538,37 +542,38 @@ function TimelineInsertActions({
   onInsertBgm: () => Promise<void>;
   onInsertDialogue: () => Promise<void>;
 }) {
+  const labels = useEditorLabels();
   return (
     <div className="panel-heading-actions">
       <button
         type="button"
         className="panel-heading-action character-action"
-        aria-label="为当前对白画面添加人物立绘"
-        title="为当前对白画面添加人物立绘"
+        aria-label={labels.inspector.addPortrait}
+        title={labels.inspector.addPortrait}
         disabled={isBusy}
         onClick={() => void onInsertCharacter()}
       >
-        立绘 <span aria-hidden="true">+</span>
+        {labels.inspector.portrait} <span aria-hidden="true">+</span>
       </button>
       <button
         type="button"
         className="panel-heading-action bgm-action"
-        aria-label="在当前节点后插入背景音乐"
-        title="在当前节点后插入背景音乐"
+        aria-label={labels.inspector.insertBgm}
+        title={labels.inspector.insertBgm}
         disabled={isBusy}
         onClick={() => void onInsertBgm()}
       >
-        音频 <span aria-hidden="true">+</span>
+        {labels.common.audio} <span aria-hidden="true">+</span>
       </button>
       <button
         type="button"
         className="panel-heading-action"
-        aria-label="在当前节点后插入空对白"
-        title="在当前节点后插入空对白"
+        aria-label={labels.inspector.insertDialogue}
+        title={labels.inspector.insertDialogue}
         disabled={isBusy}
         onClick={() => void onInsertDialogue()}
       >
-        对白 <span aria-hidden="true">+</span>
+        {labels.inspector.dialogue} <span aria-hidden="true">+</span>
       </button>
     </div>
   );

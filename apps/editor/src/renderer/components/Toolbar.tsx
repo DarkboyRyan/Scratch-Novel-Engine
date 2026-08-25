@@ -2,11 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import {
-  standaloneApplicationMetadataError,
+  standaloneApplicationMetadataErrorCode,
   type GameExportRequest,
+  type StandaloneApplicationMetadataErrorCode,
 } from '../../shared/exportProtocol';
+import type { EditorLanguage } from '../../shared/editorSettingsProtocol';
 import type { EditorMode } from '../application/editorMode';
-import { projectSaveStatus } from '../projectSessionPresentation';
+import { useEditorLabels } from '../i18n/editorLocalization';
+import { EditorSettingsDialog } from './EditorSettingsDialog';
 
 type ToolbarProps = {
   projectName: string;
@@ -20,6 +23,10 @@ type ToolbarProps = {
   engineMessage: string;
   operationMessage: string;
   projectFolderName: string | null;
+  language: EditorLanguage;
+  isSettingsSaving: boolean;
+  settingsSaveFailed: boolean;
+  settingsRestartRequired: boolean;
   onCreateProject: () => void;
   onOpenProject: () => void;
   onSaveProject: () => void;
@@ -29,6 +36,8 @@ type ToolbarProps = {
   onCommitProjectName: () => Promise<boolean>;
   onCancelProjectName: () => void;
   onEditorModeChange: (mode: EditorMode) => void;
+  onLanguageChange: (language: EditorLanguage) => Promise<void>;
+  onOpenSettings: () => void;
 };
 
 function defaultApplicationId(projectName: string): string {
@@ -53,6 +62,10 @@ export function Toolbar({
   engineMessage,
   operationMessage,
   projectFolderName,
+  language,
+  isSettingsSaving,
+  settingsSaveFailed,
+  settingsRestartRequired,
   onCreateProject,
   onOpenProject,
   onSaveProject,
@@ -62,9 +75,13 @@ export function Toolbar({
   onCommitProjectName,
   onCancelProjectName,
   onEditorModeChange,
+  onLanguageChange,
+  onOpenSettings,
 }: ToolbarProps) {
+  const labels = useEditorLabels();
   const inputRef = useRef<HTMLInputElement>(null);
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
+  const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
   const [exportOutput, setExportOutput] = useState<GameExportRequest['output']>(
     'runtime-bundle',
   );
@@ -73,7 +90,8 @@ export function Toolbar({
   const [applicationId, setApplicationId] = useState(
     defaultApplicationId(projectName),
   );
-  const [exportConfigurationError, setExportConfigurationError] = useState('');
+  const [exportConfigurationError, setExportConfigurationError] =
+    useState<StandaloneApplicationMetadataErrorCode | null>(null);
 
   function preserveRenameDraftFocus(
     event: React.MouseEvent<HTMLButtonElement>,
@@ -101,10 +119,10 @@ export function Toolbar({
   }, [isExportDialogOpen, projectName]);
 
   function submitExportConfiguration(): void {
-    if (exportOutput === 'runtime-bundle') {
+    if (exportOutput !== 'standalone-application') {
       setIsExportDialogOpen(false);
-      setExportConfigurationError('');
-      onExportGame({ output: 'runtime-bundle' });
+      setExportConfigurationError(null);
+      onExportGame({ output: exportOutput });
       return;
     }
     const application = {
@@ -112,31 +130,38 @@ export function Toolbar({
       version: applicationVersion,
       applicationId,
     };
-    const error = standaloneApplicationMetadataError(application);
+    const error = standaloneApplicationMetadataErrorCode(application);
     if (error !== null) {
       setExportConfigurationError(error);
       return;
     }
     setIsExportDialogOpen(false);
-    setExportConfigurationError('');
+    setExportConfigurationError(null);
     onExportGame({ output: 'standalone-application', application });
   }
 
-  const saveStatus = projectSaveStatus(isSaving, isDirty);
+  const saveStatus = isSaving
+    ? labels.toolbar.saving
+    : isDirty
+      ? labels.toolbar.unsaved
+      : labels.toolbar.saved;
 
   return (
     <header className="toolbar">
       <div className="toolbar-main-row">
         <strong>Scratch Novel Engine</strong>
 
-        <div className="project-file-actions" aria-label="项目文件操作">
+        <div
+          className="project-file-actions"
+          aria-label={labels.toolbar.projectFileActions}
+        >
           <button
             type="button"
             disabled={isBusy}
             onMouseDown={preserveRenameDraftFocus}
             onClick={onCreateProject}
           >
-            新建
+            {labels.toolbar.create}
           </button>
           <button
             type="button"
@@ -144,7 +169,7 @@ export function Toolbar({
             onMouseDown={preserveRenameDraftFocus}
             onClick={onOpenProject}
           >
-            打开
+            {labels.toolbar.open}
           </button>
           <button
             type="button"
@@ -152,20 +177,45 @@ export function Toolbar({
             onMouseDown={preserveRenameDraftFocus}
             onClick={onSaveProject}
           >
-            保存
+            {labels.toolbar.save}
           </button>
           <button
             type="button"
             disabled={isBusy}
             onMouseDown={preserveRenameDraftFocus}
             onClick={() => {
-              setExportConfigurationError('');
+              setIsSettingsDialogOpen(false);
+              setExportConfigurationError(null);
               setIsExportDialogOpen(true);
             }}
           >
-            {isExporting ? '导出中…' : '导出'}
+            {isExporting ? labels.toolbar.exporting : labels.toolbar.export}
+          </button>
+          <button
+            type="button"
+            aria-haspopup="dialog"
+            onMouseDown={preserveRenameDraftFocus}
+            onClick={() => {
+              setIsExportDialogOpen(false);
+              setExportConfigurationError(null);
+              onOpenSettings();
+              setIsSettingsDialogOpen(true);
+            }}
+          >
+            {labels.settings.button}
           </button>
         </div>
+
+        {isSettingsDialogOpen ? (
+          <EditorSettingsDialog
+            language={language}
+            isSaving={isSettingsSaving}
+            saveFailed={settingsSaveFailed}
+            restartRequired={settingsRestartRequired}
+            onLanguageChange={onLanguageChange}
+            onClose={() => setIsSettingsDialogOpen(false)}
+          />
+        ) : null}
 
         {isExportDialogOpen
           ? createPortal(
@@ -184,22 +234,23 @@ export function Toolbar({
               aria-modal="true"
               aria-labelledby="export-dialog-title"
             >
-              <h2 id="export-dialog-title">导出</h2>
+              <h2 id="export-dialog-title">{labels.toolbar.exportTitle}</h2>
               <label>
-                <span>产物类型</span>
+                <span>{labels.toolbar.artifactType}</span>
                 <select
-                  aria-label="产物类型"
+                  aria-label={labels.toolbar.artifactType}
                   value={exportOutput}
                   onChange={(event) => {
                     setExportOutput(
                       event.target.value as GameExportRequest['output'],
                     );
-                    setExportConfigurationError('');
+                    setExportConfigurationError(null);
                   }}
                 >
-                  <option value="runtime-bundle">.vngame 内容包</option>
+                  <option value="runtime-bundle">{labels.toolbar.runtimeBundle}</option>
+                  <option value="web-player">{labels.toolbar.webPlayer}</option>
                   <option value="standalone-application">
-                    独立游戏 ZIP（macOS）
+                    {labels.toolbar.standalonePlayer}
                   </option>
                 </select>
               </label>
@@ -207,18 +258,18 @@ export function Toolbar({
               {exportOutput === 'standalone-application' ? (
                 <div className="export-application-fields">
                   <label>
-                    <span>应用名称</span>
+                    <span>{labels.toolbar.applicationName}</span>
                     <input
-                      aria-label="应用名称"
+                      aria-label={labels.toolbar.applicationName}
                       value={applicationName}
                       maxLength={80}
                       onChange={(event) => setApplicationName(event.target.value)}
                     />
                   </label>
                   <label>
-                    <span>版本</span>
+                    <span>{labels.toolbar.applicationVersion}</span>
                     <input
-                      aria-label="应用版本"
+                      aria-label={labels.toolbar.applicationVersionAria}
                       value={applicationVersion}
                       maxLength={32}
                       onChange={(event) => setApplicationVersion(event.target.value)}
@@ -235,16 +286,24 @@ export function Toolbar({
                     />
                   </label>
                   <p className="export-dialog-note">
-                    ZIP 内含一个可运行的 macOS 应用，并使用 Player
-                    模板默认图标。Windows/Linux、自定义图标和正式签名由对应平台
-                    CI 完成。
+                    {labels.toolbar.standaloneHelp}
                   </p>
                 </div>
               ) : null}
 
+              {exportOutput === 'web-player' ? (
+                <p className="export-dialog-note">
+                  {labels.toolbar.webHelp}
+                </p>
+              ) : null}
+
               {exportConfigurationError ? (
                 <p className="export-dialog-error" role="alert">
-                  {exportConfigurationError}
+                  {exportConfigurationError === 'application-name-invalid'
+                    ? labels.toolbar.applicationNameInvalid
+                    : exportConfigurationError === 'application-version-invalid'
+                      ? labels.toolbar.applicationVersionInvalid
+                      : labels.toolbar.applicationIdInvalid}
                 </p>
               ) : null}
               <div className="export-dialog-actions">
@@ -252,10 +311,10 @@ export function Toolbar({
                   type="button"
                   onClick={() => setIsExportDialogOpen(false)}
                 >
-                  取消
+                  {labels.common.cancel}
                 </button>
                 <button type="button" onClick={submitExportConfiguration}>
-                  导出
+                  {labels.toolbar.export}
                 </button>
               </div>
             </section>
@@ -268,17 +327,17 @@ export function Toolbar({
           className="toolbar-project-name"
           title={
             projectFolderName
-              ? `项目文件夹：${projectFolderName}`
-              : '尚未保存到磁盘'
+              ? `${labels.toolbar.projectFolder}: ${projectFolderName}`
+              : labels.toolbar.notSavedToDisk
           }
         >
-          <span>项目：</span>
+          <span>{labels.toolbar.project}: </span>
           {isRenamingProject ? (
             <input
               ref={inputRef}
               value={projectNameDraft}
               disabled={isBusy}
-              aria-label="项目名称"
+              aria-label={labels.toolbar.projectName}
               onChange={(event) =>
                 onProjectNameDraftChange(event.target.value)
               }
@@ -297,7 +356,7 @@ export function Toolbar({
               type="button"
               className="project-name-button"
               disabled={isBusy}
-              title="点击修改项目名"
+              title={labels.toolbar.editProjectName}
               onClick={onBeginRenameProject}
             >
               {projectName}
@@ -318,18 +377,18 @@ export function Toolbar({
         >
           {engineMessage ||
             operationMessage ||
-            (isBusy ? '处理中…' : '已连接')}
+            (isBusy ? labels.toolbar.processing : labels.toolbar.connected)}
         </span>
       </div>
 
       <div className="toolbar-mode-row">
         <span className="toolbar-mode-label">
-          编辑方式
+          {labels.toolbar.editMethod}
         </span>
         <div
           className="editor-mode-switch"
           role="group"
-          aria-label="编辑模式"
+          aria-label={labels.toolbar.editorMode}
         >
           <button
             type="button"
@@ -338,7 +397,7 @@ export function Toolbar({
             aria-pressed={editorMode === 'form'}
             onClick={() => onEditorModeChange('form')}
           >
-            表单编辑
+            {labels.toolbar.formEditor}
           </button>
           <button
             type="button"
@@ -347,7 +406,7 @@ export function Toolbar({
             aria-pressed={editorMode === 'blocks'}
             onClick={() => onEditorModeChange('blocks')}
           >
-            图形化编辑
+            {labels.toolbar.blockEditor}
           </button>
         </div>
       </div>

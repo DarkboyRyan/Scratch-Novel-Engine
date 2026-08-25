@@ -16,7 +16,7 @@ import {
   semanticSceneNodes,
 } from '../../../shared/projectTypes';
 import type { FormEditorPort } from '../../application/authoringPorts';
-import { EMPTY_DIALOGUE_MESSAGE } from '../../editorMessages';
+import { useEditorLabels } from '../../i18n/editorLocalization';
 
 // Controller hook 负责 Renderer 状态、选择规则以及调用 C++。
 // 组件只接收数据和事件，不直接知道 IPC 协议。
@@ -28,6 +28,7 @@ export function useFormEditor({
   runEngineAction,
   authoringCommands,
 }: FormEditorPort) {
+  const labels = useEditorLabels();
   const [selectedSceneId, setSelectedSceneId] =
     useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] =
@@ -151,7 +152,7 @@ export function useFormEditor({
       }
 
       if (!text.trim()) {
-        setEngineMessage(EMPTY_DIALOGUE_MESSAGE);
+        setEngineMessage(labels.messages.emptyDialogue);
         return false;
       }
 
@@ -536,7 +537,7 @@ export function useFormEditor({
 
     // 这是为了即时提示；C++ 也会执行同样的最终校验。
     if (!text.trim()) {
-      setEngineMessage(EMPTY_DIALOGUE_MESSAGE);
+      setEngineMessage(labels.messages.emptyDialogue);
       return;
     }
 
@@ -561,20 +562,20 @@ export function useFormEditor({
 
     const nodeLabel =
       nodeToDelete.type === 'dialogue'
-        ? `${nodeToDelete.speaker || '未命名角色'} 的这条对白`
+        ? `${nodeToDelete.speaker || labels.messages.unnamedCharacter}${labels.messages.deleteDialogueSuffix}`
         : nodeToDelete.type === 'background'
-          ? '这个背景切换'
+          ? labels.messages.deleteBackground
           : nodeToDelete.type === 'character'
-            ? '这个人物立绘节点'
+            ? labels.messages.deleteCharacter
             : nodeToDelete.type === 'sceneJump'
-              ? '这个场景跳转节点'
+              ? labels.messages.deleteSceneJump
               : nodeToDelete.type === 'bgm'
-                ? '这个背景音乐节点'
+                ? labels.messages.deleteBgm
                 : nodeToDelete.type === 'video'
-                  ? '这个视频播放节点'
-                  : '这个场景选项节点';
+                  ? labels.messages.deleteVideo
+                  : labels.messages.deleteChoice;
     const shouldDelete = window.confirm(
-      `确定删除${nodeLabel}吗？`,
+      `${labels.messages.deleteConfirmPrefix}${nodeLabel}${labels.messages.deleteConfirmSuffix}`,
     );
 
     if (!shouldDelete) {

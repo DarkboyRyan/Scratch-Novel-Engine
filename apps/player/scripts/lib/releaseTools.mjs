@@ -129,6 +129,73 @@ export const RECEIPT_SCHEMA_VERSION = 1;
 export const ARTIFACT_MANIFEST_SCHEMA_VERSION = 1;
 export const RELEASE_SET_SCHEMA_VERSION = 1;
 
+function safePnpmJavaScriptPath(candidate, platform, fileExists) {
+  if (typeof candidate !== 'string' || candidate.includes('\0')) {
+    return null;
+  }
+  const pathApi = platform === 'win32' ? path.win32 : path.posix;
+  if (!pathApi.isAbsolute(candidate)) {
+    return null;
+  }
+  const baseName = pathApi.basename(candidate).toLowerCase();
+  if (baseName !== 'pnpm.cjs' && baseName !== 'pnpm.js') {
+    return null;
+  }
+  return fileExists(candidate) ? candidate : null;
+}
+
+export function resolvePnpmLauncher({
+  platform = process.platform,
+  nodeExecutable = process.execPath,
+  npmExecPath = process.env.npm_execpath,
+  repositoryRoot,
+  fileExists = existsSync,
+} = {}) {
+  const lifecycleCli = safePnpmJavaScriptPath(
+    npmExecPath,
+    platform,
+    fileExists,
+  );
+  if (lifecycleCli !== null) {
+    return { command: nodeExecutable, args: [lifecycleCli] };
+  }
+
+  if (typeof repositoryRoot === 'string' && repositoryRoot.length > 0) {
+    const candidates = [
+      path.join(repositoryRoot, 'node_modules', 'pnpm', 'bin', 'pnpm.cjs'),
+      path.join(repositoryRoot, 'node_modules', 'pnpm', 'bin', 'pnpm.js'),
+    ];
+    try {
+      const packagePath = require.resolve('pnpm/package.json', {
+        paths: [repositoryRoot],
+      });
+      candidates.unshift(
+        path.join(path.dirname(packagePath), 'bin', 'pnpm.cjs'),
+        path.join(path.dirname(packagePath), 'bin', 'pnpm.js'),
+      );
+    } catch {
+      // pnpm is commonly supplied by Corepack or a user-level installation.
+    }
+    for (const candidate of candidates) {
+      const installedCli = safePnpmJavaScriptPath(
+        candidate,
+        platform,
+        fileExists,
+      );
+      if (installedCli !== null) {
+        return { command: nodeExecutable, args: [installedCli] };
+      }
+    }
+  }
+
+  if (platform === 'win32') {
+    throw new Error(
+      '无法定位安全的 pnpm JavaScript 入口；请通过 pnpm 运行 Editor 命令',
+    );
+  }
+  return { command: 'pnpm', args: [] };
+}
+
 export function commandOptions(definitions) {
   const { values, positionals } = parseArgs({
     args: process.argv.slice(2),

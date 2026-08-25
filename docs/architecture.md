@@ -21,16 +21,21 @@
 - 软件托管的 CG 画廊合成场景：表单可手动新增/删除页面并编辑固定九槽，独立 Blockly
   工作区由作者从工具箱加入“每页一个大模块、每模块九个图片下拉框”，并可预览完整主界面与画廊；
 - 表单编辑与 Blockly 图形化编辑共享一条剧情时间线；长链只在 Blockly 中按编号“延伸”分页；
+- Editor 顶栏提供全局中文 / English 设置；Main 原子保存偏好并同步所有窗口、原生菜单与
+  对话框，Blockly 只原位更新界面标签，作者内容保持原文；
 - 项目文件夹新建、保存、打开、dirty 状态和 Cmd/Ctrl+S；
 - 未保存项目导入图片/视频/音频，以及 capability 媒体读取；
 - 对白语音、时间线 BGM，以及正式预览中的双音轨播放；
 - 正式游戏顺序预览、阻塞式视频/选项、点击推进和跳转循环保护；
 - 平台无关的共享 Runtime/Player UI，以及只读独立 Electron Player MVP；
 - Editor 的 v15→runtime v6 `.vngame` 目录包导出，以及 Player 原生目录选择换包；
+- 跨平台 Web Player ZIP 导出：根目录可直接静态部署，浏览器通过 Fetch 加载内嵌
+  runtime v6，并用 IndexedDB 保存存档与设置；
 - Player 兼容 runtime v1–v6；runtime v6 标题页渲染独立标题、自定义背景、循环标题音乐和固定的
   “开始游戏 / 读取游戏 / CG 画廊 / 选项 / 退出游戏”入口；正式 Player 还提供
   3 个手动存档槽、独立快速槽和游戏内底栏；标题页、底栏与暂停菜单共用持久化选项，
-  支持主/BGM/语音/视频音量、窗口/全屏和三档窗口尺寸；CG 画廊保留每页九个固定槽位，
+  支持主/BGM/语音/视频音量、窗口/全屏和三档窗口尺寸；三档尺寸同时使用
+  14/16/18px 的 Player 根字号；CG 画廊保留每页九个固定槽位，
   支持分页、点击放大和 Esc 返回；
 - macOS Editor 基于严格 Player 模板的每游戏 `*-macOS.zip` 事务导出；ZIP 内含唯一
   已签名 `.app`，embedded Player 以固定内容启动；
@@ -47,7 +52,8 @@
 | 本地核心 | C++20、STL、CMake | 领域模型、校验、revision 和持久化 |
 | JSON 边界 | nlohmann/json 3.11.3、JSONL | C++ 项目文件与 Main↔C++ 协议 |
 | 文件安全 | Node 文件 API、C++ OS 文件 API | 临时工作区、流式复制、fsync、原子替换 |
-| 构建打包 | Vite 5、Electron Forge 7、pnpm、GitHub Actions | Electron targets、Player 模板、三平台制品和发布门禁 |
+| 构建打包 | Vite 5、Electron Forge 7、pnpm、GitHub Actions | Electron targets、桌面/Web Player 模板、三平台制品和发布门禁 |
+| Web 导出 | Fetch、IndexedDB、Fullscreen API、yazl/yauzl | 浏览器内容加载与本地存储、跨平台流式 ZIP 生成和复验 |
 | 测试 | Vitest、Node Test、CTest、真实 C++ JSONL 集成 | TS、发布脚本、C++、协议和文件事务回归 |
 
 ## 3. 进程和调用关系
@@ -93,16 +99,21 @@ React 负责当前窗口的交互状态：
 
 React 不生成持久化实体 ID，也不直接修改 `project.scenes` 或 `scene.nodes`。
 `useEngineProject` 发送命令并在成功后应用 C++ 返回的完整快照。
+Editor 语言通过 typed catalog / React Context 原地更新；它不进入 Project 或 Runtime，
+也不以 locale 作为 React key。Blockly 的静态字段、Tooltip、Dropdown 和 Toolbox 分类
+原位更新，作者输入字段与 Workspace 实例保持不变。完整实现见
+[Editor 中英文切换](./editor-localization-implementation.md)。
 
 ### 4.2 Preload
 
-Editor Preload 使用 `contextBridge` 暴露四个窄接口：
+Editor Preload 使用 `contextBridge` 暴露五个窄接口：
 
 ```ts
 window.vnEngine       // 领域命令
 window.vnProjectFiles // 新建、打开、保存和会话状态
 window.vnAssets       // 导入图片/视频/音频和申请 capability URL
 window.vnGameExport   // 无路径导出模式与安全应用 metadata
+window.vnEditorSettings // 全局语言读取、窄 patch 与变更订阅
 ```
 
 Renderer 看不到 `ipcRenderer`、Node 文件系统、child process 或本机资源路径。
@@ -126,7 +137,7 @@ Main 负责：
 Main 不决定“场景是否能删除”或“人物层是否合法”，最终领域规则仍由 C++ 决定。
 
 独立 Player 不启动 C++ 作者后端。它的 Main 还负责可信 frame 的只读内容/存档/设置
-IPC、`userData` 下的原子存档与 `PlayerSettingsV1` 设置文件，以及 BrowserWindow
+IPC、`userData` 下的原子存档与 `PlayerSettingsV2` 设置文件，以及 BrowserWindow
 的 workArea 安全尺寸和原生全屏同步。Player Renderer 只发送 exact 非空设置 patch，
 不能指定路径或任意窗口宽高。
 
@@ -387,7 +398,7 @@ revision 或磁盘，也不会改写正式游戏使用的 `entrySceneId`。选�
 [场景跳转实现](./scene-jump-implementation.md)，以及
 [选项分支实现](./choice-branch-implementation.md)。
 
-### 10.1 Runtime Bundle、独立应用导出与 Player
+### 10.1 Runtime Bundle、Web/独立应用导出与 Player
 
 Editor Renderer 点击“导出”后，先提交草稿、等待 Engine 队列并走既有 C++ 保存
 链。只有 `hasStorage=true`、`isDirty=false` 且 `savedRevision===revision` 时，Main
@@ -395,7 +406,7 @@ Editor Renderer 点击“导出”后，先提交草稿、等待 Engine 队列�
 父目录使用排他锁、staging、SHA-256、fsync 和原子 rename 发布 `.vngame` 目录。
 Renderer 不传入或接收本机路径。
 
-导出弹层提供两种模式。内容包模式直接发布 `.vngame`；独立应用模式额外接受应用名、
+导出弹层提供三种模式。内容包模式直接发布 `.vngame`；独立应用模式额外接受应用名、
 严格 `x.y.z` 版本和 reverse-DNS Application ID。packaged macOS Editor 会读取
 `Resources/player-templates/darwin-<arch>` 下的 exact manifest，先生成临时 bundle，
 再安全复制 generic Player 模板并注入 `Contents/Resources/game`。Main 写入无路径
@@ -407,6 +418,15 @@ FileProvider 目录从不直接接触应用树。模板不匹配、已有目标�
 为保持预构建 Electron Helper 查找有效，ZIP 内应用只自定义外层 `.app` 名、
 `CFBundleDisplayName`、ID 和版本；内部 `CFBundleName`/`CFBundleExecutable` 仍为
 `VN Engine Player`，不是整套内部二进制改名。
+
+Web 模式不接受桌面应用 metadata，而是把预构建的 Vite Web Player 模板与同一份
+Runtime Bundle 组装为 `<项目名>-Web.zip`。ZIP 根目录固定包含 `index.html`、
+`web-export.json`、`README.txt`、`player-assets` 和 `game/<buildId>`；Main 使用
+`yazl` 流式生成、再用 `yauzl` 重新读取并校验条目后原子发布。浏览器只从 exact v1
+元数据取得同源相对 `gameRoot`，通过 Fetch 加载并严格解析 `game.json`/`manifest.json`；
+存档和设置写入 IndexedDB，窗口尺寸禁用，全屏使用 Fullscreen API，退出返回标题页。
+完整流程、技术栈、部署限制与验收矩阵见
+[Web Player ZIP 导出](./web-player-export.md)。
 
 packaged Player 是不内嵌 fixture 的通用空壳。`openGame()` 只请求 Main 弹出原生
 目录选择器；候选包全部验证成功后才 commit 并轮换 `vn-game-asset://` token。
@@ -430,11 +450,15 @@ v5 以扁平列表加入 `cgGallery`，v6 改为至少一页、每页固定九�
 当前 bundle identity 恢复并校验，固定槽通过临时文件、fsync、备份和 rename 发布。
 完整边界、文件格式和技术栈见 [Player 保存与读取](./save-load-implementation.md)。
 
-标题页、游戏内底栏和暂停菜单进入共享 `OptionsDialog`。Player 设置独立使用
-`settingsVersion: 1`，默认四路音量均为 1、窗口模式为 windowed、尺寸为 medium；
+标题页、游戏内底栏和暂停菜单进入共享 `OptionsDialog`。Player 设置当前使用
+`settingsVersion: 2`，新增 `zh-CN / en-US` 界面语言，旧 v1 严格迁移为中文；默认四路
+音量均为 1、窗口模式为 windowed、尺寸为 medium。共享 typed catalog 与 React Context
+即时更新标题、游戏栏、存读档、CG、视频和无障碍文案，作者剧情内容保持原文；
 Main 把 exact 设置写到 `userData/settings/settings.json`，并用临时文件、fsync、备份与
 rename 原子发布。窗口预设为 960×600、1280×800、1600×1000，放不下当前 Display
 `workArea` 时按比例缩小并居中；原生全屏事件会反写权威模式，全屏转换以 5 秒为上限。
+三个预设还分别映射 14px、16px、18px 的 Player 根字号，所有文字层级使用相对单位，
+切换时不会重挂剧情或媒体；全屏继续沿用所选预设字号。
 隐藏窗口在 `loadURL` 完成后、`show()` 前通过 activation gate 应用持久化显示状态；
 该 gate 释放前设置 IPC 不会返回。只有显示字段 patch 才应用窗口几何，纯音量 patch
 不会缩放或重新居中用户手动调整的窗口。媒体有效音量统一为 `master × channel`，改变

@@ -1,4 +1,5 @@
 import * as Blockly from 'blockly';
+import { DEFAULT_EDITOR_LANGUAGE, getEditorLabels, type EditorLabels } from '../../../i18n/editorLocalization';
 
 export const VIDEO_BLOCK_TYPE = 'vn_video';
 
@@ -8,6 +9,13 @@ export const VIDEO_BLOCK_FIELDS = {
 
 const ASSET_DATA_PREFIX = 'vn-video-asset:';
 const EMPTY_VIDEO_FIELD_VALUE = '\u00a0'.repeat(12);
+const LABEL_FIELD = 'VN_LABEL_VIDEO';
+let currentLabels = getEditorLabels(DEFAULT_EDITOR_LANGUAGE);
+
+export function applyVideoBlockLocalization(block: Blockly.Block, labels: EditorLabels): void {
+  block.setFieldValue(labels.blockly.video, LABEL_FIELD);
+  block.setTooltip(labels.blockly.videoTooltip);
+}
 
 export function setVideoBlockAsset(
   block: Blockly.Block,
@@ -29,7 +37,8 @@ export function getVideoBlockAssetId(
     : null;
 }
 
-export function registerVideoBlock(): void {
+export function registerVideoBlock(labels: EditorLabels = currentLabels): void {
+  currentLabels = labels;
   if (Blockly.Blocks[VIDEO_BLOCK_TYPE]) {
     return;
   }
@@ -43,7 +52,7 @@ export function registerVideoBlock(): void {
       );
 
       this.appendDummyInput()
-        .appendField('播放视频')
+        .appendField(currentLabels.blockly.video, LABEL_FIELD)
         .appendField(assetField, VIDEO_BLOCK_FIELDS.assetName);
       // The label must always represent an imported video Asset ID. Users
       // assign it by dragging a video from the shared resource panel.
@@ -51,7 +60,7 @@ export function registerVideoBlock(): void {
       this.setPreviousStatement(true);
       this.setNextStatement(true);
       this.setColour(285);
-      this.setTooltip('播放所选视频，播放结束后继续执行下一条剧情');
+      this.setTooltip(currentLabels.blockly.videoTooltip);
       this.setHelpUrl('');
     },
   };

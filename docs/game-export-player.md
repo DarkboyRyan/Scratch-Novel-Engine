@@ -1138,14 +1138,14 @@ DoD：
   Windows/Linux 及正式品牌产物必须由目标平台 workflow 构建；
 - Player 已支持本地手动保存/读取与快速保存/读取；存档使用独立版本化快照、按游戏内容
   指纹隔离并写入用户数据目录，完整流程见 [Player 保存与读取](./save-load-implementation.md)；
-- 当前 Esc 暂停会停止音频，恢复后 BGM/voice 从头开始；“退出游戏”已通过 Main 的
-  `app.quit()` 收口 macOS 应用进程生命周期；
+- 当前 Esc 暂停会停止音频，恢复后 BGM/voice 从头开始；游戏内底栏、暂停页、结束页和
+  运行错误页统一使用“返回标题”，只有标题页的“退出游戏”才通过 Main 的 `app.quit()`
+  收口 macOS 应用进程生命周期；
 - 开发 fixture 覆盖七类节点，但不携带真实二进制媒体；正式导出前还需补 packaged
   图片/音频/视频端到端用例；
 - Player 与 Editor/C++ 的媒体探测现在行为对齐但仍有重复实现，后续应抽取共享
   测试向量，防止三份校验规则漂移；
-- 还没有变量、条件表达式、历史回看、自动播放、快进、逐字显示、
-  音量设置、媒体转码或自动更新；
+- 还没有变量、条件表达式、历史回看、自动播放、逐字显示、媒体转码或自动更新；
 - `player-ci.yml`、`player-game-build.yml` 和 `player-release.yml` 已实现，但 protected
   Environments、不可变 tag/release 规则、真实凭据 GitHub runner 执行和干净机器 smoke
   尚无完整验收记录；

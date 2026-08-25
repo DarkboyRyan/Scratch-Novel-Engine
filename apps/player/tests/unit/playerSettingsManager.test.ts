@@ -10,22 +10,22 @@ import {
 import type { PlayerSettingsStore } from '../../src/main/settings/PlayerSettingsStore';
 import {
   DEFAULT_PLAYER_SETTINGS,
-  type PlayerSettingsV1,
+  type PlayerSettings,
 } from '../../src/shared/playerProtocol';
 
 class FakeSettingsStore {
-  current: PlayerSettingsV1;
-  readonly writes: PlayerSettingsV1[] = [];
+  current: PlayerSettings;
+  readonly writes: PlayerSettings[] = [];
 
-  constructor(initial: PlayerSettingsV1 = { ...DEFAULT_PLAYER_SETTINGS }) {
+  constructor(initial: PlayerSettings = { ...DEFAULT_PLAYER_SETTINGS }) {
     this.current = { ...initial };
   }
 
-  async load(): Promise<PlayerSettingsV1> {
+  async load(): Promise<PlayerSettings> {
     return { ...this.current };
   }
 
-  async write(settings: PlayerSettingsV1): Promise<PlayerSettingsV1> {
+  async write(settings: PlayerSettings): Promise<PlayerSettings> {
     this.current = { ...settings };
     this.writes.push({ ...settings });
     return { ...settings };
@@ -283,9 +283,10 @@ describe('Player settings window manager', () => {
     const controller = await manager.attachWindow(asWindow(window));
     await manager.activateWindow(asWindow(window));
 
-    const [masterResult, videoResult] = await Promise.all([
+    const [masterResult, videoResult, languageResult] = await Promise.all([
       controller.updateSettings({ masterVolume: 0.4 }),
       controller.updateSettings({ videoVolume: 0.6 }),
+      controller.updateSettings({ language: 'en-US' }),
     ]);
     expect(masterResult).toMatchObject({
       status: 'updated',
@@ -295,7 +296,16 @@ describe('Player settings window manager', () => {
       status: 'updated',
       settings: { masterVolume: 0.4, videoVolume: 0.6 },
     });
+    expect(languageResult).toMatchObject({
+      status: 'updated',
+      settings: {
+        language: 'en-US',
+        masterVolume: 0.4,
+        videoVolume: 0.6,
+      },
+    });
     expect(store.writes.at(-1)).toMatchObject({
+      language: 'en-US',
       masterVolume: 0.4,
       videoVolume: 0.6,
     });
@@ -321,6 +331,30 @@ describe('Player settings window manager', () => {
     expect(window.operations).not.toContainEqual(
       expect.stringMatching(/^(?:size|position|fullscreen):/u),
     );
+  });
+
+  it('returns stable codes for invalid settings and persistence failures', async () => {
+    const store = new FakeSettingsStore();
+    const window = new FakeWindow();
+    const manager = new PlayerSettingsManager(
+      asStore(store),
+      () => spaciousWorkArea,
+    );
+    const controller = await manager.attachWindow(asWindow(window));
+    await manager.activateWindow(asWindow(window));
+
+    await expect(controller.updateSettings({
+      language: 'fr-FR',
+    } as never)).resolves.toEqual({
+      status: 'rejected',
+      error: 'settings-invalid',
+    });
+    store.write = async () => { throw new Error('/private/settings'); };
+    await expect(controller.updateSettings({ masterVolume: 0.5 })).resolves
+      .toEqual({
+        status: 'rejected',
+        error: 'settings-storage-unavailable',
+      });
   });
 
   it('safely ignores a destroyed window while preserving settings', async () => {

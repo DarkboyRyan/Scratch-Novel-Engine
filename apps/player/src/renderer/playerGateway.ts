@@ -5,6 +5,7 @@ import type {
 import type { MediaUrlResolver } from '@vnengine/player-ui';
 import type {
   PlayerManualSaveSlotId,
+  PlayerErrorCode,
   PlayerMode,
   PlayerSaveListResult,
   PlayerSaveLoadResult,
@@ -28,16 +29,20 @@ export type PlayerGameView = {
 export type PlayerLoadViewResult =
   | { status: 'loaded'; mode: PlayerMode; game: PlayerGameView }
   | { status: 'empty'; mode: PlayerMode }
-  | { status: 'error'; mode: PlayerMode; error: string };
+  | { status: 'error'; mode: PlayerMode; error: PlayerErrorCode };
 
 export type PlayerOpenViewResult =
   | { status: 'opened'; game: PlayerGameView }
   | { status: 'canceled' }
-  | { status: 'rejected'; error: string };
+  | { status: 'rejected'; error: PlayerErrorCode };
 
 // Renderer owns this narrow port, while preload owns the concrete transport.
 // Tests and future web players can provide the same shape without Electron.
 export type PlayerGateway = {
+  // Omitted capabilities retain the desktop defaults. Web builds can expose
+  // browser fullscreen without pretending they can resize an OS window.
+  fullscreenControlsEnabled?: boolean;
+  windowSizeControlsEnabled?: boolean;
   loadGame(): Promise<PlayerLoadViewResult>;
   openGame(): Promise<PlayerOpenViewResult>;
   listSaveSlots(): Promise<PlayerSaveListResult>;
@@ -57,6 +62,8 @@ export type PlayerGateway = {
 };
 
 export const preloadPlayerGateway: PlayerGateway = {
+  fullscreenControlsEnabled: true,
+  windowSizeControlsEnabled: true,
   loadGame: () => window.vnPlayer.loadGame(),
   openGame: () => window.vnPlayer.openGame(),
   listSaveSlots: () => window.vnPlayer.listSaveSlots(),

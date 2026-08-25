@@ -16,13 +16,15 @@ import {
   type GameRuntimeSnapshot,
 } from '@vnengine/runtime';
 
-import type {
-  PlayerGameData,
-  PlayerSaveListResult,
-  PlayerSaveLoadResult,
-  PlayerSaveSlotId,
-  PlayerSaveSummary,
-  PlayerSaveWriteResult,
+import {
+  createPlayerSaveSummaryContent,
+  type PlayerErrorCode,
+  type PlayerGameData,
+  type PlayerSaveListResult,
+  type PlayerSaveLoadResult,
+  type PlayerSaveSlotId,
+  type PlayerSaveSummary,
+  type PlayerSaveWriteResult,
 } from '../../shared/playerProtocol';
 import type { PlayerActiveGameContext } from '../content/PlayerBundleSession';
 import type { PlayerBundleIdentity } from '../content/PlayerBundleLoader';
@@ -31,10 +33,10 @@ const SAVE_FORMAT = 'vn-engine-player-save';
 const SAVE_VERSION = 1;
 const MAX_SAVE_BYTES = 256 * 1024;
 const SAVE_SLOTS: readonly PlayerSaveSlotId[] = [1, 2, 3, 'quick'];
-const SAFE_STORAGE_ERROR = '无法访问本地存档';
-const INVALID_RUNTIME_ERROR = '当前进度无法安全保存';
-const INVALID_SAVE_ERROR = '存档无效或与当前游戏版本不兼容';
-const STALE_GAME_ERROR = '游戏已切换，请重试';
+const SAFE_STORAGE_ERROR: PlayerErrorCode = 'save-storage-unavailable';
+const INVALID_RUNTIME_ERROR: PlayerErrorCode = 'runtime-not-saveable';
+const INVALID_SAVE_ERROR: PlayerErrorCode = 'save-incompatible';
+const STALE_GAME_ERROR: PlayerErrorCode = 'game-session-stale';
 
 type SaveErrorReporter = (
   operation: 'list' | 'read' | 'write',
@@ -62,6 +64,7 @@ type ReadSlotResult =
 class InvalidSaveError extends Error {}
 class IncompatibleSaveError extends Error {}
 class StaleGameError extends Error {}
+class UnsafeStorageError extends Error {}
 
 function errnoCode(error: unknown): string | null {
   return typeof error === 'object' &&
@@ -145,7 +148,7 @@ async function inspectSafeDirectory(directoryPath: string): Promise<boolean> {
     throw error;
   }
   if (status.isSymbolicLink() || !status.isDirectory()) {
-    throw new InvalidSaveError('Player save directory is not safe');
+    throw new UnsafeStorageError('Player save directory is not safe');
   }
   return true;
 }
@@ -248,13 +251,6 @@ function validateRuntimeAssets(game: PlayerGameData, runtime: GameRuntime): void
   }
 }
 
-function truncateSummary(value: string): string {
-  const characters = Array.from(value);
-  return characters.length <= 160
-    ? value
-    : `${characters.slice(0, 159).join('')}…`;
-}
-
 function summarize(
   slotId: PlayerSaveSlotId,
   savedAt: string,
@@ -264,23 +260,11 @@ function summarize(
   const sceneName = game.project.scenes.find(
     (scene) => scene.id === runtime.sceneId,
   )?.name ?? runtime.sceneId;
-  let summary = '剧情进度';
-  if (runtime.dialogue !== null) {
-    summary = runtime.dialogue.speaker.length > 0
-      ? `${runtime.dialogue.speaker}：${runtime.dialogue.text}`
-      : runtime.dialogue.text;
-  } else if (runtime.status === 'choosing') {
-    summary = '等待选择';
-  } else if (runtime.status === 'playingVideo') {
-    summary = '正在播放视频';
-  } else if (runtime.status === 'finished') {
-    summary = '剧情结束';
-  }
   return {
     slotId,
     savedAt,
     sceneName,
-    summary: truncateSummary(summary),
+    summary: createPlayerSaveSummaryContent(runtime),
   };
 }
 
@@ -592,7 +576,9 @@ export class PlayerSaveStore {
     }
   }
 
-  private rejected(error: unknown): { status: 'rejected'; error: string } {
+  private rejected(
+    error: unknown,
+  ): { status: 'rejected'; error: PlayerErrorCode } {
     if (error instanceof StaleGameError) {
       return { status: 'rejected', error: STALE_GAME_ERROR };
     }

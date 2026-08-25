@@ -5,6 +5,9 @@ import {
   type ReactNode,
 } from 'react';
 
+import type { PlayerUiLocalizationProps } from './localization';
+import { usePlayerUiLabels } from './PlayerUiProvider';
+
 export type PreviewCharacter = {
   id: string;
   url: string | null;
@@ -14,7 +17,7 @@ export type PreviewCharacter = {
   position: { x: number; y: number } | null;
 };
 
-export type VisualStageProps = {
+export type VisualStageProps = PlayerUiLocalizationProps & {
   speaker: string;
   text: string;
   backgroundUrl: string | null;
@@ -60,6 +63,8 @@ function CharacterPortrait({ character }: { character: PreviewCharacter }) {
 }
 
 export function VisualStage({
+  language,
+  labels: labelsOverride,
   speaker,
   text,
   backgroundUrl,
@@ -67,9 +72,10 @@ export function VisualStage({
   showDialogue = true,
   characters = [],
   className = '',
-  placeholder = '预览界面',
+  placeholder,
   children,
 }: VisualStageProps) {
+  const labels = usePlayerUiLabels(language, labelsOverride).visualStage;
   const [backgroundFailed, setBackgroundFailed] = useState(false);
 
   useEffect(() => {
@@ -90,8 +96,10 @@ export function VisualStage({
       ) : (
         <p className="preview-placeholder">
           {backgroundUrl && backgroundFailed
-            ? `无法读取背景：${backgroundName ?? '未知图片'}`
-            : placeholder}
+            ? labels.backgroundLoadFailed(
+                backgroundName ?? labels.unknownImage,
+              )
+            : placeholder ?? labels.previewPlaceholder}
         </p>
       )}
 

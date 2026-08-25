@@ -23,6 +23,7 @@ import {
   sameCgGalleryPages,
   updateCgGallerySlot,
 } from './cgGalleryProjection';
+import { useEditorLabels } from '../../i18n/editorLocalization';
 
 type CgGalleryPages = ProjectDocument['cgGallery']['pages'];
 
@@ -55,6 +56,7 @@ export const CgGalleryFormEditor = forwardRef<
   },
   ref,
 ) {
+  const labels = useEditorLabels();
   const [pageIndex, setPageIndex] = useState(0);
   const [expandedAssetId, setExpandedAssetId] = useState<string | null>(null);
   const [isMutating, setIsMutating] = useState(false);
@@ -68,7 +70,7 @@ export const CgGalleryFormEditor = forwardRef<
   const pages = project.cgGallery.pages;
   const pageCount = Math.max(1, pages.length);
   const currentPage = pages[pageIndex] ?? createEmptyCgGalleryPage();
-  const sceneOptions = createEditorSceneOptions(project);
+  const sceneOptions = createEditorSceneOptions(project, labels);
   const selectedAssetIds = new Set(
     pages.flatMap((page) =>
       page.imageAssetIds.filter(
@@ -162,12 +164,12 @@ export const CgGalleryFormEditor = forwardRef<
     <>
       <aside className="panel scene-panel cg-gallery-form-scene-panel">
         <div className="panel-heading">
-          <h2>CG 画廊</h2>
+          <h2>{labels.common.cgGallery}</h2>
         </div>
         <label className="start-screen-form-field">
-          <span>当前场景</span>
+          <span>{labels.scenes.currentScene}</span>
           <select
-            aria-label="当前场景"
+            aria-label={labels.scenes.currentScene}
             value={CG_GALLERY_SCENE_ID}
             disabled={controlsDisabled}
             onChange={(event) => {
@@ -184,16 +186,16 @@ export const CgGalleryFormEditor = forwardRef<
           </select>
         </label>
         <label className="start-screen-form-field">
-          <span>当前 CG 页</span>
+          <span>{labels.cgGallery.currentPage}</span>
           <select
-            aria-label="当前 CG 页"
+            aria-label={labels.cgGallery.currentPage}
             value={pageIndex}
             disabled={controlsDisabled}
             onChange={(event) => setPageIndex(Number(event.target.value))}
           >
             {pages.map((_, index) => (
               <option key={index} value={index}>
-                第 {index + 1} 页
+                {labels.cgGallery.page} {index + 1}
               </option>
             ))}
           </select>
@@ -204,33 +206,33 @@ export const CgGalleryFormEditor = forwardRef<
             disabled={controlsDisabled}
             onClick={addPage}
           >
-            新增一页
+            {labels.cgGallery.addPage}
           </button>
           <button
             type="button"
             disabled={controlsDisabled || pages.length <= 1}
             onClick={deletePage}
           >
-            删除本页
+            {labels.cgGallery.deletePage}
           </button>
         </div>
         <div className="start-screen-form-note">
-          <strong>固定页面</strong>
-          <p>每页固定 9 个槽位；空槽位会保存为“无”。</p>
+          <strong>{labels.cgGallery.fixedPage}</strong>
+          <p>{labels.cgGallery.fixedPageHelp}</p>
         </div>
       </aside>
 
       <section
         className="preview-panel cg-gallery-form-preview"
-        aria-label="CG 画廊预览"
+        aria-label={labels.cgGallery.preview}
       >
         <div className="preview-toolbar">
-          <span>第 {pageIndex + 1} / {pageCount} 页</span>
+          <span>{labels.cgGallery.page} {pageIndex + 1} / {pageCount}</span>
           <button
             type="button"
             className="preview-play-button"
-            aria-label="预览完整主界面与 CG 画廊"
-            title="预览完整主界面与 CG 画廊"
+            aria-label={labels.cgGallery.previewFull}
+            title={labels.cgGallery.previewFull}
             disabled={isStartPreviewDisabled}
             onClick={onStartPreview}
           >
@@ -249,7 +251,7 @@ export const CgGalleryFormEditor = forwardRef<
                       key={slotIndex}
                       className="cg-gallery-slot-empty"
                     >
-                      图片 {slotIndex + 1} · 无
+                      {labels.cgGallery.imageSlot} {slotIndex + 1} · {labels.common.none}
                     </div>
                   );
                 }
@@ -266,11 +268,11 @@ export const CgGalleryFormEditor = forwardRef<
                     {url ? (
                       <img
                         src={url}
-                        alt={asset?.displayName ?? 'CG 图片'}
+                        alt={asset?.displayName ?? labels.cgGallery.cgImageAlt}
                       />
                     ) : null}
                     <span>
-                      {asset?.displayName ?? `缺失图片（${assetId}）`}
+                      {asset?.displayName ?? `${labels.common.missingImage} (${assetId})`}
                     </span>
                   </button>
                 );
@@ -283,14 +285,14 @@ export const CgGalleryFormEditor = forwardRef<
               disabled={pageIndex === 0}
               onClick={() => setPageIndex((value) => value - 1)}
             >
-              上一页
+              {labels.cgGallery.previousPage}
             </button>
             <button
               type="button"
               disabled={pageIndex + 1 >= pageCount}
               onClick={() => setPageIndex((value) => value + 1)}
             >
-              下一页
+              {labels.cgGallery.nextPage}
             </button>
           </div>
         </div>
@@ -298,7 +300,7 @@ export const CgGalleryFormEditor = forwardRef<
 
       <aside className="panel inspector-panel cg-gallery-form-inspector">
         <div className="panel-heading">
-          <h2>第 {pageIndex + 1} 页图片</h2>
+          <h2>{labels.cgGallery.page} {pageIndex + 1} {labels.cgGallery.pageImagesSuffix}</h2>
         </div>
         <div className="cg-gallery-slot-fields">
           {Array.from(
@@ -308,9 +310,9 @@ export const CgGalleryFormEditor = forwardRef<
                 currentPage.imageAssetIds[slotIndex] ?? null;
               return (
                 <label key={slotIndex}>
-                  <span>图片 {slotIndex + 1}</span>
+                  <span>{labels.cgGallery.imageSlot} {slotIndex + 1}</span>
                   <select
-                    aria-label={`图片 ${slotIndex + 1}`}
+                    aria-label={`${labels.cgGallery.imageSlot} ${slotIndex + 1}`}
                     value={currentAssetId ?? ''}
                     disabled={controlsDisabled}
                     onChange={(event) => {
@@ -325,7 +327,7 @@ export const CgGalleryFormEditor = forwardRef<
                       );
                     }}
                   >
-                    <option value="">无</option>
+                    <option value="">{labels.common.none}</option>
                     {imageAssets
                       .filter(
                         (asset) =>
@@ -350,13 +352,13 @@ export const CgGalleryFormEditor = forwardRef<
           className="cg-gallery-lightbox"
           role="dialog"
           aria-modal="true"
-          aria-label="查看 CG 大图"
+          aria-label={labels.cgGallery.viewLarge}
           onClick={() => setExpandedAssetId(null)}
         >
           <button
             type="button"
             className="cg-gallery-lightbox-close"
-            aria-label="关闭大图"
+            aria-label={labels.cgGallery.closeLarge}
             onClick={() => setExpandedAssetId(null)}
           >
             ×
@@ -364,7 +366,7 @@ export const CgGalleryFormEditor = forwardRef<
           {previewUrls[expandedAssetId] ? (
             <img
               src={previewUrls[expandedAssetId]}
-              alt={imageById.get(expandedAssetId)?.displayName ?? 'CG 图片'}
+              alt={imageById.get(expandedAssetId)?.displayName ?? labels.cgGallery.cgImageAlt}
               onClick={(event) => event.stopPropagation()}
             />
           ) : null}

@@ -3,6 +3,11 @@ import * as Blockly from 'blockly';
 import type { TimelineReorderManyParams } from '../../../shared/engineProtocol';
 import type { SceneDocument } from '../../../shared/projectTypes';
 import {
+  DEFAULT_EDITOR_LANGUAGE,
+  getEditorLabels,
+  type EditorLabels,
+} from '../../i18n/editorLocalization';
+import {
   getBlockClientRectangle,
   type BlockSelectionController,
 } from './blockSelection';
@@ -77,6 +82,7 @@ export function createBlockGroupDragController(
   getScene: () => SceneDocument,
   selection: BlockSelectionController,
   callbacks: GroupDragCallbacks,
+  getLabels: () => EditorLabels = () => getEditorLabels(DEFAULT_EDITOR_LANGUAGE),
 ): BlockGroupDragController {
   let activeGesture: ActiveGesture | null = null;
 
@@ -122,9 +128,10 @@ export function createBlockGroupDragController(
     ghost.setAttribute('aria-hidden', 'true');
 
     const count = document.createElement('strong');
-    count.textContent = `${gesture.selectedNodeIds.length} 个剧情节点`;
+    const labels = getLabels();
+    count.textContent = `${gesture.selectedNodeIds.length}${labels.common.wordSeparator}${labels.scenes.storyNodeUnit}`;
     const hint = document.createElement('span');
-    hint.textContent = '作为一组移动';
+    hint.textContent = labels.blockEditor.groupMoveHint;
     ghost.append(count, hint);
 
     const indicator = document.createElement('div');

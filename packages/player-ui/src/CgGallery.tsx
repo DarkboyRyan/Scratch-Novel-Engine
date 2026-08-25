@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
+import type { PlayerUiLocalizationProps } from './localization';
 import type { MediaUrlResolver } from './mediaPort';
+import { usePlayerUiLabels } from './PlayerUiProvider';
 
 const IMAGES_PER_PAGE = 9;
 
@@ -12,7 +14,7 @@ function focusableElements(container: HTMLElement): HTMLElement[] {
   )).filter((element) => !element.closest('[inert]'));
 }
 
-export type CgGalleryProps = {
+export type CgGalleryProps = PlayerUiLocalizationProps & {
   pages: ReadonlyArray<{
     imageAssetIds: readonly (string | null)[];
   }>;
@@ -53,11 +55,15 @@ function useResolvedGalleryImages(
 }
 
 export function CgGallery({
+  language,
+  labels: labelsOverride,
   pages,
   resolveMediaUrl,
   restoreFocusTo = null,
   onClose,
 }: CgGalleryProps) {
+  const allLabels = usePlayerUiLabels(language, labelsOverride);
+  const labels = allLabels.cgGallery;
   const [page, setPage] = useState(0);
   const [enlargedIndex, setEnlargedIndex] = useState<number | null>(null);
   const layerRef = useRef<HTMLDivElement>(null);
@@ -175,7 +181,7 @@ export function CgGallery({
       className="player-cg-gallery-layer"
       role="dialog"
       aria-modal={enlargedIndex === null ? 'true' : undefined}
-      aria-label="CG画廊"
+      aria-label={labels.title}
       tabIndex={-1}
     >
       <section
@@ -185,14 +191,14 @@ export function CgGallery({
       >
         <header className="player-cg-gallery-header">
           <div>
-            <p className="player-eyebrow">CG GALLERY</p>
-            <h2>CG画廊</h2>
+            <p className="player-eyebrow">{labels.eyebrow}</p>
+            <h2>{labels.title}</h2>
           </div>
           <button
             type="button"
             className="player-cg-close-button secondary"
-            aria-label="关闭CG画廊"
-            title="关闭（Esc）"
+            aria-label={labels.closeAria}
+            title={allLabels.common.closeWithEscape}
             onClick={onClose}
           >
             ×
@@ -210,8 +216,8 @@ export function CgGallery({
                 type="button"
                 className="player-cg-thumbnail"
                 aria-label={assetId === null
-                  ? `CG ${imageNumber}：无`
-                  : `放大 CG ${imageNumber}`}
+                  ? labels.emptyThumbnailAria(imageNumber)
+                  : labels.enlargeThumbnailAria(imageNumber)}
                 disabled={assetId === null || typeof imageUrl !== 'string'}
                 onClick={(event) => {
                   enlargedTriggerRef.current = event.currentTarget;
@@ -219,12 +225,14 @@ export function CgGallery({
                 }}
               >
                 {assetId === null ? (
-                  <span>无</span>
+                  <span>{labels.empty}</span>
                 ) : typeof imageUrl === 'string' ? (
-                  <img src={imageUrl} alt={`CG ${imageNumber}`} />
+                  <img src={imageUrl} alt={labels.imageAlt(imageNumber)} />
                 ) : (
                   <span>
-                    {imageUrl === null ? '图片无法读取' : '正在载入…'}
+                    {imageUrl === null
+                      ? labels.imageLoadFailed
+                      : labels.loadingImage}
                   </span>
                 )}
               </button>
@@ -232,14 +240,17 @@ export function CgGallery({
           })}
         </div>
 
-        <footer className="player-cg-pagination" aria-label="CG画廊分页">
+        <footer
+          className="player-cg-pagination"
+          aria-label={labels.paginationAria}
+        >
           <button
             type="button"
             className="secondary"
             disabled={page === 0}
             onClick={() => setPage((current) => Math.max(0, current - 1))}
           >
-            上一页
+            {labels.previousPage}
           </button>
           <span aria-live="polite">
             {page + 1} / {pageCount}
@@ -250,7 +261,7 @@ export function CgGallery({
             disabled={page >= pageCount - 1}
             onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}
           >
-            下一页
+            {labels.nextPage}
           </button>
         </footer>
       </section>
@@ -261,33 +272,35 @@ export function CgGallery({
           className="player-cg-lightbox"
           role="dialog"
           aria-modal="true"
-          aria-label={
-            `CG ${(page * IMAGES_PER_PAGE) + enlargedIndex + 1} 大图`
-          }
+          aria-label={labels.enlargedAria(
+            (page * IMAGES_PER_PAGE) + enlargedIndex + 1,
+          )}
           tabIndex={-1}
         >
           <button
             type="button"
             className="player-cg-lightbox-backdrop"
-            aria-label="关闭CG大图"
+            aria-label={labels.closeEnlargedAria}
             onClick={() => setEnlargedIndex(null)}
           />
           <figure>
             <img
               src={enlargedUrl}
-              alt={
-                `CG ${(page * IMAGES_PER_PAGE) + enlargedIndex + 1} 大图`
-              }
+              alt={labels.enlargedAria(
+                (page * IMAGES_PER_PAGE) + enlargedIndex + 1,
+              )}
             />
             <figcaption>
-              CG {(page * IMAGES_PER_PAGE) + enlargedIndex + 1}
+              {labels.enlargedCaption(
+                (page * IMAGES_PER_PAGE) + enlargedIndex + 1,
+              )}
             </figcaption>
           </figure>
           <button
             type="button"
             className="player-cg-lightbox-close secondary"
-            aria-label="关闭CG大图"
-            title="关闭（Esc）"
+            aria-label={labels.closeEnlargedAria}
+            title={allLabels.common.closeWithEscape}
             onClick={() => setEnlargedIndex(null)}
           >
             ×

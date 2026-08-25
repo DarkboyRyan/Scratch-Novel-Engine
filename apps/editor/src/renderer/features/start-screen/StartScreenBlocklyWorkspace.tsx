@@ -18,6 +18,7 @@ import {
 import { getBlockClientRectangle } from '../block-editor/blockSelection';
 import { installInlineZoomControlIcons } from '../block-editor/zoomControlIcons';
 import {
+  applyStartScreenBlocksLocalization,
   renderStartScreenBlocks,
   START_SCREEN_BLOCK_FIELDS,
   START_SCREEN_BLOCK_IDS,
@@ -25,6 +26,10 @@ import {
   START_SCREEN_MUSIC_BLOCK_TYPE,
 } from './startScreenBlocks';
 import { getStartScreenFieldUpdate } from './startScreenBlockEvents';
+import {
+  type EditorLabels,
+  useEditorLabels,
+} from '../../i18n/editorLocalization';
 
 type StartScreenDocument = ProjectDocument['startScreen'];
 
@@ -51,8 +56,9 @@ function renderWorkspaceProjection(
   assets: AssetDocument[],
   editable: boolean,
   pendingTitle: string | null,
+  labels: EditorLabels,
 ): void {
-  renderStartScreenBlocks(workspace, startScreen, assets, editable);
+  renderStartScreenBlocks(workspace, startScreen, assets, editable, labels);
   if (pendingTitle === null || pendingTitle === startScreen.title) {
     return;
   }
@@ -105,6 +111,10 @@ export const StartScreenBlocklyWorkspace = forwardRef<
   },
   ref,
 ) {
+  const labels = useEditorLabels();
+  const initialLabelsRef = useRef(labels);
+  const labelsRef = useRef(labels);
+  labelsRef.current = labels;
   const containerRef = useRef<HTMLDivElement>(null);
   const workspaceRef = useRef<Blockly.WorkspaceSvg | null>(null);
   const projectIdRef = useRef(projectId);
@@ -195,6 +205,7 @@ export const StartScreenBlocklyWorkspace = forwardRef<
       assetsRef.current,
       !isBusyRef.current,
       pendingTitleRef.current,
+      initialLabelsRef.current,
     );
 
     const resizeObserver = new ResizeObserver(() => {
@@ -249,6 +260,7 @@ export const StartScreenBlocklyWorkspace = forwardRef<
               assetsRef.current,
               !isBusyRef.current,
               pendingTitleRef.current,
+              labelsRef.current,
             );
           }
           if (isActive) {
@@ -407,6 +419,7 @@ export const StartScreenBlocklyWorkspace = forwardRef<
           assetsRef.current,
           false,
           pendingTitleRef.current,
+          labelsRef.current,
         );
         return;
       }
@@ -446,8 +459,22 @@ export const StartScreenBlocklyWorkspace = forwardRef<
       assets,
       !isBusy && !isMutating,
       pendingTitleRef.current,
+      labelsRef.current,
     );
   }, [assets, isBusy, isMutating, projectId, startScreen]);
+
+  useEffect(() => {
+    const workspace = workspaceRef.current;
+    if (!workspace) {
+      return;
+    }
+    applyStartScreenBlocksLocalization(
+      workspace,
+      startScreenRef.current,
+      assetsRef.current,
+      labels,
+    );
+  }, [labels]);
 
   return (
     <div

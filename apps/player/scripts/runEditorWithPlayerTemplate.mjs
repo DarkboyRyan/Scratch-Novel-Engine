@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import {
   commandOptions,
   enumOption,
+  resolvePnpmLauncher,
 } from './lib/releaseTools.mjs';
 
 function runChecked(command, args, options) {
@@ -46,6 +47,19 @@ async function main() {
     'electron-forge.js',
   );
   const editorForgeArguments = [forgeCliPath, forgeCommand];
+
+  // Web exports consume an immutable, pre-built template. Build and stage it
+  // before Forge starts so clicking Export never invokes Vite at runtime.
+  const pnpmLauncher = resolvePnpmLauncher({ repositoryRoot });
+  runChecked(pnpmLauncher.command, [
+    ...pnpmLauncher.args,
+    '--dir',
+    'apps/player',
+    'prepare:web-template',
+  ], {
+    cwd: repositoryRoot,
+    env: process.env,
+  });
 
   if (process.platform !== 'darwin') {
     runChecked(process.execPath, editorForgeArguments, {

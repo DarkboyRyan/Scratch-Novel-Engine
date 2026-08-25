@@ -18,12 +18,14 @@ import {
   getNewCgGalleryPageDrop,
 } from './cgGalleryBlockEvents';
 import {
+  applyCgGalleryBlocksLocalization,
   cgGalleryPageBlockId,
   createCgGalleryToolbox,
   registerCgGalleryBlocks,
   renderCgGalleryBlocks,
 } from './cgGalleryBlocks';
 import { sameCgGalleryPages } from './cgGalleryProjection';
+import { useEditorLabels } from '../../i18n/editorLocalization';
 
 type CgGalleryDocument = ProjectDocument['cgGallery'];
 
@@ -55,6 +57,10 @@ export const CgGalleryBlocklyWorkspace = forwardRef<
   },
   ref,
 ) {
+  const labels = useEditorLabels();
+  const initialLabelsRef = useRef(labels);
+  const labelsRef = useRef(labels);
+  labelsRef.current = labels;
   const containerRef = useRef<HTMLDivElement>(null);
   const workspaceRef = useRef<Blockly.WorkspaceSvg | null>(null);
   const galleryRef = useRef(gallery);
@@ -87,9 +93,9 @@ export const CgGalleryBlocklyWorkspace = forwardRef<
     if (!container) {
       return;
     }
-    registerCgGalleryBlocks();
+    registerCgGalleryBlocks(initialLabelsRef.current);
     const workspace = Blockly.inject(container, {
-      toolbox: createCgGalleryToolbox(),
+      toolbox: createCgGalleryToolbox(initialLabelsRef.current),
       readOnly: false,
       move: { scrollbars: true, drag: false, wheel: false },
       renderer: 'zelos',
@@ -110,6 +116,7 @@ export const CgGalleryBlocklyWorkspace = forwardRef<
       galleryRef.current,
       assetsRef.current,
       !isBusyRef.current,
+      initialLabelsRef.current,
     );
 
     const resizeObserver = new ResizeObserver(() => Blockly.svgResize(workspace));
@@ -135,6 +142,7 @@ export const CgGalleryBlocklyWorkspace = forwardRef<
           galleryRef.current,
           assetsRef.current,
           !isBusyRef.current && activeMutationRef.current === null,
+          labelsRef.current,
         );
         return;
       }
@@ -154,6 +162,7 @@ export const CgGalleryBlocklyWorkspace = forwardRef<
               galleryRef.current,
               assetsRef.current,
               !isBusyRef.current,
+              labelsRef.current,
             );
           }
           return updated;
@@ -193,8 +202,23 @@ export const CgGalleryBlocklyWorkspace = forwardRef<
       gallery,
       assets,
       !isBusy && !isMutating,
+      labelsRef.current,
     );
   }, [assets, gallery, isBusy, isMutating]);
+
+  useEffect(() => {
+    const workspace = workspaceRef.current;
+    if (!workspace) {
+      return;
+    }
+    applyCgGalleryBlocksLocalization(
+      workspace,
+      galleryRef.current,
+      assetsRef.current,
+      labels,
+    );
+    workspace.updateToolbox(createCgGalleryToolbox(labels));
+  }, [labels]);
 
   return (
     <div

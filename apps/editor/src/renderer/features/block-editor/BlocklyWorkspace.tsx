@@ -40,10 +40,12 @@ import {
   VN_VIDEO_ASSET_DRAG_TYPE,
 } from '../assets/assetDragTypes';
 import {
+  applyBackgroundBlockLocalization,
   BACKGROUND_BLOCK_TYPE,
   registerBackgroundBlock,
 } from './blocks/backgroundBlock';
 import {
+  applyCharacterBlockLocalization,
   CHARACTER_BLOCK_FIELDS,
   CHARACTER_BLOCK_TYPE,
   CLEAR_CHARACTER_BLOCK_TYPE,
@@ -53,21 +55,25 @@ import {
   registerCharacterBlock,
 } from './blocks/characterBlock';
 import {
+  applyDialogueBlockLocalization,
   DIALOGUE_BLOCK_FIELDS,
   DIALOGUE_BLOCK_TYPE,
   registerDialogueBlock,
 } from './blocks/dialogueBlock';
 import {
+  applyBgmBlockLocalization,
   BGM_BLOCK_FIELDS,
   BGM_BLOCK_TYPE,
   registerBgmBlock,
 } from './blocks/bgmBlock';
 import {
+  applyVideoBlockLocalization,
   VIDEO_BLOCK_FIELDS,
   VIDEO_BLOCK_TYPE,
   registerVideoBlock,
 } from './blocks/videoBlock';
 import {
+  applyChoiceBlockLocalization,
   CHOICE_BLOCK_TYPE,
   CHOICE_OPTION_BLOCK_TYPE,
   registerChoiceBlocks,
@@ -108,18 +114,22 @@ import { projectSceneToWorkspace } from './projectSceneToWorkspace';
 import { createBlockEditorToolbox } from './toolbox';
 import { getCharacterFieldUpdate } from './characterBlockEvents';
 import {
+  applySceneJumpBlockLocalization,
   SCENE_JUMP_BLOCK_FIELDS,
   SCENE_JUMP_BLOCK_TYPE,
   registerSceneJumpBlock,
   setSceneJumpBlockOptions,
 } from './blocks/sceneJumpBlock';
 import {
+  applyStoryContinuationBlockLocalization,
   registerStoryContinuationBlock,
   STORY_CONTINUATION_BLOCK_TYPE,
 } from './blocks/storyContinuationBlock';
 import {
+  applySceneStartBlockLocalization,
   getSceneStartBlockId,
   registerSceneStartBlock,
+  SCENE_START_BLOCK_TYPE,
 } from './blocks/sceneStartBlock';
 import {
   collectStoryContinuationSequenceDraft,
@@ -129,6 +139,7 @@ import { getSceneJumpFieldUpdate } from './sceneJumpBlockEvents';
 import { STORY_BLOCK_TYPES } from './storyBlockTypes';
 import { paginateStoryNodes } from './storyBlockPagination';
 import { installInlineZoomControlIcons } from './zoomControlIcons';
+import { useEditorLabels } from '../../i18n/editorLocalization';
 
 // Blockly 默认值是 28，连接预览会在积木还离得较远时出现。
 // 12 个工作区单位要求连接口真正靠近后才进入吸附候选。
@@ -254,6 +265,10 @@ export const BlocklyWorkspace = forwardRef<
   },
   ref,
 ) {
+  const labels = useEditorLabels();
+  const initialLabelsRef = useRef(labels);
+  const labelsRef = useRef(labels);
+  labelsRef.current = labels;
   const containerRef = useRef<HTMLDivElement>(null);
   const workspaceRef =
     useRef<Blockly.WorkspaceSvg | null>(null);
@@ -403,6 +418,7 @@ export const BlocklyWorkspace = forwardRef<
       workspace,
       targetLayout?.rootPosition,
       assetsRef.current,
+      labelsRef.current,
     );
     restoreSceneWorkspaceViewport(workspace, targetLayout);
     selectionRef.current?.syncScene(nextScene);
@@ -437,17 +453,18 @@ export const BlocklyWorkspace = forwardRef<
       return;
     }
 
-    registerDialogueBlock();
-    registerBackgroundBlock();
-    registerCharacterBlock();
-    registerBgmBlock();
-    registerVideoBlock();
-    registerStoryContinuationBlock();
-    registerSceneStartBlock();
-    setChoiceOptionSceneOptions(scenesRef.current);
-    registerChoiceBlocks();
-    setSceneJumpBlockOptions(scenesRef.current, sceneRef.current.id);
-    registerSceneJumpBlock();
+    const initialLabels = initialLabelsRef.current;
+    registerDialogueBlock(initialLabels);
+    registerBackgroundBlock(initialLabels);
+    registerCharacterBlock(initialLabels);
+    registerBgmBlock(initialLabels);
+    registerVideoBlock(initialLabels);
+    registerStoryContinuationBlock(initialLabels);
+    registerSceneStartBlock(initialLabels);
+    setChoiceOptionSceneOptions(scenesRef.current, initialLabels);
+    registerChoiceBlocks(initialLabels);
+    setSceneJumpBlockOptions(scenesRef.current, sceneRef.current.id, initialLabels);
+    registerSceneJumpBlock(initialLabels);
     Blockly.config.snapRadius = DIALOGUE_CONNECTION_SNAP_RADIUS;
     Blockly.config.connectingSnapRadius =
       DIALOGUE_CONNECTION_SNAP_RADIUS;
@@ -475,6 +492,7 @@ export const BlocklyWorkspace = forwardRef<
         return Blockly.inject(container, {
           toolbox: createBlockEditorToolbox(
             scenesRef.current.length > 1,
+            initialLabels,
           ),
           trashcan: true,
           maxTrashcanContents: 0,
@@ -972,6 +990,7 @@ export const BlocklyWorkspace = forwardRef<
           );
         },
       },
+      () => labelsRef.current,
     );
     groupDragRef.current = groupDrag;
 
@@ -997,7 +1016,7 @@ export const BlocklyWorkspace = forwardRef<
         requestDelete(null);
         return true;
       },
-      displayText: '删除选中的剧情节点或分支选项',
+      displayText: () => labelsRef.current.blockEditor.deleteSelection,
     });
 
     const handleWorkspaceChange = (
@@ -1453,8 +1472,8 @@ export const BlocklyWorkspace = forwardRef<
 
     // 场景切换或后端快照到达时，旧指针手势不能继续作用于新数据。
     groupDragRef.current?.cancel();
-    setSceneJumpBlockOptions(scenes, scene.id);
-    setChoiceOptionSceneOptions(scenes);
+    setSceneJumpBlockOptions(scenes, scene.id, labelsRef.current);
+    setChoiceOptionSceneOptions(scenes, labelsRef.current);
     renderSceneSnapshot(scene, layoutKey);
 
     // 如果旧场景仍在保存，新投影也暂时不能编辑。
@@ -1466,9 +1485,74 @@ export const BlocklyWorkspace = forwardRef<
 
   useEffect(() => {
     workspaceRef.current?.updateToolbox(
-      createBlockEditorToolbox(scenes.length > 1),
+      createBlockEditorToolbox(scenes.length > 1, labelsRef.current),
     );
   }, [assets, scenes]);
+
+  useEffect(() => {
+    const workspace = workspaceRef.current;
+    if (!workspace) {
+      return;
+    }
+
+    registerDialogueBlock(labels);
+    registerBackgroundBlock(labels);
+    registerCharacterBlock(labels);
+    registerBgmBlock(labels);
+    registerVideoBlock(labels);
+    registerStoryContinuationBlock(labels);
+    registerSceneStartBlock(labels);
+    setChoiceOptionSceneOptions(scenesRef.current, labels);
+    registerChoiceBlocks(labels);
+    setSceneJumpBlockOptions(scenesRef.current, sceneRef.current.id, labels);
+    registerSceneJumpBlock(labels);
+
+    Blockly.Events.disable();
+    try {
+      for (const block of workspace.getAllBlocks(false)) {
+        switch (block.type) {
+          case DIALOGUE_BLOCK_TYPE:
+            applyDialogueBlockLocalization(block, labels);
+            break;
+          case BACKGROUND_BLOCK_TYPE:
+            applyBackgroundBlockLocalization(block, labels);
+            break;
+          case CHARACTER_BLOCK_TYPE:
+          case CLEAR_CHARACTER_BLOCK_TYPE:
+            applyCharacterBlockLocalization(block, labels);
+            break;
+          case BGM_BLOCK_TYPE:
+            applyBgmBlockLocalization(block, labels);
+            break;
+          case VIDEO_BLOCK_TYPE:
+            applyVideoBlockLocalization(block, labels);
+            break;
+          case STORY_CONTINUATION_BLOCK_TYPE:
+            applyStoryContinuationBlockLocalization(block, labels);
+            break;
+          case SCENE_START_BLOCK_TYPE:
+            applySceneStartBlockLocalization(block, labels);
+            break;
+          case CHOICE_BLOCK_TYPE:
+          case CHOICE_OPTION_BLOCK_TYPE:
+            applyChoiceBlockLocalization(block, labels);
+            break;
+          case SCENE_JUMP_BLOCK_TYPE:
+            applySceneJumpBlockLocalization(block, labels);
+            break;
+        }
+        if (block instanceof Blockly.BlockSvg) {
+          block.render();
+        }
+      }
+      workspace.updateToolbox(
+        createBlockEditorToolbox(scenesRef.current.length > 1, labels),
+      );
+      Blockly.renderManagement.triggerQueuedRenders(workspace);
+    } finally {
+      Blockly.Events.enable();
+    }
+  }, [labels]);
 
   // 项目文件保存期间也要锁住 Blockly。否则草稿刚 flush
   // 完，用户又能在磁盘写入结束前继续修改字段。

@@ -16,7 +16,10 @@ import {
   getEditorPlatformGateway,
   type EditorPlatformGateway,
 } from '../application/editorPlatformGateway';
-import { EMPTY_DIALOGUE_MESSAGE } from '../editorMessages';
+import {
+  type EditorLabels,
+  useEditorLabels,
+} from '../i18n/editorLocalization';
 
 // Transitional re-export for callers outside feature code. Renderer features
 // import the port definitions directly from application/authoringPorts.
@@ -91,13 +94,13 @@ function withRendererProjectDefaults(
   };
 }
 
-function readableError(error: unknown): string {
+function readableError(error: unknown, labels: EditorLabels): string {
   if (
     error instanceof Error &&
     (error.message.includes('updateCgGallery is not a function') ||
       error.message.includes('unknown method: cgGallery.update'))
   ) {
-    return 'CG 画廊模块尚未加载，请完全退出并重新启动编辑器';
+    return labels.messages.cgModuleUnavailable;
   }
 
   if (
@@ -107,7 +110,7 @@ function readableError(error: unknown): string {
       error.message.includes('unknown method: storyExtension') ||
       error.message.includes('unknown method: timeline.reorderMany'))
   ) {
-    return '延伸模块尚未加载，请完全退出并重新启动编辑器';
+    return labels.messages.extensionModuleUnavailable;
   }
 
   if (
@@ -116,46 +119,52 @@ function readableError(error: unknown): string {
       error.message.includes('updateSceneJump is not a function') ||
       error.message.includes('unknown method: sceneJump'))
   ) {
-    return '场景跳转模块尚未加载，请完全退出并重新启动编辑器';
+    return labels.messages.sceneJumpModuleUnavailable;
   }
 
   if (
     error instanceof Error &&
     error.message.includes('dialogue text must not be empty')
   ) {
-    return EMPTY_DIALOGUE_MESSAGE;
+    return labels.messages.emptyDialogue;
   }
 
   if (
     error instanceof Error &&
     error.message.includes('project name must not be empty')
   ) {
-    return '项目名不可为空';
+    return labels.messages.projectNameRequired;
   }
 
   if (
     error instanceof Error &&
     error.message.includes('start screen title must not be empty')
   ) {
-    return '游戏名不可为空';
+    return labels.messages.gameTitleRequired;
   }
 
   if (
     error instanceof Error &&
     error.message.includes('project file could not be saved safely')
   ) {
-    return '项目保存失败，请检查文件夹权限或磁盘剩余空间';
+    return labels.messages.saveFailed;
   }
 
-  return error instanceof Error
-    ? error.message
-    : 'C++ 后端发生了未知错误';
+  if (!(error instanceof Error)) {
+    return labels.messages.unknownBackendError;
+  }
+  return labels.locale === 'en-US' && /[\p{Script=Han}]/u.test(error.message)
+    ? labels.messages.unknownBackendError
+    : error.message;
 }
 
 // 这一层只协调“Project 快照 ↔ C++ API”，不知道当前选中了哪个节点。
 export function useEngineProject(
   platform: EditorPlatformGateway = getEditorPlatformGateway(),
 ) {
+  const labels = useEditorLabels();
+  const labelsRef = useRef(labels);
+  labelsRef.current = labels;
   const [project, setProject] =
     useState<ProjectDocument | null>(null);
   const rendererProject = useMemo(
@@ -180,6 +189,11 @@ export function useEngineProject(
   const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportMessage, setExportMessage] = useState('');
+  useEffect(() => {
+    // Export summaries are localized at completion time. Do not leave a
+    // completed summary in the previous language after the UI switches.
+    setExportMessage('');
+  }, [labels]);
   const fileOperationInProgress = useRef(false);
   const engineActionQueue = useRef<Promise<void>>(Promise.resolve());
   const initializationRequest = useRef<Promise<[
@@ -240,7 +254,7 @@ export function useEngineProject(
       })
       .catch((error: unknown) => {
         if (isActive) {
-          setEngineMessage(readableError(error));
+          setEngineMessage(readableError(error, labelsRef.current));
         }
       })
       .finally(() => {
@@ -278,7 +292,7 @@ export function useEngineProject(
         const normalizedResult = applyResult(result);
         resolveQueuedResult(normalizedResult);
       } catch (error: unknown) {
-        setEngineMessage(readableError(error));
+        setEngineMessage(readableError(error, labelsRef.current));
         resolveQueuedResult(null);
       } finally {
         setPendingEngineActions((current) => Math.max(0, current - 1));
@@ -303,10 +317,10 @@ export function useEngineProject(
     commands: platform.engine,
     run: runEngineAction,
     onSceneJumpUnavailable: () => {
-      setEngineMessage('场景跳转模块尚未加载，请完全退出并重新启动编辑器');
+      setEngineMessage(labelsRef.current.messages.sceneJumpModuleUnavailable);
     },
     onStoryExtensionUnavailable: () => {
-      setEngineMessage('延伸模块尚未加载，请完全退出并重新启动编辑器');
+      setEngineMessage(labelsRef.current.messages.extensionModuleUnavailable);
     },
   });
 
@@ -324,7 +338,7 @@ export function useEngineProject(
       await platform.projectFiles.createProject(name);
       return true;
     } catch (error: unknown) {
-      setEngineMessage(readableError(error));
+      setEngineMessage(readableError(error, labelsRef.current));
       return false;
     } finally {
       fileOperationInProgress.current = false;
@@ -356,7 +370,7 @@ export function useEngineProject(
       return 'opened';
     } catch (error: unknown) {
       // 失败时不调用 setProject，因此当前编辑内容会原样保留。
-      setEngineMessage(readableError(error));
+      setEngineMessage(readableError(error, labelsRef.current));
       return 'failed';
     } finally {
       fileOperationInProgress.current = false;
@@ -395,7 +409,7 @@ export function useEngineProject(
       setProjectGeneration((current) => current + 1);
       return true;
     } catch (error: unknown) {
-      setEngineMessage(readableError(error));
+      setEngineMessage(readableError(error, labelsRef.current));
       return false;
     } finally {
       fileOperationInProgress.current = false;
@@ -430,7 +444,7 @@ export function useEngineProject(
 
       if (saveOutcome.cancelled) {
         setSession(saveOutcome.session);
-        setExportMessage('已取消保存，未开始导出');
+        setExportMessage(labelsRef.current.messages.saveCancelledBeforeExport);
         return 'cancelled';
       }
 
@@ -446,23 +460,23 @@ export function useEngineProject(
         savedSession.isDirty ||
         savedSession.savedRevision !== savedSession.revision
       ) {
-        throw new Error('项目尚未完整保存，无法导出游戏');
+        throw new Error(labelsRef.current.messages.projectNotSavedForExport);
       }
 
       const outcome = await platform.gameExport.exportGame(request);
       if (outcome.cancelled) {
-        setExportMessage('已取消导出');
+        setExportMessage(labelsRef.current.messages.exportCancelled);
         return 'cancelled';
       }
 
       if (outcome.sourceRevision !== savedSession.revision) {
-        throw new Error('导出版本与已保存项目不一致，请重试');
+        throw new Error(labelsRef.current.messages.exportRevisionMismatch);
       }
 
-      setExportMessage(exportCompletedMessage(outcome));
+      setExportMessage(exportCompletedMessage(outcome, labelsRef.current));
       return 'exported';
     } catch (error: unknown) {
-      setEngineMessage(readableError(error));
+      setEngineMessage(readableError(error, labelsRef.current));
       return 'failed';
     } finally {
       fileOperationInProgress.current = false;
@@ -533,7 +547,7 @@ export function useEngineProject(
       applyResult(outcome.result);
       return outcome.status;
     } catch (error: unknown) {
-      setEngineMessage(readableError(error));
+      setEngineMessage(readableError(error, labelsRef.current));
       return 'failed';
     } finally {
       fileOperationInProgress.current = false;
@@ -562,7 +576,7 @@ export function useEngineProject(
       applyResult(outcome.result);
       return outcome.status;
     } catch (error: unknown) {
-      setEngineMessage(readableError(error));
+      setEngineMessage(readableError(error, labelsRef.current));
       return 'failed';
     } finally {
       fileOperationInProgress.current = false;
@@ -591,7 +605,7 @@ export function useEngineProject(
       applyResult(outcome.result);
       return outcome.status;
     } catch (error: unknown) {
-      setEngineMessage(readableError(error));
+      setEngineMessage(readableError(error, labelsRef.current));
       return 'failed';
     } finally {
       fileOperationInProgress.current = false;
@@ -632,12 +646,18 @@ export function useEngineProject(
 
 function exportCompletedMessage(
   outcome: ExportGameCompletedResult,
+  labels: EditorLabels,
 ): string {
   const kind =
     outcome.output === 'standalone-application'
-      ? '独立游戏 ZIP'
-      : '内容包';
-  return `已导出${kind} ${outcome.artifactName}（${outcome.assetCount} 项资源）`;
+      ? labels.messages.standaloneZip
+      : outcome.output === 'web-player'
+        ? labels.messages.webZip
+        : labels.messages.contentBundle;
+  const count = labels.locale === 'zh-CN'
+    ? `（${outcome.assetCount} ${labels.messages.assetUnit}）`
+    : ` (${outcome.assetCount} ${labels.messages.assetUnit})`;
+  return `${labels.messages.exportedPrefix}${labels.common.wordSeparator}${kind} ${outcome.artifactName}${count}`;
 }
 
 export type EngineProjectState = ReturnType<typeof useEngineProject>;

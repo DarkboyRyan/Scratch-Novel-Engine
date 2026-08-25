@@ -3,17 +3,18 @@ import type { BrowserWindow, Rectangle } from 'electron';
 import {
   createDefaultPlayerSettings,
   isPlayerSettingsPatch,
-  isPlayerSettingsV1,
+  isPlayerSettings,
+  type PlayerErrorCode,
+  type PlayerSettings,
   type PlayerSettingsPatch,
   type PlayerSettingsReadResult,
-  type PlayerSettingsV1,
   type PlayerSettingsWriteResult,
   type PlayerWindowSizePreset,
 } from '../../shared/playerProtocol';
 import type { PlayerSettingsStore } from './PlayerSettingsStore';
 
-const SETTINGS_STORAGE_ERROR = '无法保存播放器设置';
-const INVALID_SETTINGS_ERROR = '播放器设置格式无效';
+const SETTINGS_STORAGE_ERROR: PlayerErrorCode = 'settings-storage-unavailable';
+const INVALID_SETTINGS_ERROR: PlayerErrorCode = 'settings-invalid';
 export const FULLSCREEN_TRANSITION_TIMEOUT_MS = 5_000;
 
 export const PLAYER_WINDOW_SIZE_PRESETS: Readonly<
@@ -55,7 +56,7 @@ function createWindowActivationGate(): WindowActivationGate {
   return gate;
 }
 
-function cloneSettings(settings: PlayerSettingsV1): PlayerSettingsV1 {
+function cloneSettings(settings: PlayerSettings): PlayerSettings {
   return { ...settings };
 }
 
@@ -182,14 +183,14 @@ export class PlayerSettingsManager {
       if (this.activatedWindows.has(authoritativeWindow)) {
         await this.syncAuthoritativeWindowMode(authoritativeWindow);
       }
-      const settings: PlayerSettingsV1 = {
+      const settings: PlayerSettings = {
         ...this.current,
         ...patch,
       };
-      if (!isPlayerSettingsV1(settings)) {
+      if (!isPlayerSettings(settings)) {
         return { status: 'rejected', error: INVALID_SETTINGS_ERROR };
       }
-      let persisted: PlayerSettingsV1;
+      let persisted: PlayerSettings;
       try {
         persisted = await this.store.write(settings);
       } catch (error) {
@@ -242,7 +243,7 @@ export class PlayerSettingsManager {
     if (windowMode === this.current.windowMode) {
       return;
     }
-    const candidate: PlayerSettingsV1 = {
+    const candidate: PlayerSettings = {
       ...this.current,
       windowMode,
     };
@@ -258,7 +259,7 @@ export class PlayerSettingsManager {
 
   private async applyToWindow(
     window: BrowserWindow,
-    settings: PlayerSettingsV1,
+    settings: PlayerSettings,
   ): Promise<void> {
     if (window.isDestroyed()) {
       return;

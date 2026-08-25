@@ -142,7 +142,7 @@ export function registerPlayerIpc(
       if (active === null) {
         return Promise.resolve({
           status: 'rejected' as const,
-          error: '当前没有已加载的游戏',
+          error: 'no-active-game' as const,
         });
       }
       const isCurrent = () => context.bundleSession.isActiveGameContext(active);

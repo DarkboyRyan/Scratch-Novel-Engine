@@ -12,8 +12,34 @@ function BrokenSurface(): never {
 
 describe('RendererErrorBoundary', () => {
   afterEach(() => {
+    document.documentElement.lang = '';
     document.body.replaceChildren();
     vi.restoreAllMocks();
+  });
+
+  it('uses an authoritative language before the document effect commits', async () => {
+    (
+      globalThis as typeof globalThis & {
+        IS_REACT_ACT_ENVIRONMENT: boolean;
+      }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <RendererErrorBoundary language="en-US">
+          <BrokenSurface />
+        </RendererErrorBoundary>,
+      );
+    });
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      'The Editor interface failed to load',
+    );
+    await act(async () => root.unmount());
   });
 
   it('keeps a stable path-free recovery screen when a surface crashes', async () => {

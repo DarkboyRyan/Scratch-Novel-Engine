@@ -52,7 +52,11 @@ describe('Player trusted IPC', () => {
   function register(game: typeof publicGame | null = publicGame) {
     const quitPlayer = vi.fn();
     const loadGame = vi.fn(() => game === null
-      ? { status: 'error' as const, mode: 'generic' as const, error: 'runtime v1 无效' }
+      ? {
+          status: 'error' as const,
+          mode: 'generic' as const,
+          error: 'bundle-load-failed' as const,
+        }
       : { status: 'loaded' as const, mode: 'generic' as const, game });
     const active = game === null ? null : {
       game,
@@ -73,7 +77,7 @@ describe('Player trusted IPC', () => {
           slotId: 1,
           savedAt: '2026-08-24T06:00:00.000Z',
           sceneName: 'Scene',
-          summary: '剧情结束',
+          summary: { kind: 'finished' },
         },
       }),
       load: vi.fn().mockResolvedValue({ status: 'empty' }),
@@ -82,7 +86,8 @@ describe('Player trusted IPC', () => {
       getSettings: vi.fn().mockResolvedValue({
         status: 'ready',
         settings: {
-          settingsVersion: 1,
+          settingsVersion: 2,
+          language: 'zh-CN',
           masterVolume: 1,
           bgmVolume: 1,
           voiceVolume: 1,
@@ -94,7 +99,8 @@ describe('Player trusted IPC', () => {
       updateSettings: vi.fn().mockImplementation(async (patch) => ({
         status: 'updated',
         settings: {
-          settingsVersion: 1,
+          settingsVersion: 2,
+          language: 'zh-CN',
           masterVolume: 1,
           bgmVolume: 1,
           voiceVolume: 1,
@@ -200,7 +206,11 @@ describe('Player trusted IPC', () => {
       params: {},
     })).resolves.toMatchObject({
       status: 'ready',
-      settings: { settingsVersion: 1, windowMode: 'windowed' },
+      settings: {
+        settingsVersion: 2,
+        language: 'zh-CN',
+        windowMode: 'windowed',
+      },
     });
     await expect(handler(trustedEvent(), {
       action: 'update-settings',
@@ -211,6 +221,17 @@ describe('Player trusted IPC', () => {
     });
     expect(settingsController.updateSettings).toHaveBeenCalledWith({
       bgmVolume: 0.25,
+    });
+
+    await expect(handler(trustedEvent(), {
+      action: 'update-settings',
+      params: { patch: { language: 'en-US' } },
+    })).resolves.toMatchObject({
+      status: 'updated',
+      settings: { language: 'en-US' },
+    });
+    expect(settingsController.updateSettings).toHaveBeenLastCalledWith({
+      language: 'en-US',
     });
   });
 
@@ -263,7 +284,7 @@ describe('Player trusted IPC', () => {
       params: {},
     })).resolves.toEqual({
       status: 'rejected',
-      error: '当前没有已加载的游戏',
+      error: 'no-active-game',
     });
 
     const { handler, saveStore } = register();
@@ -331,6 +352,10 @@ describe('Player trusted IPC', () => {
       },
       {
         action: 'update-settings',
+        params: { patch: { language: 'fr-FR' } },
+      },
+      {
+        action: 'update-settings',
         params: { patch: { bgmVolume: 0.5 }, path: '/private/secret' },
       },
     ]) {
@@ -363,7 +388,7 @@ describe('Player trusted IPC', () => {
     ).toEqual({
       status: 'error',
       mode: 'generic',
-      error: 'runtime v1 无效',
+      error: 'bundle-load-failed',
     });
   });
 });

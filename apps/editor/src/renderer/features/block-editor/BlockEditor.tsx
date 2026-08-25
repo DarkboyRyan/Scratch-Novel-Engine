@@ -46,6 +46,7 @@ import {
   CG_GALLERY_SCENE_ID,
   START_SCREEN_SCENE_ID,
 } from '../start-screen/startScreenScene';
+import { useEditorLabels } from '../../i18n/editorLocalization';
 
 type BlockEditorProps = {
   project: ProjectDocument;
@@ -122,9 +123,10 @@ export const BlockEditor = forwardRef<
   },
   ref,
 ) {
+  const labels = useEditorLabels();
   const workspaceRef = useRef<BlocklyWorkspaceHandle>(null);
   const [isChangingScene, setIsChangingScene] = useState(false);
-  const sceneOptions = createEditorSceneOptions(project);
+  const sceneOptions = createEditorSceneOptions(project, labels);
   useImperativeHandle(ref, () => ({
     flushPendingDraft: () =>
       workspaceRef.current?.flushPendingDraft() ?? Promise.resolve(true),
@@ -137,21 +139,21 @@ export const BlockEditor = forwardRef<
     >
       <header className="block-editor-heading">
         <div>
-          <h1 id="block-editor-title">图形化编辑器</h1>
+          <h1 id="block-editor-title">{labels.blockEditor.title}</h1>
           <p>
-            当前项目：{project.name} ·{' '}
+            {labels.blockEditor.currentProject}：{project.name} ·{' '}
             {
               scene.nodes.filter(
                 (node) => node.type !== 'storyExtension',
               ).length
             }{' '}
-            个剧情节点
+            {labels.scenes.storyNodeUnit}
           </p>
         </div>
 
         <div className="block-editor-heading-controls">
           <label className="block-editor-scene-picker">
-            <span>当前场景</span>
+            <span>{labels.scenes.currentScene}</span>
 
             <select
               className="scene-select block-editor-scene-select"
@@ -187,14 +189,14 @@ export const BlockEditor = forwardRef<
           </label>
 
           <span className="block-editor-sync-badge">
-            长按空白框选 · 拖动选择组 · Delete 删除
+            {labels.blockEditor.selectionHelp}
           </span>
         </div>
       </header>
 
       <section
         className="block-editor-workspace"
-        aria-label="图形化积木工作区"
+        aria-label={labels.blockEditor.workspace}
       >
         <BlocklyWorkspace
           ref={workspaceRef}

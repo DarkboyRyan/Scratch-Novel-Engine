@@ -14,16 +14,22 @@ import {
   CHOICE_OPTION_BLOCK_TYPE,
 } from './blocks/choiceBlock';
 import { STORY_CONTINUATION_BLOCK_TYPE } from './blocks/storyContinuationBlock';
+import {
+  DEFAULT_EDITOR_LANGUAGE,
+  getEditorLabels,
+  type EditorLabels,
+} from '../../i18n/editorLocalization';
 
 export function createBlockEditorToolbox(
   includeSceneJump = true,
+  labels: EditorLabels = getEditorLabels(DEFAULT_EDITOR_LANGUAGE),
 ): Blockly.utils.toolbox.ToolboxDefinition {
   return {
     kind: 'categoryToolbox',
     contents: [
       {
         kind: 'category',
-        name: '剧情',
+        name: labels.blockly.categories.story,
         colour: '35',
         contents: [
           { kind: 'block', type: DIALOGUE_BLOCK_TYPE },
@@ -37,13 +43,13 @@ export function createBlockEditorToolbox(
       },
       {
         kind: 'category',
-        name: '音乐',
+        name: labels.blockly.categories.music,
         colour: '210',
         contents: [{ kind: 'block', type: BGM_BLOCK_TYPE }],
       },
       {
         kind: 'category',
-        name: '图片',
+        name: labels.blockly.categories.image,
         colour: '285',
         contents: [
           { kind: 'block', type: BACKGROUND_BLOCK_TYPE },

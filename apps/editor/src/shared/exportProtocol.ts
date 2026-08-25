@@ -12,6 +12,10 @@ export type RuntimeBundleExportRequest = {
   output: 'runtime-bundle';
 };
 
+export type WebPlayerExportRequest = {
+  output: 'web-player';
+};
+
 export type StandaloneApplicationMetadata = {
   name: string;
   version: string;
@@ -20,9 +24,14 @@ export type StandaloneApplicationMetadata = {
 
 const MAX_MACOS_APPLICATION_BASENAME_UTF8_BYTES = 251;
 
-export function standaloneApplicationMetadataError(
+export type StandaloneApplicationMetadataErrorCode =
+  | 'application-name-invalid'
+  | 'application-version-invalid'
+  | 'application-id-invalid';
+
+export function standaloneApplicationMetadataErrorCode(
   metadata: StandaloneApplicationMetadata,
-): string | null {
+): StandaloneApplicationMetadataErrorCode | null {
   if (
     metadata.name !== metadata.name.normalize('NFC') ||
     metadata.name !== metadata.name.trim() ||
@@ -39,7 +48,7 @@ export function standaloneApplicationMetadataError(
     /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu.test(metadata.name) ||
     /[. ]$/u.test(metadata.name)
   ) {
-    return '应用名称需为 1–80 个字符、不能过长，且不能包含系统保留字符';
+    return 'application-name-invalid';
   }
   if (
     metadata.version.length > 32 ||
@@ -47,7 +56,7 @@ export function standaloneApplicationMetadataError(
       metadata.version,
     )
   ) {
-    return '版本号需使用 1.0.0 这样的三段数字';
+    return 'application-version-invalid';
   }
   if (
     metadata.applicationId.length > 155 ||
@@ -55,9 +64,27 @@ export function standaloneApplicationMetadataError(
       metadata.applicationId,
     )
   ) {
-    return 'Application ID 需使用 com.example.game 这样的反向域名';
+    return 'application-id-invalid';
   }
   return null;
+}
+
+// Kept for callers that display the legacy Chinese validation message.
+// New localized UI should retain the stable code and translate at render time.
+export function standaloneApplicationMetadataError(
+  metadata: StandaloneApplicationMetadata,
+): string | null {
+  const code = standaloneApplicationMetadataErrorCode(metadata);
+  switch (code) {
+    case 'application-name-invalid':
+      return '应用名称需为 1–80 个字符、不能过长，且不能包含系统保留字符';
+    case 'application-version-invalid':
+      return '版本号需使用 1.0.0 这样的三段数字';
+    case 'application-id-invalid':
+      return 'Application ID 需使用 com.example.game 这样的反向域名';
+    case null:
+      return null;
+  }
 }
 
 export type StandaloneApplicationExportRequest = {
@@ -67,6 +94,7 @@ export type StandaloneApplicationExportRequest = {
 
 export type GameExportRequest =
   | RuntimeBundleExportRequest
+  | WebPlayerExportRequest
   | StandaloneApplicationExportRequest;
 
 export type ExportGameInvocation = {

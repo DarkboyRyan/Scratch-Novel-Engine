@@ -9,6 +9,7 @@ import {
   useEngineProject,
   type EngineProjectState,
 } from '../../src/renderer/hooks/useEngineProject';
+import { EditorI18nProvider } from '../../src/renderer/i18n/editorLocalization';
 import type { EngineMutationResult } from '../../src/shared/engineProtocol';
 
 const initialResult: EngineMutationResult = {
@@ -514,6 +515,30 @@ describe('useEngineProject asset state', () => {
     expect(current?.exportMessage).toBe(
       '已导出内容包 Initial story.vngame（0 项资源）',
     );
+  });
+
+  it('does not retain a completed export summary in the previous language', async () => {
+    await act(async () => {
+      root.render(
+        <EditorI18nProvider language="zh-CN">
+          <Harness />
+        </EditorI18nProvider>,
+      );
+    });
+    await act(async () => {
+      expect(await current!.exportGame(async () => true)).toBe('exported');
+    });
+    expect(current?.exportMessage).toContain('已导出内容包');
+
+    await act(async () => {
+      root.render(
+        <EditorI18nProvider language="en-US">
+          <Harness />
+        </EditorI18nProvider>,
+      );
+    });
+
+    expect(current?.exportMessage).toBe('');
   });
 
   it('does not invoke export when first save is cancelled', async () => {

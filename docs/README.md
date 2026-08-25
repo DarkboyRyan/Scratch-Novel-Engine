@@ -23,13 +23,20 @@
   已签名 `.app`）、embedded 模式和多平台
   workflow；也列出 `player-release`/`game-release` protected Environments、不可变 tag/
   Release 和 Environment Secrets 的上线配置，并区分“流水线已实现”与“正式发行尚未验收”。
+- [Web Player ZIP 导出](./web-player-export.md)：`web-player` 导出入口、HTML5 静态站点
+  ZIP 契约、预构建 Vite 模板、WebGateway、IndexedDB 存档/设置、跨平台 ZIP 事务、
+  部署限制、技术栈与浏览器验收矩阵。
 - [Player 保存与读取](./save-load-implementation.md)：3 个手动槽和独立快速槽、
   `GameRuntimeSnapshot v1`、Main-owned 游戏身份、原子本地存储、标题页读取入口与
   游戏内底栏，以及完整实现流程和技术栈。
-- [Player 选项系统](./player-options-implementation.md)：`PlayerSettingsV1`、四通道音量、
-  窗口/全屏与三档尺寸、userData 原子设置文件、trusted-frame patch IPC、媒体生命周期、
+- [Player 选项系统](./player-options-implementation.md)：`PlayerSettingsV2`、中英界面切换、
+  四通道音量、窗口/全屏与三档尺寸、v1 严格迁移、userData 原子设置文件、
+  trusted-frame patch IPC、typed catalog / React Context、媒体生命周期、
   启动 activation gate、纯音量 patch 不改窗口、CG/存档/选项焦点互斥、Editor 内存预览
   和可复现测试矩阵。
+- [Editor 中英文切换](./editor-localization-implementation.md)：顶栏设置入口、全局 V1 偏好、
+  Main 原子存储、多窗口广播、原生菜单/对话框、typed catalog、Blockly 原位换语言、
+  作者内容不翻译及完整测试矩阵。
 
 ### 剧情与编辑器功能
 
@@ -83,6 +90,8 @@
     如何按游戏身份隔离存档，以及 React、Preload、Main 和原子文件事务的完整调用链。
 13. [Player 选项系统](./player-options-implementation.md)：理解为什么 Renderer 只发送
     exact patch、Main 如何同步原生全屏与 workArea，以及音量调整如何不重置播放位置。
+14. [Editor 中英文切换](./editor-localization-implementation.md)：理解全局偏好如何跨窗口同步，
+    以及 Blockly 如何只替换界面标签而不重建作者工作区。
 
 ## 当前真实技术栈
 
@@ -100,5 +109,5 @@ Compiler 会在生成 Runtime 前剥离它。可运行的
 `SceneNode` 仍是 Dialogue、Background、Character、SceneJump、Bgm、Video 和 Choice
 七种类型；`ChoiceOption` 是 ChoiceNode 内部的子实体。
 
-`archive/` 中的历史文档可能出现 PixiJS、Zod、Zustand、Playwright 或 Web 导出等
+`archive/` 中的历史文档可能出现 PixiJS、Zod、Zustand 或 Playwright 等
 尚未采用的技术。面试时不要把历史计划当作当前实现。

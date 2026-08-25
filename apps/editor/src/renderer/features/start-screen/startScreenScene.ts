@@ -1,4 +1,9 @@
 import type { ProjectDocument } from '../../../shared/projectTypes';
+import {
+  DEFAULT_EDITOR_LANGUAGE,
+  getEditorLabels,
+  type EditorLabels,
+} from '../../i18n/editorLocalization';
 
 // The main menu and CG gallery are Editor-owned synthetic scenes. They do not
 // use UUIDs or enter project.scenes, so story commands can never mutate them as
@@ -37,24 +42,25 @@ export type EditorSceneOption = {
 
 export function createEditorSceneOptions(
   project: Pick<ProjectDocument, 'scenes'>,
+  labels: EditorLabels = getEditorLabels(DEFAULT_EDITOR_LANGUAGE),
 ): EditorSceneOption[] {
   return [
     {
       id: START_SCREEN_SCENE_ID,
-      label: '主界面',
+      label: labels.common.mainMenu,
       kind: 'start-screen',
     },
     {
       id: CG_GALLERY_SCENE_ID,
-      label: 'CG 画廊',
+      label: labels.common.cgGallery,
       kind: 'cg-gallery',
     },
     ...project.scenes.map((scene, index) => ({
       id: scene.id,
       label:
         scene.name === `场景 ${index + 1}`
-          ? scene.name
-          : `场景 ${index + 1} · ${scene.name}`,
+          ? `${labels.common.scene} ${index + 1}`
+          : `${labels.common.scene} ${index + 1} · ${scene.name}`,
       kind: 'story' as const,
     })),
   ];

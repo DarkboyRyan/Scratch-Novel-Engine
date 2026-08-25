@@ -5,6 +5,11 @@ import type {
   SceneDocument,
 } from '../../../shared/projectTypes';
 import {
+  DEFAULT_EDITOR_LANGUAGE,
+  getEditorLabels,
+  type EditorLabels,
+} from '../../i18n/editorLocalization';
+import {
   BACKGROUND_BLOCK_TYPE,
   setBackgroundBlockAsset,
 } from './blocks/backgroundBlock';
@@ -65,6 +70,7 @@ export function projectSceneToWorkspace(
     y: FIRST_BLOCK_Y,
   },
   assets: AssetDocument[] = [],
+  labels: EditorLabels = getEditorLabels(DEFAULT_EDITOR_LANGUAGE),
 ): void {
   // 程序创建积木时不要产生“用户编辑”事件。
   Blockly.Events.disable();
@@ -143,20 +149,20 @@ export function projectSceneToWorkspace(
           node.voiceAssetId === null
             ? ''
             : assets.find((asset) => asset.id === node.voiceAssetId)
-                ?.displayName ?? '缺失音频';
+                ?.displayName ?? labels.common.missingAudio;
         setDialogueBlockVoice(block, node.voiceAssetId, voiceName);
       } else if (node.type === 'background') {
         const name =
           node.assetId === null
             ? ''
             : assets.find((asset) => asset.id === node.assetId)
-                ?.displayName ?? '缺失图片';
+                ?.displayName ?? labels.common.missingImage;
         setBackgroundBlockAsset(block, node.assetId, name);
       } else if (node.type === 'character') {
         if (node.assetId !== null) {
           const name =
             assets.find((asset) => asset.id === node.assetId)
-              ?.displayName ?? '缺失图片';
+              ?.displayName ?? labels.common.missingImage;
           setCharacterBlockAsset(block, node.assetId, name);
           setCharacterBlockPosition(block, node.slot, node.position);
         }
@@ -171,14 +177,14 @@ export function projectSceneToWorkspace(
           node.assetId === null
             ? ''
             : assets.find((asset) => asset.id === node.assetId)
-                ?.displayName ?? '缺失音频';
+                ?.displayName ?? labels.common.missingAudio;
         setBgmBlockAsset(block, node.assetId, name);
       } else if (node.type === 'video') {
         const name =
           node.assetId === null
             ? ''
             : assets.find((asset) => asset.id === node.assetId)
-                ?.displayName ?? '缺失视频';
+                ?.displayName ?? labels.common.missingVideo;
         setVideoBlockAsset(block, node.assetId, name);
       } else if (node.type === 'storyExtension') {
         const continuationSequence = continuationSequences.get(node.id);

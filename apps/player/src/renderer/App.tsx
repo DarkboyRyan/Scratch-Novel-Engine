@@ -15,10 +15,14 @@ import {
 } from '@vnengine/runtime';
 import {
   effectiveMediaVolume,
+  getPlayerUiLabels,
   OptionsDialog,
+  PlayerUiProvider,
   SaveSlotDialog,
   TitleScreen,
+  type PlayerUiLabels,
   type SaveSlotSummary,
+  usePlayerUiLabels,
 } from '@vnengine/player-ui';
 
 import { GameScreen } from './GameScreen';
@@ -28,18 +32,20 @@ import {
   type PlayerGateway,
 } from './playerGateway';
 import type {
+  PlayerErrorCode,
   PlayerManualSaveSlotId,
   PlayerMode,
   PlayerSaveSummary,
+  PlayerSaveSummaryContent,
+  PlayerSettings,
   PlayerSettingsPatch,
-  PlayerSettingsV1,
 } from '../shared/playerProtocol';
 import { createDefaultPlayerSettings } from '../shared/playerProtocol';
 
 type PlayerShellState =
   | { kind: 'loading' }
   | { kind: 'empty' }
-  | { kind: 'error'; message: string }
+  | { kind: 'error'; message: LocalizedMessage }
   | { kind: 'title'; game: PlayerGameView; generation: number }
   | {
       kind: 'game';
@@ -52,15 +58,83 @@ type PlayerShellState =
 type SaveDialogState = {
   mode: 'save' | 'load';
   loading: boolean;
-  slots: SaveSlotSummary[];
+  slots: PlayerSaveSummary[];
   busySlotId: PlayerManualSaveSlotId | 'quick' | null;
-  error: string | null;
+  error: LocalizedMessage | null;
 };
 
 type SaveToast = {
   kind: 'success' | 'error';
-  message: string;
+  message: LocalizedMessage;
 };
+
+type LocalShellMessageKey =
+  | 'settingsReadFallback'
+  | 'embeddedGameMissing'
+  | 'bundleReadFailed'
+  | 'windowSettingsSyncFailed'
+  | 'settingsApplyFailed'
+  | 'openBundleFailed'
+  | 'entrySceneMissing'
+  | 'saveSlotsReadFailed'
+  | 'progressNotSaveable'
+  | 'loadedQuickSave'
+  | 'slotEmpty'
+  | 'saveFailed'
+  | 'loadFailed'
+  | 'quickSaveComplete'
+  | 'quickLoadComplete'
+  | 'noQuickSave'
+  | 'quickSaveFailed'
+  | 'quickLoadFailed';
+
+type LocalizedMessage =
+  | { type: 'protocol-error'; code: PlayerErrorCode }
+  | { type: 'shell'; key: LocalShellMessageKey }
+  | { type: 'saved-to-slot'; slotId: PlayerManualSaveSlotId }
+  | { type: 'loaded-slot'; slotId: PlayerManualSaveSlotId };
+
+function protocolError(code: PlayerErrorCode): LocalizedMessage {
+  return { type: 'protocol-error', code };
+}
+
+function shellMessage(key: LocalShellMessageKey): LocalizedMessage {
+  return { type: 'shell', key };
+}
+
+function localizeMessage(
+  message: LocalizedMessage,
+  labels: PlayerUiLabels,
+): string {
+  switch (message.type) {
+    case 'protocol-error':
+      return labels.errors[message.code];
+    case 'shell':
+      return labels.shell[message.key];
+    case 'saved-to-slot':
+      return labels.shell.savedToSlot(message.slotId);
+    case 'loaded-slot':
+      return labels.shell.loadedSlot(message.slotId);
+  }
+}
+
+function localizeSaveSummary(
+  summary: PlayerSaveSummaryContent,
+  labels: PlayerUiLabels,
+): string {
+  switch (summary.kind) {
+    case 'dialogue':
+      return labels.saves.dialogueSummary(summary.speaker, summary.text);
+    case 'progress':
+      return labels.saves.progressSummary;
+    case 'choosing':
+      return labels.saves.choosingSummary;
+    case 'playing-video':
+      return labels.saves.playingVideoSummary;
+    case 'finished':
+      return labels.saves.finishedSummary;
+  }
+}
 
 const MODAL_FOCUSABLE_SELECTOR = [
   'button:not(:disabled)',
@@ -78,7 +152,7 @@ function modalFocusableElements(container: HTMLElement): HTMLElement[] {
 }
 
 type OpenErrorDialogProps = {
-  message: string;
+  message: LocalizedMessage;
   returnFocusTo?: HTMLElement | null;
   onClose: () => void;
   onRetry: () => void;
@@ -90,6 +164,7 @@ function OpenErrorDialog({
   onClose,
   onRetry,
 }: OpenErrorDialogProps) {
+  const labels = usePlayerUiLabels();
   const layerRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
 
@@ -152,18 +227,18 @@ function OpenErrorDialog({
       className="player-open-error-layer"
       role="alertdialog"
       aria-modal="true"
-      aria-label="内容包未打开"
+      aria-label={labels.shell.openErrorAria}
       tabIndex={-1}
       onClick={(event) => event.stopPropagation()}
       onPointerUp={(event) => event.stopPropagation()}
     >
       <section className="player-menu-card player-error-card">
         <p className="player-eyebrow">OPEN ERROR</p>
-        <h2>内容包未打开</h2>
-        <p>{message}</p>
-        <button type="button" onClick={onClose}>返回</button>
+        <h2>{labels.shell.openErrorTitle}</h2>
+        <p>{localizeMessage(message, labels)}</p>
+        <button type="button" onClick={onClose}>{labels.common.back}</button>
         <button type="button" className="secondary" onClick={onRetry}>
-          选择其他游戏包
+          {labels.shell.selectOtherGamePackage}
         </button>
       </section>
     </div>
@@ -171,15 +246,18 @@ function OpenErrorDialog({
 }
 
 function changedSettingsPatch(
-  previous: PlayerSettingsV1,
-  next: PlayerSettingsV1,
+  previous: PlayerSettings,
+  next: PlayerSettings,
 ): PlayerSettingsPatch | null {
   const patch: {
     -readonly [Field in Exclude<
-      keyof PlayerSettingsV1,
+      keyof PlayerSettings,
       'settingsVersion'
-    >]?: PlayerSettingsV1[Field];
+    >]?: PlayerSettings[Field];
   } = {};
+  if (previous.language !== next.language) {
+    patch.language = next.language;
+  }
   if (previous.masterVolume !== next.masterVolume) {
     patch.masterVolume = next.masterVolume;
   }
@@ -205,7 +283,7 @@ function changedSettingsPatch(
 
 function visibleSaveSlots(
   slots: readonly PlayerSaveSummary[],
-): SaveSlotSummary[] {
+): PlayerSaveSummary[] {
   return slots.flatMap((slot) =>
     slot.slotId === 1 ||
     slot.slotId === 2 ||
@@ -214,6 +292,18 @@ function visibleSaveSlots(
       ? [{ ...slot, slotId: slot.slotId }]
       : [],
   );
+}
+
+function localizedSaveSlots(
+  slots: readonly PlayerSaveSummary[],
+  labels: PlayerUiLabels,
+): SaveSlotSummary[] {
+  return slots.map((slot) => ({
+    slotId: slot.slotId,
+    savedAt: slot.savedAt,
+    sceneName: slot.sceneName,
+    summary: localizeSaveSummary(slot.summary, labels),
+  }));
 }
 
 export type AppProps = {
@@ -226,19 +316,21 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
   // fails, an embedded application must not accidentally reveal a picker.
   const [mode, setMode] = useState<PlayerMode | null>(null);
   const [openingGame, setOpeningGame] = useState(false);
-  const [openError, setOpenError] = useState<string | null>(null);
+  const [openError, setOpenError] = useState<LocalizedMessage | null>(null);
   const [saveDialog, setSaveDialog] = useState<SaveDialogState | null>(null);
   const [quickOperation, setQuickOperation] = useState<'save' | 'load' | null>(
     null,
   );
   const [saveToast, setSaveToast] = useState<SaveToast | null>(null);
-  const [settings, setSettings] = useState<PlayerSettingsV1>(
+  const [settings, setSettings] = useState<PlayerSettings>(
     createDefaultPlayerSettings,
   );
   const [settingsSettled, setSettingsSettled] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [settingsBusy, setSettingsBusy] = useState(false);
-  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsError, setSettingsError] = useState<LocalizedMessage | null>(
+    null,
+  );
   const openingRef = useRef(false);
   const saveDialogOpenRef = useRef(false);
   const saveDialogOpeningRef = useRef(false);
@@ -257,8 +349,18 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
   const gameplayGenerationRef = useRef(0);
   const titleGenerationRef = useRef(0);
   const stateRef = useRef(state);
+  const labels = getPlayerUiLabels(settings.language);
   stateRef.current = state;
   settingsRef.current = settings;
+
+  useEffect(() => {
+    const documentElement = document.documentElement;
+    const previousLanguage = documentElement.lang;
+    documentElement.lang = settings.language;
+    return () => {
+      documentElement.lang = previousLanguage;
+    };
+  }, [settings.language]);
 
   const loadSettings = useCallback(async () => {
     const requestEpoch = ++settingsRequestEpochRef.current;
@@ -276,7 +378,7 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
         const defaults = createDefaultPlayerSettings();
         committedSettingsRef.current = defaults;
         setSettings(defaults);
-        setSettingsError(result.error);
+        setSettingsError(protocolError(result.error));
       }
     } catch {
       if (requestEpoch !== settingsRequestEpochRef.current) {
@@ -285,7 +387,7 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
       const defaults = createDefaultPlayerSettings();
       committedSettingsRef.current = defaults;
       setSettings(defaults);
-      setSettingsError('无法读取设置，已使用默认值。');
+      setSettingsError(shellMessage('settingsReadFallback'));
     } finally {
       if (requestEpoch === settingsRequestEpochRef.current) {
         setSettingsSettled(true);
@@ -339,15 +441,15 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
           ? { kind: 'empty' }
           : {
               kind: 'error',
-              message: '内嵌游戏内容缺失，请重新安装游戏。',
+              message: shellMessage('embeddedGameMissing'),
             });
       } else {
-        setState({ kind: 'error', message: result.error });
+        setState({ kind: 'error', message: protocolError(result.error) });
       }
     } catch {
       setState({
         kind: 'error',
-        message: '无法读取游戏内容包，请重新安装或联系游戏作者。',
+        message: shellMessage('bundleReadFailed'),
       });
     }
   }, [activateGameBundle, gateway]);
@@ -432,7 +534,7 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
               setSettings(result.settings);
               setSettingsError(null);
             } else {
-              setSettingsError(result.error);
+              setSettingsError(protocolError(result.error));
             }
           })
           .catch(() => {
@@ -441,7 +543,7 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
               refreshEpoch === settingsRefreshEpochRef.current &&
               !settingsOperationRef.current
             ) {
-              setSettingsError('无法同步当前窗口设置。');
+              setSettingsError(shellMessage('windowSettingsSyncFailed'));
             }
           });
       }, 50);
@@ -460,14 +562,14 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
     };
   }, [gateway, optionsOpen]);
 
-  const previewSettings = useCallback((next: PlayerSettingsV1) => {
+  const previewSettings = useCallback((next: PlayerSettings) => {
     if (!settingsOperationRef.current) {
       setSettings(next);
       setSettingsError(null);
     }
   }, []);
 
-  const commitSettings = useCallback(async (next: PlayerSettingsV1) => {
+  const commitSettings = useCallback(async (next: PlayerSettings) => {
     if (settingsOperationRef.current) {
       return;
     }
@@ -493,12 +595,12 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
         setSettings(result.settings);
       } else {
         setSettings(previous);
-        setSettingsError(result.error);
+        setSettingsError(protocolError(result.error));
       }
     } catch {
       if (requestEpoch === settingsRequestEpochRef.current) {
         setSettings(previous);
-        setSettingsError('设置未能应用，请重试。');
+        setSettingsError(shellMessage('settingsApplyFailed'));
       }
     } finally {
       if (requestEpoch === settingsRequestEpochRef.current) {
@@ -548,11 +650,11 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
         activateGameBundle(result.game);
       } else if (result.status === 'rejected') {
         keepInteractionBlocked = true;
-        setOpenError(result.error);
+        setOpenError(protocolError(result.error));
       }
     } catch {
       keepInteractionBlocked = true;
-      setOpenError('无法打开游戏内容包，请重试。');
+      setOpenError(shellMessage('openBundleFailed'));
     } finally {
       openingRef.current = false;
       setOpeningGame(false);
@@ -581,6 +683,13 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
     }
   }, [gateway]);
 
+  const returnToTitle = useCallback((game: PlayerGameView) => {
+    if (gameplayInteractionBlockedRef.current) {
+      return;
+    }
+    activateGameBundle(game);
+  }, [activateGameBundle]);
+
   const start = useCallback((game: PlayerGameView) => {
     if (gameplayInteractionBlockedRef.current) {
       return;
@@ -589,7 +698,7 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
     if (!runtime) {
       setState({
         kind: 'error',
-        message: '游戏入口场景不存在，内容包可能已经损坏。',
+        message: shellMessage('entrySceneMissing'),
       });
       return;
     }
@@ -645,7 +754,9 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
         loading: false,
         slots: result.status === 'ready' ? visibleSaveSlots(result.slots) : [],
         busySlotId: null,
-        error: result.status === 'rejected' ? result.error : null,
+        error: result.status === 'rejected'
+          ? protocolError(result.error)
+          : null,
       });
     } catch {
       if (
@@ -657,7 +768,7 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
           loading: false,
           slots: [],
           busySlotId: null,
-          error: '无法读取存档信息，请重试。',
+          error: shellMessage('saveSlotsReadFailed'),
         });
       }
     } finally {
@@ -706,7 +817,7 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
           setSaveDialog({
             ...dialog,
             busySlotId: null,
-            error: '当前进度暂时无法保存，请继续游戏后重试。',
+            error: shellMessage('progressNotSaveable'),
           });
           return;
         }
@@ -721,9 +832,16 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
           saveDialogOpenRef.current = false;
           gameplayInteractionBlockedRef.current = false;
           setSaveDialog(null);
-          setSaveToast({ kind: 'success', message: `已保存到存档 ${slotId}` });
+          setSaveToast({
+            kind: 'success',
+            message: { type: 'saved-to-slot', slotId },
+          });
         } else {
-          setSaveDialog({ ...dialog, busySlotId: null, error: result.error });
+          setSaveDialog({
+            ...dialog,
+            busySlotId: null,
+            error: protocolError(result.error),
+          });
         }
       } else {
         const result = slotId === 'quick'
@@ -743,14 +861,16 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
           setSaveToast({
             kind: 'success',
             message: slotId === 'quick'
-              ? '已读取快速存档'
-              : `已读取存档 ${slotId}`,
+              ? shellMessage('loadedQuickSave')
+              : { type: 'loaded-slot', slotId },
           });
         } else {
           setSaveDialog({
             ...dialog,
             busySlotId: null,
-            error: result.status === 'empty' ? '该存档为空。' : result.error,
+            error: result.status === 'empty'
+              ? shellMessage('slotEmpty')
+              : protocolError(result.error),
           });
         }
       }
@@ -763,8 +883,8 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
           ...dialog,
           busySlotId: null,
           error: dialog.mode === 'save'
-            ? '保存失败，当前进度未受影响。'
-            : '读取失败，当前进度未受影响。',
+            ? shellMessage('saveFailed')
+            : shellMessage('loadFailed'),
         });
       }
     } finally {
@@ -803,7 +923,7 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
         if (snapshot === null) {
           setSaveToast({
             kind: 'error',
-            message: '当前进度暂时无法保存，请继续游戏后重试。',
+            message: shellMessage('progressNotSaveable'),
           });
           return;
         }
@@ -815,8 +935,11 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
           return;
         }
         setSaveToast(result.status === 'saved'
-          ? { kind: 'success', message: '快速保存完成' }
-          : { kind: 'error', message: result.error });
+          ? {
+              kind: 'success',
+              message: shellMessage('quickSaveComplete'),
+            }
+          : { kind: 'error', message: protocolError(result.error) });
       } else {
         const result = await gateway.quickLoad();
         if (
@@ -827,11 +950,16 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
         }
         if (result.status === 'loaded') {
           activateRuntime(current.game, result.runtime);
-          setSaveToast({ kind: 'success', message: '快速读取完成' });
+          setSaveToast({
+            kind: 'success',
+            message: shellMessage('quickLoadComplete'),
+          });
         } else {
           setSaveToast({
             kind: 'error',
-            message: result.status === 'empty' ? '尚无快速存档' : result.error,
+            message: result.status === 'empty'
+              ? shellMessage('noQuickSave')
+              : protocolError(result.error),
           });
         }
       }
@@ -843,8 +971,8 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
         setSaveToast({
           kind: 'error',
           message: operation === 'save'
-            ? '快速保存失败，当前进度未受影响。'
-            : '快速读取失败，当前进度未受影响。',
+            ? shellMessage('quickSaveFailed')
+            : shellMessage('quickLoadFailed'),
         });
       }
     } finally {
@@ -872,23 +1000,25 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
     content = (
       <main className="player-shell player-loading" aria-live="polite">
         <span className="player-loading-mark" aria-hidden="true" />
-        <p>正在载入游戏…</p>
+        <p>{labels.shell.loadingGame}</p>
       </main>
     );
   } else if (state.kind === 'empty') {
     content = (
       <main className="player-shell player-empty-page">
         <section className="player-shell-card">
-          <p className="player-eyebrow">VN ENGINE PLAYER</p>
-          <h1>打开游戏</h1>
-          <p>请选择一个名称以 .vngame 结尾的游戏目录包。</p>
+          <p className="player-eyebrow">{labels.shell.emptyEyebrow}</p>
+          <h1>{labels.shell.emptyTitle}</h1>
+          <p>{labels.shell.emptyDescription}</p>
           {canOpenGame ? <div className="player-shell-actions">
             <button
               type="button"
               disabled={openingGame}
               onClick={() => void openGame()}
             >
-              {openingGame ? '正在打开…' : '选择游戏包'}
+              {openingGame
+                ? labels.common.openingGame
+                : labels.shell.selectGamePackage}
             </button>
           </div> : null}
         </section>
@@ -898,9 +1028,9 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
     content = (
       <main className="player-shell player-error-page">
         <section className="player-shell-card" role="alert">
-          <p className="player-eyebrow">LOAD ERROR</p>
-          <h1>游戏无法载入</h1>
-          <p>{state.message}</p>
+          <p className="player-eyebrow">{labels.shell.errorEyebrow}</p>
+          <h1>{labels.shell.errorTitle}</h1>
+          <p>{localizeMessage(state.message, labels)}</p>
           <div className="player-shell-actions">
             {canOpenGame ? (
               <button
@@ -908,7 +1038,9 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
                 disabled={openingGame}
                 onClick={() => void openGame()}
               >
-                {openingGame ? '正在打开…' : '选择其他游戏包'}
+                {openingGame
+                  ? labels.common.openingGame
+                  : labels.shell.selectOtherGamePackage}
               </button>
             ) : null}
             <button
@@ -916,7 +1048,7 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
               className="secondary"
               onClick={exitGame}
             >
-              退出游戏
+              {labels.shell.exitGame}
             </button>
           </div>
         </section>
@@ -1047,62 +1179,77 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
         onOptions={openOptions}
         onRestart={() => start(state.game)}
         onOpenGame={() => void openGame()}
-        onExit={exitGame}
+        onReturnToTitle={() => returnToTitle(state.game)}
       />
     );
   }
 
   return (
-    <>
-      {content}
-      {canOpenGame && openError !== null ? (
-        <OpenErrorDialog
-          message={openError}
-          returnFocusTo={openGameTriggerRef.current}
-          onClose={closeOpenError}
-          onRetry={() => {
-            closeOpenError();
-            void openGame();
-          }}
-        />
-      ) : null}
-      {saveDialog !== null ? (
-        <SaveSlotDialog
-          mode={saveDialog.mode}
-          slots={saveDialog.slots}
-          loading={saveDialog.loading}
-          busySlotId={saveDialog.busySlotId}
-          error={saveDialog.error}
-          onSelectSlot={(slotId) => void selectSaveSlot(slotId)}
-          onClose={closeSaveDialog}
-        />
-      ) : null}
-      {optionsOpen ? (
-        <OptionsDialog
-          settings={settings}
-          busy={settingsBusy}
-          error={settingsError}
-          openingGame={openingGame}
-          onPreviewSettingsChange={previewSettings}
-          onCommitSettings={(next) => void commitSettings(next)}
-          onReset={resetSettings}
-          onOpenGame={canOpenGame ? () => {
-            closeOptions();
-            void openGame();
-          } : undefined}
-          onClose={closeOptions}
-        />
-      ) : null}
-      {saveToast !== null ? (
-        <p
-          className={`player-save-toast${
-            saveToast.kind === 'error' ? ' is-error' : ''
-          }`}
-          role={saveToast.kind === 'error' ? 'alert' : 'status'}
-        >
-          {saveToast.message}
-        </p>
-      ) : null}
-    </>
+    <PlayerUiProvider language={settings.language}>
+      <div
+        className="player-app"
+        data-player-window-size-preset={settings.windowSizePreset}
+      >
+        {content}
+        {canOpenGame && openError !== null ? (
+          <OpenErrorDialog
+            message={openError}
+            returnFocusTo={openGameTriggerRef.current}
+            onClose={closeOpenError}
+            onRetry={() => {
+              closeOpenError();
+              void openGame();
+            }}
+          />
+        ) : null}
+        {saveDialog !== null ? (
+          <SaveSlotDialog
+            mode={saveDialog.mode}
+            slots={localizedSaveSlots(saveDialog.slots, labels)}
+            loading={saveDialog.loading}
+            busySlotId={saveDialog.busySlotId}
+            error={saveDialog.error === null
+              ? null
+              : localizeMessage(saveDialog.error, labels)}
+            onSelectSlot={(slotId) => void selectSaveSlot(slotId)}
+            onClose={closeSaveDialog}
+          />
+        ) : null}
+        {optionsOpen ? (
+          <OptionsDialog
+            settings={settings}
+            busy={settingsBusy}
+            error={settingsError === null
+              ? null
+              : localizeMessage(settingsError, labels)}
+            openingGame={openingGame}
+            fullscreenControlsEnabled={
+              gateway.fullscreenControlsEnabled ?? true
+            }
+            windowSizeControlsEnabled={
+              gateway.windowSizeControlsEnabled ?? true
+            }
+            onPreviewSettingsChange={previewSettings}
+            onCommitSettings={(next) => void commitSettings(next)}
+            onReset={resetSettings}
+            onOpenGame={canOpenGame ? () => {
+              closeOptions();
+              void openGame();
+            } : undefined}
+            onClose={closeOptions}
+          />
+        ) : null}
+        {saveToast !== null ? (
+          <p
+            className={`player-save-toast${
+              saveToast.kind === 'error' ? ' is-error' : ''
+            }`}
+            role={saveToast.kind === 'error' ? 'alert' : 'status'}
+          >
+            {localizeMessage(saveToast.message, labels)}
+          </p>
+        ) : null}
+      </div>
+    </PlayerUiProvider>
   );
 }

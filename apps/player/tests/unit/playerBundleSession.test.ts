@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   PLAYER_BUNDLE_LOAD_ERROR,
+  PLAYER_BUNDLE_SELECTION_ERROR,
+  PLAYER_EMBEDDED_OPEN_ERROR,
   PlayerBundleSession,
 } from '../../src/main/content/PlayerBundleSession';
 import { PlayerMediaService } from '../../src/main/media/PlayerMediaService';
@@ -261,10 +263,36 @@ describe('Player bundle session', () => {
     const secondOpen = session.openGame();
     expect(selectBundle).toHaveBeenCalledOnce();
     releaseSelection('/tmp/not-a-package');
-    await expect(firstOpen).resolves.toMatchObject({ status: 'rejected' });
-    await expect(secondOpen).resolves.toMatchObject({ status: 'rejected' });
+    await expect(firstOpen).resolves.toEqual({
+      status: 'rejected',
+      error: PLAYER_BUNDLE_LOAD_ERROR,
+    });
+    await expect(secondOpen).resolves.toEqual({
+      status: 'rejected',
+      error: PLAYER_BUNDLE_LOAD_ERROR,
+    });
     expect(loadBundle).not.toHaveBeenCalled();
 
+    session.dispose();
+  });
+
+  it('normalizes selector exceptions without exposing their messages', async () => {
+    const reportError = vi.fn();
+    const { service } = makeMediaService();
+    const session = new PlayerBundleSession(
+      service,
+      async () => { throw new Error('/private/selector failure'); },
+      undefined,
+      reportError,
+    );
+
+    const result = await session.openGame();
+    expect(result).toEqual({
+      status: 'rejected',
+      error: PLAYER_BUNDLE_SELECTION_ERROR,
+    });
+    expect(JSON.stringify(result)).not.toContain('/private');
+    expect(reportError).toHaveBeenCalledOnce();
     session.dispose();
   });
 
@@ -290,8 +318,9 @@ describe('Player bundle session', () => {
     const mediaUrl = session.getMediaUrl('image');
     expect(mediaUrl).toBeTruthy();
     expect((await request(mediaUrl!)).status).toBe(200);
-    await expect(session.openGame()).resolves.toMatchObject({
+    await expect(session.openGame()).resolves.toEqual({
       status: 'rejected',
+      error: PLAYER_EMBEDDED_OPEN_ERROR,
     });
     expect(selectBundle).not.toHaveBeenCalled();
 

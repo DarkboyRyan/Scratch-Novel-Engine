@@ -1,5 +1,9 @@
 import { useEffect, useReducer, useRef, useState } from 'react';
 
+import {
+  type EditorLanguage,
+  type EditorSettings,
+} from '../shared/editorSettingsProtocol';
 import type { GameExportRequest } from '../shared/exportProtocol';
 import type { EditorMode } from './application/editorMode';
 import {
@@ -9,6 +13,7 @@ import {
 import { subscribeEditorProjectFileCommands } from './application/editorPlatformGateway';
 import { ErrorDialog } from './components/ErrorDialog';
 import { CreateProjectDialog } from './components/CreateProjectDialog';
+import { RendererErrorBoundary } from './components/RendererErrorBoundary';
 import { Toolbar } from './components/Toolbar';
 import {
   BlockEditor,
@@ -42,10 +47,32 @@ import {
   updateStartScreenFromLatest,
 } from './features/start-screen/startScreenScene';
 import { useEngineProject } from './hooks/useEngineProject';
+import { useEditorSettings } from './hooks/useEditorSettings';
+import {
+  EditorI18nProvider,
+  useEditorLabels,
+} from './i18n/editorLocalization';
 import { prepareProjectSave } from './projectSavePreparation';
 import { projectWindowTitle } from './projectSessionPresentation';
 
-export default function App() {
+type EditorApplicationProps = {
+  settings: EditorSettings;
+  isSettingsSaving: boolean;
+  settingsSaveFailed: boolean;
+  settingsRestartRequired: boolean;
+  onLanguageChange: (language: EditorLanguage) => Promise<void>;
+  onOpenSettings: () => void;
+};
+
+function EditorApplication({
+  settings,
+  isSettingsSaving,
+  settingsSaveFailed,
+  settingsRestartRequired,
+  onLanguageChange,
+  onOpenSettings,
+}: EditorApplicationProps) {
+  const labels = useEditorLabels();
   const [editorMode, setEditorMode] = useState<EditorMode>('form');
   const blockEditorLayouts =
     useRef<BlockEditorLayoutStore>(new Map());
@@ -74,7 +101,9 @@ export default function App() {
   const [isRenamingProject, setIsRenamingProject] = useState(false);
   const [projectNameDraft, setProjectNameDraft] = useState('');
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
-  const [newProjectName, setNewProjectName] = useState('未命名项目');
+  const [newProjectName, setNewProjectName] = useState(
+    labels.app.untitledProject,
+  );
   const [blockDraftDirty, setBlockDraftDirty] = useState(false);
   const projectNameCommitRef = useRef<Promise<boolean> | null>(null);
   const projectNameDraftDirty = Boolean(
@@ -94,14 +123,14 @@ export default function App() {
   });
 
   const handleCreateProject = async () => {
-    setNewProjectName('未命名项目');
+    setNewProjectName(labels.app.untitledProject);
     setIsCreateProjectOpen(true);
   };
 
   const confirmCreateProject = async () => {
     const normalizedName = newProjectName.trim();
     if (!normalizedName) {
-      engine.setEngineMessage('项目名不可为空');
+      engine.setEngineMessage(labels.app.projectNameRequired);
       return;
     }
 
@@ -115,7 +144,7 @@ export default function App() {
   const handleOpenProject = async () => {
     if (
       isDirty &&
-      !window.confirm('当前项目有未保存内容，仍要打开另一个项目吗？')
+      !window.confirm(labels.app.confirmOpenWithUnsavedChanges)
     ) {
       return;
     }
@@ -221,7 +250,7 @@ export default function App() {
     }
     const previewSceneId = isSyntheticSurfaceSelected ? null : scene?.id ?? null;
     if (!isSyntheticSurfaceSelected && previewSceneId === null) {
-      engine.setEngineMessage('当前场景不存在，无法开始预览');
+      engine.setEngineMessage(labels.app.currentSceneMissing);
       return;
     }
     if (!(await prepareCurrentEdits())) {
@@ -238,8 +267,8 @@ export default function App() {
     if (!started) {
       engine.setEngineMessage(
         isSyntheticSurfaceSelected
-          ? '游戏入口场景不存在，无法预览完整主界面流程'
-          : '当前场景不存在，无法开始预览',
+          ? labels.app.entrySceneMissing
+          : labels.app.currentSceneMissing,
       );
     }
   };
@@ -429,19 +458,20 @@ export default function App() {
       project.name,
       engine.session.hasStorage,
       isDirty,
+      labels.app.unsavedWindowTitle,
     );
-  }, [engine.session.hasStorage, isDirty, project]);
+  }, [engine.session.hasStorage, isDirty, labels, project]);
 
   if (!project || !scene) {
     return (
       <main className="engine-startup" role="status">
         <strong>Scratch Novel Engine</strong>
         <p>
-          {editor.engineMessage || '正在启动……'}
+          {editor.engineMessage || labels.app.starting}
         </p>
         {editor.engineMessage && (
           <button type="button" onClick={() => window.location.reload()}>
-            重新连接
+            {labels.app.reconnect}
           </button>
         )}
       </main>
@@ -467,7 +497,7 @@ export default function App() {
     return {
       id: character.nodeId,
       url: assetPreviewUrls[character.assetId] ?? null,
-      name: asset?.displayName ?? '缺失立绘',
+      name: asset?.displayName ?? labels.app.missingPortrait,
       slot: character.slot,
       layer: character.layer,
       position: character.position,
@@ -475,7 +505,10 @@ export default function App() {
   });
 
   return (
-    <div className="editor">
+    <div
+      className="editor"
+      data-editor-language={settings.language}
+    >
       <Toolbar
         projectName={project.name}
         projectNameDraft={projectNameDraft}
@@ -488,6 +521,10 @@ export default function App() {
         engineMessage={editor.engineMessage}
         operationMessage={engine.exportMessage}
         projectFolderName={engine.projectFolderName}
+        language={settings.language}
+        isSettingsSaving={isSettingsSaving}
+        settingsSaveFailed={settingsSaveFailed}
+        settingsRestartRequired={settingsRestartRequired}
         onCreateProject={() => void handleCreateProject()}
         onOpenProject={() => void handleOpenProject()}
         onSaveProject={() => void handleSaveProject()}
@@ -505,6 +542,8 @@ export default function App() {
         onEditorModeChange={(mode) => {
           void handleEditorModeChange(mode);
         }}
+        onLanguageChange={onLanguageChange}
+        onOpenSettings={onOpenSettings}
       />
 
       <ResourcePanel
@@ -643,7 +682,7 @@ export default function App() {
 
       <ErrorDialog
         open={Boolean(editor.engineMessage)}
-        title="错误"
+        title={labels.common.error}
         message={editor.engineMessage}
         onConfirm={() => engine.setEngineMessage('')}
       />
@@ -671,5 +710,45 @@ export default function App() {
         />
       ) : null}
     </div>
+  );
+}
+
+export default function App() {
+  const editorSettings = useEditorSettings();
+  const { settings } = editorSettings;
+
+  useEffect(() => {
+    if (settings === null) {
+      return;
+    }
+    const previousLanguage = document.documentElement.lang;
+    document.documentElement.lang = settings.language;
+    return () => {
+      document.documentElement.lang = previousLanguage;
+    };
+  }, [settings?.language]);
+
+  if (settings === null) {
+    return (
+      <main className="engine-startup" role="status" aria-busy="true">
+        <strong>Scratch Novel Engine</strong>
+        <span className="editor-settings-bootstrap-indicator" aria-hidden="true" />
+      </main>
+    );
+  }
+
+  return (
+    <EditorI18nProvider language={settings.language}>
+      <RendererErrorBoundary language={settings.language}>
+        <EditorApplication
+          settings={settings}
+          isSettingsSaving={editorSettings.isSaving}
+          settingsSaveFailed={editorSettings.saveFailed}
+          settingsRestartRequired={editorSettings.restartRequired}
+          onLanguageChange={editorSettings.changeLanguage}
+          onOpenSettings={editorSettings.dismissSaveError}
+        />
+      </RendererErrorBoundary>
+    </EditorI18nProvider>
   );
 }

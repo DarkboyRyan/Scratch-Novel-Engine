@@ -11,9 +11,11 @@ import path from 'node:path';
 
 import {
   createDefaultPlayerSettings,
+  isPlayerSettings,
   isPlayerSettingsV1,
+  LEGACY_PLAYER_SETTINGS_VERSION,
   PLAYER_SETTINGS_VERSION,
-  type PlayerSettingsV1,
+  type PlayerSettings,
 } from '../../shared/playerProtocol';
 
 const SETTINGS_FORMAT = 'vn-engine-player-settings';
@@ -26,10 +28,10 @@ type SettingsErrorReporter = (
   error: unknown,
 ) => void;
 
-type SettingsDocumentV1 = {
+type SettingsDocumentV2 = {
   format: typeof SETTINGS_FORMAT;
   settingsVersion: typeof PLAYER_SETTINGS_VERSION;
-  settings: Omit<PlayerSettingsV1, 'settingsVersion'>;
+  settings: Omit<PlayerSettings, 'settingsVersion'>;
 };
 
 class InvalidSettingsError extends Error {}
@@ -110,9 +112,10 @@ async function syncDirectory(directoryPath: string): Promise<void> {
   }
 }
 
-function canonicalizeSettings(settings: PlayerSettingsV1): PlayerSettingsV1 {
+function canonicalizeSettings(settings: PlayerSettings): PlayerSettings {
   return {
     settingsVersion: PLAYER_SETTINGS_VERSION,
+    language: settings.language,
     masterVolume: Object.is(settings.masterVolume, -0) ? 0 : settings.masterVolume,
     bgmVolume: Object.is(settings.bgmVolume, -0) ? 0 : settings.bgmVolume,
     voiceVolume: Object.is(settings.voiceVolume, -0) ? 0 : settings.voiceVolume,
@@ -122,7 +125,7 @@ function canonicalizeSettings(settings: PlayerSettingsV1): PlayerSettingsV1 {
   };
 }
 
-function parseDocument(input: unknown): PlayerSettingsV1 {
+function parseDocument(input: unknown): PlayerSettings {
   if (!isObject(input) || !hasExactFields(input, [
     'format',
     'settingsVersion',
@@ -132,34 +135,57 @@ function parseDocument(input: unknown): PlayerSettingsV1 {
   }
   if (
     input.format !== SETTINGS_FORMAT ||
-    input.settingsVersion !== PLAYER_SETTINGS_VERSION ||
-    !isObject(input.settings) ||
-    !hasExactFields(input.settings, [
-      'masterVolume',
-      'bgmVolume',
-      'voiceVolume',
-      'videoVolume',
-      'windowMode',
-      'windowSizePreset',
-    ])
+    !isObject(input.settings)
   ) {
     throw new InvalidSettingsError('settings document version is invalid');
   }
-  const candidate: unknown = {
-    settingsVersion: input.settingsVersion,
+  const v1Fields = [
+    'masterVolume',
+    'bgmVolume',
+    'voiceVolume',
+    'videoVolume',
+    'windowMode',
+    'windowSizePreset',
+  ] as const;
+  if (input.settingsVersion === LEGACY_PLAYER_SETTINGS_VERSION) {
+    if (!hasExactFields(input.settings, v1Fields)) {
+      throw new InvalidSettingsError('settings document fields are invalid');
+    }
+    const legacy: unknown = {
+      settingsVersion: LEGACY_PLAYER_SETTINGS_VERSION,
+      ...input.settings,
+    };
+    if (!isPlayerSettingsV1(legacy)) {
+      throw new InvalidSettingsError('settings values are invalid');
+    }
+    return canonicalizeSettings({
+      ...legacy,
+      settingsVersion: PLAYER_SETTINGS_VERSION,
+      language: 'zh-CN',
+    });
+  }
+  if (
+    input.settingsVersion !== PLAYER_SETTINGS_VERSION ||
+    !hasExactFields(input.settings, ['language', ...v1Fields])
+  ) {
+    throw new InvalidSettingsError('settings document version is invalid');
+  }
+  const current: unknown = {
+    settingsVersion: PLAYER_SETTINGS_VERSION,
     ...input.settings,
   };
-  if (!isPlayerSettingsV1(candidate)) {
+  if (!isPlayerSettings(current)) {
     throw new InvalidSettingsError('settings values are invalid');
   }
-  return canonicalizeSettings(candidate);
+  return canonicalizeSettings(current);
 }
 
-function createDocument(settings: PlayerSettingsV1): SettingsDocumentV1 {
+function createDocument(settings: PlayerSettings): SettingsDocumentV2 {
   return {
     format: SETTINGS_FORMAT,
     settingsVersion: PLAYER_SETTINGS_VERSION,
     settings: {
+      language: settings.language,
       masterVolume: settings.masterVolume,
       bgmVolume: settings.bgmVolume,
       voiceVolume: settings.voiceVolume,
@@ -180,7 +206,7 @@ export class PlayerSettingsStore {
     this.rootPath = validateRootPath(rootPath);
   }
 
-  async load(): Promise<PlayerSettingsV1> {
+  async load(): Promise<PlayerSettings> {
     try {
       if (!await inspectSafeDirectory(this.rootPath)) {
         return createDefaultPlayerSettings();
@@ -211,8 +237,8 @@ export class PlayerSettingsStore {
     return createDefaultPlayerSettings();
   }
 
-  async write(settings: PlayerSettingsV1): Promise<PlayerSettingsV1> {
-    if (!isPlayerSettingsV1(settings)) {
+  async write(settings: PlayerSettings): Promise<PlayerSettings> {
+    if (!isPlayerSettings(settings)) {
       throw new InvalidSettingsError('settings values are invalid');
     }
     const canonical = canonicalizeSettings(settings);
@@ -225,7 +251,7 @@ export class PlayerSettingsStore {
     }
   }
 
-  private async readDocument(filePath: string): Promise<PlayerSettingsV1 | null> {
+  private async readDocument(filePath: string): Promise<PlayerSettings | null> {
     let status;
     try {
       status = await lstat(filePath);
@@ -275,7 +301,7 @@ export class PlayerSettingsStore {
     }
   }
 
-  private async writeDocument(settings: PlayerSettingsV1): Promise<void> {
+  private async writeDocument(settings: PlayerSettings): Promise<void> {
     await ensureSafeDirectory(this.rootPath);
     const destinationPath = path.join(this.rootPath, SETTINGS_FILE_NAME);
     const backupPath = path.join(this.rootPath, SETTINGS_BACKUP_FILE_NAME);

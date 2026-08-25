@@ -4,15 +4,22 @@ import {
   type ReactNode,
 } from 'react';
 
+import {
+  getEditorLabels,
+  normalizeEditorLanguage,
+} from '../i18n/editorLocalization';
+import type { EditorLanguage } from '../../shared/editorSettingsProtocol';
+
 type RendererErrorBoundaryProps = {
   children: ReactNode;
+  language?: EditorLanguage;
 };
 
 type RendererErrorBoundaryState = {
   failed: boolean;
 };
 
-export class RendererErrorBoundary extends Component<
+class RendererErrorBoundaryImpl extends Component<
   RendererErrorBoundaryProps,
   RendererErrorBoundaryState
 > {
@@ -30,14 +37,17 @@ export class RendererErrorBoundary extends Component<
 
   render(): ReactNode {
     if (this.state.failed) {
+      const labels = getEditorLabels(
+        normalizeEditorLanguage(
+          this.props.language ?? document.documentElement.lang,
+        ),
+      );
       return (
         <main className="engine-startup" role="alert">
-          <strong>编辑器界面加载失败</strong>
-          <p>
-            界面模块可能刚刚更新。请完全退出并重新启动编辑器；当前项目文件不会因此被修改。
-          </p>
+          <strong>{labels.dialogs.rendererFailed}</strong>
+          <p>{labels.dialogs.rendererFailedHelp}</p>
           <button type="button" onClick={() => window.location.reload()}>
-            重新加载界面
+            {labels.dialogs.reloadRenderer}
           </button>
         </main>
       );
@@ -45,4 +55,15 @@ export class RendererErrorBoundary extends Component<
 
     return this.props.children;
   }
+}
+
+export function RendererErrorBoundary({
+  children,
+  language,
+}: RendererErrorBoundaryProps) {
+  return (
+    <RendererErrorBoundaryImpl language={language}>
+      {children}
+    </RendererErrorBoundaryImpl>
+  );
 }

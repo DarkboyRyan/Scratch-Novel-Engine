@@ -9,10 +9,22 @@ import {
   allCgGalleryImageAssetIds,
   projectCgGalleryPages,
 } from './cgGalleryProjection';
+import {
+  DEFAULT_EDITOR_LANGUAGE,
+  getEditorLabels,
+  type EditorLabels,
+} from '../../i18n/editorLocalization';
 
 export const CG_GALLERY_PAGE_BLOCK_TYPE = 'vn_cg_gallery_page';
 export const CG_GALLERY_PAGE_BLOCK_ID_PREFIX = 'vn-editor-cg-page-';
 export const CG_GALLERY_IMAGE_FIELD_PREFIX = 'CG_IMAGE_';
+const CG_GALLERY_LABEL_FIELDS = {
+  title: 'VN_LABEL_CG_TITLE',
+  pagePrefix: 'VN_LABEL_CG_PAGE_PREFIX',
+  pageSuffix: 'VN_LABEL_CG_PAGE_SUFFIX',
+  slotPrefix: 'VN_LABEL_CG_SLOT_',
+} as const;
+let currentLabels = getEditorLabels(DEFAULT_EDITOR_LANGUAGE);
 
 type CgGalleryDocument = ProjectDocument['cgGallery'];
 export type CgGalleryAssetOption = [label: string, value: string];
@@ -55,37 +67,43 @@ function registerCgGalleryPageBlock(): void {
   Blockly.Blocks[CG_GALLERY_PAGE_BLOCK_TYPE] = {
     init(): void {
       this.appendDummyInput('HEADER')
-        .appendField('CG 画廊')
-        .appendField('第')
+        .appendField(currentLabels.blockly.cgTitle, CG_GALLERY_LABEL_FIELDS.title)
+        .appendField(currentLabels.blockly.pagePrefix, CG_GALLERY_LABEL_FIELDS.pagePrefix)
         .appendField(new Blockly.FieldLabelSerializable('1'), 'PAGE_NUMBER')
-        .appendField('页');
+        .appendField(currentLabels.blockly.pageSuffix, CG_GALLERY_LABEL_FIELDS.pageSuffix);
       for (let slotIndex = 0; slotIndex < CG_GALLERY_PAGE_SIZE; slotIndex += 1) {
         this.appendDummyInput(`SLOT_${slotIndex}`)
-          .appendField(`图片 ${slotIndex + 1}`)
           .appendField(
-            new Blockly.FieldDropdown([['无', '']]),
+            `${currentLabels.blockly.imageSlot} ${slotIndex + 1}`,
+            `${CG_GALLERY_LABEL_FIELDS.slotPrefix}${slotIndex}`,
+          )
+          .appendField(
+            new Blockly.FieldDropdown([[currentLabels.common.none, '']]),
             cgGalleryImageFieldName(slotIndex),
           );
       }
       this.setInputsInline(false);
       this.setColour(285);
-      this.setTooltip('每页最多九张 CG；白色下拉框用于选择图片');
+      this.setTooltip(currentLabels.blockly.cgTooltip);
       this.setHelpUrl('');
     },
   };
 }
 
-export function registerCgGalleryBlocks(): void {
+export function registerCgGalleryBlocks(labels: EditorLabels = currentLabels): void {
+  currentLabels = labels;
   registerCgGalleryPageBlock();
 }
 
-export function createCgGalleryToolbox(): Blockly.utils.toolbox.ToolboxDefinition {
+export function createCgGalleryToolbox(
+  labels: EditorLabels = currentLabels,
+): Blockly.utils.toolbox.ToolboxDefinition {
   return {
     kind: 'categoryToolbox',
     contents: [
       {
         kind: 'category',
-        name: 'CG 画廊',
+        name: labels.blockly.categories.cgGallery,
         colour: '285',
         contents: [
           { kind: 'block', type: CG_GALLERY_PAGE_BLOCK_TYPE },
@@ -99,6 +117,7 @@ function assetOptions(
   gallery: CgGalleryDocument,
   assets: AssetDocument[],
   currentAssetId: string | null,
+  labels: EditorLabels,
 ): CgGalleryAssetOption[] {
   const selectedElsewhere = new Set(
     allCgGalleryImageAssetIds(gallery.pages),
@@ -107,7 +126,7 @@ function assetOptions(
     selectedElsewhere.delete(currentAssetId);
   }
   const options: CgGalleryAssetOption[] = [
-    ['无', ''],
+    [labels.common.none, ''],
     ...assets
       .filter(
         (asset) =>
@@ -119,7 +138,7 @@ function assetOptions(
     currentAssetId !== null &&
     !options.some(([, value]) => value === currentAssetId)
   ) {
-    options.push([`缺失图片（${currentAssetId}）`, currentAssetId]);
+    options.push([`${labels.common.missingImage} (${currentAssetId})`, currentAssetId]);
   }
   return options;
 }
@@ -136,8 +155,9 @@ export function renderCgGalleryBlocks(
   gallery: CgGalleryDocument,
   assets: AssetDocument[],
   editable = true,
+  labels: EditorLabels = currentLabels,
 ): void {
-  registerCgGalleryBlocks();
+  registerCgGalleryBlocks(labels);
   const pages = projectCgGalleryPages(gallery.pages);
 
   Blockly.Events.disable();
@@ -161,7 +181,7 @@ export function renderCgGalleryBlocks(
           throw new Error(`CG gallery field ${fieldName} is not a dropdown`);
         }
         const currentAssetId = page.slots[slotIndex] ?? null;
-        field.setOptions(assetOptions(gallery, assets, currentAssetId));
+        field.setOptions(assetOptions(gallery, assets, currentAssetId, labels));
         block.setFieldValue(currentAssetId ?? '', fieldName);
         field.setEnabled(editable);
       }
@@ -169,6 +189,50 @@ export function renderCgGalleryBlocks(
       initializeBlock(block);
       if (block instanceof Blockly.BlockSvg) {
         block.moveBy(48 + pageIndex * 330, 48);
+      }
+    }
+    if (workspace instanceof Blockly.WorkspaceSvg) {
+      Blockly.renderManagement.triggerQueuedRenders(workspace);
+    }
+  } finally {
+    Blockly.Events.enable();
+  }
+}
+
+export function applyCgGalleryBlocksLocalization(
+  workspace: Blockly.Workspace,
+  gallery: CgGalleryDocument,
+  assets: AssetDocument[],
+  labels: EditorLabels,
+): void {
+  registerCgGalleryBlocks(labels);
+  Blockly.Events.disable();
+  try {
+    for (const [pageIndex, page] of projectCgGalleryPages(gallery.pages).entries()) {
+      const block = workspace.getBlockById(cgGalleryPageBlockId(pageIndex));
+      if (!block) {
+        continue;
+      }
+      block.setFieldValue(labels.blockly.cgTitle, CG_GALLERY_LABEL_FIELDS.title);
+      block.setFieldValue(labels.blockly.pagePrefix, CG_GALLERY_LABEL_FIELDS.pagePrefix);
+      block.setFieldValue(labels.blockly.pageSuffix, CG_GALLERY_LABEL_FIELDS.pageSuffix);
+      block.setTooltip(labels.blockly.cgTooltip);
+      for (let slotIndex = 0; slotIndex < CG_GALLERY_PAGE_SIZE; slotIndex += 1) {
+        block.setFieldValue(
+          `${labels.blockly.imageSlot} ${slotIndex + 1}`,
+          `${CG_GALLERY_LABEL_FIELDS.slotPrefix}${slotIndex}`,
+        );
+        const fieldName = cgGalleryImageFieldName(slotIndex);
+        const field = block.getField(fieldName);
+        if (!(field instanceof Blockly.FieldDropdown)) {
+          continue;
+        }
+        const currentAssetId = page.slots[slotIndex] ?? null;
+        field.setOptions(assetOptions(gallery, assets, currentAssetId, labels));
+        field.setValue(currentAssetId ?? '');
+      }
+      if (block instanceof Blockly.BlockSvg) {
+        block.render();
       }
     }
     if (workspace instanceof Blockly.WorkspaceSvg) {

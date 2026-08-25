@@ -289,8 +289,18 @@ describe('GamePreview choices', () => {
     expect(optionsDialog?.textContent).toContain('主音量');
     expect(optionsDialog?.textContent).toContain('背景音乐');
     expect(optionsDialog?.textContent).toContain(
-      '窗口模式和尺寸仅在正式 Player 中应用',
+      '当前运行环境不支持切换窗口模式或窗口尺寸',
     );
+    expect(
+      optionsDialog?.querySelector<HTMLSelectElement>(
+        'select[aria-label="窗口模式"]',
+      )?.disabled,
+    ).toBe(true);
+    expect(
+      optionsDialog?.querySelector<HTMLSelectElement>(
+        'select[aria-label="窗口尺寸"]',
+      )?.disabled,
+    ).toBe(true);
     expect(optionsDialog?.textContent).not.toContain('打开其他游戏');
     const returnButton = [...container.querySelectorAll('button')].find(
       (button) => button.textContent?.trim() === '返回',

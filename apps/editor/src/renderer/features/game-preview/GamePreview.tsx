@@ -8,6 +8,10 @@ import { getGamePreviewChoices } from './previewRuntime';
 import type { GamePreviewSession } from './useGamePreview';
 import { usePreviewAudio } from './usePreviewAudio';
 import { PreviewVideo } from './PreviewVideo';
+import {
+  useEditorLabels,
+  useEditorLanguage,
+} from '../../i18n/editorLocalization';
 
 type GamePreviewProps = {
   session: GamePreviewSession;
@@ -33,6 +37,8 @@ function StoryGamePreview({
   onChoiceSelect,
   onExit,
 }: StoryGamePreviewProps) {
+  const labels = useEditorLabels();
+  const language = useEditorLanguage();
   const rootRef = useRef<HTMLDivElement>(null);
   const { runtime } = session;
   const choices = getGamePreviewChoices(session.project, runtime);
@@ -46,7 +52,7 @@ function StoryGamePreview({
       return {
         id: character.nodeId,
         url: previewUrls[character.assetId] ?? null,
-        name: asset?.displayName ?? '缺失立绘',
+        name: asset?.displayName ?? labels.preview.missingPortrait,
         slot: character.slot,
         layer: character.layer,
         position: character.position,
@@ -90,7 +96,7 @@ function StoryGamePreview({
       ref={rootRef}
       className="game-preview-overlay"
       tabIndex={-1}
-      aria-label="游戏预览"
+      aria-label={labels.preview.gamePreview}
       onPointerUp={(event) => {
         if (event.button === 0 && runtime.status === 'playing') {
           onAdvance();
@@ -107,18 +113,22 @@ function StoryGamePreview({
         backgroundName={backgroundAsset?.displayName ?? null}
         showDialogue={runtime.status === 'playing' && runtime.dialogue !== null}
         characters={characters}
-        placeholder="游戏预览"
+        placeholder={labels.preview.gamePreview}
       >
         {runtime.status === 'finished' ? (
           <div className="game-preview-finished" role="status">
-            <strong>预览结束</strong>
-            <span>按 Esc 或点击右上角返回编辑器</span>
+            <strong>{labels.preview.finished}</strong>
+            <span>{labels.preview.finishedHelp}</span>
           </div>
         ) : null}
         {runtime.status === 'runtimeError' ? (
           <div className="game-preview-finished game-preview-error" role="alert">
-            <strong>预览无法继续</strong>
-            <span>{runtime.errorMessage}</span>
+            <strong>{labels.preview.cannotContinue}</strong>
+            <span>
+              {language === 'zh-CN'
+                ? runtime.errorMessage
+                : labels.preview.runtimeErrorFallback}
+            </span>
           </div>
         ) : null}
         {runtime.status === 'playingVideo' && runtime.videoAssetId ? (
@@ -134,7 +144,7 @@ function StoryGamePreview({
             <div
               className="game-preview-choice-list"
               role="group"
-              aria-label="请选择接下来的行动"
+              aria-label={labels.preview.chooseAction}
             >
               {choices.map((option) => (
                 <button
@@ -143,7 +153,7 @@ function StoryGamePreview({
                   className="game-preview-choice-button"
                   onClick={() => onChoiceSelect(option.id)}
                 >
-                  {option.text || '未命名选项'}
+                  {option.text || labels.common.unnamedOption}
                 </button>
               ))}
             </div>
@@ -154,8 +164,8 @@ function StoryGamePreview({
       <button
         type="button"
         className="game-preview-exit"
-        aria-label="退出游戏预览"
-        title="退出游戏预览（Esc）"
+        aria-label={labels.preview.exit}
+        title={labels.preview.exitWithEscape}
         onPointerUp={(event) => event.stopPropagation()}
         onClick={onExit}
       >
@@ -176,6 +186,8 @@ function TitleGamePreview({
   onEnterStory,
   onExit,
 }: TitleGamePreviewProps) {
+  const labels = useEditorLabels();
+  const language = useEditorLanguage();
   const rootRef = useRef<HTMLDivElement>(null);
   const loadNoticeRef = useRef<HTMLDivElement>(null);
   const loadNoticeTriggerRef = useRef<HTMLElement | null>(null);
@@ -234,9 +246,10 @@ function TitleGamePreview({
       ref={rootRef}
       className="game-preview-overlay game-preview-title-overlay"
       tabIndex={-1}
-      aria-label="完整主界面预览"
+      aria-label={labels.preview.fullTitlePreview}
     >
       <TitleScreen
+        language={language}
         startScreen={session.project.startScreen}
         cgGalleryPages={session.project.cgGallery?.pages ?? []}
         resolveMediaUrl={resolveMediaUrl}
@@ -256,21 +269,18 @@ function TitleGamePreview({
           className="player-menu-layer"
           role="dialog"
           aria-modal="true"
-          aria-label="读取游戏预览说明"
+          aria-label={labels.preview.loadNotice}
           tabIndex={-1}
         >
           <section className="player-menu-card">
             <p className="player-eyebrow">EDITOR PREVIEW</p>
-            <h2>读取游戏</h2>
-            <p className="game-preview-load-note">
-              Editor 只预览读取入口，不会访问或修改 Player
-              的本地存档。请在运行或导出的游戏中测试实际读取。
-            </p>
+            <h2>{labels.preview.loadGame}</h2>
+            <p className="game-preview-load-note">{labels.preview.loadHelp}</p>
             <button
               type="button"
               onClick={() => setLoadPreviewNoticeOpen(false)}
             >
-              知道了
+              {labels.preview.understood}
             </button>
           </section>
         </div>
@@ -278,8 +288,8 @@ function TitleGamePreview({
       <button
         type="button"
         className="game-preview-exit"
-        aria-label="退出游戏预览"
-        title="退出游戏预览（Esc）"
+        aria-label={labels.preview.exit}
+        title={labels.preview.exitWithEscape}
         disabled={loadPreviewNoticeOpen}
         aria-hidden={loadPreviewNoticeOpen || undefined}
         onClick={onExit}

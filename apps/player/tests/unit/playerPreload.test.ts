@@ -93,7 +93,7 @@ describe('Player Preload API', () => {
         slotId: 2,
         savedAt: '2026-08-24T06:00:00.000Z',
         sceneName: 'Scene',
-        summary: '剧情结束',
+        summary: { kind: 'finished' },
       },
     });
     await api.saveGame(2, snapshot);
@@ -126,7 +126,8 @@ describe('Player Preload API', () => {
     electronMocks.invoke.mockResolvedValueOnce({
       status: 'ready',
       settings: {
-        settingsVersion: 1,
+        settingsVersion: 2,
+        language: 'zh-CN',
         masterVolume: 1,
         bgmVolume: 1,
         voiceVolume: 1,
@@ -148,6 +149,16 @@ describe('Player Preload API', () => {
       {
         action: 'update-settings',
         params: { patch: { masterVolume: 0.75 } },
+      },
+    );
+
+    electronMocks.invoke.mockResolvedValueOnce({ status: 'updated' });
+    await api.updateSettings({ language: 'en-US' });
+    expect(electronMocks.invoke).toHaveBeenLastCalledWith(
+      PLAYER_IPC_CHANNEL,
+      {
+        action: 'update-settings',
+        params: { patch: { language: 'en-US' } },
       },
     );
 

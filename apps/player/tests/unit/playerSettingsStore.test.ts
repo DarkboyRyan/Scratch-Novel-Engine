@@ -35,7 +35,7 @@ afterEach(async () => {
 });
 
 describe('Player settings storage', () => {
-  it('uses immutable defaults when missing and atomically round-trips v1', async () => {
+  it('uses immutable defaults when missing and atomically round-trips v2', async () => {
     const { root, store } = await makeStore();
     const defaults = await store.load();
     expect(defaults).toEqual(DEFAULT_PLAYER_SETTINGS);
@@ -58,8 +58,9 @@ describe('Player settings storage', () => {
     ) as Record<string, unknown>;
     expect(document).toEqual({
       format: 'vn-engine-player-settings',
-      settingsVersion: 1,
+      settingsVersion: 2,
       settings: {
+        language: 'zh-CN',
         masterVolume: 0.75,
         bgmVolume: 0.5,
         voiceVolume: 0.25,
@@ -71,12 +72,73 @@ describe('Player settings storage', () => {
     expect(JSON.stringify(document)).not.toContain(root);
   });
 
+  it('strictly migrates an exact v1 document to Chinese and writes only v2', async () => {
+    const { root, reportError, store } = await makeStore();
+    await store.write({ ...DEFAULT_PLAYER_SETTINGS });
+    await writeFile(path.join(root, 'settings.json'), JSON.stringify({
+      format: 'vn-engine-player-settings',
+      settingsVersion: 1,
+      settings: {
+        masterVolume: 0.7,
+        bgmVolume: 0.6,
+        voiceVolume: 0.5,
+        videoVolume: 0.4,
+        windowMode: 'windowed',
+        windowSizePreset: 'large',
+      },
+    }));
+
+    const migrated = await store.load();
+    expect(migrated).toEqual({
+      settingsVersion: 2,
+      language: 'zh-CN',
+      masterVolume: 0.7,
+      bgmVolume: 0.6,
+      voiceVolume: 0.5,
+      videoVolume: 0.4,
+      windowMode: 'windowed',
+      windowSizePreset: 'large',
+    });
+    expect(reportError).not.toHaveBeenCalled();
+
+    await store.write(migrated);
+    const rewritten = JSON.parse(
+      await readFile(path.join(root, 'settings.json'), 'utf8'),
+    ) as Record<string, unknown>;
+    expect(rewritten).toEqual({
+      format: 'vn-engine-player-settings',
+      settingsVersion: 2,
+      settings: {
+        language: 'zh-CN',
+        masterVolume: 0.7,
+        bgmVolume: 0.6,
+        voiceVolume: 0.5,
+        videoVolume: 0.4,
+        windowMode: 'windowed',
+        windowSizePreset: 'large',
+      },
+    });
+  });
+
   it('fails closed to defaults for malformed, future, and non-exact documents', async () => {
     const { root, reportError, store } = await makeStore();
     await store.write({ ...DEFAULT_PLAYER_SETTINGS });
     const filePath = path.join(root, 'settings.json');
     const invalidDocuments = [
       '{broken',
+      JSON.stringify({
+        format: 'vn-engine-player-settings',
+        settingsVersion: 3,
+        settings: {
+          language: 'zh-CN',
+          masterVolume: 1,
+          bgmVolume: 1,
+          voiceVolume: 1,
+          videoVolume: 1,
+          windowMode: 'windowed',
+          windowSizePreset: 'medium',
+        },
+      }),
       JSON.stringify({
         format: 'vn-engine-player-settings',
         settingsVersion: 2,
@@ -93,19 +155,34 @@ describe('Player settings storage', () => {
         format: 'vn-engine-player-settings',
         settingsVersion: 1,
         settings: {
+          language: 'zh-CN',
           masterVolume: 1,
           bgmVolume: 1,
           voiceVolume: 1,
           videoVolume: 1,
           windowMode: 'windowed',
           windowSizePreset: 'medium',
-          settingsVersion: 1,
         },
       }),
       JSON.stringify({
         format: 'vn-engine-player-settings',
-        settingsVersion: 1,
+        settingsVersion: 2,
         settings: {
+          language: 'zh-CN',
+          masterVolume: 1,
+          bgmVolume: 1,
+          voiceVolume: 1,
+          videoVolume: 1,
+          windowMode: 'windowed',
+          windowSizePreset: 'medium',
+          settingsVersion: 2,
+        },
+      }),
+      JSON.stringify({
+        format: 'vn-engine-player-settings',
+        settingsVersion: 2,
+        settings: {
+          language: 'zh-CN',
           masterVolume: Number.NaN,
           bgmVolume: 1,
           voiceVolume: 1,

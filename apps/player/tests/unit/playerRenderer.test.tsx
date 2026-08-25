@@ -9,7 +9,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from '../../src/renderer/App';
 import type { PlayerGateway } from '../../src/renderer/playerGateway';
-import { createDefaultPlayerSettings } from '../../src/shared/playerProtocol';
+import {
+  createDefaultPlayerSettings,
+  type PlayerErrorCode,
+  type PlayerSaveSummaryContent,
+} from '../../src/shared/playerProtocol';
 
 vi.mock('@vnengine/player-ui', async (importOriginal) => {
   const original = await importOriginal<typeof PlayerUi>();
@@ -129,8 +133,20 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function keyboard(key: string): KeyboardEvent {
+function keyboard(
+  key: string,
+  init: KeyboardEventInit = {},
+): KeyboardEvent {
   return new KeyboardEvent('keydown', {
+    bubbles: true,
+    cancelable: true,
+    key,
+    ...init,
+  });
+}
+
+function keyboardUp(key: string): KeyboardEvent {
+  return new KeyboardEvent('keyup', {
     bubbles: true,
     cancelable: true,
     key,
@@ -161,6 +177,26 @@ function initialRuntime() {
     throw new Error('Test project must have a valid entry scene');
   }
   return runtime;
+}
+
+function dialogueOnlyGame(lineCount = 12) {
+  const dialogueProject: ProjectDocument = {
+    ...project,
+    scenes: [{
+      schemaVersion: 1,
+      id: 'entry',
+      name: '快进测试',
+      backgroundAssetId: null,
+      nodes: Array.from({ length: lineCount }, (_, index) => ({
+        id: `line-${index + 1}`,
+        type: 'dialogue' as const,
+        speaker: '旁白',
+        text: `快进对白 ${index + 1}`,
+        voiceAssetId: null,
+      })),
+    }],
+  };
+  return { project: dialogueProject, assets: [] };
 }
 
 describe('Player Renderer', () => {
@@ -197,7 +233,11 @@ describe('Player Renderer', () => {
         slotId: 1,
         savedAt: '2026-08-24T08:00:00.000Z',
         sceneName: '序章',
-        summary: '小星：欢迎来到故事。',
+        summary: {
+          kind: 'dialogue',
+          speaker: '小星',
+          text: '欢迎来到故事。',
+        },
       },
     });
     loadGameSlot = vi.fn().mockResolvedValue({ status: 'empty' });
@@ -207,7 +247,11 @@ describe('Player Renderer', () => {
         slotId: 'quick',
         savedAt: '2026-08-24T08:00:00.000Z',
         sceneName: '序章',
-        summary: '小星：欢迎来到故事。',
+        summary: {
+          kind: 'dialogue',
+          speaker: '小星',
+          text: '欢迎来到故事。',
+        },
       },
     });
     quickLoad = vi.fn().mockResolvedValue({ status: 'empty' });
@@ -249,6 +293,7 @@ describe('Player Renderer', () => {
     await act(async () => root.unmount());
     container.remove();
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it('waits for a real start click, then executes all seven node types', async () => {
@@ -502,6 +547,109 @@ describe('Player Renderer', () => {
     expect(document.activeElement).toBe(optionsTrigger);
   });
 
+  it('switches the Player shell to English without resetting authored story state', async () => {
+    await act(async () => root.render(<App gateway={gateway} />));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(document.documentElement.lang).toBe('zh-CN');
+    expect(container.textContent).toContain('开始游戏');
+    await act(async () => button(container, '开始游戏').click());
+    await act(async () => window.dispatchEvent(keyboard('Enter')));
+    expect(exactButton(container, '继续前进')).toBeTruthy();
+
+    await act(async () => exactButton(
+      container.querySelector('.player-game-action-bar')!,
+      '选项',
+    ).click());
+    const language = container.querySelector<HTMLSelectElement>(
+      '[aria-label="界面语言"]',
+    );
+    expect(language).not.toBeNull();
+
+    await act(async () => {
+      if (language) {
+        setSelectValue(language, 'en-US');
+      }
+      await Promise.resolve();
+    });
+
+    expect(updateSettings).toHaveBeenLastCalledWith({ language: 'en-US' });
+    expect(document.documentElement.lang).toBe('en-US');
+    expect(container.querySelector('[aria-label="Options"]')).not.toBeNull();
+    expect(container.textContent).toContain('Master Volume');
+    await act(async () => exactButton(container, 'Back').click());
+
+    expect(exactButton(container, 'Save')).toBeTruthy();
+    expect(exactButton(container, 'Fast Forward')).toBeTruthy();
+    expect(exactButton(container, 'Return to Title')).toBeTruthy();
+    expect(exactButton(container, '继续前进')).toBeTruthy();
+    expect(container.querySelector('h1')).toBeNull();
+  });
+
+  it('rolls the interface language back when persistence is rejected', async () => {
+    const pendingUpdate = deferred<{
+      status: 'rejected';
+      error: PlayerErrorCode;
+    }>();
+    updateSettings.mockReturnValueOnce(pendingUpdate.promise);
+    await act(async () => root.render(<App gateway={gateway} />));
+    await act(async () => exactButton(container, '选项').click());
+    const language = container.querySelector<HTMLSelectElement>(
+      '[aria-label="界面语言"]',
+    );
+
+    await act(async () => {
+      if (language) {
+        setSelectValue(language, 'en-US');
+      }
+    });
+    expect(document.documentElement.lang).toBe('en-US');
+    expect(container.querySelector('[aria-label="Options"]')).not.toBeNull();
+
+    await act(async () => pendingUpdate.resolve({
+      status: 'rejected',
+      error: 'settings-storage-unavailable',
+    }));
+    expect(document.documentElement.lang).toBe('zh-CN');
+    expect(container.querySelector('[aria-label="选项"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="界面语言"]')).not.toBeNull();
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      '无法访问设置存储',
+    );
+  });
+
+  it('localizes an earlier asynchronous load error after settings settle', async () => {
+    const pendingSettings = deferred<{
+      status: 'ready';
+      settings: ReturnType<typeof createDefaultPlayerSettings>;
+    }>();
+    getSettings.mockReturnValue(pendingSettings.promise);
+    gateway.loadGame = vi.fn().mockResolvedValue({
+      status: 'error',
+      mode: 'generic',
+      error: 'bundle-load-failed',
+    });
+
+    await act(async () => root.render(<App gateway={gateway} />));
+    expect(container.textContent).toContain('正在载入游戏');
+
+    await act(async () => pendingSettings.resolve({
+      status: 'ready',
+      settings: {
+        ...createDefaultPlayerSettings(),
+        language: 'en-US',
+      },
+    }));
+
+    expect(document.documentElement.lang).toBe('en-US');
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      'The game package could not be loaded',
+    );
+    expect(container.textContent).not.toContain('无法读取游戏内容包');
+  });
+
   it('refreshes native window mode while the options dialog is open', async () => {
     await act(async () => root.render(<App gateway={gateway} />));
     getSettings.mockResolvedValue({
@@ -540,7 +688,7 @@ describe('Player Renderer', () => {
     });
     const pendingUpdate = deferred<{
       status: 'rejected';
-      error: string;
+      error: PlayerErrorCode;
     }>();
     updateSettings.mockReturnValueOnce(pendingUpdate.promise);
     await act(async () => root.render(<App gateway={gateway} />));
@@ -569,11 +717,11 @@ describe('Player Renderer', () => {
 
     await act(async () => pendingUpdate.resolve({
       status: 'rejected',
-      error: '设置暂时无法保存',
+      error: 'settings-storage-unavailable',
     }));
     expect(master?.value).toBe('50');
     expect(container.querySelector('[role="alert"]')?.textContent)
-      .toContain('设置暂时无法保存');
+      .toContain('无法访问设置存储');
     expect(document.activeElement).toBe(master);
   });
 
@@ -618,6 +766,64 @@ describe('Player Renderer', () => {
     });
   });
 
+  it('scales typography from the retained preset without remounting gameplay', async () => {
+    await act(async () => root.render(<App gateway={gateway} />));
+    await act(async () => button(container, '开始游戏').click());
+    await act(async () => window.dispatchEvent(keyboard('Enter')));
+
+    const playerApp = container.querySelector<HTMLElement>('.player-app');
+    const gameScreen = container.querySelector<HTMLElement>('.player-game');
+    const portrait = container.querySelector<HTMLImageElement>(
+      '.preview-character-center',
+    );
+    expect(exactButton(container, '继续前进')).toBeTruthy();
+    expect(portrait).not.toBeNull();
+    expect(playerApp?.dataset.playerWindowSizePreset).toBe('medium');
+
+    await act(async () => exactButton(
+      container.querySelector('.player-game-action-bar')!,
+      '选项',
+    ).click());
+    const size = container.querySelector<HTMLSelectElement>(
+      '[aria-label="窗口尺寸"]',
+    );
+    const mode = container.querySelector<HTMLSelectElement>(
+      '[aria-label="窗口模式"]',
+    );
+
+    await act(async () => {
+      if (size) {
+        setSelectValue(size, 'large');
+      }
+      await Promise.resolve();
+    });
+    expect(playerApp?.dataset.playerWindowSizePreset).toBe('large');
+    expect(container.querySelector('.player-game')).toBe(gameScreen);
+    expect(container.querySelector('.preview-character-center')).toBe(
+      portrait,
+    );
+
+    await act(async () => {
+      if (mode) {
+        setSelectValue(mode, 'fullscreen');
+      }
+      await Promise.resolve();
+    });
+    expect(playerApp?.dataset.playerWindowSizePreset).toBe('large');
+    expect(size?.disabled).toBe(true);
+    expect(container.querySelector('.player-game')).toBe(gameScreen);
+    expect(container.querySelector('.preview-character-center')).toBe(
+      portrait,
+    );
+
+    await act(async () => exactButton(container, '返回').click());
+    expect(exactButton(container, '继续前进')).toBeTruthy();
+    expect(container.querySelector('.player-game')).toBe(gameScreen);
+    expect(container.querySelector('.preview-character-center')).toBe(
+      portrait,
+    );
+  });
+
   it('passes effective gameplay channel volumes without pausing for options', async () => {
     getSettings.mockResolvedValue({
       status: 'ready',
@@ -656,13 +862,17 @@ describe('Player Renderer', () => {
           slotId: 1,
           savedAt: '2026-08-24T08:00:00.000Z',
           sceneName: '序章',
-          summary: '小星：欢迎来到故事。',
+          summary: {
+            kind: 'dialogue',
+            speaker: '小星',
+            text: '欢迎来到故事。',
+          },
         },
         {
           slotId: 'quick',
           savedAt: '2026-08-24T08:30:00.000Z',
           sceneName: '序章',
-          summary: '快速存档',
+          summary: { kind: 'progress' },
         },
       ],
     });
@@ -675,18 +885,71 @@ describe('Player Renderer', () => {
     await act(async () => exactButton(container, '读取游戏').click());
 
     expect(container.querySelectorAll('.player-save-slot')).toHaveLength(4);
-    expect(container.querySelector('[aria-label="读取快速存档"]')).not.toBeNull();
+    expect(container.querySelector('[data-save-slot-id="quick"]')).not.toBeNull();
     expect(container.querySelector<HTMLButtonElement>(
-      '[aria-label="读取存档 2"]',
+      '[data-save-slot-id="2"]',
     )?.disabled).toBe(true);
 
     await act(async () => container.querySelector<HTMLButtonElement>(
-      '[aria-label="读取快速存档"]',
+      '[data-save-slot-id="quick"]',
     )?.click());
 
     expect(quickLoad).toHaveBeenCalledOnce();
     expect(container.textContent).toContain('欢迎来到故事。');
     expect(container.textContent).toContain('已读取快速存档');
+  });
+
+  it('relocalizes structured save summaries without remounting gameplay', async () => {
+    listSaveSlots.mockResolvedValue({
+      status: 'ready',
+      slots: [
+        {
+          slotId: 1,
+          savedAt: '2026-08-24T08:00:00.000Z',
+          sceneName: '作者场景名',
+          summary: {
+            kind: 'dialogue',
+            speaker: 'Alice',
+            text: 'Hello!',
+          },
+        },
+        {
+          slotId: 2,
+          savedAt: '2026-08-24T08:10:00.000Z',
+          sceneName: '选择场景',
+          summary: { kind: 'choosing' },
+        },
+      ],
+    });
+    await act(async () => root.render(<App gateway={gateway} />));
+    await act(async () => button(container, '开始游戏').click());
+    const gameScreen = container.querySelector('.player-game');
+
+    await act(async () => exactButton(container, '读取').click());
+    expect(container.textContent).toContain('Alice：Hello!');
+    expect(container.textContent).toContain('等待选择');
+    await act(async () => container.querySelector<HTMLButtonElement>(
+      '[aria-label="关闭存档窗口"]',
+    )?.click());
+
+    await act(async () => exactButton(container, '选项').click());
+    const language = container.querySelector<HTMLSelectElement>(
+      '[aria-label="界面语言"]',
+    );
+    await act(async () => {
+      if (language) {
+        setSelectValue(language, 'en-US');
+      }
+      await Promise.resolve();
+    });
+    await act(async () => exactButton(container, 'Back').click());
+
+    expect(container.querySelector('.player-game')).toBe(gameScreen);
+    await act(async () => exactButton(container, 'Load').click());
+    expect(container.textContent).toContain('Alice: Hello!');
+    expect(container.textContent).toContain('Waiting for a Choice');
+    expect(container.textContent).not.toContain('Alice：Hello!');
+    expect(container.querySelector('.player-game')).toBe(gameScreen);
   });
 
   it('traps title-load focus, deduplicates list requests and restores its trigger', async () => {
@@ -696,7 +959,7 @@ describe('Player Renderer', () => {
         slotId: 1;
         savedAt: string;
         sceneName: string;
-        summary: string;
+        summary: PlayerSaveSummaryContent;
       }>;
     }>();
     listSaveSlots.mockReturnValue(pendingSlots.promise);
@@ -726,7 +989,11 @@ describe('Player Renderer', () => {
         slotId: 1,
         savedAt: '2026-08-24T08:00:00.000Z',
         sceneName: '序章',
-        summary: '小星：欢迎来到故事。',
+        summary: {
+          kind: 'dialogue',
+          speaker: '小星',
+          text: '欢迎来到故事。',
+        },
       }],
     }));
     closeButton?.focus();
@@ -739,7 +1006,7 @@ describe('Player Renderer', () => {
     await act(async () => window.dispatchEvent(reverseTab));
     expect(reverseTab.defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(container.querySelector(
-      '[aria-label="读取存档 1"]',
+      '[data-save-slot-id="1"]',
     ));
 
     const forwardTab = keyboard('Tab');
@@ -754,14 +1021,15 @@ describe('Player Renderer', () => {
     expect(quit).not.toHaveBeenCalled();
   });
 
-  it('keeps the action bar from advancing the story and marks future actions unavailable', async () => {
+  it('keeps the action bar from advancing the story and exposes fast-forward', async () => {
     await act(async () => root.render(<App gateway={gateway} />));
     await act(async () => button(container, '开始游戏').click());
 
     const actionBar = container.querySelector('[aria-label="游戏操作"]');
     expect(actionBar?.querySelectorAll('button')).toHaveLength(7);
-    expect(exactButton(actionBar!, '快进').disabled).toBe(true);
-    expect(exactButton(actionBar!, '快进').title).toBe('暂未开放');
+    expect(exactButton(actionBar!, '快进').disabled).toBe(false);
+    expect(exactButton(actionBar!, '快进').getAttribute('aria-pressed'))
+      .toBe('false');
     expect(exactButton(actionBar!, '选项').disabled).toBe(false);
     expect(exactButton(actionBar!, '选项').title).toBe('');
 
@@ -772,6 +1040,165 @@ describe('Player Renderer', () => {
     expect(container.textContent).toContain('欢迎来到故事。');
     expect(container.textContent).not.toContain('继续前进');
     expect(listSaveSlots).not.toHaveBeenCalled();
+  });
+
+  it('toggles timed fast-forward from the action bar and stops immediately', async () => {
+    vi.useFakeTimers();
+    gateway.loadGame = vi.fn().mockResolvedValue({
+      status: 'loaded',
+      mode: 'generic',
+      game: dialogueOnlyGame(),
+    });
+    await act(async () => root.render(<App gateway={gateway} />));
+    await act(async () => button(container, '开始游戏').click());
+
+    const fastForward = exactButton(container, '快进');
+    expect(container.textContent).toContain('快进对白 1');
+    await act(async () => fastForward.click());
+
+    expect(fastForward.getAttribute('aria-pressed')).toBe('true');
+    expect(container.textContent).toContain('快进对白 1');
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    expect(container.textContent).toContain('快进对白 2');
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    expect(container.textContent).toContain('快进对白 3');
+
+    await act(async () => fastForward.click());
+    expect(fastForward.getAttribute('aria-pressed')).toBe('false');
+    await act(async () => vi.advanceTimersByTimeAsync(10_000));
+    expect(container.textContent).toContain('快进对白 3');
+    expect(container.textContent).not.toContain('快进对白 4');
+  });
+
+  it('advances once on a short Space press and fast-forwards only while held', async () => {
+    vi.useFakeTimers();
+    gateway.loadGame = vi.fn().mockResolvedValue({
+      status: 'loaded',
+      mode: 'generic',
+      game: dialogueOnlyGame(),
+    });
+    await act(async () => root.render(<App gateway={gateway} />));
+    await act(async () => button(container, '开始游戏').click());
+
+    const shortPress = keyboard(' ');
+    await act(async () => {
+      window.dispatchEvent(shortPress);
+      window.dispatchEvent(keyboardUp(' '));
+    });
+    expect(shortPress.defaultPrevented).toBe(true);
+    expect(container.textContent).toContain('快进对白 2');
+    await act(async () => vi.advanceTimersByTimeAsync(10_000));
+    expect(container.textContent).toContain('快进对白 2');
+
+    const longPress = keyboard(' ');
+    await act(async () => window.dispatchEvent(longPress));
+    expect(container.textContent).toContain('快进对白 3');
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    expect(exactButton(container, '快进').getAttribute('aria-pressed'))
+      .toBe('true');
+    const dialogueAtActivation = container.querySelector('.dialogue-box p')
+      ?.textContent;
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    expect(container.querySelector('.dialogue-box p')?.textContent)
+      .not.toBe(dialogueAtActivation);
+
+    await act(async () => window.dispatchEvent(keyboardUp(' ')));
+    expect(exactButton(container, '快进').getAttribute('aria-pressed'))
+      .toBe('false');
+    const stoppedDialogue = container.querySelector('.dialogue-box p')
+      ?.textContent;
+    await act(async () => vi.advanceTimersByTimeAsync(10_000));
+    expect(container.querySelector('.dialogue-box p')?.textContent)
+      .toBe(stoppedDialogue);
+  });
+
+  it('ignores modified or composing Space input and stops fast-forward on blur', async () => {
+    vi.useFakeTimers();
+    gateway.loadGame = vi.fn().mockResolvedValue({
+      status: 'loaded',
+      mode: 'generic',
+      game: dialogueOnlyGame(),
+    });
+    await act(async () => root.render(<App gateway={gateway} />));
+    await act(async () => button(container, '开始游戏').click());
+
+    await act(async () => {
+      window.dispatchEvent(keyboard(' ', { altKey: true }));
+      window.dispatchEvent(keyboard(' ', { ctrlKey: true }));
+      window.dispatchEvent(keyboard(' ', { metaKey: true }));
+      window.dispatchEvent(keyboard(' ', { shiftKey: true }));
+      window.dispatchEvent(keyboard(' ', { isComposing: true }));
+      window.dispatchEvent(keyboard(' ', { repeat: true }));
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(container.textContent).toContain('快进对白 1');
+
+    await act(async () => exactButton(container, '快进').click());
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    const dialogueBeforeBlur = container.querySelector('.dialogue-box p')
+      ?.textContent;
+    expect(dialogueBeforeBlur).not.toBe('快进对白 1');
+
+    await act(async () => window.dispatchEvent(new Event('blur')));
+    expect(exactButton(container, '快进').getAttribute('aria-pressed'))
+      .toBe('false');
+    await act(async () => vi.advanceTimersByTimeAsync(10_000));
+    expect(container.querySelector('.dialogue-box p')?.textContent)
+      .toBe(dialogueBeforeBlur);
+  });
+
+  it('never auto-selects a choice or skips a video while fast-forwarding', async () => {
+    vi.useFakeTimers();
+    await act(async () => root.render(<App gateway={gateway} />));
+    await act(async () => button(container, '开始游戏').click());
+    await act(async () => exactButton(container, '快进').click());
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+
+    expect(exactButton(container, '继续前进')).toBeTruthy();
+    await act(async () => vi.advanceTimersByTimeAsync(10_000));
+    expect(exactButton(container, '继续前进')).toBeTruthy();
+    expect(resolveMediaUrl).not.toHaveBeenCalledWith('video-1');
+
+    await act(async () => exactButton(container, '继续前进').click());
+    expect(container.querySelector('video')).not.toBeNull();
+    expect(resolveMediaUrl).toHaveBeenCalledWith('video-1');
+    await act(async () => vi.advanceTimersByTimeAsync(10_000));
+    expect(container.querySelector('video')).not.toBeNull();
+    expect(resolveMediaUrl).not.toHaveBeenCalledWith('video-2');
+  });
+
+  it('ignores Space fast-forward on the title, pause menu and modal layers', async () => {
+    vi.useFakeTimers();
+    await act(async () => root.render(<App gateway={gateway} />));
+
+    await act(async () => {
+      window.dispatchEvent(keyboard(' '));
+      await vi.advanceTimersByTimeAsync(10_000);
+      window.dispatchEvent(keyboardUp(' '));
+    });
+    expect(container.querySelector('h1')?.textContent).toBe('自定义星光标题');
+
+    await act(async () => button(container, '开始游戏').click());
+    await act(async () => window.dispatchEvent(keyboard('Escape')));
+    await act(async () => {
+      window.dispatchEvent(keyboard(' '));
+      await vi.advanceTimersByTimeAsync(10_000);
+      window.dispatchEvent(keyboardUp(' '));
+    });
+    expect(container.querySelector('[aria-label="暂停菜单"]')).not.toBeNull();
+    await act(async () => window.dispatchEvent(keyboard('Escape')));
+    expect(container.textContent).toContain('欢迎来到故事。');
+
+    await act(async () => exactButton(container, '选项').click());
+    await act(async () => {
+      window.dispatchEvent(keyboard(' '));
+      await vi.advanceTimersByTimeAsync(10_000);
+      window.dispatchEvent(keyboardUp(' '));
+    });
+    expect(container.querySelector('[aria-label="选项"]')).not.toBeNull();
+    await act(async () => exactButton(container, '返回').click());
+    expect(container.textContent).toContain('欢迎来到故事。');
+    expect(container.textContent).not.toContain('继续前进');
   });
 
   it('keeps options and storage operations mutually exclusive in the same tick', async () => {
@@ -902,14 +1329,14 @@ describe('Player Renderer', () => {
         slotId: 1,
         savedAt: '2026-08-24T08:00:00.000Z',
         sceneName: '序章',
-        summary: '旧进度',
+        summary: { kind: 'progress' },
       }],
     });
     await act(async () => root.render(<App gateway={gateway} />));
     await act(async () => button(container, '开始游戏').click());
     await act(async () => exactButton(container, '保存').click());
     await act(async () => container.querySelector<HTMLButtonElement>(
-      '[aria-label="存入存档 1"]',
+      '[data-save-slot-id="1"]',
     )?.click());
 
     expect(container.textContent).toContain('覆盖存档 1？');
@@ -936,7 +1363,7 @@ describe('Player Renderer', () => {
         slotId: 1;
         savedAt: string;
         sceneName: string;
-        summary: string;
+        summary: PlayerSaveSummaryContent;
       };
     }>();
     resolveMediaUrl.mockImplementation((assetId: string) =>
@@ -958,7 +1385,7 @@ describe('Player Renderer', () => {
     expect(vi.mocked(HTMLMediaElement.prototype.pause).mock.calls.length)
       .toBeGreaterThan(pauseCalls);
     await act(async () => container.querySelector<HTMLButtonElement>(
-      '[aria-label="存入存档 1"]',
+      '[data-save-slot-id="1"]',
     )?.click());
 
     const playCallsWhileBlocked = vi.mocked(HTMLMediaElement.prototype.play)
@@ -987,7 +1414,7 @@ describe('Player Renderer', () => {
         slotId: 1,
         savedAt: '2026-08-24T08:00:00.000Z',
         sceneName: '过场',
-        summary: '过场动画',
+        summary: { kind: 'playing-video' },
       },
     }));
     expect(vi.mocked(HTMLMediaElement.prototype.play).mock.calls.length)
@@ -1006,12 +1433,12 @@ describe('Player Renderer', () => {
         slotId: 1,
         savedAt: '2026-08-24T08:00:00.000Z',
         sceneName: '序章',
-        summary: '旧进度',
+        summary: { kind: 'progress' },
       }],
     });
     const pendingLoad = deferred<{
       status: 'rejected';
-      error: string;
+      error: PlayerErrorCode;
     }>();
     loadGameSlot.mockReturnValue(pendingLoad.promise);
     await act(async () => root.render(<App gateway={gateway} />));
@@ -1019,7 +1446,7 @@ describe('Player Renderer', () => {
     const gameBeforeLoad = container.querySelector('.player-game');
     await act(async () => exactButton(container, '读取').click());
     await act(async () => container.querySelector<HTMLButtonElement>(
-      '[aria-label="读取存档 1"]',
+      '[data-save-slot-id="1"]',
     )?.click());
 
     const escape = keyboard('Escape');
@@ -1030,12 +1457,12 @@ describe('Player Renderer', () => {
 
     await act(async () => pendingLoad.resolve({
       status: 'rejected',
-      error: '存档校验失败',
+      error: 'save-incompatible',
     }));
     expect(container.querySelector('.player-game')).toBe(gameBeforeLoad);
     expect(container.textContent).toContain('欢迎来到故事。');
     expect(container.querySelector('[role="alert"]')?.textContent)
-      .toContain('存档校验失败');
+      .toContain('存档与当前游戏不兼容');
   });
 
   it('latches quick operations and remounts gameplay after a successful load', async () => {
@@ -1045,7 +1472,7 @@ describe('Player Renderer', () => {
         slotId: 'quick';
         savedAt: string;
         sceneName: string;
-        summary: string;
+        summary: PlayerSaveSummaryContent;
       };
     }>();
     quickSave.mockReturnValue(pendingSave.promise);
@@ -1066,7 +1493,11 @@ describe('Player Renderer', () => {
         slotId: 'quick',
         savedAt: '2026-08-24T08:00:00.000Z',
         sceneName: '序章',
-        summary: '小星：欢迎来到故事。',
+        summary: {
+          kind: 'dialogue',
+          speaker: '小星',
+          text: '欢迎来到故事。',
+        },
       },
     }));
     expect(container.textContent).toContain('快速保存完成');
@@ -1218,6 +1649,28 @@ describe('Player Renderer', () => {
     expect(gateway.openGame).not.toHaveBeenCalled();
   });
 
+  it('returns from the running story to its title without quitting the Player', async () => {
+    await act(async () => root.render(<App gateway={gateway} />));
+    await act(async () => button(container, '开始游戏').click());
+    await act(async () => window.dispatchEvent(keyboard('Enter')));
+
+    expect(exactButton(container, '返回标题')).toBeTruthy();
+    expect(exactButton(container, '继续前进')).toBeTruthy();
+    expect(container.querySelector('h1')).toBeNull();
+
+    await act(async () => exactButton(container, '返回标题').click());
+
+    expect(container.querySelector('h1')?.textContent).toBe('自定义星光标题');
+    expect(button(container, '开始游戏')).toBeTruthy();
+    expect(exactButton(container, '退出游戏')).toBeTruthy();
+    expect(quit).not.toHaveBeenCalled();
+
+    await act(async () => button(container, '开始游戏').click());
+    expect(container.textContent).toContain('欢迎来到故事。');
+    expect(container.textContent).not.toContain('继续前进');
+    expect(quit).not.toHaveBeenCalled();
+  });
+
   it('re-resolves same-ID title assets after replacing the bundle', async () => {
     const titledGame = {
       ...game,
@@ -1295,9 +1748,18 @@ describe('Player Renderer', () => {
     await act(async () => window.dispatchEvent(keyboard('Escape')));
     expect(container.querySelector('[aria-label="暂停菜单"]')).toBeNull();
     expect(container.textContent).toContain('欢迎来到故事。');
+
+    await act(async () => window.dispatchEvent(keyboard('Escape')));
+    const reopenedPauseMenu = container.querySelector<HTMLElement>(
+      '[aria-label="暂停菜单"]',
+    );
+    expect(exactButton(reopenedPauseMenu!, '返回标题')).toBeTruthy();
+    await act(async () => exactButton(reopenedPauseMenu!, '返回标题').click());
+    expect(container.querySelector('h1')?.textContent).toBe('自定义星光标题');
+    expect(quit).not.toHaveBeenCalled();
   });
 
-  it('offers restart and exit after the story finishes', async () => {
+  it('offers restart and return-to-title after the story finishes', async () => {
     const shortGame = {
       project: {
         ...project,
@@ -1331,8 +1793,10 @@ describe('Player Renderer', () => {
     expect(container.textContent).toContain('结束。');
 
     await act(async () => window.dispatchEvent(keyboard('Enter')));
-    await act(async () => button(container, '退出游戏').click());
-    expect(quit).toHaveBeenCalledOnce();
+    await act(async () => exactButton(container, '返回标题').click());
+    expect(container.querySelector('h1')?.textContent).toBe('自定义星光标题');
+    expect(button(container, '开始游戏')).toBeTruthy();
+    expect(quit).not.toHaveBeenCalled();
   });
 
   it('opens a .vngame from the empty shell and switches to its title page', async () => {
@@ -1356,7 +1820,7 @@ describe('Player Renderer', () => {
   it('keeps the current game when a replacement bundle is rejected', async () => {
     gateway.openGame = vi.fn().mockResolvedValue({
       status: 'rejected',
-      error: '游戏内容包无效、已损坏或版本不受支持',
+      error: 'bundle-selection-failed',
     });
     await act(async () => root.render(<App gateway={gateway} />));
 
@@ -1364,7 +1828,7 @@ describe('Player Renderer', () => {
     await act(async () => button(container, '打开其他游戏').click());
     expect(container.querySelector('h1')?.textContent).toBe('自定义星光标题');
     expect(container.querySelector('[role="alertdialog"]')?.textContent)
-      .toContain('版本不受支持');
+      .toContain('无法打开游戏内容包');
 
     await act(async () => button(container, '返回').click());
     expect(container.querySelector('[role="alertdialog"]')).toBeNull();
@@ -1374,7 +1838,7 @@ describe('Player Renderer', () => {
   it('traps replacement errors and blocks the underlying story until dismissed', async () => {
     gateway.openGame = vi.fn().mockResolvedValue({
       status: 'rejected',
-      error: '替换内容包无效',
+      error: 'bundle-selection-failed',
     });
     await act(async () => root.render(<App gateway={gateway} />));
     await act(async () => button(container, '开始游戏').click());
@@ -1389,7 +1853,7 @@ describe('Player Renderer', () => {
     const errorDialog = container.querySelector<HTMLElement>(
       '[aria-label="内容包未打开"]',
     );
-    expect(errorDialog?.textContent).toContain('替换内容包无效');
+    expect(errorDialog?.textContent).toContain('无法打开游戏内容包');
     expect(container.querySelectorAll('[aria-modal="true"]')).toHaveLength(1);
     expect(exactButton(errorDialog!, '返回')).toBe(document.activeElement);
     expect(container.textContent).toContain('欢迎来到故事。');
@@ -1432,17 +1896,17 @@ describe('Player Renderer', () => {
     gateway.loadGame = vi.fn().mockResolvedValueOnce({
       status: 'error',
       mode: 'generic',
-      error: 'manifest.json 校验失败',
+      error: 'bundle-load-failed',
     });
     await act(async () => root.render(<App gateway={gateway} />));
 
     expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-      'manifest.json 校验失败',
+      '无法读取游戏内容包',
     );
     gateway.openGame = vi.fn().mockRejectedValueOnce(new Error('read failed'));
     await act(async () => button(container, '选择其他游戏包').click());
     expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-      'manifest.json 校验失败',
+      '无法读取游戏内容包',
     );
     expect(container.querySelector('[role="alertdialog"]')?.textContent).toContain(
       '无法打开游戏内容包',
@@ -1489,7 +1953,7 @@ describe('Player Renderer', () => {
     gateway.loadGame = vi.fn().mockResolvedValue({
       status: 'error',
       mode: 'embedded',
-      error: '游戏内容包无效、已损坏或版本不受支持',
+      error: 'bundle-load-failed',
     });
     await act(async () => root.render(<App gateway={gateway} />));
     expect(container.querySelector('[role="alert"]')).not.toBeNull();

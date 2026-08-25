@@ -150,7 +150,11 @@ describe('Player save storage', () => {
         slotId: 1,
         savedAt: '2026-08-24T06:00:00.000Z',
         sceneName: 'First scene',
-        summary: 'Alice：A safe summary',
+        summary: {
+          kind: 'dialogue',
+          speaker: 'Alice',
+          text: 'A safe summary',
+        },
       },
     });
     await expect(store.write(active, 'quick', snapshot, isCurrent)).resolves.toMatchObject({
@@ -203,7 +207,7 @@ describe('Player save storage', () => {
 
     expect(result).toEqual({
       status: 'rejected',
-      error: '当前进度无法安全保存',
+      error: 'runtime-not-saveable',
     });
     await expect(readdir(root)).rejects.toMatchObject({ code: 'ENOENT' });
   });
@@ -260,7 +264,7 @@ describe('Player save storage', () => {
     });
     await expect(store.load(active, 1, () => true)).resolves.toEqual({
       status: 'rejected',
-      error: '存档无效或与当前游戏版本不兼容',
+      error: 'save-incompatible',
     });
     expect(reportError).toHaveBeenCalled();
     expect(JSON.stringify(await store.load(active, 1, () => true)))
@@ -281,7 +285,7 @@ describe('Player save storage', () => {
     await writeFile(firstPath, JSON.stringify(document));
     await expect(store.load(active, 1, () => true)).resolves.toEqual({
       status: 'rejected',
-      error: '存档无效或与当前游戏版本不兼容',
+      error: 'save-incompatible',
     });
 
     await writeFile(
@@ -290,7 +294,7 @@ describe('Player save storage', () => {
     );
     await expect(store.load(active, 2, () => true)).resolves.toEqual({
       status: 'rejected',
-      error: '存档无效或与当前游戏版本不兼容',
+      error: 'save-incompatible',
     });
   });
 
@@ -308,7 +312,7 @@ describe('Player save storage', () => {
 
     await expect(store.load(active, 3, () => true)).resolves.toEqual({
       status: 'rejected',
-      error: '存档无效或与当前游戏版本不兼容',
+      error: 'save-incompatible',
     });
     expect(await readFile(outside, 'utf8')).toBe('{"private":true}');
   });
@@ -324,11 +328,13 @@ describe('Player save storage', () => {
     const active = activeContext();
     const snapshot = snapshotFor(startGame(project)!);
 
-    await expect(store.list(active, () => true)).resolves.toMatchObject({
+    await expect(store.list(active, () => true)).resolves.toEqual({
       status: 'rejected',
+      error: 'save-storage-unavailable',
     });
-    await expect(store.write(active, 1, snapshot, () => true)).resolves.toMatchObject({
+    await expect(store.write(active, 1, snapshot, () => true)).resolves.toEqual({
       status: 'rejected',
+      error: 'save-storage-unavailable',
     });
     await expect(readdir(redirectedDirectory)).resolves.toEqual([]);
   });
@@ -344,7 +350,10 @@ describe('Player save storage', () => {
       return checks === 1;
     });
 
-    expect(result).toEqual({ status: 'rejected', error: '游戏已切换，请重试' });
+    expect(result).toEqual({
+      status: 'rejected',
+      error: 'game-session-stale',
+    });
     await expect(readFile(
       path.join(gameDirectory(root), 'slot-1.json'),
       'utf8',
@@ -363,7 +372,12 @@ describe('Player save storage', () => {
       dialogueSequence: dialogueRuntime.dialogueSequence,
     };
     await store.write(active, 1, snapshotFor(dialogueRuntime), () => true);
-    await store.write(active, 1, snapshotFor(finishedRuntime), () => true);
+    await expect(
+      store.write(active, 1, snapshotFor(finishedRuntime), () => true),
+    ).resolves.toMatchObject({
+      status: 'saved',
+      slot: { summary: { kind: 'finished' } },
+    });
 
     await expect(store.load(active, 1, () => true)).resolves.toEqual({
       status: 'loaded',
@@ -393,7 +407,10 @@ describe('Player save storage', () => {
     });
 
     expect(checks).toBe(3);
-    expect(result).toEqual({ status: 'rejected', error: '游戏已切换，请重试' });
+    expect(result).toEqual({
+      status: 'rejected',
+      error: 'game-session-stale',
+    });
     await expect(readFile(
       path.join(gameDirectory(root), 'slot-1.json'),
       'utf8',

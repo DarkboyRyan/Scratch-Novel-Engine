@@ -1,6 +1,6 @@
 # Player 选项系统实现
 
-> 实现状态：正式 Player 已提供持久化音量与显示设置。标题页、游戏内操作栏和暂停菜单
+> 实现状态：正式 Player 已提供持久化界面语言、音量与显示设置。标题页、游戏内操作栏和暂停菜单
 > 进入同一个选项弹层；Editor 的标题页预览复用相同组件，但只在当前预览内保存设置，
 > 不读写 Player 用户数据，也不能改变 Editor 窗口。
 
@@ -8,6 +8,7 @@
 
 选项弹层包含：
 
+- 界面语言：简体中文与 English；
 - 主音量、背景音乐、语音和视频四条 0–100% 滑杆；
 - 窗口/全屏模式；
 - 小、中、大三档窗口尺寸；
@@ -15,7 +16,9 @@
 - 通用 Player 的“打开其他游戏”入口。
 
 正式 Player 可以从标题页“选项”、游戏内底栏“选项”或暂停菜单“选项”进入同一套
-设置。拖动音量时会立即试听；一次键盘调整、指针松开或控件失焦后才提交持久化，
+设置。切换语言会立即更新标题菜单、游戏操作栏、选项、存读档、CG 画廊、视频状态与
+无障碍文案，但不会翻译作者编写的标题、场景名、对白、说话人或 Choice。拖动音量时会
+立即试听；一次键盘调整、指针松开或控件失焦后才提交持久化，
 避免把滑杆的每个中间刻度都写入磁盘。提交失败会回滚到 Main 最近确认的设置并显示
 稳定错误，成功响应则以 Main 返回的完整设置为准。“恢复默认”也走相同的持久化链。
 
@@ -30,15 +33,16 @@
 - 作者项目仍固定写 `fileVersion: 15`，Reader 支持 v1–v15；
 - 导出内容仍为 runtime v6，Player 兼容 runtime v1–v6；
 - 游戏进度仍使用独立的 `GameRuntimeSnapshot v1` 和 `saveVersion: 1`；
-- Player 设置使用自己的 `settingsVersion: 1`；
+- Player 设置当前写 `settingsVersion: 2`，Reader 严格迁移旧 v1；
 - 切换 `.vngame` 不会重置选项，同一 Player 用户的设置会继续生效。
 
-[`playerProtocol.ts`](../apps/player/src/shared/playerProtocol.ts) 定义
-`PlayerSettingsV1`：
+[`playerProtocol.ts`](../apps/player/src/shared/playerProtocol.ts) 保留旧
+`PlayerSettingsV1`，并把当前设置定义为 `PlayerSettingsV2` / `PlayerSettings`：
 
 ```ts
-type PlayerSettingsV1 = {
-  settingsVersion: 1;
+type PlayerSettingsV2 = {
+  settingsVersion: 2;
+  language: 'zh-CN' | 'en-US';
   masterVolume: number;
   bgmVolume: number;
   voiceVolume: number;
@@ -50,7 +54,8 @@ type PlayerSettingsV1 = {
 
 | 字段 | 默认值 | 规则 |
 | --- | --- | --- |
-| `settingsVersion` | `1` | 固定版本，不允许 Renderer 修改 |
+| `settingsVersion` | `2` | 固定版本，不允许 Renderer 修改 |
+| `language` | `"zh-CN"` | 只允许简体中文或 English |
 | `masterVolume` | `1` | 有限数，范围 0–1 |
 | `bgmVolume` | `1` | 有限数，范围 0–1 |
 | `voiceVolume` | `1` | 有限数，范围 0–1 |
@@ -59,14 +64,16 @@ type PlayerSettingsV1 = {
 | `windowSizePreset` | `"medium"` | 只允许 small、medium、large |
 
 完整设置和磁盘文档都执行 exact-fields 校验；多余字段、缺失字段、`NaN`、无穷大、
-越界音量和未知枚举都会被拒绝。未来改变语义时必须提升 `settingsVersion`，不能静默
-改变 v1。
+越界音量和未知枚举都会被拒绝。Reader 仅接受精确旧 v1（唯一缺少 `language`）并迁移为
+中文 v2；Writer 和 IPC 只接受、写出精确 v2。未来改变语义时必须再次提升版本，不能
+静默改变 v2。
 
 ## 3. 完整调用链
 
 ```mermaid
 flowchart LR
-  UI["TitleScreen / GameActionBar / 暂停菜单"] --> DIALOG["共享 OptionsDialog"]
+  UI["TitleScreen / GameActionBar / 暂停菜单"] --> I18N["PlayerUiProvider / typed catalog"]
+  I18N --> DIALOG["共享 OptionsDialog"]
   DIALOG --> APP["Player React App"]
   APP --> GATEWAY["PlayerGateway"]
   GATEWAY --> PRELOAD["contextBridge 窄 API"]
@@ -93,12 +100,12 @@ Renderer 启动时先请求设置；设置读取完成前不挂载标题媒体�
 
 | 层 | 技术 | 主要文件与职责 |
 | --- | --- | --- |
-| 共享界面 | React 19、TypeScript 5.9、HTML/CSS | `packages/player-ui/src/OptionsDialog.tsx` 提供弹层与键盘交互；`TitleScreen.tsx` 提供 Player/Editor 两种注入方式 |
+| 共享界面 | React 19、TypeScript 5.9、Context、HTML/CSS | `localization.ts` 提供强类型中英 catalog；`PlayerUiProvider.tsx` 原地切换 Context；`OptionsDialog.tsx` 提供弹层与语言选择 |
 | 媒体 | `HTMLAudioElement`、`HTMLVideoElement` | `mediaVolume.ts`、`previewAudioController.ts`、`PreviewVideo.tsx` 只更新现有媒体音量，保留播放位置 |
 | Player 状态 | React hooks、epoch/ref latch | `apps/player/src/renderer/App.tsx` 负责读取门、即时预览、提交/回滚、原生窗口状态刷新和多弹层互斥 |
 | 进程边界 | Electron 43、contextBridge、IPC | `preload.ts`、`playerGateway.ts`、`registerPlayerIpc.ts` 暴露并校验窄设置 API |
 | 窗口控制 | Electron `BrowserWindow`、`screen` / `Display` | `PlayerSettingsManager.ts` 串行同步设置、workArea 与原生全屏，并管理窗口 activation gate |
-| 本地存储 | Node `fs/promises`、`crypto.randomUUID` | `PlayerSettingsStore.ts` 执行 exact v1 读取、备份恢复和原子发布 |
+| 本地存储 | Node `fs/promises`、`crypto.randomUUID` | `PlayerSettingsStore.ts` 严格迁移 v1、读取/写入 exact v2、执行备份恢复和原子发布 |
 | 退出协调 | Electron `before-quit`、Promise 队列 | `PlayerSettingsQuitCoordinator.ts` 阻止重复退出绕过最后一次设置 flush |
 | 验证 | Vitest、jsdom、Node Test、TypeScript、ESLint | 覆盖协议、IPC、文件安全、窗口时序、Renderer/Editor 交互与响应式布局 |
 
@@ -119,7 +126,7 @@ updateSettings(patch: PlayerSettingsPatch): Promise<PlayerSettingsWriteResult>;
 
 1. 请求来自当前 Player 的可信主 frame；
 2. invocation 顶层与 `params` 都是 exact fields；
-3. patch 非空、字段在白名单内，所有值满足 v1 约束；
+3. patch 非空、字段在白名单内，所有值满足 v2 约束；
 4. `event.sender.id` 对应仍存在的 Player 窗口上下文。
 
 设置不依赖当前是否已经加载游戏，因此通用 Player 的空页面也能读取默认偏好。Renderer
@@ -141,8 +148,9 @@ app.getPath('userData')/
 ```json
 {
   "format": "vn-engine-player-settings",
-  "settingsVersion": 1,
+  "settingsVersion": 2,
   "settings": {
+    "language": "zh-CN",
     "masterVolume": 1,
     "bgmVolume": 1,
     "voiceVolume": 1,
@@ -163,7 +171,8 @@ app.getPath('userData')/
 6. 临时文件再原子 rename 为 `settings.json`；
 7. 非 Windows 平台尽力同步目录项。
 
-发布新主文件前失败会恢复旧主文件。读取优先使用主文件；主文件损坏时尝试最后一个完整
+旧 v1 文档会完整保留音量和窗口字段，并补 `language: "zh-CN"` 进入内存；下一次成功
+提交只写 v2。发布新主文件前失败会恢复旧主文件。读取优先使用主文件；主文件损坏时尝试最后一个完整
 备份，两者都不可用时返回不可变默认值。Reader 拒绝 symlink、非普通文件、多硬链接、
 超过 16 KiB 的文件和读取过程中发生变化的文件。原始异常与绝对路径只进入 Main 本地
 诊断，Renderer 只收到不含路径的稳定错误。
@@ -179,6 +188,21 @@ app.getPath('userData')/
 | `medium` | 1280 × 800 |
 | `large` | 1600 × 1000 |
 
+同一档位还决定 Player 的界面字号基准，而不是只改变原生窗口尺寸：
+
+| 预设 | Player 根字号 |
+| --- | --- |
+| `small` | 14px |
+| `medium` | 16px |
+| `large` | 18px |
+
+Renderer 在稳定的 `.player-app` 根节点写入
+`data-player-window-size-preset`，CSS 再把该值映射为
+`--player-ui-font-base`。标题、菜单、存读档、选项、CG、对白框和游戏内操作栏的字号层级
+统一使用 `em` 或以 `em` 为边界的 `clamp()`，因此切换预设会让整套文字按比例变化，
+但不会用 React `key` 重挂剧情或媒体组件。标题页已有的 AutoFit 会根据字号变化重新测量，
+小窗口中仍保证全部按钮可见。
+
 窗口模式与尺寸有以下规则：
 
 - Main 用当前窗口 bounds 找到对应 Display，并以其 `workArea` 为上限；
@@ -186,6 +210,7 @@ app.getPath('userData')/
   可用区域；
 - 调整内容区后把整个窗口居中到该 `workArea`；
 - 全屏时保留已选尺寸，返回窗口模式后再应用；
+- 全屏时也继续使用已选预设对应的 14/16/18px 字号，不根据全屏显示器尺寸再次放大；
 - 启动阶段只先调整隐藏窗口尺寸；`loadURL` 完成后、窗口 `show()` 前才激活持久化全屏，
   并在激活完成前阻塞该窗口的设置 IPC，避免 macOS 原生全屏转换阻塞页面加载或闪出
   窗口模式首帧；
@@ -239,9 +264,25 @@ effectiveVolume = clamp(masterVolume) × clamp(channelVolume)
 - pointer/click 不冒泡到游戏舞台；
 - 小高度窗口中卡片在模态层内滚动，操作项不会被裁掉。
 
+[`localization.ts`](../packages/player-ui/src/localization.ts) 用完整的 `PlayerUiLabels` 类型约束
+中英文目录；[`PlayerUiProvider.tsx`](../packages/player-ui/src/PlayerUiProvider.tsx) 通过 React
+Context 提供当前语言。语言改变只更新 Context 和 `<html lang>`，不会用 locale 作为 React
+`key`，因此不会重建剧情、音视频、快进、CG 页、存档确认或焦点状态。异步视频错误只保存
+稳定错误码，渲染时再读取当前语言，切换后不会残留旧语言错误。
+
+Renderer 不把已经翻译好的提示写进 React state。Load、Open、Save 与 Settings 边界只返回
+13 个受类型约束的 `PlayerErrorCode`；本地成功提示保存 typed key 与槽位参数，所有文本都在
+当前 render 中翻译。因此设置请求回滚、迟到的存档请求或较晚完成的内容包请求跨过语言切换
+时，也不会留下另一种语言的旧字符串。底层异常、绝对路径与原始系统错误不会进入 Renderer。
+
+存档列表同样不持久化“等待选择”等界面文案。Main 与 Web 只返回
+`dialogue / progress / choosing / playing-video / finished` 五种结构化摘要；对白的作者文本
+原样保留，状态文案和说话人分隔符由当前语言在渲染时生成。已经打开的存档窗口切换语言后
+会立即重译，而不会重新读取或重挂游戏状态。
+
 `App.tsx` 在选项打开时阻塞故事交互，但不把 BGM 控制器标记为暂停；这使玩家既不会
-误推进剧情，又能实时试听主音量/BGM。游戏内底栏的“快进”仍是禁用的未来入口，
-“选项”已经正式启用。
+误推进剧情，又能实时试听主音量/BGM。打开选项也会取消当前快进，关闭后不会自行恢复；
+“选项”和“快进”都已经正式启用。
 
 Player 还用同步 ref/latch 统一管理 CG 画廊、存档窗口、打开内容失败窗口和选项弹层。
 标题页的 `TitleScreen` 会在打开/关闭自己的 CG 画廊时同步通知上层，因此即使多个按钮在
@@ -256,6 +297,7 @@ Editor 的完整标题页预览复用 `TitleScreen` 和 `OptionsDialog`。当上
 Player 的 `onOpenOptions` 时，`TitleScreen` 创建一份仅属于该组件生命周期的默认设置：
 
 - 滑杆仍可即时试听当前标题音乐；
+- 语言可以在当前预览生命周期内切换，默认中文；
 - 不调用 `window.vnPlayer`、不访问 `userData`，关闭预览后不会保存；
 - 窗口模式和窗口尺寸控件保持禁用，并明确提示“仅在正式 Player 中应用”；
 - 不会调整 Editor BrowserWindow，也不会把设置写入 author v15 或 runtime v6。
@@ -267,13 +309,15 @@ Player 的 `onOpenOptions` 时，`TitleScreen` 创建一份仅属于该组件生
 
 | 层 | 主要测试 | 覆盖重点 |
 | --- | --- | --- |
-| 协议/Preload | `registerPlayerIpc.test.ts`、`playerPreload.test.ts` | trusted frame、exact invocation、非空 patch、未知字段/路径/自定义尺寸拒绝、调用转发 |
-| 设置文件 | `playerSettingsStore.test.ts` | 默认值、v1 round-trip、exact 文档、未来版本/损坏回退、备份恢复、symlink 与路径拒绝 |
+| 协议/Preload | `registerPlayerIpc.test.ts`、`playerPreload.test.ts` | trusted frame、exact invocation、非空 patch、稳定错误码、未知字段/路径/自定义尺寸拒绝、调用转发 |
+| 设置文件 | `playerSettingsStore.test.ts`、`webStorage.test.ts` | v1→v2 迁移、v2 round-trip、Web `settings-v2` 优先与 `settings-v1` 回退、未来版本/损坏回退、备份恢复、symlink 与路径拒绝 |
 | 窗口协调 | `playerSettingsManager.test.ts` | activation gate、三档尺寸、workArea 缩放/居中、纯音量不改窗口、原生模式同步、并发 patch、5 秒超时、销毁窗口与退出 flush |
 | 退出协调 | `playerSettingsQuitCoordinator.test.ts` | flush 期间的重复退出均被阻止、失败只写本地诊断、最终清理只执行一次 |
-| Player Renderer | `playerRenderer.test.tsx` | 设置加载门、标题与剧情有效音量、即时预览/失败回滚、原生全屏刷新、焦点恢复、Esc/busy、CG/存档/选项同 tick 互斥 |
+| Player Renderer | `playerRenderer.test.tsx` | 设置加载门、中英即时切换与失败回滚、异步错误和结构化存档摘要按当前语言重译、作者剧情状态不重置、标题与剧情有效音量、原生全屏刷新、焦点恢复、Esc/busy、CG/存档/选项同 tick 互斥 |
+| 共享本地化 | `playerUiLocalization.test.tsx` | typed catalog、Context 默认中文、Title/操作栏/存档/CG/Video 中英翻译、日期 locale、异步错误即时重译 |
 | 共享媒体 | `previewAudioController.test.ts` 及视频组件回归 | 音量更新、暂停恢复、同一音轨不重置播放位置、视频事件隔离 |
 | 响应式标题 | `titleScreenAutoFit.test.ts`、`startScreenResponsiveStyle.test.ts` | 小窗口等比缩放、低高度滚动、标题操作不被裁切 |
+| 字号预设 | `playerTypographyScale.test.ts`、`playerRenderer.test.tsx` | small/medium/large 根字号、全屏沿用预设、切换时剧情/立绘/Choice DOM 不重挂 |
 | Editor 预览 | `gamePreviewChoice.test.tsx` | 共享选项弹层可打开、窗口控件禁用、没有 Player 持久化能力 |
 
 常用验证命令：
@@ -298,6 +342,7 @@ fnm exec --using=24 pnpm --dir apps/player exec vitest run \
   tests/unit/registerPlayerIpc.test.ts \
   tests/unit/playerPreload.test.ts \
   tests/unit/playerRenderer.test.tsx \
+  tests/unit/playerUiLocalization.test.tsx \
   tests/unit/playerMediaVolume.test.tsx \
   tests/unit/titleScreenAutoFit.test.ts
 fnm exec --using=24 pnpm --dir apps/editor exec vitest run \
@@ -312,5 +357,7 @@ fnm exec --using=24 pnpm --dir apps/editor exec vitest run \
 - 当前没有文字速度、自动播放速度、语音单独角色音量、静音快捷键或音效（SFX）通道；
 - 窗口尺寸只允许三档安全预设，不接受 Renderer 自定义宽高；
 - 设置是本机 Player 级偏好，不按游戏隔离，也没有云同步；
+- 语言只翻译 Player 外壳；作者标题、场景名、对白、说话人、Choice 与资源显示名保持原文，
+  当前不提供作者内容的多语言字段或机器翻译；
 - 全屏使用 Electron/操作系统的原生全屏语义，没有无边框窗口模式；
 - Editor 只提供内存预览，不模拟持久化或真实窗口变更。

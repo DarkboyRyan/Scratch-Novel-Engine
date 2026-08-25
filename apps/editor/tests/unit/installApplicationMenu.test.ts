@@ -89,4 +89,31 @@ describe('application menu', () => {
     expect(electronMocks.getFocusedWindow).toHaveBeenCalledOnce();
     expect(electronMocks.webContentsSend).not.toHaveBeenCalled();
   });
+
+  it('rebuilds the native menu in English for the global Editor language', () => {
+    installApplicationMenu('en-US');
+    const template = electronMocks.buildFromTemplate.mock.calls[0]?.[0] as
+      MenuItemConstructorOptions[];
+    const fileMenu = template.find((item) => item.label === 'File');
+    const fileItems = fileMenu?.submenu as MenuItemConstructorOptions[];
+
+    expect(fileItems.map((item) => item.label).filter(Boolean)).toEqual(
+      expect.arrayContaining([
+        'New Project',
+        'Open Project…',
+        'Save Project',
+      ]),
+    );
+    expect(template.some((item) => item.label === 'Edit')).toBe(true);
+    const editMenu = template.find((item) => item.label === 'Edit');
+    const editItems = editMenu?.submenu as MenuItemConstructorOptions[];
+    expect(editItems.map((item) => item.label).filter(Boolean)).toEqual([
+      'Undo',
+      'Redo',
+      'Cut',
+      'Copy',
+      'Paste',
+      'Select All',
+    ]);
+  });
 });

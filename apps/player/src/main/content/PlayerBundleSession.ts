@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import type {
+  PlayerErrorCode,
   PlayerGameData,
   PlayerLoadResult,
   PlayerMode,
@@ -14,10 +15,11 @@ import {
 } from './PlayerBundleLoader';
 
 export const PLAYER_BUNDLE_SUFFIX = '.vngame';
-export const PLAYER_BUNDLE_LOAD_ERROR =
-  '游戏内容包无效、已损坏或版本不受支持';
-export const PLAYER_BUNDLE_SELECTION_ERROR = '无法打开游戏内容包选择器';
-export const PLAYER_EMBEDDED_OPEN_ERROR = '当前是只读单游戏应用';
+export const PLAYER_BUNDLE_LOAD_ERROR: PlayerErrorCode = 'bundle-load-failed';
+export const PLAYER_BUNDLE_SELECTION_ERROR: PlayerErrorCode =
+  'bundle-selection-failed';
+export const PLAYER_EMBEDDED_OPEN_ERROR: PlayerErrorCode =
+  'embedded-open-disabled';
 
 export type PlayerActiveGameContext = {
   game: PlayerGameData;
@@ -50,7 +52,7 @@ function isVnGameBundleDirectory(candidatePath: string): boolean {
  */
 export class PlayerBundleSession {
   private game: PlayerGameData | null = null;
-  private loadError: string | null = null;
+  private loadError: PlayerErrorCode | null = null;
   private pendingOpen: Promise<PlayerOpenResult> | null = null;
   private disposed = false;
   private identity: PlayerBundleIdentity | null = null;
@@ -195,7 +197,7 @@ export class PlayerBundleSession {
       return { status: 'canceled' };
     }
     if (!isVnGameBundleDirectory(selectedPath)) {
-      return this.reject(`请选择名称以 ${PLAYER_BUNDLE_SUFFIX} 结尾的目录包`);
+      return this.reject(PLAYER_BUNDLE_LOAD_ERROR);
     }
 
     let bundle: LoadedRuntimeBundle;
@@ -224,7 +226,7 @@ export class PlayerBundleSession {
     this.loadError = null;
   }
 
-  private reject(error: string): PlayerOpenResult {
+  private reject(error: PlayerErrorCode): PlayerOpenResult {
     return { status: 'rejected', error };
   }
 }

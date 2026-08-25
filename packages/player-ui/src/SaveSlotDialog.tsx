@@ -1,9 +1,19 @@
 import {
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
+
+import {
+  DEFAULT_PLAYER_LANGUAGE,
+  resolvePlayerUiLabels,
+  type PlayerLanguage,
+  type PlayerUiLabels,
+  type PlayerUiLocalizationProps,
+} from './localization';
+import { usePlayerUiLocalization } from './PlayerUiProvider';
 
 export type SaveSlotId = 1 | 2 | 3 | 'quick';
 
@@ -14,7 +24,7 @@ export type SaveSlotSummary = {
   summary: string | null;
 };
 
-export type SaveSlotDialogProps = {
+export type SaveSlotDialogProps = PlayerUiLocalizationProps & {
   mode: 'save' | 'load';
   slots: readonly SaveSlotSummary[];
   loading?: boolean;
@@ -48,15 +58,20 @@ function emptySlot(slotId: SaveSlotId): SaveSlotSummary {
   };
 }
 
-export function formatSaveTimestamp(savedAt: string | null): string {
+export function formatSaveTimestamp(
+  savedAt: string | null,
+  language: PlayerLanguage = DEFAULT_PLAYER_LANGUAGE,
+  labelsOverride?: PlayerUiLabels,
+): string {
+  const labels = resolvePlayerUiLabels(language, labelsOverride).saves;
   if (savedAt === null) {
-    return '空存档';
+    return labels.emptySlot;
   }
   const parsed = new Date(savedAt);
   if (Number.isNaN(parsed.getTime())) {
-    return '时间未知';
+    return labels.unknownTime;
   }
-  return new Intl.DateTimeFormat('zh-CN', {
+  return new Intl.DateTimeFormat(language, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -68,6 +83,8 @@ export function formatSaveTimestamp(savedAt: string | null): string {
 }
 
 export function SaveSlotDialog({
+  language,
+  labels: labelsOverride,
   mode,
   slots,
   loading = false,
@@ -76,6 +93,10 @@ export function SaveSlotDialog({
   onSelectSlot,
   onClose,
 }: SaveSlotDialogProps) {
+  const { language: activeLanguage, labels: allLabels } =
+    usePlayerUiLocalization(language, labelsOverride);
+  const labels = allLabels.saves;
+  const slotIdPrefix = useId();
   const [confirmSlotId, setConfirmSlotId] = useState<number | null>(null);
   const layerRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -184,20 +205,22 @@ export function SaveSlotDialog({
       className="player-save-layer"
       role="dialog"
       aria-modal="true"
-      aria-label={mode === 'save' ? '保存游戏' : '读取游戏'}
+      aria-label={mode === 'save' ? labels.saveTitle : labels.loadTitle}
       tabIndex={-1}
       onPointerUp={(event) => event.stopPropagation()}
     >
       <section className="player-save-card">
         <header className="player-save-header">
           <div>
-            <p className="player-eyebrow">{mode === 'save' ? 'SAVE' : 'LOAD'}</p>
-            <h2>{mode === 'save' ? '保存游戏' : '读取游戏'}</h2>
+            <p className="player-eyebrow">
+              {mode === 'save' ? labels.saveEyebrow : labels.loadEyebrow}
+            </p>
+            <h2>{mode === 'save' ? labels.saveTitle : labels.loadTitle}</h2>
           </div>
           <button
             type="button"
             className="player-save-close secondary"
-            aria-label="关闭存档窗口"
+            aria-label={labels.closeAria}
             disabled={busySlotId !== null}
             onClick={onClose}
           >
@@ -207,8 +230,8 @@ export function SaveSlotDialog({
 
         {confirmSlot !== null ? (
           <div className="player-save-confirm" role="alert">
-            <strong>覆盖存档 {confirmSlot.slotId}？</strong>
-            <p>原有进度将被当前游戏进度替换。</p>
+            <strong>{labels.overwriteSlot(confirmSlot.slotId as number)}</strong>
+            <p>{labels.overwriteDescription}</p>
             <div className="player-save-confirm-actions">
               <button
                 type="button"
@@ -216,14 +239,16 @@ export function SaveSlotDialog({
                 disabled={busySlotId !== null}
                 onClick={() => setConfirmSlotId(null)}
               >
-                取消
+                {labels.cancel}
               </button>
               <button
                 type="button"
                 disabled={busySlotId !== null}
                 onClick={() => onSelectSlot(confirmSlot.slotId)}
               >
-                {busySlotId === confirmSlot.slotId ? '正在覆盖…' : '确认覆盖'}
+                {busySlotId === confirmSlot.slotId
+                  ? labels.overwriting
+                  : labels.confirmOverwrite}
               </button>
             </div>
           </div>
@@ -231,7 +256,7 @@ export function SaveSlotDialog({
           <>
             {loading ? (
               <p className="player-save-loading" role="status">
-                正在读取存档信息…
+                {labels.loadingSlots}
               </p>
             ) : (
               <div className="player-save-slots">
@@ -239,14 +264,22 @@ export function SaveSlotDialog({
                   const occupied = slot.savedAt !== null;
                   const busy = busySlotId === slot.slotId;
                   const slotLabel = slot.slotId === 'quick'
-                    ? '快速存档'
-                    : `存档 ${slot.slotId}`;
+                    ? labels.quickSlot
+                    : labels.manualSlot(slot.slotId);
+                  const slotBaseId = `${slotIdPrefix}-slot-${slot.slotId}`;
+                  const actionId = `${slotBaseId}-action`;
+                  const timeId = `${slotBaseId}-time`;
+                  const sceneId = `${slotBaseId}-scene`;
+                  const summaryId = `${slotBaseId}-summary`;
                   return (
                     <button
                       key={slot.slotId}
                       type="button"
                       className={`player-save-slot${occupied ? ' is-occupied' : ' is-empty'}`}
-                      aria-label={`${mode === 'save' ? '存入' : '读取'}${slotLabel}`}
+                      data-save-slot-id={slot.slotId}
+                      data-save-slot-mode={mode}
+                      aria-labelledby={actionId}
+                      aria-describedby={`${timeId} ${sceneId} ${summaryId}`}
                       disabled={
                         busySlotId !== null ||
                         error !== null ||
@@ -264,19 +297,34 @@ export function SaveSlotDialog({
                         }
                       }}
                     >
+                      <span id={actionId} hidden>
+                        {mode === 'save'
+                          ? labels.saveToSlotAria(slotLabel)
+                          : labels.loadSlotAria(slotLabel)}
+                      </span>
                       <span className="player-save-slot-number">
                         {slotLabel}
                       </span>
-                      <span className="player-save-slot-time">
-                        {busy ? '正在处理…' : formatSaveTimestamp(slot.savedAt)}
+                      <span id={timeId} className="player-save-slot-time">
+                        {busy
+                          ? labels.processing
+                          : formatSaveTimestamp(
+                              slot.savedAt,
+                              activeLanguage,
+                              allLabels,
+                            )}
                       </span>
-                      <strong>{slot.sceneName ?? (occupied ? '未知场景' : '未保存')}</strong>
-                      <span className="player-save-slot-summary">
+                      <strong id={sceneId}>
+                        {slot.sceneName ?? (
+                          occupied ? labels.unknownScene : labels.notSaved
+                        )}
+                      </strong>
+                      <span id={summaryId} className="player-save-slot-summary">
                         {slot.summary ?? (occupied
-                          ? '暂无摘要'
+                          ? labels.noSummary
                           : mode === 'save'
-                            ? '选择此槽位保存当前进度'
-                            : '此槽位尚无存档')}
+                            ? labels.saveSlotHint
+                            : labels.loadSlotHint)}
                       </span>
                     </button>
                   );

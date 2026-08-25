@@ -23,6 +23,28 @@
   border-radius: 7px;
 }
 
+.editor-settings-bootstrap-indicator {
+  width: 22px;
+  height: 22px;
+  margin: 14px auto 0;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: editor-settings-spin 700ms linear infinite;
+}
+
+@keyframes editor-settings-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .editor-settings-bootstrap-indicator {
+    animation: none;
+  }
+}
+
 .editor {
   /* 两行内容共 92px，另加 1px 底边框，避免 border-box 裁掉末行。 */
   --toolbar-height: 93px;
@@ -161,6 +183,15 @@
   color: var(--danger, #b42318);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.editor-settings-dialog {
+  width: min(400px, 100%);
+}
+
+.editor-settings-status {
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .export-dialog-actions {
@@ -1503,6 +1534,35 @@
   margin: 8px 2px 18px;
   color: var(--text-muted);
   font-size: 11px;
+}
+
+/*
+ * English interface labels are longer than their Chinese counterparts. Keep
+ * the authored scene names and timeline content at their normal size while
+ * giving the fixed scene controls a little more room.
+ */
+.editor[data-editor-language='en-US'] .scene-panel {
+  padding-right: 14px;
+  padding-left: 14px;
+}
+
+.editor[data-editor-language='en-US'] .scene-switcher {
+  gap: 6px;
+}
+
+.editor[data-editor-language='en-US'] .scene-menu-trigger {
+  padding-right: 8px;
+  padding-left: 8px;
+  font-size: 13px;
+}
+
+.editor[data-editor-language='en-US'] .scene-inline-action {
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+.editor[data-editor-language='en-US'] .timeline-add-actions button {
+  font-size: 12px;
 }
 
 .timeline-add-actions {
@@ -2889,4 +2949,39 @@
 
 .dialogue-submit-button:hover:not(:disabled) {
   background: var(--primary-hover);
+}
+
+/* Compact only fixed English timeline chrome, never authored field text. */
+.editor[data-editor-language='en-US'] .timeline-panel-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  margin-bottom: 15px;
+}
+
+.editor[data-editor-language='en-US'] .timeline-panel-heading h2 {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.editor[data-editor-language='en-US'] .timeline-panel-heading .panel-heading-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  width: 100%;
+}
+
+.editor[data-editor-language='en-US'] .timeline-panel-heading .panel-heading-action {
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  padding: 4px 6px;
+  font-size: 11px;
+}
+
+.editor[data-editor-language='en-US'] .dialogue-submit-button {
+  font-size: 12px;
 }

@@ -19,6 +19,7 @@ import {
   type CgGalleryEditorHandle,
 } from './CgGalleryBlocklyWorkspace';
 import { deleteCgGalleryPage } from './cgGalleryProjection';
+import { useEditorLabels } from '../../i18n/editorLocalization';
 
 type CgGalleryEditorProps = {
   project: ProjectDocument;
@@ -49,10 +50,11 @@ export const CgGalleryEditor = forwardRef<
   },
   ref,
 ) {
+  const labels = useEditorLabels();
   const workspaceRef = useRef<CgGalleryEditorHandle>(null);
   const [isChangingScene, setIsChangingScene] = useState(false);
   const [pageIndex, setPageIndex] = useState(0);
-  const sceneOptions = createEditorSceneOptions(project);
+  const sceneOptions = createEditorSceneOptions(project, labels);
   const pageCount = Math.max(1, project.cgGallery.pages.length);
   useEffect(() => {
     setPageIndex((current) => Math.min(current, pageCount - 1));
@@ -68,12 +70,12 @@ export const CgGalleryEditor = forwardRef<
     <main className="block-editor cg-gallery-editor" aria-labelledby="cg-gallery-editor-title">
       <header className="block-editor-heading">
         <div>
-          <h1 id="cg-gallery-editor-title">CG 画廊编辑器</h1>
-          <p>每个大模块代表一页；从工具箱拖入新模块才会新增页面</p>
+          <h1 id="cg-gallery-editor-title">{labels.cgGallery.editorTitle}</h1>
+          <p>{labels.cgGallery.editorHelp}</p>
         </div>
         <div className="block-editor-heading-controls">
           <label className="block-editor-scene-picker">
-            <span>当前场景</span>
+            <span>{labels.scenes.currentScene}</span>
             <select
               className="scene-select block-editor-scene-select"
               value={CG_GALLERY_SCENE_ID}
@@ -105,9 +107,9 @@ export const CgGalleryEditor = forwardRef<
             </select>
           </label>
           <label className="block-editor-scene-picker">
-            <span>当前 CG 页</span>
+            <span>{labels.cgGallery.currentPage}</span>
             <select
-              aria-label="当前 CG 页"
+              aria-label={labels.cgGallery.currentPage}
               className="scene-select block-editor-scene-select"
               value={pageIndex}
               disabled={isBusy}
@@ -119,7 +121,7 @@ export const CgGalleryEditor = forwardRef<
             >
               {project.cgGallery.pages.map((_, index) => (
                 <option key={index} value={index}>
-                  第 {index + 1} 页
+                  {labels.cgGallery.page} {index + 1}
                 </option>
               ))}
             </select>
@@ -147,16 +149,16 @@ export const CgGalleryEditor = forwardRef<
               })();
             }}
           >
-            删除本页
+            {labels.cgGallery.deletePage}
           </button>
           <span className="block-editor-sync-badge">
-            每页固定 9 个图片槽位
+            {labels.cgGallery.fixedSlots}
           </span>
           <button
             type="button"
             className="preview-play-button"
-            aria-label="预览完整主界面与 CG 画廊"
-            title="预览完整主界面与 CG 画廊"
+            aria-label={labels.cgGallery.previewFull}
+            title={labels.cgGallery.previewFull}
             disabled={isStartPreviewDisabled}
             onClick={onStartPreview}
           >
@@ -166,7 +168,7 @@ export const CgGalleryEditor = forwardRef<
       </header>
       <section
         className="block-editor-workspace cg-gallery-editor-workspace"
-        aria-label="CG 画廊积木工作区"
+        aria-label={labels.cgGallery.workspace}
       >
         <CgGalleryBlocklyWorkspace
           ref={workspaceRef}

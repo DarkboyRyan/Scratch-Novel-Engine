@@ -16,6 +16,7 @@ import {
   createEditorSceneOptions,
   START_SCREEN_SCENE_ID,
 } from './startScreenScene';
+import { useEditorLabels } from '../../i18n/editorLocalization';
 
 type StartScreenFormEditorProps = {
   project: ProjectDocument;
@@ -54,6 +55,7 @@ export const StartScreenFormEditor = forwardRef<
   },
   ref,
 ) {
+  const labels = useEditorLabels();
   const activeMutationRef = useRef<Promise<boolean> | null>(null);
   const startScreenRef = useRef(project.startScreen);
   const projectIdRef = useRef(project.id);
@@ -67,7 +69,7 @@ export const StartScreenFormEditor = forwardRef<
   const controlsDisabled = isBusy || isMutating;
   const imageAssets = assets.filter((asset) => asset.type === 'image');
   const audioAssets = assets.filter((asset) => asset.type === 'audio');
-  const sceneOptions = createEditorSceneOptions(project);
+  const sceneOptions = createEditorSceneOptions(project, labels);
   const selectedBackground = imageAssets.find(
     (asset) => asset.id === project.startScreen.backgroundAssetId,
   );
@@ -162,12 +164,12 @@ export const StartScreenFormEditor = forwardRef<
     <>
       <aside className="panel scene-panel start-screen-form-scene-panel">
         <div className="panel-heading">
-          <h2>主界面</h2>
+          <h2>{labels.common.mainMenu}</h2>
         </div>
         <label className="start-screen-form-field">
-          <span>当前场景</span>
+          <span>{labels.scenes.currentScene}</span>
           <select
-            aria-label="当前场景"
+            aria-label={labels.scenes.currentScene}
             value={START_SCREEN_SCENE_ID}
             disabled={controlsDisabled}
             onChange={(event) => {
@@ -184,24 +186,21 @@ export const StartScreenFormEditor = forwardRef<
           </select>
         </label>
         <div className="start-screen-form-note">
-          <strong>软件托管结构</strong>
-          <p>
-            开始游戏、读取游戏、CG 画廊、选项和退出游戏由 Player
-            自动提供。
-          </p>
+          <strong>{labels.startScreen.managedStructureTitle}</strong>
+          <p>{labels.startScreen.managedStructureHelp}</p>
         </div>
       </aside>
 
       <section
         className="preview-panel start-screen-form-preview"
-        aria-label="主界面设计预览"
+        aria-label={labels.startScreen.designPreview}
       >
         <div className="preview-toolbar">
           <button
             type="button"
             className="preview-play-button"
-            aria-label="预览完整主界面"
-            title="预览完整主界面"
+            aria-label={labels.startScreen.previewFull}
+            title={labels.startScreen.previewFull}
             disabled={isStartPreviewDisabled}
             onClick={onStartPreview}
           >
@@ -216,13 +215,13 @@ export const StartScreenFormEditor = forwardRef<
           <div ref={titleFit.containerRef} className="start-screen-design-fit">
             <div ref={titleFit.contentRef} className="start-screen-design-card">
               <p>A VN ENGINE STORY</p>
-              <h2>{titleDraft || '未命名游戏'}</h2>
+              <h2>{titleDraft || labels.common.unnamedGame}</h2>
               <div className="start-screen-design-actions">
-                <span className="is-primary">▶ 开始游戏</span>
-                <span>读取游戏</span>
-                <span>CG 画廊</span>
-                <span>选项</span>
-                <span>退出游戏</span>
+                <span className="is-primary">▶ {labels.startScreen.startGame}</span>
+                <span>{labels.startScreen.loadGame}</span>
+                <span>{labels.common.cgGallery}</span>
+                <span>{labels.startScreen.options}</span>
+                <span>{labels.startScreen.exitGame}</span>
               </div>
             </div>
           </div>
@@ -231,13 +230,13 @@ export const StartScreenFormEditor = forwardRef<
 
       <aside className="panel inspector-panel start-screen-form-inspector">
         <div className="panel-heading">
-          <h2>主界面内容</h2>
+          <h2>{labels.startScreen.content}</h2>
         </div>
         <form onSubmit={(event) => event.preventDefault()}>
           <label>
-            游戏显示名称
+            {labels.startScreen.displayName}
             <input
-              aria-label="主界面游戏名称"
+              aria-label={labels.startScreen.gameNameAria}
               value={titleDraft}
               disabled={controlsDisabled}
               onChange={(event) => setTitleDraft(event.target.value)}
@@ -264,9 +263,9 @@ export const StartScreenFormEditor = forwardRef<
             />
           </label>
           <label>
-            背景图片
+            {labels.startScreen.backgroundImage}
             <select
-              aria-label="主界面背景图片"
+              aria-label={labels.startScreen.backgroundImageAria}
               value={project.startScreen.backgroundAssetId ?? ''}
               disabled={controlsDisabled}
               onChange={(event) => {
@@ -277,7 +276,7 @@ export const StartScreenFormEditor = forwardRef<
                 );
               }}
             >
-              <option value="">无</option>
+              <option value="">{labels.common.none}</option>
               {imageAssets.map((asset) => (
                 <option key={asset.id} value={asset.id}>
                   {asset.displayName}
@@ -286,15 +285,15 @@ export const StartScreenFormEditor = forwardRef<
               {project.startScreen.backgroundAssetId !== null &&
               selectedBackground === undefined ? (
                 <option value={project.startScreen.backgroundAssetId}>
-                  缺失图片（{project.startScreen.backgroundAssetId}）
+                  {labels.common.missingImage} ({project.startScreen.backgroundAssetId})
                 </option>
               ) : null}
             </select>
           </label>
           <label>
-            背景音乐
+            {labels.startScreen.backgroundMusic}
             <select
-              aria-label="主界面背景音乐"
+              aria-label={labels.startScreen.backgroundMusicAria}
               value={project.startScreen.musicAssetId ?? ''}
               disabled={controlsDisabled}
               onChange={(event) => {
@@ -305,7 +304,7 @@ export const StartScreenFormEditor = forwardRef<
                 );
               }}
             >
-              <option value="">无</option>
+              <option value="">{labels.common.none}</option>
               {audioAssets.map((asset) => (
                 <option key={asset.id} value={asset.id}>
                   {asset.displayName}
@@ -314,14 +313,14 @@ export const StartScreenFormEditor = forwardRef<
               {project.startScreen.musicAssetId !== null &&
               selectedMusic === undefined ? (
                 <option value={project.startScreen.musicAssetId}>
-                  缺失音频（{project.startScreen.musicAssetId}）
+                  {labels.common.missingAudio} ({project.startScreen.musicAssetId})
                 </option>
               ) : null}
             </select>
           </label>
         </form>
         <p className="start-screen-form-help">
-          白色选择框中的内容会同时反映到图形化编辑和完整预览。
+          {labels.startScreen.formHelp}
         </p>
       </aside>
     </>

@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   GameActionBar,
   PreviewVideo,
   VisualStage,
   usePreviewAudio,
+  usePlayerUiLabels,
   type MediaUrlResolver,
   type PreviewCharacter,
 } from '@vnengine/player-ui';
@@ -43,8 +44,21 @@ type GameScreenProps = {
   onOptions(): void;
   onRestart(): void;
   onOpenGame(): void;
-  onExit(): void;
+  onReturnToTitle(): void;
 };
+
+const FAST_FORWARD_HOLD_DELAY_MS = 300;
+const FAST_FORWARD_STEP_MS = 120;
+
+function isSpaceKey(event: KeyboardEvent): boolean {
+  return event.code === 'Space' || event.key === ' ' || event.key === 'Spacebar';
+}
+
+function isTextOrControlTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(
+    'button, input, select, textarea, [contenteditable="true"]',
+  ) !== null;
+}
 
 export function GameScreen({
   project,
@@ -73,9 +87,41 @@ export function GameScreen({
   onOptions,
   onRestart,
   onOpenGame,
-  onExit,
+  onReturnToTitle,
 }: GameScreenProps) {
+  const allLabels = usePlayerUiLabels();
+  const labels = allLabels.game;
   const rootRef = useRef<HTMLDivElement>(null);
+  const [fastForwardLatched, setFastForwardLatched] = useState(false);
+  const [spaceHoldActive, setSpaceHoldActive] = useState(false);
+  const spacePressedRef = useRef(false);
+  const spaceHoldTimerRef = useRef<number | null>(null);
+  const inputStateRef = useRef({
+    interactionBlocked,
+    paused,
+    runtimeStatus: runtime.status,
+  });
+  const onAdvanceRef = useRef(onAdvance);
+  inputStateRef.current = {
+    interactionBlocked,
+    paused,
+    runtimeStatus: runtime.status,
+  };
+  onAdvanceRef.current = onAdvance;
+  const fastForwardActive = fastForwardLatched || spaceHoldActive;
+
+  const clearSpaceHoldTimer = useCallback(() => {
+    if (spaceHoldTimerRef.current !== null) {
+      window.clearTimeout(spaceHoldTimerRef.current);
+      spaceHoldTimerRef.current = null;
+    }
+  }, []);
+
+  const stopSpaceHold = useCallback(() => {
+    clearSpaceHoldTimer();
+    spacePressedRef.current = false;
+    setSpaceHoldActive(false);
+  }, [clearSpaceHoldTimer]);
   usePreviewAudio(runtime, resolveMediaUrl, {
     bgmVolume,
     voiceVolume,
@@ -98,17 +144,118 @@ export function GameScreen({
     (character) => ({
       id: character.nodeId,
       url: mediaUrls[character.assetId] ?? null,
-      name: assetById.get(character.assetId)?.displayName ?? '缺失立绘',
+      name: assetById.get(character.assetId)?.displayName ??
+        labels.missingCharacter,
       slot: character.slot,
       layer: character.layer,
       position: character.position,
     }),
   );
   const choices = getChoices(project, runtime);
+  const runtimeErrorMessage = allLabels.locale === 'zh-CN' &&
+    runtime.errorMessage !== null
+    ? runtime.errorMessage
+    : labels.runtimeErrorFallback;
 
   useEffect(() => {
     rootRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    if (
+      paused ||
+      interactionBlocked ||
+      runtime.status === 'finished' ||
+      runtime.status === 'runtimeError'
+    ) {
+      setFastForwardLatched(false);
+      stopSpaceHold();
+    }
+  }, [interactionBlocked, paused, runtime.status, stopSpaceHold]);
+
+  useEffect(() => {
+    if (
+      !fastForwardActive ||
+      paused ||
+      interactionBlocked ||
+      runtime.status !== 'playing'
+    ) {
+      return;
+    }
+    const timer = window.setTimeout(onAdvance, FAST_FORWARD_STEP_MS);
+    return () => window.clearTimeout(timer);
+  }, [
+    fastForwardActive,
+    interactionBlocked,
+    onAdvance,
+    paused,
+    runtime,
+  ]);
+
+  useEffect(() => {
+    const handleSpaceDown = (event: KeyboardEvent) => {
+      if (
+        !isSpaceKey(event) ||
+        event.repeat ||
+        event.isComposing ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        spacePressedRef.current ||
+        isTextOrControlTarget(event.target)
+      ) {
+        return;
+      }
+      const current = inputStateRef.current;
+      if (
+        current.interactionBlocked ||
+        current.paused ||
+        current.runtimeStatus !== 'playing'
+      ) {
+        return;
+      }
+      event.preventDefault();
+      spacePressedRef.current = true;
+      onAdvanceRef.current();
+      clearSpaceHoldTimer();
+      spaceHoldTimerRef.current = window.setTimeout(() => {
+        spaceHoldTimerRef.current = null;
+        if (spacePressedRef.current) {
+          setSpaceHoldActive(true);
+        }
+      }, FAST_FORWARD_HOLD_DELAY_MS);
+    };
+    const handleSpaceUp = (event: KeyboardEvent) => {
+      if (!isSpaceKey(event) || !spacePressedRef.current) {
+        return;
+      }
+      event.preventDefault();
+      stopSpaceHold();
+    };
+    const handleWindowBlur = () => {
+      setFastForwardLatched(false);
+      stopSpaceHold();
+    };
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        setFastForwardLatched(false);
+        stopSpaceHold();
+      }
+    };
+    window.addEventListener('keydown', handleSpaceDown);
+    window.addEventListener('keyup', handleSpaceUp);
+    window.addEventListener('blur', handleWindowBlur);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('keydown', handleSpaceDown);
+      window.removeEventListener('keyup', handleSpaceUp);
+      window.removeEventListener('blur', handleWindowBlur);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearSpaceHoldTimer();
+      spacePressedRef.current = false;
+    };
+  }, [clearSpaceHoldTimer, stopSpaceHold]);
 
   useEffect(() => {
     const video = rootRef.current?.querySelector('video');
@@ -125,6 +272,9 @@ export function GameScreen({
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.repeat) {
+        return;
+      }
+      if (isSpaceKey(event)) {
         return;
       }
       if (interactionBlocked) {
@@ -179,7 +329,7 @@ export function GameScreen({
       ref={rootRef}
       className="player-game"
       tabIndex={-1}
-      aria-label="游戏画面"
+      aria-label={labels.screenAria}
       onPointerUp={(event) => {
         if (
           event.button === 0 &&
@@ -205,7 +355,7 @@ export function GameScreen({
           !paused && runtime.status === 'playing' && runtime.dialogue !== null
         }
         characters={characters}
-        placeholder="暂无背景"
+        placeholder={labels.noBackground}
       >
         {runtime.status === 'playingVideo' && runtime.videoAssetId ? (
           <PreviewVideo
@@ -223,7 +373,7 @@ export function GameScreen({
             <div
               className="player-choice-list"
               role="group"
-              aria-label="请选择接下来的行动"
+              aria-label={labels.choicesAria}
             >
               {choices.map((option) => (
                 <button
@@ -233,7 +383,7 @@ export function GameScreen({
                   onPointerUp={(event) => event.stopPropagation()}
                   onClick={() => onSelectChoice(option.id)}
                 >
-                  {option.text || '未命名选项'}
+                  {option.text || labels.unnamedChoice}
                 </button>
               ))}
             </div>
@@ -246,26 +396,26 @@ export function GameScreen({
             role="dialog"
             aria-modal={interactionBlocked ? undefined : true}
             aria-hidden={interactionBlocked || undefined}
-            aria-label="暂停菜单"
+            aria-label={labels.pauseMenuAria}
             inert={interactionBlocked}
             onPointerUp={(event) => event.stopPropagation()}
           >
             <section className="player-menu-card">
-              <p className="player-eyebrow">PAUSED</p>
-              <h2>游戏已暂停</h2>
+              <p className="player-eyebrow">{labels.pausedEyebrow}</p>
+              <h2>{labels.pausedTitle}</h2>
               <button
                 type="button"
                 disabled={interactionBlocked}
                 onClick={onResume}
               >
-                继续游戏
+                {labels.continueGame}
               </button>
               <button
                 type="button"
                 disabled={interactionBlocked}
                 onClick={onRestart}
               >
-                重新开始
+                {allLabels.common.restart}
               </button>
               <button
                 type="button"
@@ -273,7 +423,7 @@ export function GameScreen({
                 disabled={interactionBlocked}
                 onClick={onOptions}
               >
-                选项
+                {allLabels.common.options}
               </button>
               {canOpenGame ? (
                 <button
@@ -282,16 +432,18 @@ export function GameScreen({
                   disabled={interactionBlocked || openingGame}
                   onClick={onOpenGame}
                 >
-                  {openingGame ? '正在打开…' : '打开其他游戏'}
+                  {openingGame
+                    ? allLabels.common.openingGame
+                    : allLabels.common.openOtherGame}
                 </button>
               ) : null}
               <button
                 type="button"
                 className="secondary"
                 disabled={interactionBlocked}
-                onClick={onExit}
+                onClick={onReturnToTitle}
               >
-                退出游戏
+                {allLabels.common.returnToTitle}
               </button>
             </section>
           </div>
@@ -303,14 +455,16 @@ export function GameScreen({
             role="dialog"
             aria-modal={interactionBlocked ? undefined : true}
             aria-hidden={interactionBlocked || undefined}
-            aria-label="游戏结束"
+            aria-label={labels.endAria}
             inert={interactionBlocked}
             onPointerUp={(event) => event.stopPropagation()}
           >
             <section className="player-menu-card">
-              <p className="player-eyebrow">THE END</p>
-              <h2>故事结束</h2>
-              <button type="button" onClick={onRestart}>重新开始</button>
+              <p className="player-eyebrow">{labels.endEyebrow}</p>
+              <h2>{labels.endTitle}</h2>
+              <button type="button" onClick={onRestart}>
+                {allLabels.common.restart}
+              </button>
               {canOpenGame ? (
                 <button
                   type="button"
@@ -318,11 +472,17 @@ export function GameScreen({
                   disabled={openingGame}
                   onClick={onOpenGame}
                 >
-                  {openingGame ? '正在打开…' : '打开其他游戏'}
+                  {openingGame
+                    ? allLabels.common.openingGame
+                    : allLabels.common.openOtherGame}
                 </button>
               ) : null}
-              <button type="button" className="secondary" onClick={onExit}>
-                退出游戏
+              <button
+                type="button"
+                className="secondary"
+                onClick={onReturnToTitle}
+              >
+                {allLabels.common.returnToTitle}
               </button>
             </section>
           </div>
@@ -334,15 +494,17 @@ export function GameScreen({
             role="alertdialog"
             aria-modal={interactionBlocked ? undefined : true}
             aria-hidden={interactionBlocked || undefined}
-            aria-label="运行错误"
+            aria-label={labels.runtimeErrorAria}
             inert={interactionBlocked}
             onPointerUp={(event) => event.stopPropagation()}
           >
             <section className="player-menu-card player-error-card">
-              <p className="player-eyebrow">RUNTIME ERROR</p>
-              <h2>游戏无法继续</h2>
-              <p>{runtime.errorMessage ?? '剧情数据发生错误。'}</p>
-              <button type="button" onClick={onRestart}>重新开始</button>
+              <p className="player-eyebrow">{labels.runtimeErrorEyebrow}</p>
+              <h2>{labels.runtimeErrorTitle}</h2>
+              <p>{runtimeErrorMessage}</p>
+              <button type="button" onClick={onRestart}>
+                {allLabels.common.restart}
+              </button>
               {canOpenGame ? (
                 <button
                   type="button"
@@ -350,11 +512,17 @@ export function GameScreen({
                   disabled={openingGame}
                   onClick={onOpenGame}
                 >
-                  {openingGame ? '正在打开…' : '打开其他游戏'}
+                  {openingGame
+                    ? allLabels.common.openingGame
+                    : allLabels.common.openOtherGame}
                 </button>
               ) : null}
-              <button type="button" className="secondary" onClick={onExit}>
-                退出游戏
+              <button
+                type="button"
+                className="secondary"
+                onClick={onReturnToTitle}
+              >
+                {allLabels.common.returnToTitle}
               </button>
             </section>
           </div>
@@ -369,8 +537,8 @@ export function GameScreen({
             <button
               type="button"
               className="player-pause-button"
-              aria-label="暂停游戏"
-              title="暂停游戏（Esc）"
+              aria-label={labels.pauseAria}
+              title={labels.pauseTitle}
               onPointerUp={(event) => event.stopPropagation()}
               onClick={onPause}
             >
@@ -379,14 +547,25 @@ export function GameScreen({
           ) : null}
           <GameActionBar
             disabled={interactionBlocked}
+            fastForwardActive={fastForwardActive}
             quickSaveBusy={quickSaveBusy}
             quickLoadBusy={quickLoadBusy}
             onSave={onSave}
             onLoad={onLoad}
             onQuickSave={onQuickSave}
             onQuickLoad={onQuickLoad}
+            onToggleFastForward={() => {
+              if (!interactionBlocked && !paused) {
+                if (fastForwardActive) {
+                  setFastForwardLatched(false);
+                  stopSpaceHold();
+                } else {
+                  setFastForwardLatched(true);
+                }
+              }
+            }}
             onOptions={onOptions}
-            onExit={onExit}
+            onReturnToTitle={onReturnToTitle}
           />
         </>
       ) : null}

@@ -1,4 +1,5 @@
 import * as Blockly from 'blockly';
+import { DEFAULT_EDITOR_LANGUAGE, getEditorLabels, type EditorLabels } from '../../../i18n/editorLocalization';
 
 export const STORY_CONTINUATION_BLOCK_TYPE =
   'vn_story_continuation';
@@ -6,6 +7,13 @@ export const STORY_CONTINUATION_BLOCK_TYPE =
 export const STORY_CONTINUATION_BLOCK_FIELDS = {
   sequence: 'SEQUENCE',
 } as const;
+const LABEL_FIELD = 'VN_LABEL_CONTINUATION';
+let currentLabels = getEditorLabels(DEFAULT_EDITOR_LANGUAGE);
+
+export function applyStoryContinuationBlockLocalization(block: Blockly.Block, labels: EditorLabels): void {
+  block.setFieldValue(labels.blockly.continuation, LABEL_FIELD);
+  block.setTooltip(labels.blockly.continuationTooltip);
+}
 
 export function getStoryContinuationBlockSequence(
   block: Blockly.Block,
@@ -64,7 +72,8 @@ class StoryContinuationSequenceField extends Blockly.FieldNumber {
   }
 }
 
-export function registerStoryContinuationBlock(): void {
+export function registerStoryContinuationBlock(labels: EditorLabels = currentLabels): void {
+  currentLabels = labels;
   if (Blockly.Blocks[STORY_CONTINUATION_BLOCK_TYPE]) {
     return;
   }
@@ -72,7 +81,7 @@ export function registerStoryContinuationBlock(): void {
   Blockly.Blocks[STORY_CONTINUATION_BLOCK_TYPE] = {
     init(): void {
       this.appendDummyInput()
-        .appendField('延伸')
+        .appendField(currentLabels.blockly.continuation, LABEL_FIELD)
         .appendField(
           new StoryContinuationSequenceField(
             1,
@@ -86,9 +95,7 @@ export function registerStoryContinuationBlock(): void {
       // 这样后续剧情会永久连在它下方，不会再显示成页尾标记。
       this.setNextStatement(true);
       this.setColour(55);
-      this.setTooltip(
-        '手动开始一个新剧情分页；修改正整数可调整整页先后',
-      );
+      this.setTooltip(currentLabels.blockly.continuationTooltip);
       this.setHelpUrl('');
     },
   };

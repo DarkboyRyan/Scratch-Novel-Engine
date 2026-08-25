@@ -1,33 +1,52 @@
 import * as Blockly from 'blockly';
 
 import type { SceneDocument } from '../../../../shared/projectTypes';
+import { DEFAULT_EDITOR_LANGUAGE, getEditorLabels, type EditorLabels } from '../../../i18n/editorLocalization';
 
 export const SCENE_JUMP_BLOCK_TYPE = 'vn_scene_jump';
 export const SCENE_JUMP_BLOCK_FIELDS = {
   targetScene: 'TARGET_SCENE',
 } as const;
 
-let currentSceneOptions: Blockly.MenuOption[] = [['暂无其他场景', '']];
+const LABEL_FIELD = 'VN_LABEL_SCENE_JUMP';
+let currentLabels = getEditorLabels(DEFAULT_EDITOR_LANGUAGE);
+let currentSceneOptions: Blockly.MenuOption[] = [[currentLabels.blockly.noOtherScenes, '']];
+
+export function applySceneJumpBlockLocalization(block: Blockly.Block, labels: EditorLabels): void {
+  block.setFieldValue(labels.blockly.jumpTo, LABEL_FIELD);
+  const field = block.getField(SCENE_JUMP_BLOCK_FIELDS.targetScene);
+  if (field instanceof Blockly.FieldDropdown) {
+    const value = String(field.getValue());
+    field.setOptions(() => currentSceneOptions);
+    if (currentSceneOptions.some((option) => option[1] === value)) {
+      field.setValue(value);
+    }
+  }
+  block.setTooltip(labels.blockly.jumpTooltip);
+}
 
 export function setSceneJumpBlockOptions(
   scenes: SceneDocument[],
   currentSceneId: string,
+  labels: EditorLabels = currentLabels,
 ): void {
+  currentLabels = labels;
   const options = scenes
     .map((scene, index) => ({ scene, index }))
     .filter(({ scene }) => scene.id !== currentSceneId)
     .map(({ scene, index }) => [
       scene.name === `场景 ${index + 1}`
-        ? `场景 ${index + 1}`
-        : `场景 ${index + 1} · ${scene.name}`,
+        ? `${labels.common.scene} ${index + 1}`
+        : `${labels.common.scene} ${index + 1} · ${scene.name}`,
       scene.id,
     ] as Blockly.MenuOption);
   currentSceneOptions = options.length > 0
     ? options
-    : [['暂无其他场景', '']];
+    : [[labels.blockly.noOtherScenes, '']];
 }
 
-export function registerSceneJumpBlock(): void {
+export function registerSceneJumpBlock(labels: EditorLabels = currentLabels): void {
+  currentLabels = labels;
   if (Blockly.Blocks[SCENE_JUMP_BLOCK_TYPE]) {
     return;
   }
@@ -35,7 +54,7 @@ export function registerSceneJumpBlock(): void {
   Blockly.Blocks[SCENE_JUMP_BLOCK_TYPE] = {
     init(): void {
       this.appendDummyInput()
-        .appendField('跳转到')
+        .appendField(currentLabels.blockly.jumpTo, LABEL_FIELD)
         .appendField(
           new Blockly.FieldDropdown(() => currentSceneOptions),
           SCENE_JUMP_BLOCK_FIELDS.targetScene,
@@ -43,7 +62,7 @@ export function registerSceneJumpBlock(): void {
       this.setPreviousStatement(true);
       this.setNextStatement(true);
       this.setColour(205);
-      this.setTooltip('正式预览执行到这里时进入选中的场景');
+      this.setTooltip(currentLabels.blockly.jumpTooltip);
       this.setHelpUrl('');
     },
   };

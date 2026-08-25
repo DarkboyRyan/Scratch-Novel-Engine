@@ -7,11 +7,13 @@ import {
   type TrustedEditorLocations,
 } from '../security/editorFrameTrust';
 import type { EditorWindowContexts } from '../window/EditorWindowContext';
+import type { EditorLanguage } from '../../shared/editorSettingsProtocol';
 import { isExportGameInvocation } from './validateExportInvocation';
 
 export function registerExportIpc(
   contexts: EditorWindowContexts,
   trustedEditorLocations: TrustedEditorLocations,
+  getLanguage: () => EditorLanguage = () => 'zh-CN',
 ): void {
   ipcMain.handle(
     EXPORT_GAME_IPC_CHANNEL,
@@ -27,7 +29,7 @@ export function registerExportIpc(
         throw new Error('找不到当前编辑器窗口对应的项目会话');
       }
       return context.fileOperationCoordinator.runExclusive(() =>
-        runExportGameWorkflow(context, invocation.params),
+        runExportGameWorkflow(context, invocation.params, getLanguage()),
       );
     },
   );

@@ -6,6 +6,8 @@ import {
   type ImportAssetResult,
 } from '../../shared/assetProtocol';
 import type { EngineMutationResult } from '../../shared/engineProtocol';
+import type { EditorLanguage } from '../../shared/editorSettingsProtocol';
+import { getEditorNativeLabels } from '../i18n/editorNativeLabels';
 import {
   isTrustedEditorFrame,
   type TrustedEditorLocations,
@@ -17,6 +19,7 @@ import { isAssetInvocation } from './validateAssetInvocation';
 export function registerAssetIpc(
   contexts: EditorWindowContexts,
   trustedEditorLocations: TrustedEditorLocations,
+  getLanguage: () => EditorLanguage = () => 'zh-CN',
 ): void {
   ipcMain.handle(
     ASSET_IPC_CHANNEL,
@@ -50,11 +53,9 @@ export function registerAssetIpc(
         : invocation.action === 'import-audio'
           ? 'audio'
           : 'image';
-      const noun = kind === 'video'
-        ? '视频'
-        : kind === 'audio'
-          ? '音频'
-          : '图片';
+      const language = getLanguage();
+      const labels = getEditorNativeLabels(language).asset;
+      const noun = labels.nouns[kind];
 
       return context.fileOperationCoordinator.runExclusive(
         async (): Promise<ImportAssetResult> => {
@@ -73,19 +74,19 @@ export function registerAssetIpc(
           const selection = await dialog.showOpenDialog(
             context.editorWindow,
             {
-              title: `导入${noun}资源`,
-              buttonLabel: `导入${noun}`,
+              title: labels.importTitle(noun),
+              buttonLabel: labels.importButton(noun),
               properties: ['openFile'],
               filters: [
                 kind === 'video'
-                  ? { name: '视频', extensions: ['mp4', 'webm'] }
+                  ? { name: labels.nouns.video, extensions: ['mp4', 'webm'] }
                   : kind === 'audio'
                     ? {
-                        name: '音频',
+                        name: labels.nouns.audio,
                         extensions: ['mp3', 'wav', 'ogg'],
                       }
                   : {
-                      name: '图片',
+                      name: labels.nouns.image,
                       extensions: ['png', 'jpg', 'jpeg', 'webp'],
                     },
               ],
@@ -174,6 +175,7 @@ export function registerAssetIpc(
             context.editorWindow,
             result.project.name,
             session,
+            language,
           );
 
           if (
