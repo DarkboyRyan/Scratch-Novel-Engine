@@ -73,25 +73,34 @@ const project: ProjectDocument = {
 };
 
 describe('versioned game runtime snapshots', () => {
-  it('stores only canonical cursor state and rebuilds derived presentation', () => {
+  it('stores canonical control and presentation state for exact restoration', () => {
     const runtime = startGame(project);
     expect(runtime?.status).toBe('playing');
     const snapshot = createGameRuntimeSnapshot(project, runtime!);
 
     expect(snapshot).toEqual({
-      snapshotVersion: 1,
+      snapshotVersion: 2,
       status: 'playing',
       sceneId: 'entry',
       nextNodeIndex: 4,
+      backgroundAssetId: 'room',
       bgmAssetId: 'theme',
       bgmSequence: 1,
       dialogueSequence: 1,
       videoSequence: 0,
+      characters: [{
+        nodeId: 'character',
+        assetId: 'alice',
+        slot: 'left',
+        layer: 2,
+        position: { x: 25, y: 90 },
+      }],
+      variables: {},
+      loopStack: [],
     });
     expect(snapshot).not.toHaveProperty('dialogue');
     expect(snapshot).not.toHaveProperty('choices');
     expect(snapshot).not.toHaveProperty('videoAssetId');
-    expect(snapshot).not.toHaveProperty('characters');
 
     expect(restoreGameRuntimeSnapshot(project, snapshot)).toEqual(runtime);
   });
@@ -146,7 +155,84 @@ describe('versioned game runtime snapshots', () => {
     })).toBeNull();
     expect(restoreGameRuntimeSnapshot(project, {
       ...snapshot,
-      snapshotVersion: 2,
+      snapshotVersion: 99,
+    })).toBeNull();
+  });
+
+  it('safely restores legacy v1 saves for projects without logic nodes', () => {
+    expect(restoreGameRuntimeSnapshot(project, {
+      snapshotVersion: 1,
+      status: 'playing',
+      sceneId: 'entry',
+      nextNodeIndex: 4,
+      bgmAssetId: 'theme',
+      bgmSequence: 1,
+      dialogueSequence: 1,
+      videoSequence: 0,
+    })).toEqual(startGame(project));
+  });
+
+  it('round-trips variables, loop position, and an earlier branch visual', () => {
+    const logicProject: ProjectDocument = {
+      ...project,
+      scenes: [{
+        schemaVersion: 1,
+        id: 'entry',
+        name: 'Logic',
+        backgroundAssetId: 'entry-background',
+        nodes: [
+          { id: 'set', type: 'variableSet', variableName: 'route', value: 1 },
+          {
+            id: 'if',
+            type: 'logicIf',
+            condition: {
+              left: { kind: 'variable', name: 'route' },
+              operator: 'eq',
+              right: { kind: 'literal', value: 1 },
+            },
+          },
+          { id: 'chosen-background', type: 'background', assetId: 'room' },
+          { id: 'else', type: 'logicElse', ifNodeId: 'if' },
+          { id: 'other-background', type: 'background', assetId: 'other-room' },
+          { id: 'endif', type: 'logicEndIf', ifNodeId: 'if' },
+          { id: 'overwrite', type: 'variableSet', variableName: 'route', value: 0 },
+          { id: 'repeat', type: 'logicRepeat', count: 3 },
+          {
+            id: 'portrait',
+            type: 'character',
+            assetId: 'alice',
+            slot: 'right',
+            layer: 1,
+            position: null,
+          },
+          {
+            id: 'loop-dialogue',
+            type: 'dialogue',
+            speaker: 'Loop',
+            text: 'Again',
+            voiceAssetId: null,
+          },
+          { id: 'end-repeat', type: 'logicEndRepeat', repeatNodeId: 'repeat' },
+          { id: 'after', type: 'dialogue', speaker: '', text: 'Done', voiceAssetId: null },
+        ],
+      }, project.scenes[1]!],
+    };
+
+    const first = startGame(logicProject)!;
+    expect(first).toMatchObject({
+      backgroundAssetId: 'room',
+      variables: { route: 0 },
+      loopStack: [{ repeatNodeId: 'repeat', remainingIterations: 3 }],
+      dialogue: { id: 'loop-dialogue' },
+    });
+    const second = advanceGame(logicProject, first);
+    expect(second.loopStack[0]?.remainingIterations).toBe(2);
+    const snapshot = createGameRuntimeSnapshot(logicProject, second);
+    expect(snapshot?.snapshotVersion).toBe(2);
+    expect(restoreGameRuntimeSnapshot(logicProject, snapshot)).toEqual(second);
+    expect(restoreGameRuntimeSnapshot(logicProject, {
+      ...snapshot,
+      variables: { ...snapshot?.variables, forged: 1 },
     })).toBeNull();
   });
 

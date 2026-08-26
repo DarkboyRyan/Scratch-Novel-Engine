@@ -39,6 +39,62 @@ function isCgGalleryPages(value: unknown): boolean {
   });
 }
 
+const utf8ByteLength = (value: string): number =>
+  new TextEncoder().encode(value).length;
+
+function isLogicValue(value: unknown): boolean {
+  return (
+    typeof value === 'boolean' ||
+    (typeof value === 'number' && Number.isFinite(value)) ||
+    (typeof value === 'string' &&
+      !value.includes('\0') &&
+      utf8ByteLength(value) <= 4096)
+  );
+}
+
+function isLogicVariableName(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value === value.replace(/^[ \t\n\r\f\v]+|[ \t\n\r\f\v]+$/g, '') &&
+    !value.includes('\0') &&
+    utf8ByteLength(value) <= 64
+  );
+}
+
+function isLogicOperand(value: unknown): boolean {
+  if (!isObject(value) || typeof value.kind !== 'string') {
+    return false;
+  }
+  if (value.kind === 'variable') {
+    return (
+      Object.keys(value).length === 2 &&
+      isLogicVariableName(value.name)
+    );
+  }
+  return (
+    value.kind === 'literal' &&
+    Object.keys(value).length === 2 &&
+    Object.hasOwn(value, 'value') &&
+    isLogicValue(value.value)
+  );
+}
+
+function isLogicCondition(value: unknown): boolean {
+  return (
+    isObject(value) &&
+    Object.keys(value).length === 3 &&
+    isLogicOperand(value.left) &&
+    (value.operator === 'eq' ||
+      value.operator === 'neq' ||
+      value.operator === 'gt' ||
+      value.operator === 'gte' ||
+      value.operator === 'lt' ||
+      value.operator === 'lte') &&
+    isLogicOperand(value.right)
+  );
+}
+
 export function isEngineInvocation(
   value: unknown,
 ): value is EngineInvocation {
@@ -52,6 +108,8 @@ export function isEngineInvocation(
 
   const params = value.params;
   const hasString = (key: string) => typeof params[key] === 'string';
+  const hasOnly = (keys: readonly string[]): boolean =>
+    Object.keys(params).every((key) => keys.includes(key));
   const hasValidOptionalPlacement = (): boolean => {
     const hasAfterNodeId = hasString('afterNodeId');
     const hasBeforeNodeId = hasString('beforeNodeId');
@@ -121,6 +179,109 @@ export function isEngineInvocation(
         hasString('sceneId') &&
         params.assetId === undefined &&
         hasValidOptionalPlacement()
+      );
+    case 'variableSet.add':
+      return (
+        hasString('sceneId') &&
+        isLogicVariableName(params.variableName) &&
+        Object.hasOwn(params, 'value') &&
+        isLogicValue(params.value) &&
+        hasOnly([
+          'sceneId',
+          'variableName',
+          'value',
+          'afterNodeId',
+          'beforeNodeId',
+        ]) &&
+        hasValidOptionalPlacement()
+      );
+    case 'variableSet.update':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        isLogicVariableName(params.variableName) &&
+        Object.hasOwn(params, 'value') &&
+        isLogicValue(params.value) &&
+        hasOnly(['sceneId', 'nodeId', 'variableName', 'value'])
+      );
+    case 'variableChange.add':
+      return (
+        hasString('sceneId') &&
+        isLogicVariableName(params.variableName) &&
+        typeof params.amount === 'number' &&
+        Number.isFinite(params.amount) &&
+        hasOnly([
+          'sceneId',
+          'variableName',
+          'amount',
+          'afterNodeId',
+          'beforeNodeId',
+        ]) &&
+        hasValidOptionalPlacement()
+      );
+    case 'variableChange.update':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        isLogicVariableName(params.variableName) &&
+        typeof params.amount === 'number' &&
+        Number.isFinite(params.amount) &&
+        hasOnly(['sceneId', 'nodeId', 'variableName', 'amount'])
+      );
+    case 'logicIf.add':
+      return (
+        hasString('sceneId') &&
+        isLogicCondition(params.condition) &&
+        hasOnly([
+          'sceneId',
+          'condition',
+          'afterNodeId',
+          'beforeNodeId',
+        ]) &&
+        hasValidOptionalPlacement()
+      );
+    case 'logicIf.update':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        isLogicCondition(params.condition) &&
+        hasOnly(['sceneId', 'nodeId', 'condition'])
+      );
+    case 'logicRepeat.add':
+      return (
+        hasString('sceneId') &&
+        Number.isInteger(params.count) &&
+        (params.count as number) >= 1 &&
+        (params.count as number) <= 1000 &&
+        hasOnly([
+          'sceneId',
+          'count',
+          'afterNodeId',
+          'beforeNodeId',
+        ]) &&
+        hasValidOptionalPlacement()
+      );
+    case 'logicRepeat.update':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        Number.isInteger(params.count) &&
+        (params.count as number) >= 1 &&
+        (params.count as number) <= 1000 &&
+        hasOnly(['sceneId', 'nodeId', 'count'])
+      );
+    case 'logicControl.delete':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        hasOnly(['sceneId', 'nodeId'])
+      );
+    case 'logicControl.reorder':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        (params.beforeNodeId === null || hasString('beforeNodeId')) &&
+        hasOnly(['sceneId', 'nodeId', 'beforeNodeId'])
       );
     case 'choice.option.add':
       return (

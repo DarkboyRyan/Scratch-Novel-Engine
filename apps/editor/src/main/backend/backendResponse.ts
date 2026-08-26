@@ -9,6 +9,13 @@ import type {
   SceneDocument,
   SceneNode,
 } from '../../shared/projectTypes';
+import {
+  isLogicCondition,
+  isLogicValue,
+  isLogicVariableName,
+  MAX_REPEAT_COUNT,
+  MAX_RUNTIME_VARIABLES,
+} from '@vnengine/runtime';
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -36,7 +43,14 @@ function isSceneNode(value: unknown): boolean {
     value.type !== 'bgm' &&
     value.type !== 'video' &&
     value.type !== 'choice' &&
-    value.type !== 'storyExtension'
+    value.type !== 'storyExtension' &&
+    value.type !== 'variableSet' &&
+    value.type !== 'variableChange' &&
+    value.type !== 'logicIf' &&
+    value.type !== 'logicElse' &&
+    value.type !== 'logicEndIf' &&
+    value.type !== 'logicRepeat' &&
+    value.type !== 'logicEndRepeat'
   ) {
     return false;
   }
@@ -94,7 +108,104 @@ function isSceneNode(value: unknown): boolean {
     return true;
   }
 
+  if (value.type === 'variableSet') {
+    return (
+      isLogicVariableName(value.variableName) &&
+      isLogicValue(value.value)
+    );
+  }
+
+  if (value.type === 'variableChange') {
+    return (
+      isLogicVariableName(value.variableName) &&
+      typeof value.amount === 'number' &&
+      Number.isFinite(value.amount)
+    );
+  }
+
+  if (value.type === 'logicIf') {
+    return isLogicCondition(value.condition);
+  }
+
+  if (value.type === 'logicElse' || value.type === 'logicEndIf') {
+    return typeof value.ifNodeId === 'string';
+  }
+
+  if (value.type === 'logicRepeat') {
+    return (
+      Number.isInteger(value.count) &&
+      (value.count as number) >= 1 &&
+      (value.count as number) <= MAX_REPEAT_COUNT
+    );
+  }
+
+  if (value.type === 'logicEndRepeat') {
+    return typeof value.repeatNodeId === 'string';
+  }
+
   return value.assetId === null || typeof value.assetId === 'string';
+}
+
+function hasValidLogicStructure(nodes: unknown[]): boolean {
+  const stack: Array<{
+    kind: 'if' | 'repeat';
+    rootId: string;
+    sawElse: boolean;
+  }> = [];
+  for (const rawNode of nodes) {
+    const node = rawNode as Record<string, unknown>;
+    if (node.type === 'storyExtension' && stack.length > 0) {
+      return false;
+    }
+    if (node.type === 'logicIf') {
+      if (stack.length >= 16) {
+        return false;
+      }
+      stack.push({ kind: 'if', rootId: node.id as string, sawElse: false });
+    } else if (node.type === 'logicElse') {
+      const frame = stack.at(-1);
+      if (
+        !frame ||
+        frame.kind !== 'if' ||
+        frame.rootId !== node.ifNodeId ||
+        frame.sawElse
+      ) {
+        return false;
+      }
+      frame.sawElse = true;
+    } else if (node.type === 'logicEndIf') {
+      const frame = stack.at(-1);
+      if (
+        !frame ||
+        frame.kind !== 'if' ||
+        frame.rootId !== node.ifNodeId ||
+        !frame.sawElse
+      ) {
+        return false;
+      }
+      stack.pop();
+    } else if (node.type === 'logicRepeat') {
+      if (stack.length >= 16) {
+        return false;
+      }
+      stack.push({
+        kind: 'repeat',
+        rootId: node.id as string,
+        sawElse: false,
+      });
+    } else if (node.type === 'logicEndRepeat') {
+      const frame = stack.at(-1);
+      if (
+        !frame ||
+        frame.kind !== 'repeat' ||
+        frame.rootId !== node.repeatNodeId
+      ) {
+        return false;
+      }
+      stack.pop();
+    }
+  }
+  return stack.length === 0;
 }
 
 function isSceneDocument(value: unknown): boolean {
@@ -106,7 +217,8 @@ function isSceneDocument(value: unknown): boolean {
     (value.backgroundAssetId === null ||
       typeof value.backgroundAssetId === 'string') &&
     Array.isArray(value.nodes) &&
-    value.nodes.every(isSceneNode)
+    value.nodes.every(isSceneNode) &&
+    hasValidLogicStructure(value.nodes)
   );
 }
 
@@ -153,7 +265,7 @@ function isCgGalleryDocument(value: unknown): boolean {
 }
 
 function isProjectDocument(value: unknown): boolean {
-  return (
+  if (!(
     isObject(value) &&
     value.schemaVersion === 1 &&
     typeof value.id === 'string' &&
@@ -163,7 +275,26 @@ function isProjectDocument(value: unknown): boolean {
     isCgGalleryDocument(value.cgGallery) &&
     Array.isArray(value.scenes) &&
     value.scenes.every(isSceneDocument)
-  );
+  )) {
+    return false;
+  }
+  const variableNames = new Set<string>();
+  for (const scene of value.scenes as Array<Record<string, unknown>>) {
+    for (const node of scene.nodes as Array<Record<string, unknown>>) {
+      if (node.type === 'variableSet' || node.type === 'variableChange') {
+        variableNames.add(node.variableName as string);
+      } else if (node.type === 'logicIf') {
+        const condition = node.condition as Record<string, unknown>;
+        for (const operand of [condition.left, condition.right]) {
+          const candidate = operand as Record<string, unknown>;
+          if (candidate.kind === 'variable') {
+            variableNames.add(candidate.name as string);
+          }
+        }
+      }
+    }
+  }
+  return variableNames.size <= MAX_RUNTIME_VARIABLES;
 }
 
 function toPublicAssetDocument(
@@ -240,6 +371,67 @@ function toPublicSceneNode(
           targetSceneId: option.targetSceneId as string,
         }),
       ),
+    };
+  }
+
+  if (value.type === 'variableSet') {
+    return {
+      id: value.id as string,
+      type: 'variableSet',
+      variableName: value.variableName as string,
+      value: value.value as boolean | number | string,
+    };
+  }
+
+  if (value.type === 'variableChange') {
+    return {
+      id: value.id as string,
+      type: 'variableChange',
+      variableName: value.variableName as string,
+      amount: value.amount as number,
+    };
+  }
+
+  if (value.type === 'logicIf') {
+    return {
+      id: value.id as string,
+      type: 'logicIf',
+      condition: value.condition as Extract<
+        SceneNode,
+        { type: 'logicIf' }
+      >['condition'],
+    };
+  }
+
+  if (value.type === 'logicElse') {
+    return {
+      id: value.id as string,
+      type: 'logicElse',
+      ifNodeId: value.ifNodeId as string,
+    };
+  }
+
+  if (value.type === 'logicEndIf') {
+    return {
+      id: value.id as string,
+      type: 'logicEndIf',
+      ifNodeId: value.ifNodeId as string,
+    };
+  }
+
+  if (value.type === 'logicRepeat') {
+    return {
+      id: value.id as string,
+      type: 'logicRepeat',
+      count: value.count as number,
+    };
+  }
+
+  if (value.type === 'logicEndRepeat') {
+    return {
+      id: value.id as string,
+      type: 'logicEndRepeat',
+      repeatNodeId: value.repeatNodeId as string,
     };
   }
 

@@ -2,10 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import {
   advanceGame,
+  getLocalizedRuntimeErrorMessage,
   getChoices,
+  MAX_LOGIC_STRING_BYTES,
+  MAX_RUNTIME_VARIABLES,
   selectChoice,
   startGame,
   type ProjectDocument,
+  type SceneNode,
 } from '../src';
 
 function dialogue(id: string, voiceAssetId: string | null = null) {
@@ -308,5 +312,284 @@ describe('shared runtime execution contract', () => {
     expect(first.dialogueSequence).toBe(1);
     expect(second.dialogueSequence).toBe(2);
     expect(second.dialogue?.id).toBe('same-line');
+  });
+
+  it('executes if/else and finite repeat bodies while preserving loop state', () => {
+    const project: ProjectDocument = {
+      schemaVersion: 1,
+      id: 'logic',
+      name: 'Logic',
+      entrySceneId: 'entry',
+      startScreen: { title: 'Logic', backgroundAssetId: null, musicAssetId: null },
+      cgGallery: emptyCgGallery(),
+      scenes: [{
+        schemaVersion: 1,
+        id: 'entry',
+        name: 'Entry',
+        backgroundAssetId: null,
+        nodes: [
+          { id: 'set', type: 'variableSet', variableName: 'score', value: 2 },
+          {
+            id: 'if',
+            type: 'logicIf',
+            condition: {
+              left: { kind: 'variable', name: 'score' },
+              operator: 'gte',
+              right: { kind: 'literal', value: 2 },
+            },
+          },
+          { id: 'win-bg', type: 'background', assetId: 'win' },
+          { id: 'repeat', type: 'logicRepeat', count: 3 },
+          { id: 'change', type: 'variableChange', variableName: 'score', amount: 1 },
+          dialogue('inside-loop'),
+          { id: 'end-repeat', type: 'logicEndRepeat', repeatNodeId: 'repeat' },
+          { id: 'else', type: 'logicElse', ifNodeId: 'if' },
+          { id: 'lose-bg', type: 'background', assetId: 'lose' },
+          { id: 'endif', type: 'logicEndIf', ifNodeId: 'if' },
+          dialogue('after-loop'),
+        ],
+      }],
+    };
+
+    const first = startGame(project)!;
+    expect(first).toMatchObject({
+      status: 'playing',
+      backgroundAssetId: 'win',
+      variables: { score: 3 },
+      dialogue: { id: 'inside-loop' },
+      loopStack: [{ repeatNodeId: 'repeat', remainingIterations: 3 }],
+    });
+    const second = advanceGame(project, first);
+    expect(second).toMatchObject({
+      variables: { score: 4 },
+      dialogue: { id: 'inside-loop' },
+      loopStack: [{ remainingIterations: 2 }],
+    });
+    const third = advanceGame(project, second);
+    expect(third).toMatchObject({
+      variables: { score: 5 },
+      dialogue: { id: 'inside-loop' },
+      loopStack: [{ remainingIterations: 1 }],
+    });
+    expect(advanceGame(project, third)).toMatchObject({
+      dialogue: { id: 'after-loop' },
+      loopStack: [],
+      variables: { score: 5 },
+    });
+  });
+
+  it('uses zero for undefined variables and rejects invalid numeric operations', () => {
+    const undefinedVariable: ProjectDocument = {
+      schemaVersion: 1,
+      id: 'undefined-variable',
+      name: 'Undefined variable',
+      entrySceneId: 'entry',
+      startScreen: { title: '', backgroundAssetId: null, musicAssetId: null },
+      cgGallery: emptyCgGallery(),
+      scenes: [{
+        schemaVersion: 1,
+        id: 'entry',
+        name: 'Entry',
+        backgroundAssetId: null,
+        nodes: [
+          { id: 'change', type: 'variableChange', variableName: 'score', amount: 2 },
+          dialogue('changed'),
+        ],
+      }],
+    };
+    expect(startGame(undefinedVariable)).toMatchObject({ variables: { score: 2 } });
+
+    const invalidChange: ProjectDocument = {
+      ...undefinedVariable,
+      scenes: [{
+        ...undefinedVariable.scenes[0]!,
+        nodes: [
+          { id: 'set-text', type: 'variableSet', variableName: 'score', value: 'two' },
+          { id: 'change', type: 'variableChange', variableName: 'score', amount: 1 },
+        ],
+      }],
+    };
+    expect(startGame(invalidChange)).toMatchObject({ status: 'runtimeError' });
+  });
+
+  it('preserves loop frames at video/choice blockers and clears them on branches', () => {
+    const project: ProjectDocument = {
+      schemaVersion: 1,
+      id: 'blocking-logic',
+      name: 'Blocking logic',
+      entrySceneId: 'entry',
+      startScreen: { title: '', backgroundAssetId: null, musicAssetId: null },
+      cgGallery: emptyCgGallery(),
+      scenes: [
+        {
+          schemaVersion: 1,
+          id: 'entry',
+          name: 'Entry',
+          backgroundAssetId: null,
+          nodes: [
+            { id: 'repeat', type: 'logicRepeat', count: 2 },
+            { id: 'video', type: 'video', assetId: 'clip' },
+            {
+              id: 'choice',
+              type: 'choice',
+              options: [{ id: 'go', text: 'Go', targetSceneId: 'target' }],
+            },
+            { id: 'end-repeat', type: 'logicEndRepeat', repeatNodeId: 'repeat' },
+          ],
+        },
+        {
+          schemaVersion: 1,
+          id: 'target',
+          name: 'Target',
+          backgroundAssetId: null,
+          nodes: [dialogue('target-dialogue')],
+        },
+      ],
+    };
+
+    const video = startGame(project)!;
+    expect(video).toMatchObject({
+      status: 'playingVideo',
+      loopStack: [{ repeatNodeId: 'repeat', remainingIterations: 2 }],
+    });
+    const choice = advanceGame(project, video);
+    expect(choice).toMatchObject({ status: 'choosing', loopStack: [{ repeatNodeId: 'repeat' }] });
+    expect(selectChoice(project, choice, 'go')).toMatchObject({
+      sceneId: 'target',
+      loopStack: [],
+      dialogue: { id: 'target-dialogue' },
+    });
+  });
+
+  it('clears loop frames on a scene jump while preserving global variables', () => {
+    const project: ProjectDocument = {
+      schemaVersion: 1,
+      id: 'jump-from-loop',
+      name: 'Jump from loop',
+      entrySceneId: 'entry',
+      startScreen: { title: '', backgroundAssetId: null, musicAssetId: null },
+      cgGallery: emptyCgGallery(),
+      scenes: [
+        {
+          schemaVersion: 1,
+          id: 'entry',
+          name: 'Entry',
+          backgroundAssetId: null,
+          nodes: [
+            { id: 'repeat', type: 'logicRepeat', count: 2 },
+            { id: 'change', type: 'variableChange', variableName: 'visits', amount: 1 },
+            { id: 'jump', type: 'sceneJump', targetSceneId: 'target' },
+            { id: 'end-repeat', type: 'logicEndRepeat', repeatNodeId: 'repeat' },
+          ],
+        },
+        {
+          schemaVersion: 1,
+          id: 'target',
+          name: 'Target',
+          backgroundAssetId: null,
+          nodes: [dialogue('target-line')],
+        },
+      ],
+    };
+
+    expect(startGame(project)).toMatchObject({
+      sceneId: 'target',
+      variables: { visits: 1 },
+      loopStack: [],
+      dialogue: { id: 'target-line' },
+    });
+  });
+
+  it('rejects malformed control markers and stops large automatic loops', () => {
+    const malformed: ProjectDocument = {
+      schemaVersion: 1,
+      id: 'malformed',
+      name: 'Malformed',
+      entrySceneId: 'entry',
+      startScreen: { title: '', backgroundAssetId: null, musicAssetId: null },
+      cgGallery: emptyCgGallery(),
+      scenes: [{
+        schemaVersion: 1,
+        id: 'entry',
+        name: 'Entry',
+        backgroundAssetId: null,
+        nodes: [
+          {
+            id: 'if',
+            type: 'logicIf',
+            condition: {
+              left: { kind: 'literal', value: true },
+              operator: 'eq',
+              right: { kind: 'literal', value: true },
+            },
+          },
+          { id: 'endif', type: 'logicEndIf', ifNodeId: 'if' },
+        ],
+      }],
+    };
+    expect(startGame(malformed)).toMatchObject({ status: 'runtimeError' });
+
+    const hugeLoop: ProjectDocument = {
+      ...malformed,
+      id: 'huge-loop',
+      scenes: [{
+        ...malformed.scenes[0]!,
+        nodes: [
+          { id: 'outer', type: 'logicRepeat', count: 1_000 },
+          { id: 'inner', type: 'logicRepeat', count: 1_000 },
+          { id: 'end-inner', type: 'logicEndRepeat', repeatNodeId: 'inner' },
+          { id: 'end-outer', type: 'logicEndRepeat', repeatNodeId: 'outer' },
+        ],
+      }],
+    };
+    expect(startGame(hugeLoop)).toMatchObject({
+      status: 'runtimeError',
+      errorCode: 'logicStepLimit',
+      errorMessage: '自动执行步骤过多，已停止以避免程序卡死',
+    });
+    expect(getLocalizedRuntimeErrorMessage(
+      startGame(hugeLoop)!,
+      'en-US',
+      'fallback',
+    )).toBe('Automatic execution was stopped to prevent the game from freezing.');
+  });
+
+  it('keeps automatic-loop fingerprints bounded with maximum variable payloads', () => {
+    const maximumString = 'x'.repeat(MAX_LOGIC_STRING_BYTES);
+    const variableNodes: SceneNode[] = Array.from(
+      { length: MAX_RUNTIME_VARIABLES },
+      (_, index) => ({
+        id: `set-${index}`,
+        type: 'variableSet',
+        variableName: `value${index}`,
+        value: maximumString,
+      }),
+    );
+    const project: ProjectDocument = {
+      schemaVersion: 1,
+      id: 'bounded-fingerprint',
+      name: 'Bounded fingerprint',
+      entrySceneId: 'entry',
+      startScreen: { title: '', backgroundAssetId: null, musicAssetId: null },
+      cgGallery: emptyCgGallery(),
+      scenes: [{
+        schemaVersion: 1,
+        id: 'entry',
+        name: 'Entry',
+        backgroundAssetId: null,
+        nodes: [
+          ...variableNodes,
+          { id: 'outer', type: 'logicRepeat', count: 1_000 },
+          { id: 'inner', type: 'logicRepeat', count: 1_000 },
+          { id: 'end-inner', type: 'logicEndRepeat', repeatNodeId: 'inner' },
+          { id: 'end-outer', type: 'logicEndRepeat', repeatNodeId: 'outer' },
+        ],
+      }],
+    };
+
+    expect(startGame(project)).toMatchObject({
+      status: 'runtimeError',
+      errorCode: 'logicStepLimit',
+    });
   });
 });

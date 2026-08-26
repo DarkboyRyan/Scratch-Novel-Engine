@@ -301,7 +301,7 @@ describe('Player trusted IPC', () => {
       },
       {
         action: 'quick-save',
-        params: { snapshot: { ...snapshot, snapshotVersion: 2 } },
+        params: { snapshot: { ...snapshot, snapshotVersion: 3 } },
       },
       {
         action: 'quick-save',

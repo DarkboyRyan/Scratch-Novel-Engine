@@ -7,16 +7,17 @@ import type {
   CharacterSlot,
   CharacterPosition,
   DialogueNode,
+  FormVisibleSceneNode,
   SceneJumpNode,
-  SemanticSceneNode,
   VideoNode,
 } from '../../../shared/projectTypes';
 import {
+  formVisibleSceneNodes,
   isSemanticSceneNode,
-  semanticSceneNodes,
 } from '../../../shared/projectTypes';
 import type { FormEditorPort } from '../../application/authoringPorts';
 import { useEditorLabels } from '../../i18n/editorLocalization';
+import { getCharacterGroupDialogueAnchorId } from './formLogicTree';
 
 // Controller hook 负责 Renderer 状态、选择规则以及调用 C++。
 // 组件只接收数据和事件，不直接知道 IPC 协议。
@@ -63,7 +64,10 @@ export function useFormEditor({
       ) ?? project.scenes[0])
     : null;
 
-  const storyNodes = scene ? semanticSceneNodes(scene) : [];
+  // Paired Else/End markers are an author-file implementation detail. The
+  // form editor exposes only real selectable nodes; its tree view supplies
+  // branch labels and indentation separately.
+  const storyNodes = scene ? formVisibleSceneNodes(scene) : [];
 
   const selectedNode = storyNodes.find(
     (node) => node.id === selectedNodeId,
@@ -203,7 +207,7 @@ export function useFormEditor({
     }
   }
 
-  function applyNodeSelection(node: SemanticSceneNode) {
+  function applyNodeSelection(node: FormVisibleSceneNode) {
     setSelectedNodeId(node.id);
     if (node.type === 'dialogue') {
       setSpeaker(node.speaker);
@@ -214,7 +218,7 @@ export function useFormEditor({
     }
   }
 
-  async function selectNode(node: SemanticSceneNode): Promise<void> {
+  async function selectNode(node: FormVisibleSceneNode): Promise<void> {
     if (node.id === selectedNodeId) {
       return;
     }
@@ -329,14 +333,11 @@ export function useFormEditor({
     let dialogueAnchorId: string | null =
       selected?.type === 'dialogue' ? selected.id : null;
 
-    if (selected?.type === 'character') {
-      let nextIndex = selectedIndex + 1;
-      while (storyNodes[nextIndex]?.type === 'character') {
-        nextIndex += 1;
-      }
-      if (storyNodes[nextIndex]?.type === 'dialogue') {
-        dialogueAnchorId = storyNodes[nextIndex].id;
-      }
+    if (selected?.type === 'character' && scene) {
+      dialogueAnchorId = getCharacterGroupDialogueAnchorId(
+        scene,
+        selected.id,
+      );
     }
 
     if (wasCreatingDialogue) {
@@ -573,7 +574,10 @@ export function useFormEditor({
                 ? labels.messages.deleteBgm
                 : nodeToDelete.type === 'video'
                   ? labels.messages.deleteVideo
-                  : labels.messages.deleteChoice;
+                  : nodeToDelete.type === 'variableSet' ||
+                      nodeToDelete.type === 'variableChange'
+                    ? labels.messages.deleteVariableOperation
+                    : labels.messages.deleteChoice;
     const shouldDelete = window.confirm(
       `${labels.messages.deleteConfirmPrefix}${nodeLabel}${labels.messages.deleteConfirmSuffix}`,
     );
@@ -621,7 +625,13 @@ export function useFormEditor({
       (node) => node.id === nextNodeId,
     );
 
-    if (nextNode && isSemanticSceneNode(nextNode)) {
+    if (
+      nextNode &&
+      isSemanticSceneNode(nextNode) &&
+      nextNode.type !== 'logicElse' &&
+      nextNode.type !== 'logicEndIf' &&
+      nextNode.type !== 'logicEndRepeat'
+    ) {
       applyNodeSelection(nextNode);
     } else {
       startNewDialogue();

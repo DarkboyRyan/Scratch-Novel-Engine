@@ -195,6 +195,75 @@ describe('Player save storage', () => {
     });
   });
 
+  it('restores persistent variables and the exact repeat position', async () => {
+    const { store } = await makeStore();
+    const logicProject: ProjectDocument = {
+      ...project,
+      scenes: [{
+        ...project.scenes[0]!,
+        nodes: [
+          { id: 'set-score', type: 'variableSet', variableName: 'score', value: 0 },
+          { id: 'repeat', type: 'logicRepeat', count: 3 },
+          { id: 'raise-score', type: 'variableChange', variableName: 'score', amount: 1 },
+          ...project.scenes[0]!.nodes,
+          { id: 'end-repeat', type: 'logicEndRepeat', repeatNodeId: 'repeat' },
+        ],
+      }],
+    };
+    const active: PlayerActiveGameContext = {
+      game: { ...game, project: logicProject },
+      generation: 1,
+      identity: {
+        projectId: logicProject.id,
+        runtimeVersion: 7,
+        contentFingerprint: 'b'.repeat(64),
+      },
+    };
+    const runtime = startGame(logicProject)!;
+    expect(runtime).toMatchObject({
+      variables: { score: 1 },
+      loopStack: [{ repeatNodeId: 'repeat', remainingIterations: 3 }],
+    });
+    const snapshot = createGameRuntimeSnapshot(logicProject, runtime)!;
+
+    await expect(store.write(active, 1, snapshot, () => true)).resolves.toMatchObject({
+      status: 'saved',
+    });
+    await expect(store.load(active, 1, () => true)).resolves.toEqual({
+      status: 'loaded',
+      runtime,
+    });
+  });
+
+  it('loads legacy snapshot v1 saves and restores empty logic state safely', async () => {
+    const { root, store } = await makeStore();
+    const active = activeContext();
+    const namespace = gameDirectory(root, active.identity);
+    await mkdir(namespace, { recursive: true });
+    await writeFile(path.join(namespace, 'slot-1.json'), JSON.stringify({
+      format: 'vn-engine-player-save',
+      saveVersion: 1,
+      game: active.identity,
+      slotId: 1,
+      savedAt: '2026-08-24T06:00:00.000Z',
+      snapshot: {
+        snapshotVersion: 1,
+        status: 'playing',
+        sceneId: 'scene-1',
+        nextNodeIndex: 3,
+        bgmAssetId: 'theme',
+        bgmSequence: 1,
+        dialogueSequence: 1,
+        videoSequence: 0,
+      },
+    }));
+
+    await expect(store.load(active, 1, () => true)).resolves.toEqual({
+      status: 'loaded',
+      runtime: startGame(project),
+    });
+  });
+
   it('rejects a forged snapshot before any file is published', async () => {
     const { root, store } = await makeStore();
     const active = activeContext();

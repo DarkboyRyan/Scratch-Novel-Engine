@@ -629,6 +629,9 @@ function EditorApplication({
           backgroundUrl={backgroundUrl}
           backgroundName={backgroundAsset?.displayName ?? null}
           showDialogue={timelinePreview.showDialogue}
+          logicPreviewUncertain={
+            timelinePreview.logicPreviewUncertain === true
+          }
           characters={previewCharacters}
           isStartPreviewDisabled={engine.isBusy}
           onStartPreview={() => void handleStartPreview()}
@@ -669,6 +672,16 @@ function EditorApplication({
           onChoiceAdd={engine.addChoice}
           onChoiceOptionAdd={engine.addChoiceOption}
           onStoryExtensionAdd={engine.addStoryExtension}
+          onVariableSetAdd={engine.addVariableSet}
+          onVariableSetUpdate={engine.updateVariableSet}
+          onVariableChangeAdd={engine.addVariableChange}
+          onVariableChangeUpdate={engine.updateVariableChange}
+          onLogicIfAdd={engine.addLogicIf}
+          onLogicIfUpdate={engine.updateLogicIf}
+          onLogicRepeatAdd={engine.addLogicRepeat}
+          onLogicRepeatUpdate={engine.updateLogicRepeat}
+          onLogicControlDelete={engine.deleteLogicControl}
+          onLogicControlReorder={engine.reorderLogicControl}
           onChoiceOptionUpdate={engine.updateChoiceOption}
           onChoiceOptionDelete={engine.deleteChoiceOption}
           onChoiceOptionReorder={engine.reorderChoiceOption}

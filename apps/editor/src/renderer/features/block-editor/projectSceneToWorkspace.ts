@@ -3,6 +3,7 @@ import * as Blockly from 'blockly';
 import type {
   AssetDocument,
   SceneDocument,
+  SceneNode,
 } from '../../../shared/projectTypes';
 import {
   DEFAULT_EDITOR_LANGUAGE,
@@ -51,17 +52,335 @@ import {
   getSceneStartBlockId,
   SCENE_START_BLOCK_TYPE,
 } from './blocks/sceneStartBlock';
+import {
+  LOGIC_CONTROL_FIELDS,
+  LOGIC_CONTROL_INPUTS,
+  LOGIC_IF_BLOCK_TYPE,
+  LOGIC_REPEAT_BLOCK_TYPE,
+  setLogicControlMarkers,
+  setLogicIfBlockCondition,
+} from './blocks/logicControlBlock';
+import {
+  setVariableBlockNode,
+  VARIABLE_CHANGE_BLOCK_TYPE,
+  VARIABLE_SET_BLOCK_TYPE,
+} from './blocks/variableBlock';
 import type { WorkspacePoint } from './blockEditorLayout';
 import { SingleDialogueBlockDragStrategy } from './singleDialogueBlockDragStrategy';
-import { paginateStoryNodes } from './storyBlockPagination';
+import {
+  parseLogicStructure,
+  type LogicStructureItem,
+} from './logicStructure';
 
 const FIRST_BLOCK_X = 48;
 const FIRST_BLOCK_Y = 48;
 const MIN_STORY_PAGE_COLUMN_STEP = 420;
 const STORY_PAGE_COLUMN_GAP = 72;
 
-// 把 C++ 返回的 Scene 快照绘制成 Blockly 积木。
-// 本函数只读取 Scene，不修改 Scene，也不调用后端。
+type LogicStoryPage = {
+  items: LogicStructureItem[];
+  continuation:
+    | {
+        node: Extract<SceneNode, { type: 'storyExtension' }>;
+        sequence: number;
+      }
+    | null;
+};
+
+function paginateLogicItems(items: LogicStructureItem[]): LogicStoryPage[] {
+  const pages: LogicStoryPage[] = [];
+  let pageItems: LogicStructureItem[] = [];
+  let continuation: LogicStoryPage['continuation'] = null;
+  let continuationSequence = 0;
+
+  const pushPage = (): void => {
+    if (pageItems.length === 0 && continuation === null) {
+      return;
+    }
+    pages.push({ items: pageItems, continuation });
+    pageItems = [];
+    continuation = null;
+  };
+
+  for (const item of items) {
+    if (item.kind === 'node' && item.node.type === 'storyExtension') {
+      pushPage();
+      continuationSequence += 1;
+      continuation = {
+        node: item.node,
+        sequence: continuationSequence,
+      };
+      continue;
+    }
+
+    pageItems.push(item);
+    if (item.kind === 'node' && item.node.type === 'sceneJump') {
+      pushPage();
+    }
+  }
+
+  pushPage();
+  return pages;
+}
+
+function connectBlocks(
+  currentBlock: Blockly.BlockSvg,
+  nextBlock: Blockly.BlockSvg,
+  workspace: Blockly.WorkspaceSvg,
+): void {
+  const nextConnection = currentBlock.nextConnection;
+  const previousConnection = nextBlock.previousConnection;
+  if (!nextConnection || !previousConnection) {
+    throw new Error('剧情积木缺少上下连接点');
+  }
+  if (!nextConnection.connect(previousConnection)) {
+    throw new Error(
+      `无法连接剧情节点：${currentBlock.id} -> ${nextBlock.id}`,
+    );
+  }
+  Blockly.renderManagement.triggerQueuedRenders(workspace);
+}
+
+function connectBlockChain(
+  blocks: Blockly.BlockSvg[],
+  workspace: Blockly.WorkspaceSvg,
+): void {
+  for (let index = blocks.length - 2; index >= 0; index -= 1) {
+    connectBlocks(blocks[index], blocks[index + 1], workspace);
+  }
+}
+
+function blockTypeForNode(node: SceneNode): string {
+  switch (node.type) {
+    case 'dialogue':
+      return DIALOGUE_BLOCK_TYPE;
+    case 'background':
+      return BACKGROUND_BLOCK_TYPE;
+    case 'character':
+      return node.assetId === null
+        ? CLEAR_CHARACTER_BLOCK_TYPE
+        : CHARACTER_BLOCK_TYPE;
+    case 'sceneJump':
+      return SCENE_JUMP_BLOCK_TYPE;
+    case 'bgm':
+      return BGM_BLOCK_TYPE;
+    case 'video':
+      return VIDEO_BLOCK_TYPE;
+    case 'choice':
+      return CHOICE_BLOCK_TYPE;
+    case 'storyExtension':
+      return STORY_CONTINUATION_BLOCK_TYPE;
+    case 'variableSet':
+      return VARIABLE_SET_BLOCK_TYPE;
+    case 'variableChange':
+      return VARIABLE_CHANGE_BLOCK_TYPE;
+    case 'logicIf':
+      return LOGIC_IF_BLOCK_TYPE;
+    case 'logicRepeat':
+      return LOGIC_REPEAT_BLOCK_TYPE;
+    case 'logicElse':
+    case 'logicEndIf':
+    case 'logicEndRepeat':
+      throw new Error(`内部逻辑标记不应显示为积木：${node.id}`);
+  }
+}
+
+type ProjectionContext = {
+  workspace: Blockly.WorkspaceSvg;
+  assets: AssetDocument[];
+  labels: EditorLabels;
+  continuationSequences: Map<string, number>;
+};
+
+function createChoiceOptions(
+  block: Blockly.BlockSvg,
+  node: Extract<SceneNode, { type: 'choice' }>,
+  context: ProjectionContext,
+): void {
+  const optionBlocks = node.options.map((option) => {
+    const optionBlock = context.workspace.newBlock(
+      CHOICE_OPTION_BLOCK_TYPE,
+      option.id,
+    );
+    optionBlock.setMovable(true);
+    optionBlock.setDeletable(false);
+    optionBlock.setEditable(true);
+    optionBlock.contextMenu = false;
+    optionBlock.setDragStrategy(
+      new SingleDialogueBlockDragStrategy(optionBlock),
+    );
+    optionBlock.initSvg();
+    optionBlock.setFieldValue(
+      option.text,
+      CHOICE_OPTION_BLOCK_FIELDS.text,
+    );
+    optionBlock.setFieldValue(
+      option.targetSceneId,
+      CHOICE_OPTION_BLOCK_FIELDS.targetScene,
+    );
+    optionBlock.render();
+    return optionBlock;
+  });
+
+  connectBlockChain(optionBlocks, context.workspace);
+  const firstOption = optionBlocks[0];
+  if (!firstOption) {
+    return;
+  }
+  const statementConnection = block.getInput(
+    CHOICE_BLOCK_INPUTS.options,
+  )?.connection;
+  const previousConnection = firstOption.previousConnection;
+  if (!statementConnection || !previousConnection) {
+    throw new Error('选择容器缺少选项连接点');
+  }
+  if (!statementConnection.connect(previousConnection)) {
+    throw new Error('无法把选择分支连接到选择容器');
+  }
+  Blockly.renderManagement.triggerQueuedRenders(context.workspace);
+}
+
+function createNodeBlock(
+  node: SceneNode,
+  context: ProjectionContext,
+): Blockly.BlockSvg {
+  const block = context.workspace.newBlock(blockTypeForNode(node), node.id);
+  block.setMovable(node.type !== 'storyExtension');
+  block.setDeletable(false);
+  block.setEditable(true);
+  block.contextMenu = false;
+  block.setDragStrategy(new SingleDialogueBlockDragStrategy(block));
+  block.initSvg();
+
+  if (node.type === 'dialogue') {
+    block.setFieldValue(node.speaker, DIALOGUE_BLOCK_FIELDS.speaker);
+    block.setFieldValue(node.text, DIALOGUE_BLOCK_FIELDS.text);
+    const voiceName = node.voiceAssetId === null
+      ? ''
+      : context.assets.find((asset) => asset.id === node.voiceAssetId)
+          ?.displayName ?? context.labels.common.missingAudio;
+    setDialogueBlockVoice(block, node.voiceAssetId, voiceName);
+  } else if (node.type === 'background') {
+    const name = node.assetId === null
+      ? ''
+      : context.assets.find((asset) => asset.id === node.assetId)
+          ?.displayName ?? context.labels.common.missingImage;
+    setBackgroundBlockAsset(block, node.assetId, name);
+  } else if (node.type === 'character') {
+    if (node.assetId !== null) {
+      const name = context.assets.find((asset) => asset.id === node.assetId)
+        ?.displayName ?? context.labels.common.missingImage;
+      setCharacterBlockAsset(block, node.assetId, name);
+      setCharacterBlockPosition(block, node.slot, node.position);
+    }
+    block.setFieldValue(String(node.layer), CHARACTER_BLOCK_FIELDS.layer);
+  } else if (node.type === 'sceneJump') {
+    block.setFieldValue(
+      node.targetSceneId,
+      SCENE_JUMP_BLOCK_FIELDS.targetScene,
+    );
+  } else if (node.type === 'bgm') {
+    const name = node.assetId === null
+      ? ''
+      : context.assets.find((asset) => asset.id === node.assetId)
+          ?.displayName ?? context.labels.common.missingAudio;
+    setBgmBlockAsset(block, node.assetId, name);
+  } else if (node.type === 'video') {
+    const name = node.assetId === null
+      ? ''
+      : context.assets.find((asset) => asset.id === node.assetId)
+          ?.displayName ?? context.labels.common.missingVideo;
+    setVideoBlockAsset(block, node.assetId, name);
+  } else if (node.type === 'storyExtension') {
+    const sequence = context.continuationSequences.get(node.id);
+    if (sequence === undefined) {
+      throw new Error(`缺少延伸积木编号：${node.id}`);
+    }
+    setStoryContinuationBlockSequence(
+      block,
+      sequence,
+      context.continuationSequences.size,
+    );
+  } else if (node.type === 'variableSet' || node.type === 'variableChange') {
+    setVariableBlockNode(block, node);
+  } else if (node.type === 'logicIf') {
+    setLogicIfBlockCondition(block, node.condition);
+  } else if (node.type === 'logicRepeat') {
+    block.setFieldValue(String(node.count), LOGIC_CONTROL_FIELDS.count);
+  }
+
+  block.render();
+  if (node.type === 'choice') {
+    createChoiceOptions(block, node, context);
+  }
+  return block;
+}
+
+function connectStatementInput(
+  parent: Blockly.BlockSvg,
+  inputName: string,
+  childBlocks: Blockly.BlockSvg[],
+  workspace: Blockly.WorkspaceSvg,
+): void {
+  connectBlockChain(childBlocks, workspace);
+  const firstChild = childBlocks[0];
+  if (!firstChild) {
+    return;
+  }
+  const inputConnection = parent.getInput(inputName)?.connection;
+  if (!inputConnection || !firstChild.previousConnection) {
+    throw new Error(`逻辑积木缺少内部连接点：${parent.id}`);
+  }
+  if (!inputConnection.connect(firstChild.previousConnection)) {
+    throw new Error(`无法连接逻辑积木内容：${parent.id}`);
+  }
+  Blockly.renderManagement.triggerQueuedRenders(workspace);
+}
+
+function projectItem(
+  item: LogicStructureItem,
+  context: ProjectionContext,
+): Blockly.BlockSvg {
+  if (item.kind === 'node') {
+    return createNodeBlock(item.node, context);
+  }
+
+  const block = createNodeBlock(item.node, context);
+  if (item.kind === 'if') {
+    setLogicControlMarkers(block, {
+      kind: 'if',
+      elseNodeId: item.elseNode.id,
+      endNodeId: item.endNode.id,
+    });
+    connectStatementInput(
+      block,
+      LOGIC_CONTROL_INPUTS.then,
+      item.thenItems.map((child) => projectItem(child, context)),
+      context.workspace,
+    );
+    connectStatementInput(
+      block,
+      LOGIC_CONTROL_INPUTS.else,
+      item.elseItems.map((child) => projectItem(child, context)),
+      context.workspace,
+    );
+  } else {
+    setLogicControlMarkers(block, {
+      kind: 'repeat',
+      endNodeId: item.endNode.id,
+    });
+    connectStatementInput(
+      block,
+      LOGIC_CONTROL_INPUTS.body,
+      item.bodyItems.map((child) => projectItem(child, context)),
+      context.workspace,
+    );
+  }
+  return block;
+}
+
+// C++ Scene is authoritative. Paired logic markers are parsed into Blockly's
+// nested C blocks and are intentionally never exposed as selectable blocks.
 export function projectSceneToWorkspace(
   scene: SceneDocument,
   workspace: Blockly.WorkspaceSvg,
@@ -72,13 +391,25 @@ export function projectSceneToWorkspace(
   assets: AssetDocument[] = [],
   labels: EditorLabels = getEditorLabels(DEFAULT_EDITOR_LANGUAGE),
 ): void {
-  // 程序创建积木时不要产生“用户编辑”事件。
   Blockly.Events.disable();
 
   try {
-    // C++ Scene 是唯一数据源，所以先清除旧画面，
-    // 再根据最新快照完整重建。
     workspace.clear();
+    const structure = parseLogicStructure(scene);
+    const pages = paginateLogicItems(structure);
+    const continuationSequences = new Map(
+      pages.flatMap((page) =>
+        page.continuation
+          ? [[page.continuation.node.id, page.continuation.sequence] as const]
+          : [],
+      ),
+    );
+    const context: ProjectionContext = {
+      workspace,
+      assets,
+      labels,
+      continuationSequences,
+    };
 
     const startBlock = workspace.newBlock(
       SCENE_START_BLOCK_TYPE,
@@ -91,259 +422,29 @@ export function projectSceneToWorkspace(
     startBlock.initSvg();
     startBlock.render();
 
-    const blocks: Blockly.BlockSvg[] = [];
-    const storyPages = paginateStoryNodes(scene.nodes);
-    const continuationSequences = new Map(
-      storyPages.flatMap((page) =>
-        page.continuation
-          ? [[page.continuation.node.id, page.continuation.sequence] as const]
-          : [],
-      ),
-    );
-
-    for (const node of scene.nodes) {
-      const block = workspace.newBlock(
-        node.type === 'dialogue'
-          ? DIALOGUE_BLOCK_TYPE
-          : node.type === 'background'
-            ? BACKGROUND_BLOCK_TYPE
-            : node.type === 'character'
-              ? node.assetId === null
-                ? CLEAR_CHARACTER_BLOCK_TYPE
-                : CHARACTER_BLOCK_TYPE
-              : node.type === 'sceneJump'
-                ? SCENE_JUMP_BLOCK_TYPE
-                : node.type === 'bgm'
-                  ? BGM_BLOCK_TYPE
-                  : node.type === 'video'
-                    ? VIDEO_BLOCK_TYPE
-                    : node.type === 'choice'
-                      ? CHOICE_BLOCK_TYPE
-                      : STORY_CONTINUATION_BLOCK_TYPE,
-        node.id,
-      );
-
-      // 延伸的页序只能通过数字字段改变；禁止单块拖拽
-      // 可避免只移动 marker 而把该页内容留在原地。
-      block.setMovable(node.type !== 'storyExtension');
-      // Delete/垃圾桶由 backend-first 控件接管，不能让 Blockly 先删。
-      block.setDeletable(false);
-      block.setEditable(true);
-      block.contextMenu = false;
-      block.setDragStrategy(
-        new SingleDialogueBlockDragStrategy(block),
-      );
-
-      block.initSvg();
-
-      if (node.type === 'dialogue') {
-        block.setFieldValue(
-          node.speaker,
-          DIALOGUE_BLOCK_FIELDS.speaker,
-        );
-        block.setFieldValue(
-          node.text,
-          DIALOGUE_BLOCK_FIELDS.text,
-        );
-        const voiceName =
-          node.voiceAssetId === null
-            ? ''
-            : assets.find((asset) => asset.id === node.voiceAssetId)
-                ?.displayName ?? labels.common.missingAudio;
-        setDialogueBlockVoice(block, node.voiceAssetId, voiceName);
-      } else if (node.type === 'background') {
-        const name =
-          node.assetId === null
-            ? ''
-            : assets.find((asset) => asset.id === node.assetId)
-                ?.displayName ?? labels.common.missingImage;
-        setBackgroundBlockAsset(block, node.assetId, name);
-      } else if (node.type === 'character') {
-        if (node.assetId !== null) {
-          const name =
-            assets.find((asset) => asset.id === node.assetId)
-              ?.displayName ?? labels.common.missingImage;
-          setCharacterBlockAsset(block, node.assetId, name);
-          setCharacterBlockPosition(block, node.slot, node.position);
-        }
-        block.setFieldValue(String(node.layer), CHARACTER_BLOCK_FIELDS.layer);
-      } else if (node.type === 'sceneJump') {
-        block.setFieldValue(
-          node.targetSceneId,
-          SCENE_JUMP_BLOCK_FIELDS.targetScene,
-        );
-      } else if (node.type === 'bgm') {
-        const name =
-          node.assetId === null
-            ? ''
-            : assets.find((asset) => asset.id === node.assetId)
-                ?.displayName ?? labels.common.missingAudio;
-        setBgmBlockAsset(block, node.assetId, name);
-      } else if (node.type === 'video') {
-        const name =
-          node.assetId === null
-            ? ''
-            : assets.find((asset) => asset.id === node.assetId)
-                ?.displayName ?? labels.common.missingVideo;
-        setVideoBlockAsset(block, node.assetId, name);
-      } else if (node.type === 'storyExtension') {
-        const continuationSequence = continuationSequences.get(node.id);
-        if (continuationSequence === undefined) {
-          throw new Error(`缺少延伸积木编号：${node.id}`);
-        }
-        setStoryContinuationBlockSequence(
-          block,
-          continuationSequence,
-          continuationSequences.size,
-        );
-      }
-
-      block.render();
-
-      if (node.type === 'choice') {
-        const optionBlocks = node.options.map((option) => {
-          const optionBlock = workspace.newBlock(
-            CHOICE_OPTION_BLOCK_TYPE,
-            option.id,
-          );
-          optionBlock.setMovable(true);
-          optionBlock.setDeletable(false);
-          optionBlock.setEditable(true);
-          optionBlock.contextMenu = false;
-          optionBlock.setDragStrategy(
-            new SingleDialogueBlockDragStrategy(optionBlock),
-          );
-          optionBlock.initSvg();
-          optionBlock.setFieldValue(
-            option.text,
-            CHOICE_OPTION_BLOCK_FIELDS.text,
-          );
-          optionBlock.setFieldValue(
-            option.targetSceneId,
-            CHOICE_OPTION_BLOCK_FIELDS.targetScene,
-          );
-          optionBlock.render();
-          return optionBlock;
-        });
-
-        for (
-          let index = optionBlocks.length - 2;
-          index >= 0;
-          index -= 1
-        ) {
-          const nextConnection = optionBlocks[index].nextConnection;
-          const previousConnection =
-            optionBlocks[index + 1].previousConnection;
-          if (!nextConnection || !previousConnection) {
-            throw new Error('选择分支积木缺少上下连接点');
-          }
-          const connected = nextConnection.connect(previousConnection);
-          if (!connected) {
-            throw new Error('无法连接选择分支积木');
-          }
-          Blockly.renderManagement.triggerQueuedRenders(workspace);
-        }
-
-        const firstOption = optionBlocks[0];
-        if (firstOption) {
-          const statementConnection = block.getInput(
-            CHOICE_BLOCK_INPUTS.options,
-          )?.connection;
-          const previousConnection = firstOption.previousConnection;
-          if (!statementConnection || !previousConnection) {
-            throw new Error('选择容器缺少选项连接点');
-          }
-          const connected = statementConnection.connect(
-            previousConnection,
-          );
-          if (!connected) {
-            throw new Error('无法把选择分支连接到选择容器');
-          }
-          Blockly.renderManagement.triggerQueuedRenders(workspace);
-        }
-      }
-
-      blocks.push(block);
-    }
-
-    const blocksByNodeId = new Map(
-      blocks.map((block) => [block.id, block]),
-    );
     const pageRoots: Blockly.BlockSvg[] = [startBlock];
-
-    storyPages.forEach((page, pageIndex) => {
-      const pageBlocks: Blockly.BlockSvg[] = [];
-
-      // 第一段直接从固定“开始”积木向下连接。若作者把“延伸”
-      // 放在最前面，它仍作为下一列页首，开始积木保持独立首列。
-      if (pageIndex === 0 && page.continuation === null) {
-        pageBlocks.push(startBlock);
-      }
-
+    pages.forEach((page, pageIndex) => {
+      const pageBlocks = page.items.map((item) =>
+        projectItem(item, context),
+      );
       if (page.continuation) {
-        const continuationBlock = blocksByNodeId.get(
-          page.continuation.node.id,
-        );
-        if (!continuationBlock) {
-          throw new Error(
-            `缺少延伸积木：${page.continuation.node.id}`,
-          );
-        }
-        pageBlocks.push(continuationBlock);
+        pageBlocks.unshift(createNodeBlock(page.continuation.node, context));
+      } else if (pageIndex === 0) {
+        pageBlocks.unshift(startBlock);
       }
 
-      pageBlocks.push(...page.nodes.map((node) => {
-        const block = blocksByNodeId.get(node.id);
-        if (!block) {
-          throw new Error(`缺少剧情节点积木：${node.id}`);
-        }
-        return block;
-      }));
-
-      // 从链尾向前连接：后一块先形成稳定的子链，再整体接到前一块。
-      // 这样不会在 Blockly 尚未完成父块重绘时读取过期的 next 坐标。
-      for (
-        let index = pageBlocks.length - 2;
-        index >= 0;
-        index -= 1
-      ) {
-        const currentBlock = pageBlocks[index];
-        const nextBlock = pageBlocks[index + 1];
-        const nextConnection = currentBlock.nextConnection;
-        const previousConnection = nextBlock.previousConnection;
-
-        if (!nextConnection || !previousConnection) {
-          throw new Error('剧情积木缺少上下连接点');
-        }
-
-        const connected = nextConnection.connect(previousConnection);
-
-        if (!connected) {
-          throw new Error(
-            `无法连接剧情节点：${currentBlock.id} -> ${nextBlock.id}`,
-          );
-        }
-
-        // connect 会把子块的定位放入 Blockly 渲染队列。这里同步刷新，
-        // 避免下一次连接仍读取 (0, 0) 而让多块对白叠在一起。
-        Blockly.renderManagement.triggerQueuedRenders(workspace);
-      }
-
+      connectBlockChain(pageBlocks, workspace);
       const pageRoot = pageBlocks[0];
       if (pageRoot && pageRoot !== startBlock) {
         pageRoots.push(pageRoot);
       }
     });
 
-    // 每段剧情作为独立顶层链横向排列。宽积木使用实际包围盒增加列距，
-    // 确保长对白和 Choice 选项不会覆盖下一段。
     let nextPageX = rootPosition.x;
     pageRoots.forEach((pageRoot, pageIndex) => {
       pageRoot.moveBy(nextPageX, rootPosition.y);
       if (pageIndex < pageRoots.length - 1) {
-        const pageWidth = pageRoot
-          .getBoundingRectangle()
-          .getWidth();
+        const pageWidth = pageRoot.getBoundingRectangle().getWidth();
         nextPageX += Math.max(
           MIN_STORY_PAGE_COLUMN_STEP,
           pageWidth + STORY_PAGE_COLUMN_GAP,
@@ -352,8 +453,6 @@ export function projectSceneToWorkspace(
     });
   } finally {
     Blockly.Events.enable();
-
-    // C++ 快照投影不属于用户操作，不能被 Ctrl+Z 撤销。
     workspace.clearUndo();
   }
 

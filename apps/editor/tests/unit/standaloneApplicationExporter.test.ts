@@ -149,7 +149,7 @@ const project = {
 
 const sourceManifestContents = JSON.stringify({
   format: 'vn-engine-project',
-  fileVersion: 15,
+  fileVersion: 16,
   project: {
     ...project,
     scenes: [
@@ -223,7 +223,7 @@ function platformTemplateManifest(overrides: Record<string, unknown> = {}) {
     platform: process.platform,
     arch: process.arch,
     playerVersion: '0.1.0',
-    runtimeCompatibility: '>=1 <7',
+    runtimeCompatibility: '>=1 <8',
     payloadRoot: 'payload',
     artifactEntry: macos ? 'VN Engine Player.app' : 'vn-engine-player',
     gameResourceDirectory: macos

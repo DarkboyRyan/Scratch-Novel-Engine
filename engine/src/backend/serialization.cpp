@@ -230,6 +230,205 @@ Json story_extension_node_to_json(const StoryExtensionNode& extension) {
   };
 }
 
+std::string logic_comparison_to_string(
+    const LogicComparisonOperator comparison) {
+  switch (comparison) {
+    case LogicComparisonOperator::equal:
+      return "eq";
+    case LogicComparisonOperator::not_equal:
+      return "neq";
+    case LogicComparisonOperator::greater:
+      return "gt";
+    case LogicComparisonOperator::greater_or_equal:
+      return "gte";
+    case LogicComparisonOperator::less:
+      return "lt";
+    case LogicComparisonOperator::less_or_equal:
+      return "lte";
+  }
+  invalid("logic comparison operator is invalid");
+}
+
+LogicComparisonOperator logic_comparison_from_json(
+    const Json& value,
+    const std::string& context) {
+  if (!value.is_string()) {
+    invalid(context + " must be a string");
+  }
+  const std::string comparison = value.get<std::string>();
+  if (comparison == "eq") {
+    return LogicComparisonOperator::equal;
+  }
+  if (comparison == "neq") {
+    return LogicComparisonOperator::not_equal;
+  }
+  if (comparison == "gt") {
+    return LogicComparisonOperator::greater;
+  }
+  if (comparison == "gte") {
+    return LogicComparisonOperator::greater_or_equal;
+  }
+  if (comparison == "lt") {
+    return LogicComparisonOperator::less;
+  }
+  if (comparison == "lte") {
+    return LogicComparisonOperator::less_or_equal;
+  }
+  unsupported(context + " is not supported");
+}
+
+Json logic_value_to_json(const LogicValue& value) {
+  return std::visit([](const auto& current) -> Json { return current; }, value);
+}
+
+LogicValue logic_value_from_json(
+    const Json& value,
+    const std::string& context) {
+  if (value.is_boolean()) {
+    return value.get<bool>();
+  }
+  if (value.is_number()) {
+    const double number = value.get<double>();
+    if (!std::isfinite(number)) {
+      invalid(context + " must be finite");
+    }
+    return number;
+  }
+  if (value.is_string()) {
+    const std::string text = value.get<std::string>();
+    if (text.size() > kMaximumLogicStringBytes ||
+        text.find('\0') != std::string::npos) {
+      invalid(context + " is invalid");
+    }
+    return text;
+  }
+  invalid(context + " must be a boolean, number, or string");
+}
+
+Json logic_operand_to_json(const LogicOperand& operand) {
+  if (const auto* variable = std::get_if<LogicVariableOperand>(&operand);
+      variable != nullptr) {
+    return {{"kind", "variable"}, {"name", variable->name}};
+  }
+  return {
+      {"kind", "literal"},
+      {"value", logic_value_to_json(
+                    std::get<LogicLiteralOperand>(operand).value)},
+  };
+}
+
+LogicOperand logic_operand_from_json(
+    const Json& value,
+    const std::string& context) {
+  if (!value.is_object() || !value.contains("kind") ||
+      !value.at("kind").is_string()) {
+    invalid(context + ".kind must be a string");
+  }
+  const std::string kind = value.at("kind").get<std::string>();
+  if (kind == "variable") {
+    require_exact_fields(value, {"kind", "name"}, context);
+    LogicOperand operand = LogicVariableOperand{
+        .name = require_string(value, "name", context),
+    };
+    if (const auto violation = validate_logic_operand(operand);
+        violation.has_value()) {
+      invalid(context + " is invalid: " + *violation);
+    }
+    return operand;
+  }
+  if (kind == "literal") {
+    require_exact_fields(value, {"kind", "value"}, context);
+    LogicOperand operand = LogicLiteralOperand{
+        .value = logic_value_from_json(value.at("value"), context + ".value"),
+    };
+    if (const auto violation = validate_logic_operand(operand);
+        violation.has_value()) {
+      invalid(context + " is invalid: " + *violation);
+    }
+    return operand;
+  }
+  unsupported(context + ".kind is not supported");
+}
+
+Json logic_condition_to_json(const LogicCondition& condition) {
+  return {
+      {"left", logic_operand_to_json(condition.left)},
+      {"operator", logic_comparison_to_string(condition.comparison)},
+      {"right", logic_operand_to_json(condition.right)},
+  };
+}
+
+LogicCondition logic_condition_from_json(
+    const Json& value,
+    const std::string& context) {
+  require_exact_fields(value, {"left", "operator", "right"}, context);
+  LogicCondition condition{
+      .left = logic_operand_from_json(value.at("left"), context + ".left"),
+      .comparison = logic_comparison_from_json(
+          value.at("operator"), context + ".operator"),
+      .right = logic_operand_from_json(value.at("right"), context + ".right"),
+  };
+  if (const auto violation = validate_logic_condition(condition);
+      violation.has_value()) {
+    invalid(context + " is invalid: " + *violation);
+  }
+  return condition;
+}
+
+Json variable_set_node_to_json(const VariableSetNode& node) {
+  return {
+      {"id", node.id},
+      {"type", "variableSet"},
+      {"variableName", node.variable_name},
+      {"value", logic_value_to_json(node.value)},
+  };
+}
+
+Json variable_change_node_to_json(const VariableChangeNode& node) {
+  return {
+      {"id", node.id},
+      {"type", "variableChange"},
+      {"variableName", node.variable_name},
+      {"amount", node.amount},
+  };
+}
+
+Json logic_if_node_to_json(const LogicIfNode& node) {
+  return {
+      {"id", node.id},
+      {"type", "logicIf"},
+      {"condition", logic_condition_to_json(node.condition)},
+  };
+}
+
+Json logic_else_node_to_json(const LogicElseNode& node) {
+  return {
+      {"id", node.id},
+      {"type", "logicElse"},
+      {"ifNodeId", node.if_node_id},
+  };
+}
+
+Json logic_end_if_node_to_json(const LogicEndIfNode& node) {
+  return {
+      {"id", node.id},
+      {"type", "logicEndIf"},
+      {"ifNodeId", node.if_node_id},
+  };
+}
+
+Json logic_repeat_node_to_json(const LogicRepeatNode& node) {
+  return {{"id", node.id}, {"type", "logicRepeat"}, {"count", node.count}};
+}
+
+Json logic_end_repeat_node_to_json(const LogicEndRepeatNode& node) {
+  return {
+      {"id", node.id},
+      {"type", "logicEndRepeat"},
+      {"repeatNodeId", node.repeat_node_id},
+  };
+}
+
 Json scene_node_to_json(const SceneNode& node) {
   return std::visit(
       [](const auto& value) -> Json {
@@ -248,8 +447,22 @@ Json scene_node_to_json(const SceneNode& node) {
           return video_node_to_json(value);
         } else if constexpr (std::is_same_v<Value, ChoiceNode>) {
           return choice_node_to_json(value);
-        } else {
+        } else if constexpr (std::is_same_v<Value, StoryExtensionNode>) {
           return story_extension_node_to_json(value);
+        } else if constexpr (std::is_same_v<Value, VariableSetNode>) {
+          return variable_set_node_to_json(value);
+        } else if constexpr (std::is_same_v<Value, VariableChangeNode>) {
+          return variable_change_node_to_json(value);
+        } else if constexpr (std::is_same_v<Value, LogicIfNode>) {
+          return logic_if_node_to_json(value);
+        } else if constexpr (std::is_same_v<Value, LogicElseNode>) {
+          return logic_else_node_to_json(value);
+        } else if constexpr (std::is_same_v<Value, LogicEndIfNode>) {
+          return logic_end_if_node_to_json(value);
+        } else if constexpr (std::is_same_v<Value, LogicRepeatNode>) {
+          return logic_repeat_node_to_json(value);
+        } else {
+          return logic_end_repeat_node_to_json(value);
         }
       },
       node);
@@ -436,6 +649,101 @@ SceneNode scene_node_from_json(
     require_exact_fields(value, {"id", "type"}, context);
     return StoryExtensionNode{
         .id = require_string(value, "id", context),
+    };
+  }
+  if (type == "variableSet") {
+    if (file_version < 16) {
+      unsupported(context + ".type is not supported before file version 16");
+    }
+    require_exact_fields(
+        value, {"id", "type", "variableName", "value"}, context);
+    VariableSetNode node{
+        .id = require_string(value, "id", context),
+        .variable_name = require_string(value, "variableName", context),
+        .value = logic_value_from_json(value.at("value"), context + ".value"),
+    };
+    if (const auto violation = validate_logic_operand(
+            LogicVariableOperand{.name = node.variable_name});
+        violation.has_value()) {
+      invalid(context + " is invalid: " + *violation);
+    }
+    return node;
+  }
+  if (type == "variableChange") {
+    if (file_version < 16) {
+      unsupported(context + ".type is not supported before file version 16");
+    }
+    require_exact_fields(
+        value, {"id", "type", "variableName", "amount"}, context);
+    if (!value.at("amount").is_number()) {
+      invalid(context + ".amount must be a number");
+    }
+    const double amount = value.at("amount").get<double>();
+    VariableChangeNode node{
+        .id = require_string(value, "id", context),
+        .variable_name = require_string(value, "variableName", context),
+        .amount = amount,
+    };
+    const auto name_violation = validate_logic_operand(
+        LogicVariableOperand{.name = node.variable_name});
+    if (!std::isfinite(amount) || name_violation.has_value()) {
+      invalid(context + " is invalid");
+    }
+    return node;
+  }
+  if (type == "logicIf") {
+    if (file_version < 16) {
+      unsupported(context + ".type is not supported before file version 16");
+    }
+    require_exact_fields(value, {"id", "type", "condition"}, context);
+    return LogicIfNode{
+        .id = require_string(value, "id", context),
+        .condition = logic_condition_from_json(
+            value.at("condition"), context + ".condition"),
+    };
+  }
+  if (type == "logicElse") {
+    if (file_version < 16) {
+      unsupported(context + ".type is not supported before file version 16");
+    }
+    require_exact_fields(value, {"id", "type", "ifNodeId"}, context);
+    return LogicElseNode{
+        .id = require_string(value, "id", context),
+        .if_node_id = require_string(value, "ifNodeId", context),
+    };
+  }
+  if (type == "logicEndIf") {
+    if (file_version < 16) {
+      unsupported(context + ".type is not supported before file version 16");
+    }
+    require_exact_fields(value, {"id", "type", "ifNodeId"}, context);
+    return LogicEndIfNode{
+        .id = require_string(value, "id", context),
+        .if_node_id = require_string(value, "ifNodeId", context),
+    };
+  }
+  if (type == "logicRepeat") {
+    if (file_version < 16) {
+      unsupported(context + ".type is not supported before file version 16");
+    }
+    require_exact_fields(value, {"id", "type", "count"}, context);
+    const int count = require_integer(value, "count", context);
+    if (count < 1 || count > kMaximumLogicRepeatCount) {
+      invalid(context + ".count is outside the supported range");
+    }
+    return LogicRepeatNode{
+        .id = require_string(value, "id", context),
+        .count = count,
+    };
+  }
+  if (type == "logicEndRepeat") {
+    if (file_version < 16) {
+      unsupported(context + ".type is not supported before file version 16");
+    }
+    require_exact_fields(value, {"id", "type", "repeatNodeId"}, context);
+    return LogicEndRepeatNode{
+        .id = require_string(value, "id", context),
+        .repeat_node_id = require_string(value, "repeatNodeId", context),
     };
   }
   unsupported(context + ".type is not supported");

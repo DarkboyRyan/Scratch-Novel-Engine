@@ -2,6 +2,8 @@ import type {
   AssetDocument,
   CharacterPosition,
   CharacterSlot,
+  LogicCondition,
+  LogicValue,
   ProjectDocument,
 } from './projectTypes';
 
@@ -122,6 +124,73 @@ export type AddStoryExtensionParams = {
   beforeNodeId?: string | null;
 };
 
+export type AddVariableSetParams = {
+  sceneId: string;
+  variableName: string;
+  value: LogicValue;
+  afterNodeId?: string | null;
+  beforeNodeId?: string | null;
+};
+
+export type UpdateVariableSetParams = {
+  sceneId: string;
+  nodeId: string;
+  variableName: string;
+  value: LogicValue;
+};
+
+export type AddVariableChangeParams = {
+  sceneId: string;
+  variableName: string;
+  amount: number;
+  afterNodeId?: string | null;
+  beforeNodeId?: string | null;
+};
+
+export type UpdateVariableChangeParams = {
+  sceneId: string;
+  nodeId: string;
+  variableName: string;
+  amount: number;
+};
+
+export type AddLogicIfParams = {
+  sceneId: string;
+  condition: LogicCondition;
+  afterNodeId?: string | null;
+  beforeNodeId?: string | null;
+};
+
+export type UpdateLogicIfParams = {
+  sceneId: string;
+  nodeId: string;
+  condition: LogicCondition;
+};
+
+export type AddLogicRepeatParams = {
+  sceneId: string;
+  count: number;
+  afterNodeId?: string | null;
+  beforeNodeId?: string | null;
+};
+
+export type UpdateLogicRepeatParams = {
+  sceneId: string;
+  nodeId: string;
+  count: number;
+};
+
+export type DeleteLogicControlParams = {
+  sceneId: string;
+  nodeId: string;
+};
+
+export type ReorderLogicControlParams = {
+  sceneId: string;
+  nodeId: string;
+  beforeNodeId: string | null;
+};
+
 export type AddChoiceOptionParams = {
   sceneId: string;
   nodeId: string;
@@ -238,6 +307,16 @@ export const ENGINE_METHODS = [
   'choice.option.delete',
   'choice.option.reorder',
   'storyExtension.add',
+  'variableSet.add',
+  'variableSet.update',
+  'variableChange.add',
+  'variableChange.update',
+  'logicIf.add',
+  'logicIf.update',
+  'logicRepeat.add',
+  'logicRepeat.update',
+  'logicControl.delete',
+  'logicControl.reorder',
   'timeline.deleteMany',
   'timeline.reorder',
   'timeline.reorderMany',
@@ -308,6 +387,16 @@ export type EngineParamsByMethod = {
   'choice.option.delete': DeleteChoiceOptionParams;
   'choice.option.reorder': ReorderChoiceOptionParams;
   'storyExtension.add': AddStoryExtensionParams;
+  'variableSet.add': AddVariableSetParams;
+  'variableSet.update': UpdateVariableSetParams;
+  'variableChange.add': AddVariableChangeParams;
+  'variableChange.update': UpdateVariableChangeParams;
+  'logicIf.add': AddLogicIfParams;
+  'logicIf.update': UpdateLogicIfParams;
+  'logicRepeat.add': AddLogicRepeatParams;
+  'logicRepeat.update': UpdateLogicRepeatParams;
+  'logicControl.delete': DeleteLogicControlParams;
+  'logicControl.reorder': ReorderLogicControlParams;
   'timeline.deleteMany': TimelineDeleteManyParams;
   'timeline.reorder': TimelineReorderParams;
   'timeline.reorderMany': TimelineReorderManyParams;
@@ -478,6 +567,36 @@ export type VnEngineApi = {
   ): Promise<EngineMutationResult>;
   addStoryExtension(
     params: AddStoryExtensionParams,
+  ): Promise<EngineMutationResult>;
+  addVariableSet(
+    params: AddVariableSetParams,
+  ): Promise<EngineMutationResult>;
+  updateVariableSet(
+    params: UpdateVariableSetParams,
+  ): Promise<EngineMutationResult>;
+  addVariableChange(
+    params: AddVariableChangeParams,
+  ): Promise<EngineMutationResult>;
+  updateVariableChange(
+    params: UpdateVariableChangeParams,
+  ): Promise<EngineMutationResult>;
+  addLogicIf(
+    params: AddLogicIfParams,
+  ): Promise<EngineMutationResult>;
+  updateLogicIf(
+    params: UpdateLogicIfParams,
+  ): Promise<EngineMutationResult>;
+  addLogicRepeat(
+    params: AddLogicRepeatParams,
+  ): Promise<EngineMutationResult>;
+  updateLogicRepeat(
+    params: UpdateLogicRepeatParams,
+  ): Promise<EngineMutationResult>;
+  deleteLogicControl(
+    params: DeleteLogicControlParams,
+  ): Promise<EngineMutationResult>;
+  reorderLogicControl(
+    params: ReorderLogicControlParams,
   ): Promise<EngineMutationResult>;
   deleteTimelineNodes(
     params: TimelineDeleteManyParams,

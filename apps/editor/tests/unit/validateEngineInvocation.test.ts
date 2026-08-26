@@ -634,4 +634,93 @@ describe('engine IPC validation', () => {
       }),
     ).toBe(false);
   });
+
+  it('validates the exact logic command AST and UTF-8 limits', () => {
+    const condition = {
+      left: { kind: 'variable', name: '好感度' },
+      operator: 'gte',
+      right: { kind: 'literal', value: 3 },
+    };
+    expect(isEngineInvocation({
+      method: 'logicIf.add',
+      params: { sceneId: 'scene-1', condition, beforeNodeId: 'node-2' },
+    })).toBe(true);
+    expect(isEngineInvocation({
+      method: 'variableSet.add',
+      params: {
+        sceneId: 'scene-1',
+        variableName: '好感度',
+        value: '高',
+      },
+    })).toBe(true);
+    expect(isEngineInvocation({
+      method: 'variableChange.update',
+      params: {
+        sceneId: 'scene-1',
+        nodeId: 'change-1',
+        variableName: '好感度',
+        amount: -1,
+      },
+    })).toBe(true);
+    expect(isEngineInvocation({
+      method: 'logicRepeat.add',
+      params: { sceneId: 'scene-1', count: 1000 },
+    })).toBe(true);
+    expect(isEngineInvocation({
+      method: 'logicControl.reorder',
+      params: { sceneId: 'scene-1', nodeId: 'if-1', beforeNodeId: null },
+    })).toBe(true);
+
+    for (const invocation of [
+      {
+        method: 'variableSet.add',
+        params: { sceneId: 'scene-1', variableName: ' route', value: true },
+      },
+      {
+        method: 'variableSet.add',
+        params: { sceneId: 'scene-1', variableName: 'route' },
+      },
+      {
+        method: 'variableSet.add',
+        params: { sceneId: 'scene-1', variableName: 'bad\0name', value: true },
+      },
+      {
+        method: 'variableSet.add',
+        params: { sceneId: 'scene-1', variableName: '界'.repeat(22), value: true },
+      },
+      {
+        method: 'variableSet.add',
+        params: {
+          sceneId: 'scene-1',
+          variableName: 'text',
+          value: '界'.repeat(1366),
+        },
+      },
+      {
+        method: 'variableChange.add',
+        params: { sceneId: 'scene-1', variableName: 'score', amount: Number.NaN },
+      },
+      {
+        method: 'logicIf.add',
+        params: {
+          sceneId: 'scene-1',
+          condition: { ...condition, operator: 'contains' },
+        },
+      },
+      {
+        method: 'logicIf.add',
+        params: { sceneId: 'scene-1', condition, evil: true },
+      },
+      {
+        method: 'logicRepeat.update',
+        params: { sceneId: 'scene-1', nodeId: 'repeat-1', count: 0 },
+      },
+      {
+        method: 'logicControl.delete',
+        params: { sceneId: 'scene-1', nodeId: 'if-1', evil: true },
+      },
+    ]) {
+      expect(isEngineInvocation(invocation)).toBe(false);
+    }
+  });
 });

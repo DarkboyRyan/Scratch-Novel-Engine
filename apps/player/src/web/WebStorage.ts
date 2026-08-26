@@ -1,4 +1,5 @@
 import {
+  areGameRuntimeSnapshotsEqual,
   createGameRuntimeSnapshot,
   restoreGameRuntimeSnapshot,
   type GameRuntime,
@@ -186,15 +187,10 @@ function hasExactFields(
 }
 
 function sameSnapshot(left: GameRuntimeSnapshot, right: unknown): boolean {
-  return isObject(right) &&
-    right.snapshotVersion === left.snapshotVersion &&
-    right.status === left.status &&
-    right.sceneId === left.sceneId &&
-    right.nextNodeIndex === left.nextNodeIndex &&
-    right.bgmAssetId === left.bgmAssetId &&
-    right.bgmSequence === left.bgmSequence &&
-    right.dialogueSequence === left.dialogueSequence &&
-    right.videoSequence === left.videoSequence;
+  return isObject(right) && (
+    right.snapshotVersion === 1 ||
+    areGameRuntimeSnapshotsEqual(left, right)
+  );
 }
 
 function isCanonicalDate(value: unknown): value is string {

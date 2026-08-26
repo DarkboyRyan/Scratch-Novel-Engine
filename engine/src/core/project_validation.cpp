@@ -26,6 +26,171 @@ std::optional<std::string_view> asset_directory(const AssetType type) {
 
 }  // namespace
 
+std::optional<std::string> validate_logic_value(const LogicValue& value) {
+  if (const auto* number = std::get_if<double>(&value);
+      number != nullptr && !std::isfinite(*number)) {
+    return "logic number must be finite";
+  }
+  if (const auto* text = std::get_if<std::string>(&value);
+      text != nullptr &&
+      (text->size() > kMaximumLogicStringBytes ||
+       text->find('\0') != std::string::npos)) {
+    return "logic string is invalid";
+  }
+  return std::nullopt;
+}
+
+std::optional<std::string> validate_logic_operand(
+    const LogicOperand& operand) {
+  if (const auto* variable = std::get_if<LogicVariableOperand>(&operand);
+      variable != nullptr) {
+    const std::string normalized =
+        project_detail::trim_ascii_whitespace(variable->name);
+    if (normalized.empty() || normalized != variable->name ||
+        variable->name.size() > kMaximumLogicVariableNameBytes ||
+        variable->name.find('\0') != std::string::npos) {
+      return "logic variable name is invalid";
+    }
+    return std::nullopt;
+  }
+  return validate_logic_value(std::get<LogicLiteralOperand>(operand).value);
+}
+
+std::optional<std::string> validate_logic_condition(
+    const LogicCondition& condition) {
+  switch (condition.comparison) {
+    case LogicComparisonOperator::equal:
+    case LogicComparisonOperator::not_equal:
+    case LogicComparisonOperator::greater:
+    case LogicComparisonOperator::greater_or_equal:
+    case LogicComparisonOperator::less:
+    case LogicComparisonOperator::less_or_equal:
+      break;
+    default:
+      return "logic comparison operator is invalid";
+  }
+  if (const auto violation = validate_logic_operand(condition.left);
+      violation.has_value()) {
+    return violation;
+  }
+  return validate_logic_operand(condition.right);
+}
+
+std::optional<std::string> validate_scene_logic_structure(
+    const Scene& scene) {
+  enum class FrameKind { condition, repeat };
+  struct Frame {
+    FrameKind kind;
+    std::string root_id;
+    bool saw_else = false;
+  };
+  std::vector<Frame> stack;
+
+  for (const SceneNode& node : scene.nodes) {
+    if (const auto* variable_set = std::get_if<VariableSetNode>(&node);
+        variable_set != nullptr) {
+      const std::string normalized = project_detail::trim_ascii_whitespace(
+          variable_set->variable_name);
+      if (normalized.empty() || normalized != variable_set->variable_name ||
+          variable_set->variable_name.size() >
+              kMaximumLogicVariableNameBytes ||
+          variable_set->variable_name.find('\0') != std::string::npos) {
+        return "variable-set name is invalid";
+      }
+      if (const auto violation = validate_logic_value(variable_set->value);
+          violation.has_value()) {
+        return violation;
+      }
+      continue;
+    }
+    if (const auto* variable_change = std::get_if<VariableChangeNode>(&node);
+        variable_change != nullptr) {
+      const std::string normalized = project_detail::trim_ascii_whitespace(
+          variable_change->variable_name);
+      if (normalized.empty() || normalized != variable_change->variable_name ||
+          variable_change->variable_name.size() >
+              kMaximumLogicVariableNameBytes ||
+          variable_change->variable_name.find('\0') != std::string::npos) {
+        return "variable-change name is invalid";
+      }
+      if (!std::isfinite(variable_change->amount)) {
+        return "variable-change amount must be finite";
+      }
+      continue;
+    }
+    if (std::holds_alternative<StoryExtensionNode>(node)) {
+      if (!stack.empty()) {
+        return "story extension must not split a logic control";
+      }
+      continue;
+    }
+    if (const auto* condition = std::get_if<LogicIfNode>(&node);
+        condition != nullptr) {
+      if (const auto violation = validate_logic_condition(condition->condition);
+          violation.has_value()) {
+        return violation;
+      }
+      if (stack.size() >=
+          static_cast<std::size_t>(kMaximumLogicNestingDepth)) {
+        return "logic nesting exceeds the supported depth";
+      }
+      stack.push_back(Frame{
+          .kind = FrameKind::condition,
+          .root_id = condition->id,
+      });
+      continue;
+    }
+    if (const auto* marker = std::get_if<LogicElseNode>(&node);
+        marker != nullptr) {
+      if (stack.empty() || stack.back().kind != FrameKind::condition ||
+          stack.back().root_id != marker->if_node_id ||
+          stack.back().saw_else) {
+        return "logic else marker is orphaned or mismatched";
+      }
+      stack.back().saw_else = true;
+      continue;
+    }
+    if (const auto* marker = std::get_if<LogicEndIfNode>(&node);
+        marker != nullptr) {
+      if (stack.empty() || stack.back().kind != FrameKind::condition ||
+          stack.back().root_id != marker->if_node_id ||
+          !stack.back().saw_else) {
+        return "logic end-if marker is orphaned or mismatched";
+      }
+      stack.pop_back();
+      continue;
+    }
+    if (const auto* repeat = std::get_if<LogicRepeatNode>(&node);
+        repeat != nullptr) {
+      if (repeat->count < 1 || repeat->count > kMaximumLogicRepeatCount) {
+        return "logic repeat count is outside the supported range";
+      }
+      if (stack.size() >=
+          static_cast<std::size_t>(kMaximumLogicNestingDepth)) {
+        return "logic nesting exceeds the supported depth";
+      }
+      stack.push_back(Frame{
+          .kind = FrameKind::repeat,
+          .root_id = repeat->id,
+      });
+      continue;
+    }
+    if (const auto* marker = std::get_if<LogicEndRepeatNode>(&node);
+        marker != nullptr) {
+      if (stack.empty() || stack.back().kind != FrameKind::repeat ||
+          stack.back().root_id != marker->repeat_node_id) {
+        return "logic end-repeat marker is orphaned or mismatched";
+      }
+      stack.pop_back();
+    }
+  }
+
+  if (!stack.empty()) {
+    return "logic control is missing a paired end marker";
+  }
+  return std::nullopt;
+}
+
 std::optional<std::string> validate_project(const Project& project) {
   if (project.schema_version != kSchemaVersion) {
     return "project schema version is unsupported";
@@ -80,6 +245,7 @@ std::optional<std::string> validate_project(const Project& project) {
   // Project, Scene, timeline-node, Choice-option, and visual-instance IDs
   // share one namespace. Assets join it in validate_project_aggregate().
   std::unordered_set<std::string> ids{project.id};
+  std::unordered_set<std::string> logic_variable_names;
   bool found_entry_scene = false;
 
   for (const Scene& scene : project.scenes) {
@@ -93,6 +259,11 @@ std::optional<std::string> validate_project(const Project& project) {
       return "entity IDs must be unique";
     }
     found_entry_scene = found_entry_scene || scene.id == project.entry_scene_id;
+
+    if (const auto violation = validate_scene_logic_structure(scene);
+        violation.has_value()) {
+      return violation;
+    }
 
     if (scene.visuals.background_asset_id.has_value() &&
         scene.visuals.background_asset_id->empty()) {
@@ -192,6 +363,29 @@ std::optional<std::string> validate_project(const Project& project) {
             return "choice option must reference an existing Scene";
           }
         }
+      }
+      if (const auto* variable_set = std::get_if<VariableSetNode>(&node);
+          variable_set != nullptr) {
+        logic_variable_names.insert(variable_set->variable_name);
+      }
+      if (const auto* variable_change = std::get_if<VariableChangeNode>(&node);
+          variable_change != nullptr) {
+        logic_variable_names.insert(variable_change->variable_name);
+      }
+      if (const auto* condition = std::get_if<LogicIfNode>(&node);
+          condition != nullptr) {
+        for (const LogicOperand* operand : {
+                 &condition->condition.left,
+                 &condition->condition.right}) {
+          if (const auto* variable =
+                  std::get_if<LogicVariableOperand>(operand);
+              variable != nullptr) {
+            logic_variable_names.insert(variable->name);
+          }
+        }
+      }
+      if (logic_variable_names.size() > kMaximumLogicVariableCount) {
+        return "project contains too many logic variables";
       }
     }
   }

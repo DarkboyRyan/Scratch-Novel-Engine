@@ -61,6 +61,70 @@ export type ChoiceNode = {
   options: ChoiceOption[];
 };
 
+export type LogicValue = boolean | number | string;
+
+export type LogicOperand =
+  | { kind: 'variable'; name: string }
+  | { kind: 'literal'; value: LogicValue };
+
+export type LogicComparisonOperator =
+  | 'eq'
+  | 'neq'
+  | 'gt'
+  | 'gte'
+  | 'lt'
+  | 'lte';
+
+export type LogicCondition = {
+  left: LogicOperand;
+  operator: LogicComparisonOperator;
+  right: LogicOperand;
+};
+
+export type VariableSetNode = {
+  id: string;
+  type: 'variableSet';
+  variableName: string;
+  value: LogicValue;
+};
+
+export type VariableChangeNode = {
+  id: string;
+  type: 'variableChange';
+  variableName: string;
+  amount: number;
+};
+
+export type LogicIfNode = {
+  id: string;
+  type: 'logicIf';
+  condition: LogicCondition;
+};
+
+export type LogicElseNode = {
+  id: string;
+  type: 'logicElse';
+  ifNodeId: string;
+};
+
+export type LogicEndIfNode = {
+  id: string;
+  type: 'logicEndIf';
+  ifNodeId: string;
+};
+
+export type LogicRepeatNode = {
+  id: string;
+  type: 'logicRepeat';
+  count: number;
+};
+
+export type LogicEndRepeatNode = {
+  id: string;
+  type: 'logicEndRepeat';
+  repeatNodeId: string;
+};
+
 export type SceneNode =
   | DialogueNode
   | BackgroundNode
@@ -68,7 +132,14 @@ export type SceneNode =
   | SceneJumpNode
   | BgmNode
   | VideoNode
-  | ChoiceNode;
+  | ChoiceNode
+  | VariableSetNode
+  | VariableChangeNode
+  | LogicIfNode
+  | LogicElseNode
+  | LogicEndIfNode
+  | LogicRepeatNode
+  | LogicEndRepeatNode;
 
 export type SceneDocument = {
   schemaVersion: 1;

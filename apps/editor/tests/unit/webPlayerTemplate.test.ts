@@ -42,7 +42,7 @@ describe('Web Player template contract', () => {
       templateVersion: WEB_PLAYER_TEMPLATE_VERSION,
       payloadRoot: 'payload',
       entry: 'index.html',
-      runtimeCompatibility: '>=1 <7',
+      runtimeCompatibility: '>=1 <8',
       playerVersion: '1.0.0',
       files: [
         fileRecord('index.html', index),
@@ -70,7 +70,7 @@ describe('Web Player template contract', () => {
       manifest: {
         format: WEB_PLAYER_TEMPLATE_FORMAT,
         templateVersion: WEB_PLAYER_TEMPLATE_VERSION,
-        runtimeCompatibility: '>=1 <7',
+        runtimeCompatibility: '>=1 <8',
         playerVersion: '1.0.0',
       },
     });

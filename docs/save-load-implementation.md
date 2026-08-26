@@ -44,11 +44,12 @@ Editor 的主界面整体预览继续复用同一个 `TitleScreen`，并显示�
 
 ## 2. 功能边界
 
-这次实现不修改作者项目和导出内容格式：
+玩家存档仍与作者项目和导出内容分离；当前版本边界是：
 
-- `project.vn.json` 仍是 author v15；
-- `game.json` 仍是 runtime v6；
+- `project.vn.json` 是 author v16；
+- `game.json` 是 runtime v7，Player Reader 兼容 runtime v1–v7；
 - 存档在 Player 用户数据目录中使用独立的 `saveVersion: 1`；
+- 新写入的进度是 `GameRuntimeSnapshot v2`；v1 仅用于兼容不含逻辑执行路径的旧存档；
 - C++ 作者后端不参与存档，避免把玩家进度写回作者项目；
 - `.vngame` 和独立应用的 Resources 仍然只读。
 
@@ -66,36 +67,57 @@ Editor 的主界面整体预览继续复用同一个 `TitleScreen`，并显示�
 
 运行中的 `GameRuntime` 含有两类数据：
 
-- 必要进度：当前 Scene、节点游标、运行状态、BGM 和播放序号；
-- 派生显示：完整对白、Choice 文案、视频 Asset、背景、立绘数组等。
+- 必要进度：当前 Scene、节点游标、运行状态、BGM、变量、Repeat 栈和播放序号；
+- 派生显示：完整对白、Choice 文案和正在阻塞的视频 Asset 等。
 
 如果直接 `JSON.stringify(GameRuntime)`，旧存档会长期携带作者文本和派生状态。游戏更新
 后，这些内容可能与当前 `game.json` 不一致；Renderer 进程也不应被信任为文件存储的
 权威来源。
 
-因此 `@vnengine/runtime` 定义了独立的 `GameRuntimeSnapshot v1`：
+因此 `@vnengine/runtime` 当前定义独立的 `GameRuntimeSnapshot v2`：
 
 ```json
 {
-  "snapshotVersion": 1,
+  "snapshotVersion": 2,
   "status": "playing",
   "sceneId": "scene-1",
   "nextNodeIndex": 4,
+  "backgroundAssetId": "room",
   "bgmAssetId": "theme",
   "bgmSequence": 1,
   "dialogueSequence": 3,
-  "videoSequence": 0
+  "videoSequence": 0,
+  "characters": [],
+  "variables": {
+    "affection": 3,
+    "route": "A"
+  },
+  "loopStack": [
+    {
+      "repeatNodeId": "repeat-1",
+      "remainingIterations": 2
+    }
+  ]
 }
 ```
 
-快照不保存对白、Choice、视频 ID、背景和立绘。读取时，Runtime 会用当前已验证的
-`ProjectDocument` 重放当前 Scene 游标之前的非阻塞节点，然后从阻塞节点重新构建：
+v2 保存恢复当前画面所需的背景和立绘、规范排序后的变量表，以及活动 Repeat 的稳定
+root ID 与剩余次数；它仍不复制对白文本、Choice 文案或视频 Asset。读取时 Runtime 会用
+当前已验证的 `ProjectDocument` 和预编译控制流核对快照，再从阻塞节点重新构建：
 
 - `playing` 必须停在 Dialogue；
 - `playingVideo` 必须停在含有效 Asset 的 Video；
 - `choosing` 必须停在至少含一个选项的 Choice；
 - `finished` 的游标必须精确位于 Scene 末尾；
-- 缺失 Scene、越界游标、错误状态、未知字段和不可能的跳转前缀都会被拒绝。
+- 变量必须在当前项目逻辑节点中声明，名称/值和总预算必须合法；
+- Repeat 栈必须与当前游标所在的嵌套控制结构、root ID、次数上限完全一致；
+- 背景和立绘必须能由当前场景节点证明；
+- 缺失 Scene、越界游标、错误状态、未知字段和不可能状态都会被拒绝。
+
+Reader 仍解析 legacy `snapshotVersion: 1`。v1 没有变量或循环栈，只能恢复无逻辑的
+旧进度；若当前 Scene 的游标前缀包含变量、If/Else、Repeat 或 SceneJump，就会
+fail closed，不会猜测缺失状态。先前场景如何进入当前 Scene 不由 v1 快照记录，也不会
+被这里误判。所有新保存固定写 v2。
 
 保存前 Renderer 用当前 Project 和 Runtime 生成规范快照；Electron Main 再次严格解析快照，
 并用当前 Main-owned 游戏会话恢复 Runtime。只有恢复结果可再次生成完全相同的规范快照时，
@@ -193,26 +215,32 @@ flowchart LR
   "saveVersion": 1,
   "game": {
     "projectId": "example-project",
-    "runtimeVersion": 6,
+    "runtimeVersion": 7,
     "contentFingerprint": "64位小写SHA-256"
   },
   "slotId": 1,
   "savedAt": "2026-08-24T06:00:00.000Z",
   "snapshot": {
-    "snapshotVersion": 1,
+    "snapshotVersion": 2,
     "status": "playing",
     "sceneId": "scene-1",
     "nextNodeIndex": 4,
+    "backgroundAssetId": "room",
     "bgmAssetId": "theme",
     "bgmSequence": 1,
     "dialogueSequence": 3,
-    "videoSequence": 0
+    "videoSequence": 0,
+    "characters": [],
+    "variables": {
+      "affection": 3
+    },
+    "loopStack": []
   }
 }
 ```
 
 Reader 对顶层、`game` 和 `snapshot` 都执行 exact-fields 校验；未来新增字段必须提升
-`saveVersion` 或 `snapshotVersion`，不能静默改变 v1 语义。
+`saveVersion` 或 `snapshotVersion`，不能静默改变既有 v1/v2 语义。
 
 ## 6. 技术栈
 
@@ -220,7 +248,7 @@ Reader 对顶层、`game` 和 `snapshot` 都执行 exact-fields 校验；未来�
 | --- | --- | --- |
 | UI | React 19、TypeScript 5.9 | 标题页入口、游戏底栏、槽位窗口、覆盖确认、busy/toast 状态 |
 | 共享组件 | `@vnengine/player-ui` | `TitleScreen`、`GameActionBar`、`SaveSlotDialog`，供 Player 使用并保持 Editor 预览无磁盘能力 |
-| 运行时 | `@vnengine/runtime` | 纯函数创建/严格恢复 `GameRuntimeSnapshot v1`，从当前 Project 重建派生显示状态 |
+| 运行时 | `@vnengine/runtime` | 纯函数创建/严格恢复 `GameRuntimeSnapshot v2`，保存变量/循环栈并受限兼容无逻辑旧 v1 |
 | 桌面边界 | Electron 43 Main / Preload / sandboxed Renderer | `contextBridge` 窄端口、可信 frame 校验、Main-owned 游戏身份 |
 | 本地存储 | Node.js `fs/promises`、`crypto`、`app.getPath('userData')` | SHA-256 命名、随机临时文件、fsync、rename、备份恢复和安全读取 |
 | 构建 | Vite 5、Electron Forge 7 | 打包 Main、Preload、Renderer；存档始终位于外部用户目录，不写 asar/Resources |
@@ -234,8 +262,9 @@ C++20 Backend 仍负责作者项目，而不参与 Player 存档。这一边界�
 
 自动测试覆盖以下关键路径：
 
-- Dialogue、Choice、Video 和 finished 快照的创建/恢复；
-- 从当前 Project 重建背景、BGM、立绘、自定义坐标、对白、选项和视频；
+- Dialogue、Choice、Video 和 finished 的 v2 快照创建/恢复，以及旧 v1 兼容；
+- 从当前 Project 核对背景、BGM、立绘、自定义坐标、变量、Repeat 栈，并重建对白、选项和视频；
+- 未声明变量、伪造循环 owner/剩余次数、逻辑路径上的 v1 快照和变量预算超限拒绝；
 - 错误 cursor、未知字段、伪造派生状态和 runtimeError 拒绝；
 - 3 个手动槽与 quick 槽保存/读取、覆盖和按游戏隔离；
 - `game.json` 指纹变化后的独立空命名空间，以及存档内部身份不一致时的拒绝；

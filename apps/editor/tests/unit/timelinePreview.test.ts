@@ -157,4 +157,46 @@ describe('deriveTimelinePreview', () => {
     );
     expect(deriveTimelinePreview(scene, 'b1').showDialogue).toBe(false);
   });
+
+  it('freezes before uncertain logic instead of combining Then and Else visuals', () => {
+    const logicScene: SceneDocument = {
+      ...scene,
+      nodes: [
+        { id: 'before', type: 'background', assetId: 'safe-background' },
+        {
+          id: 'if-1',
+          type: 'logicIf',
+          condition: {
+            left: { kind: 'variable', name: 'route' },
+            operator: 'eq',
+            right: { kind: 'literal', value: 'A' },
+          },
+        },
+        { id: 'then-bg', type: 'background', assetId: 'then-background' },
+        { id: 'else-1', type: 'logicElse', ifNodeId: 'if-1' },
+        { id: 'else-bg', type: 'background', assetId: 'else-background' },
+        { id: 'end-1', type: 'logicEndIf', ifNodeId: 'if-1' },
+        {
+          id: 'after',
+          type: 'dialogue',
+          speaker: 'A',
+          text: 'After',
+          voiceAssetId: null,
+        },
+      ],
+    };
+
+    expect(deriveTimelinePreview(logicScene, 'else-bg')).toEqual({
+      backgroundAssetId: 'safe-background',
+      characters: [],
+      showDialogue: false,
+      logicPreviewUncertain: true,
+    });
+    expect(deriveTimelinePreview(logicScene, 'after')).toEqual({
+      backgroundAssetId: 'safe-background',
+      characters: [],
+      showDialogue: false,
+      logicPreviewUncertain: true,
+    });
+  });
 });

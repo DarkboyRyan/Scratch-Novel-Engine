@@ -5,17 +5,23 @@ import type {
   AddChoiceOptionParams,
   AddChoiceParams,
   AddDialogueParams,
+  AddLogicIfParams,
+  AddLogicRepeatParams,
   AddSceneJumpParams,
   AddStoryExtensionParams,
+  AddVariableChangeParams,
+  AddVariableSetParams,
   AddVideoParams,
   DeleteBackgroundParams,
   DeleteDialoguesParams,
   DeleteChoiceOptionParams,
+  DeleteLogicControlParams,
   EngineMutationResult,
   ReorderBackgroundParams,
   ReorderDialogueParams,
   ReorderDialoguesParams,
   ReorderChoiceOptionParams,
+  ReorderLogicControlParams,
   SetDialogueVoiceParams,
   TimelineDeleteManyParams,
   TimelineReorderManyParams,
@@ -24,7 +30,11 @@ import type {
   UpdateBgmParams,
   UpdateCharacterParams,
   UpdateChoiceOptionParams,
+  UpdateLogicIfParams,
+  UpdateLogicRepeatParams,
   UpdateSceneJumpParams,
+  UpdateVariableChangeParams,
+  UpdateVariableSetParams,
   UpdateVideoParams,
   VnEngineApi,
 } from '../../shared/engineProtocol';
@@ -68,6 +78,36 @@ export type AddSceneJumpAction = (
 ) => Promise<boolean>;
 export type AddStoryExtensionAction = (
   params: AddStoryExtensionParams,
+) => Promise<boolean>;
+export type AddVariableSetAction = (
+  params: AddVariableSetParams,
+) => Promise<boolean>;
+export type UpdateVariableSetAction = (
+  params: UpdateVariableSetParams,
+) => Promise<boolean>;
+export type AddVariableChangeAction = (
+  params: AddVariableChangeParams,
+) => Promise<boolean>;
+export type UpdateVariableChangeAction = (
+  params: UpdateVariableChangeParams,
+) => Promise<boolean>;
+export type AddLogicIfAction = (
+  params: AddLogicIfParams,
+) => Promise<boolean>;
+export type UpdateLogicIfAction = (
+  params: UpdateLogicIfParams,
+) => Promise<boolean>;
+export type AddLogicRepeatAction = (
+  params: AddLogicRepeatParams,
+) => Promise<boolean>;
+export type UpdateLogicRepeatAction = (
+  params: UpdateLogicRepeatParams,
+) => Promise<boolean>;
+export type DeleteLogicControlAction = (
+  params: DeleteLogicControlParams,
+) => Promise<boolean>;
+export type ReorderLogicControlAction = (
+  params: ReorderLogicControlParams,
 ) => Promise<boolean>;
 export type UpdateSceneJumpAction = (
   params: UpdateSceneJumpParams,

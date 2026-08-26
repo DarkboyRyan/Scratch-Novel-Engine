@@ -72,6 +72,31 @@ void require_exact_params(
   }
 }
 
+void require_params_with_optional(
+    const Json& params,
+    const std::initializer_list<std::string_view> required_fields,
+    const std::initializer_list<std::string_view> optional_fields) {
+  std::unordered_set<std::string> allowed;
+  for (const std::string_view field : required_fields) {
+    allowed.emplace(field);
+    if (!params.contains(std::string(field))) {
+      throw ProtocolError(
+          "invalid_params",
+          "params." + std::string(field) + " is required");
+    }
+  }
+  for (const std::string_view field : optional_fields) {
+    allowed.emplace(field);
+  }
+  for (const auto& [field, unused] : params.items()) {
+    static_cast<void>(unused);
+    if (!allowed.contains(field)) {
+      throw ProtocolError(
+          "invalid_params", "params contains unknown field: " + field);
+    }
+  }
+}
+
 std::optional<std::string> required_nullable_string(
     const Json& object,
     const std::string_view field_name) {
@@ -173,6 +198,155 @@ std::vector<CgGalleryPage> required_cg_gallery_pages(const Json& object) {
     pages.push_back(std::move(page));
   }
   return pages;
+}
+
+LogicValue required_logic_value(
+    const Json& object,
+    const std::string_view field_name) {
+  const std::string key(field_name);
+  if (!object.contains(key)) {
+    throw ProtocolError(
+        "invalid_params", "params." + key + " is required");
+  }
+  const Json& value = object.at(key);
+  LogicValue parsed;
+  if (value.is_boolean()) {
+    parsed = value.get<bool>();
+  } else if (value.is_number()) {
+    const double number = value.get<double>();
+    if (!std::isfinite(number)) {
+      throw ProtocolError(
+          "invalid_params", "params." + key + " must be finite");
+    }
+    parsed = number;
+  } else if (value.is_string()) {
+    parsed = value.get<std::string>();
+  } else {
+    throw ProtocolError(
+        "invalid_params",
+        "params." + key + " must be a boolean, number, or string");
+  }
+  if (const auto violation = validate_logic_value(parsed);
+      violation.has_value()) {
+    throw ProtocolError("invalid_params", "params." + key + " is invalid");
+  }
+  return parsed;
+}
+
+LogicOperand required_logic_operand(
+    const Json& value,
+    const std::string& context) {
+  if (!value.is_object() || !value.contains("kind") ||
+      !value.at("kind").is_string()) {
+    throw ProtocolError("invalid_params", context + ".kind must be a string");
+  }
+  const std::string kind = value.at("kind").get<std::string>();
+  LogicOperand operand;
+  if (kind == "variable") {
+    if (value.size() != 2U || !value.contains("name") ||
+        !value.at("name").is_string()) {
+      throw ProtocolError(
+          "invalid_params", context + " must contain only kind and name");
+    }
+    operand = LogicVariableOperand{
+        .name = value.at("name").get<std::string>(),
+    };
+  } else if (kind == "literal") {
+    if (value.size() != 2U || !value.contains("value")) {
+      throw ProtocolError(
+          "invalid_params", context + " must contain only kind and value");
+    }
+    Json wrapper{{"value", value.at("value")}};
+    operand = LogicLiteralOperand{
+        .value = required_logic_value(wrapper, "value"),
+    };
+  } else {
+    throw ProtocolError(
+        "invalid_params", context + ".kind is not supported");
+  }
+  if (const auto violation = validate_logic_operand(operand);
+      violation.has_value()) {
+    throw ProtocolError("invalid_params", context + " is invalid");
+  }
+  return operand;
+}
+
+LogicComparisonOperator required_logic_comparison(const Json& value) {
+  if (!value.is_string()) {
+    throw ProtocolError(
+        "invalid_params", "params.condition.operator must be a string");
+  }
+  const std::string comparison = value.get<std::string>();
+  if (comparison == "eq") {
+    return LogicComparisonOperator::equal;
+  }
+  if (comparison == "neq") {
+    return LogicComparisonOperator::not_equal;
+  }
+  if (comparison == "gt") {
+    return LogicComparisonOperator::greater;
+  }
+  if (comparison == "gte") {
+    return LogicComparisonOperator::greater_or_equal;
+  }
+  if (comparison == "lt") {
+    return LogicComparisonOperator::less;
+  }
+  if (comparison == "lte") {
+    return LogicComparisonOperator::less_or_equal;
+  }
+  throw ProtocolError(
+      "invalid_params", "params.condition.operator is not supported");
+}
+
+LogicCondition required_logic_condition(const Json& params) {
+  if (!params.contains("condition") || !params.at("condition").is_object()) {
+    throw ProtocolError(
+        "invalid_params", "params.condition must be an object");
+  }
+  const Json& value = params.at("condition");
+  if (value.size() != 3U || !value.contains("left") ||
+      !value.contains("operator") || !value.contains("right")) {
+    throw ProtocolError(
+        "invalid_params",
+        "params.condition must contain only left, operator, and right");
+  }
+  LogicCondition condition{
+      .left = required_logic_operand(value.at("left"), "params.condition.left"),
+      .comparison = required_logic_comparison(value.at("operator")),
+      .right = required_logic_operand(
+          value.at("right"), "params.condition.right"),
+  };
+  if (validate_logic_condition(condition).has_value()) {
+    throw ProtocolError("invalid_params", "params.condition is invalid");
+  }
+  return condition;
+}
+
+int required_logic_repeat_count(const Json& params) {
+  if (!params.contains("count") || !params.at("count").is_number_integer()) {
+    throw ProtocolError(
+        "invalid_params", "params.count must be an integer between 1 and 1000");
+  }
+  try {
+    const int count = params.at("count").get<int>();
+    if (count >= 1 && count <= kMaximumLogicRepeatCount) {
+      return count;
+    }
+  } catch (const Json::exception&) {
+  }
+  throw ProtocolError(
+      "invalid_params", "params.count must be an integer between 1 and 1000");
+}
+
+std::optional<std::string> optional_timeline_anchor(
+    const Json& params,
+    const std::string_view field_name) {
+  const std::string key(field_name);
+  if (!params.contains(key) || params.at(key).is_null()) {
+    return std::nullopt;
+  }
+  return required_string(params, key);
 }
 
 CharacterSlot required_character_slot(const Json& object) {
@@ -1325,6 +1499,10 @@ Json Backend::handle(const Json& request) {
             "afterNodeId and beforeNodeId cannot both be provided");
       case vnengine::AddStoryExtensionNodeStatus::anchor_not_found:
         throw ProtocolError("node_not_found", "timeline anchor does not exist");
+      case vnengine::AddStoryExtensionNodeStatus::logic_boundary_conflict:
+        throw ProtocolError(
+            "story_extension_logic_boundary",
+            "story extension cannot split a logic control");
     }
     if (const auto violation = vnengine::validate_project_aggregate(candidate);
         violation.has_value()) {
@@ -1339,6 +1517,244 @@ Json Backend::handle(const Json& request) {
         saved_revision_,
         scene_id,
         result.node_id);
+  } else if (method == "variableSet.add" ||
+             method == "variableChange.add" ||
+             method == "logicIf.add" ||
+             method == "logicRepeat.add") {
+    if (method == "variableSet.add") {
+      require_params_with_optional(
+          params,
+          {"sceneId", "variableName", "value"},
+          {"afterNodeId", "beforeNodeId"});
+    } else if (method == "variableChange.add") {
+      require_params_with_optional(
+          params,
+          {"sceneId", "variableName", "amount"},
+          {"afterNodeId", "beforeNodeId"});
+    } else if (method == "logicIf.add") {
+      require_params_with_optional(
+          params,
+          {"sceneId", "condition"},
+          {"afterNodeId", "beforeNodeId"});
+    } else {
+      require_params_with_optional(
+          params,
+          {"sceneId", "count"},
+          {"afterNodeId", "beforeNodeId"});
+    }
+    const std::string scene_id = required_string(params, "sceneId");
+    std::optional<std::string> after_node_id =
+        optional_timeline_anchor(params, "afterNodeId");
+    std::optional<std::string> before_node_id =
+        optional_timeline_anchor(params, "beforeNodeId");
+    ProjectAggregate candidate = require_aggregate();
+    AddLogicNodeResult result{
+        .status = AddLogicNodeStatus::invalid_logic,
+        .node_id = std::nullopt,
+    };
+    if (method == "variableSet.add") {
+      result = add_variable_set_node(
+          candidate.project,
+          ids_,
+          scene_id,
+          required_string(params, "variableName"),
+          required_logic_value(params, "value"),
+          std::move(after_node_id),
+          std::move(before_node_id));
+    } else if (method == "variableChange.add") {
+      if (!params.contains("amount") || !params.at("amount").is_number()) {
+        throw ProtocolError(
+            "invalid_params", "params.amount must be a finite number");
+      }
+      const double amount = params.at("amount").get<double>();
+      result = add_variable_change_node(
+          candidate.project,
+          ids_,
+          scene_id,
+          required_string(params, "variableName"),
+          amount,
+          std::move(after_node_id),
+          std::move(before_node_id));
+    } else if (method == "logicIf.add") {
+      result = add_logic_if_node(
+          candidate.project,
+          ids_,
+          scene_id,
+          required_logic_condition(params),
+          std::move(after_node_id),
+          std::move(before_node_id));
+    } else {
+      result = add_logic_repeat_node(
+          candidate.project,
+          ids_,
+          scene_id,
+          required_logic_repeat_count(params),
+          std::move(after_node_id),
+          std::move(before_node_id));
+    }
+    switch (result.status) {
+      case AddLogicNodeStatus::added:
+        break;
+      case AddLogicNodeStatus::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case AddLogicNodeStatus::placement_conflict:
+        throw ProtocolError(
+            "logic_placement_conflict",
+            "afterNodeId and beforeNodeId cannot both be provided");
+      case AddLogicNodeStatus::anchor_not_found:
+        throw ProtocolError("node_not_found", "timeline anchor does not exist");
+      case AddLogicNodeStatus::invalid_logic:
+        throw ProtocolError("invalid_params", "logic node data is invalid");
+      case AddLogicNodeStatus::variable_limit:
+        throw ProtocolError(
+            "logic_variable_limit",
+            "project cannot contain more than 32 logic variables");
+    }
+    if (const auto violation = validate_project_aggregate(candidate);
+        violation.has_value()) {
+      throw ProtocolError("internal_error", *violation);
+    }
+    require_aggregate() = std::move(candidate);
+    record_mutation(true);
+    return success_response(
+        request_id(request),
+        aggregate_,
+        revision_,
+        saved_revision_,
+        scene_id,
+        result.node_id);
+  } else if (method == "variableSet.update" ||
+             method == "variableChange.update" ||
+             method == "logicIf.update" ||
+             method == "logicRepeat.update") {
+    if (method == "variableSet.update") {
+      require_exact_params(
+          params, {"sceneId", "nodeId", "variableName", "value"});
+    } else if (method == "variableChange.update") {
+      require_exact_params(
+          params, {"sceneId", "nodeId", "variableName", "amount"});
+    } else if (method == "logicIf.update") {
+      require_exact_params(
+          params, {"sceneId", "nodeId", "condition"});
+    } else {
+      require_exact_params(params, {"sceneId", "nodeId", "count"});
+    }
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::string node_id = required_string(params, "nodeId");
+    ProjectAggregate candidate = require_aggregate();
+    UpdateLogicNodeResult result = UpdateLogicNodeResult::invalid_logic;
+    if (method == "variableSet.update") {
+      result = update_variable_set_node(
+          candidate.project,
+          scene_id,
+          node_id,
+          required_string(params, "variableName"),
+          required_logic_value(params, "value"));
+    } else if (method == "variableChange.update") {
+      if (!params.contains("amount") || !params.at("amount").is_number()) {
+        throw ProtocolError(
+            "invalid_params", "params.amount must be a finite number");
+      }
+      result = update_variable_change_node(
+          candidate.project,
+          scene_id,
+          node_id,
+          required_string(params, "variableName"),
+          params.at("amount").get<double>());
+    } else if (method == "logicIf.update") {
+      result = update_logic_if_node(
+          candidate.project,
+          scene_id,
+          node_id,
+          required_logic_condition(params));
+    } else {
+      result = update_logic_repeat_node(
+          candidate.project,
+          scene_id,
+          node_id,
+          required_logic_repeat_count(params));
+    }
+    switch (result) {
+      case UpdateLogicNodeResult::changed:
+        changed = true;
+        break;
+      case UpdateLogicNodeResult::unchanged:
+        changed = false;
+        break;
+      case UpdateLogicNodeResult::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case UpdateLogicNodeResult::node_not_found:
+        throw ProtocolError("logic_node_not_found", "logic node does not exist");
+      case UpdateLogicNodeResult::invalid_logic:
+        throw ProtocolError("invalid_params", "logic node data is invalid");
+      case UpdateLogicNodeResult::variable_limit:
+        throw ProtocolError(
+            "logic_variable_limit",
+            "project cannot contain more than 32 logic variables");
+    }
+    if (changed) {
+      if (const auto violation = validate_project_aggregate(candidate);
+          violation.has_value()) {
+        throw ProtocolError("internal_error", *violation);
+      }
+      require_aggregate() = std::move(candidate);
+    }
+  } else if (method == "logicControl.delete" ||
+             method == "logicControl.reorder") {
+    if (method == "logicControl.delete") {
+      require_exact_params(params, {"sceneId", "nodeId"});
+    } else {
+      require_exact_params(
+          params, {"sceneId", "nodeId", "beforeNodeId"});
+    }
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::string node_id = required_string(params, "nodeId");
+    ProjectAggregate candidate = require_aggregate();
+    LogicControlMutationResult result;
+    if (method == "logicControl.delete") {
+      result = delete_logic_control(candidate.project, scene_id, node_id);
+    } else {
+      if (!params.contains("beforeNodeId") ||
+          (!params.at("beforeNodeId").is_null() &&
+           !params.at("beforeNodeId").is_string())) {
+        throw ProtocolError(
+            "invalid_params", "params.beforeNodeId must be a string or null");
+      }
+      result = reorder_logic_control(
+          candidate.project,
+          scene_id,
+          node_id,
+          required_nullable_string(params, "beforeNodeId"));
+    }
+    switch (result) {
+      case LogicControlMutationResult::changed:
+        changed = true;
+        break;
+      case LogicControlMutationResult::unchanged:
+        changed = false;
+        break;
+      case LogicControlMutationResult::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case LogicControlMutationResult::node_not_found:
+        throw ProtocolError("logic_node_not_found", "logic node does not exist");
+      case LogicControlMutationResult::not_control_root:
+        throw ProtocolError(
+            "logic_control_root_required",
+            "nodeId must identify an if or repeat root");
+      case LogicControlMutationResult::anchor_not_found:
+        throw ProtocolError("node_not_found", "timeline anchor does not exist");
+      case LogicControlMutationResult::anchor_inside_control:
+        throw ProtocolError(
+            "invalid_params",
+            "beforeNodeId must not be inside the moved control");
+    }
+    if (changed) {
+      if (const auto violation = validate_project_aggregate(candidate);
+          violation.has_value()) {
+        throw ProtocolError("internal_error", *violation);
+      }
+      require_aggregate() = std::move(candidate);
+    }
   } else if (method == "sceneJump.add") {
     const std::string scene_id = required_string(params, "sceneId");
     const std::string target_scene_id =
@@ -1428,8 +1844,15 @@ Json Backend::handle(const Json& request) {
       throw ProtocolError("scene_not_found", "scene does not exist");
     }
     for (const std::string& node_id : node_ids) {
-      if (vnengine::find_scene_node(*scene, node_id) == nullptr) {
+      const vnengine::SceneNode* node =
+          vnengine::find_scene_node(*scene, node_id);
+      if (node == nullptr) {
         throw ProtocolError("node_not_found", "timeline node does not exist");
+      }
+      if (vnengine::is_logic_control_marker(*node)) {
+        throw ProtocolError(
+            "logic_control_atomic_required",
+            "logic control markers require logicControl.delete");
       }
     }
     changed = vnengine::delete_scene_nodes(project, scene_id, node_ids);
@@ -1457,9 +1880,17 @@ Json Backend::handle(const Json& request) {
     const std::unordered_set<std::string> selected_ids(
         node_ids.begin(), node_ids.end());
     for (const std::string& node_id : node_ids) {
-      if (vnengine::find_scene_node(*scene, node_id) == nullptr) {
+      const vnengine::SceneNode* node =
+          vnengine::find_scene_node(*scene, node_id);
+      if (node == nullptr) {
         throw ProtocolError("node_not_found", "timeline node does not exist");
       }
+    }
+    if (!vnengine::scene_node_selection_respects_logic_boundaries(
+            *scene, node_ids)) {
+      throw ProtocolError(
+          "logic_control_atomic_required",
+          "timeline selection must contain complete logic controls");
     }
 
     std::optional<std::string> before_node_id;

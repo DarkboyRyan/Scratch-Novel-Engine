@@ -18,7 +18,7 @@ import { commandOptions } from './lib/releaseTools.mjs';
 
 const TEMPLATE_FORMAT = 'vn-engine-web-player-template';
 const TEMPLATE_VERSION = 1;
-const RUNTIME_COMPATIBILITY = '>=1 <7';
+const RUNTIME_COMPATIBILITY = '>=1 <8';
 
 function sameFile(left, right) {
   return left.isFile() &&

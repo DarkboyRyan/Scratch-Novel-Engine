@@ -147,6 +147,8 @@ describe('useEngineProject asset state', () => {
   let deleteChoiceOption: ReturnType<typeof vi.fn>;
   let reorderChoiceOption: ReturnType<typeof vi.fn>;
   let addStoryExtension: ReturnType<typeof vi.fn>;
+  let addLogicIf: ReturnType<typeof vi.fn>;
+  let reorderLogicControl: ReturnType<typeof vi.fn>;
   let saveProject: ReturnType<typeof vi.fn>;
   let exportGame: ReturnType<typeof vi.fn>;
   let platform: EditorPlatformGateway;
@@ -227,6 +229,8 @@ describe('useEngineProject asset state', () => {
     deleteChoiceOption = vi.fn().mockResolvedValue(backgroundResult);
     reorderChoiceOption = vi.fn().mockResolvedValue(backgroundResult);
     addStoryExtension = vi.fn().mockResolvedValue(backgroundResult);
+    addLogicIf = vi.fn().mockResolvedValue(backgroundResult);
+    reorderLogicControl = vi.fn().mockResolvedValue(backgroundResult);
     saveProject = vi.fn().mockResolvedValue({
       cancelled: false,
       result: initialResult,
@@ -264,6 +268,8 @@ describe('useEngineProject asset state', () => {
         deleteChoiceOption,
         reorderChoiceOption,
         addStoryExtension,
+        addLogicIf,
+        reorderLogicControl,
       } as unknown as EditorPlatformGateway['engine'],
       projectFiles: {
         getSession: vi.fn().mockResolvedValue({
@@ -927,6 +933,80 @@ describe('useEngineProject asset state', () => {
 
     expect(current!.engineMessage).toBe(
       '延伸模块尚未加载，请完全退出并重新启动编辑器',
+    );
+  });
+
+  it.each([
+    "No handler registered for 'vn-engine:request'",
+    'unknown method: logicIf.add',
+  ])('reports a restart message for a stale logic backend: %s', async (message) => {
+    addLogicIf.mockRejectedValue(new Error(message));
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(await current!.addLogicIf({
+        sceneId: 'scene-1',
+        beforeNodeId: null,
+        condition: {
+          left: { kind: 'variable', name: 'route' },
+          operator: 'eq',
+          right: { kind: 'literal', value: 'A' },
+        },
+      })).toBe(false);
+    });
+
+    expect(current!.engineMessage).toBe(
+      '逻辑积木模块尚未加载，请完全退出并重新启动编辑器',
+    );
+  });
+
+  it('reports restart guidance when stale Main rejects a logic invocation shape', async () => {
+    reorderLogicControl.mockRejectedValue(
+      new Error('Renderer 发来了无效的引擎请求'),
+    );
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(await current!.reorderLogicControl({
+        sceneId: 'scene-1',
+        nodeId: 'if-1',
+        beforeNodeId: null,
+      })).toBe(false);
+    });
+
+    expect(current!.engineMessage).toBe(
+      '逻辑积木模块尚未加载，请完全退出并重新启动编辑器',
+    );
+  });
+
+  it('keeps logic business errors distinct from stale-module failures', async () => {
+    const variableLimit = new Error(
+      'project cannot contain more than 32 logic variables',
+    );
+    variableLimit.name = 'VnEngineError:logic_variable_limit';
+    addLogicIf.mockRejectedValue(variableLimit);
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(await current!.addLogicIf({
+        sceneId: 'scene-1',
+        beforeNodeId: null,
+        condition: {
+          left: { kind: 'variable', name: 'route' },
+          operator: 'eq',
+          right: { kind: 'literal', value: 'A' },
+        },
+      })).toBe(false);
+    });
+
+    expect(current!.engineMessage).toBe(
+      '一个项目最多可使用 32 个不同的逻辑变量',
     );
   });
 });

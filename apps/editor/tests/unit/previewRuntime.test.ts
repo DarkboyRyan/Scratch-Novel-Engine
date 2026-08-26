@@ -178,6 +178,8 @@ describe('game preview runtime', () => {
         voiceAssetId: 'voice-a',
       },
       choices: [],
+      variables: {},
+      loopStack: [],
     });
   });
 

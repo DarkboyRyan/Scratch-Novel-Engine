@@ -1347,7 +1347,7 @@ describe('Player Renderer', () => {
     expect(saveGame).toHaveBeenCalledOnce();
     expect(saveGame.mock.calls[0]?.[0]).toBe(1);
     expect(saveGame.mock.calls[0]?.[1]).toMatchObject({
-      snapshotVersion: 1,
+      snapshotVersion: 2,
       sceneId: 'entry',
       status: 'playing',
     });

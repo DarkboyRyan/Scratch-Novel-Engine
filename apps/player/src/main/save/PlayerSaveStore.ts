@@ -10,6 +10,7 @@ import {
 import path from 'node:path';
 
 import {
+  areGameRuntimeSnapshotsEqual,
   createGameRuntimeSnapshot,
   restoreGameRuntimeSnapshot,
   type GameRuntime,
@@ -166,15 +167,10 @@ async function syncDirectory(directoryPath: string): Promise<void> {
 }
 
 function sameSnapshot(left: GameRuntimeSnapshot, right: unknown): boolean {
-  return isObject(right) &&
-    right.snapshotVersion === left.snapshotVersion &&
-    right.status === left.status &&
-    right.sceneId === left.sceneId &&
-    right.nextNodeIndex === left.nextNodeIndex &&
-    right.bgmAssetId === left.bgmAssetId &&
-    right.bgmSequence === left.bgmSequence &&
-    right.dialogueSequence === left.dialogueSequence &&
-    right.videoSequence === left.videoSequence;
+  return isObject(right) && (
+    right.snapshotVersion === 1 ||
+    areGameRuntimeSnapshotsEqual(left, right)
+  );
 }
 
 function parseSaveDocument(

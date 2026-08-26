@@ -488,4 +488,79 @@ describe('backend response validation', () => {
       parseBackendResponse(successResponse(overrides)),
     ).toThrow('session');
   });
+
+  it('accepts, sanitizes, and structurally validates logic markers', () => {
+    const logicNodes = [
+      {
+        id: 'if-1',
+        type: 'logicIf',
+        condition: {
+          left: { kind: 'variable', name: 'route' },
+          operator: 'eq',
+          right: { kind: 'literal', value: 'good' },
+        },
+        privateSource: 'never expose',
+      },
+      {
+        id: 'set-1',
+        type: 'variableSet',
+        variableName: 'route',
+        value: 'good',
+      },
+      { id: 'else-1', type: 'logicElse', ifNodeId: 'if-1' },
+      { id: 'repeat-1', type: 'logicRepeat', count: 3 },
+      {
+        id: 'change-1',
+        type: 'variableChange',
+        variableName: 'score',
+        amount: 1,
+      },
+      {
+        id: 'repeat-end-1',
+        type: 'logicEndRepeat',
+        repeatNodeId: 'repeat-1',
+      },
+      { id: 'if-end-1', type: 'logicEndIf', ifNodeId: 'if-1' },
+    ];
+    const parsed = parseBackendResponse(successResponse({
+      project: {
+        ...validProject,
+        scenes: [{ ...validProject.scenes[0], nodes: logicNodes }],
+      },
+    }));
+
+    expect(parsed).toMatchObject({ ok: true });
+    if (!parsed.ok) {
+      throw new Error('expected a successful response');
+    }
+    expect(parsed.result.project.scenes[0]?.nodes.map((node) => node.type))
+      .toEqual([
+        'logicIf',
+        'variableSet',
+        'logicElse',
+        'logicRepeat',
+        'variableChange',
+        'logicEndRepeat',
+        'logicEndIf',
+      ]);
+    expect(JSON.stringify(parsed)).not.toContain('privateSource');
+
+    for (const nodes of [
+      logicNodes.filter((node) => node.type !== 'logicElse'),
+      [logicNodes[0], { id: 'extension-1', type: 'storyExtension' }, ...logicNodes.slice(1)],
+      logicNodes.map((node) => node.type === 'logicEndIf'
+        ? { ...node, ifNodeId: 'another-if' }
+        : node),
+      logicNodes.map((node) => node.type === 'logicRepeat'
+        ? { ...node, count: 1001 }
+        : node),
+    ]) {
+      expect(() => parseBackendResponse(successResponse({
+        project: {
+          ...validProject,
+          scenes: [{ ...validProject.scenes[0], nodes }],
+        },
+      }))).toThrow('project');
+    }
+  });
 });

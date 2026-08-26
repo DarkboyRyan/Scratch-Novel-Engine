@@ -5,7 +5,7 @@ import { compileAuthorProjectV15 } from '../../src/main/export/AuthorProjectComp
 function authorProject(): Record<string, unknown> {
   return {
     format: 'vn-engine-project',
-    fileVersion: 15,
+    fileVersion: 16,
     project: {
       schemaVersion: 1,
       id: 'project-1',
@@ -125,13 +125,13 @@ function compile(document: Record<string, unknown>) {
   return compileAuthorProjectV15(JSON.stringify(document));
 }
 
-describe('author project v15 compiler', () => {
-  it('builds exact runtime v6 data and includes fixed CG pages and CG-only assets', () => {
+describe('author project v16 compiler', () => {
+  it('builds exact runtime v7 data and includes fixed CG pages and CG-only assets', () => {
     const result = compile(authorProject());
 
     expect(result.game).toMatchObject({
       format: 'vn-engine-runtime',
-      runtimeVersion: 6,
+      runtimeVersion: 7,
       game: {
         id: 'project-1',
         title: '导出测试',
@@ -196,6 +196,81 @@ describe('author project v15 compiler', () => {
     expect(compile(document).project.name).toBe('\u00a0标题\u00a0');
   });
 
+  it('compiles strict v16 logic markers and rejects them in older files', () => {
+    const document = authorProject() as {
+      fileVersion: number;
+      project: { scenes: Array<{ nodes: unknown[] }> };
+    };
+    document.project.scenes[0]!.nodes = [
+      { id: 'set', type: 'variableSet', variableName: 'score', value: 1 },
+      {
+        id: 'if',
+        type: 'logicIf',
+        condition: {
+          left: { kind: 'variable', name: 'score' },
+          operator: 'gte',
+          right: { kind: 'literal', value: 1 },
+        },
+      },
+      { id: 'repeat', type: 'logicRepeat', count: 2 },
+      { id: 'change', type: 'variableChange', variableName: 'score', amount: 1 },
+      { id: 'end-repeat', type: 'logicEndRepeat', repeatNodeId: 'repeat' },
+      { id: 'else', type: 'logicElse', ifNodeId: 'if' },
+      { id: 'reset', type: 'variableSet', variableName: 'score', value: 0 },
+      { id: 'end-if', type: 'logicEndIf', ifNodeId: 'if' },
+    ];
+
+    expect(compile(document).game.scenes[0]!.nodes.map((node) => node.type))
+      .toEqual([
+        'variableSet',
+        'logicIf',
+        'logicRepeat',
+        'variableChange',
+        'logicEndRepeat',
+        'logicElse',
+        'variableSet',
+        'logicEndIf',
+      ]);
+
+    document.fileVersion = 15;
+    expect(() => compile(document)).toThrow('仅受作者项目 v16 支持');
+  });
+
+  it('rejects pagination inside controls and projects exceeding the variable budget', () => {
+    const extensionInside = authorProject() as {
+      project: { scenes: Array<{ nodes: unknown[] }> };
+    };
+    extensionInside.project.scenes[0]!.nodes = [
+      {
+        id: 'if',
+        type: 'logicIf',
+        condition: {
+          left: { kind: 'literal', value: true },
+          operator: 'eq',
+          right: { kind: 'literal', value: true },
+        },
+      },
+      { id: 'extension', type: 'storyExtension' },
+      { id: 'else', type: 'logicElse', ifNodeId: 'if' },
+      { id: 'end-if', type: 'logicEndIf', ifNodeId: 'if' },
+    ];
+    expect(() => compile(extensionInside)).toThrow('延伸节点不能位于逻辑控制结构内部');
+
+    const tooManyVariables = authorProject() as {
+      project: { scenes: Array<{ nodes: unknown[] }> };
+    };
+    tooManyVariables.project.scenes[0]!.nodes = Array.from(
+      { length: 33 },
+      (_, index) => ({
+        id: `set-${index}`,
+        type: 'variableSet',
+        variableName: `variable-${index}`,
+        value: 0,
+      }),
+    );
+    expect(() => compile(tooManyVariables)).toThrow('剧情变量不能超过 32 个');
+  });
+
   it('rejects unsupported versions and unknown fields', () => {
     const oldVersion = authorProject();
     oldVersion.fileVersion = 10;
@@ -203,7 +278,7 @@ describe('author project v15 compiler', () => {
 
     const unknownField = authorProject();
     (unknownField.project as Record<string, unknown>).nativePath = '/private/tmp';
-    expect(() => compile(unknownField)).toThrow('字段不符合作者项目 v15');
+    expect(() => compile(unknownField)).toThrow('字段不符合作者项目 v16');
   });
 
   it('rejects an empty or ASCII-padded custom title', () => {

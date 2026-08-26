@@ -7,6 +7,7 @@
 #include <functional>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -333,6 +334,19 @@ Json migrated_v15_document() {
   return with_v15_cg_pages(migrated_v14_document());
 }
 
+Json with_v16_logic(Json document) {
+  document["fileVersion"] = 16;
+  return document;
+}
+
+Json migrated_to_v16(Json document) {
+  return with_v16_logic(migrated_to_v15(std::move(document)));
+}
+
+Json migrated_v16_document() {
+  return with_v16_logic(migrated_v15_document());
+}
+
 Json cg_page_json(
     const std::initializer_list<std::pair<std::size_t, std::string>> entries =
         {}) {
@@ -408,7 +422,7 @@ void expect_file_error(
   throw std::runtime_error("expected ProjectFileError");
 }
 
-void reads_v1_and_writes_a_migrated_v15_document() {
+void reads_v1_and_writes_a_migrated_v16_document() {
   const Json source = valid_document();
   const vnengine::backend::ProjectFileDocument parsed =
       vnengine::backend::project_file_from_json(source);
@@ -432,7 +446,7 @@ void reads_v1_and_writes_a_migrated_v15_document() {
   CHECK(parsed.assets[1].type == vnengine::AssetType::video);
   CHECK(
       vnengine::backend::project_file_to_json(parsed) ==
-      migrated_v15_document());
+      migrated_v16_document());
 }
 
 void round_trips_v2_visuals_and_preserves_character_order() {
@@ -448,7 +462,7 @@ void round_trips_v2_visuals_and_preserves_character_order() {
   CHECK(visuals.characters[0].slot == vnengine::CharacterSlot::right);
   CHECK(visuals.characters[1].id == "visual-alice-front");
   CHECK(visuals.characters[1].slot == vnengine::CharacterSlot::left);
-  Json expected = migrated_to_v15(source);
+  Json expected = migrated_to_v16(source);
   CHECK(vnengine::backend::project_file_to_json(parsed) == expected);
 }
 
@@ -472,7 +486,7 @@ void rejects_unsupported_and_malformed_project_documents() {
   expect_file_error(document, Kind::unsupported_format);
 
   document = valid_document();
-  document["fileVersion"] = 16;
+  document["fileVersion"] = 17;
   expect_file_error(document, Kind::unsupported_format);
 
   document = valid_document();
@@ -620,10 +634,10 @@ void round_trips_v3_mixed_timeline_strictly() {
   CHECK(std::get<vnengine::BackgroundNode>(scene.nodes[1]).asset_id ==
         "asset-image-1");
   CHECK(std::holds_alternative<vnengine::Dialogue>(scene.nodes[2]));
-  Json migrated_source = migrated_to_v15(source);
+  Json migrated_source = migrated_to_v16(source);
   CHECK(vnengine::backend::project_file_to_json(parsed) == migrated_source);
 
-  Json no_background_source = migrated_to_v15(source);
+  Json no_background_source = migrated_to_v16(source);
   no_background_source["project"]["scenes"][0]["nodes"][1]["assetId"] =
       nullptr;
   const auto no_background =
@@ -683,7 +697,7 @@ void migrates_v1_through_v6_dialogues_to_null_voice() {
         parsed.project.scenes[0].nodes[0]);
     CHECK(!dialogue.voice_asset_id.has_value());
     const Json migrated = vnengine::backend::project_file_to_json(parsed);
-    CHECK(migrated.at("fileVersion") == 15);
+    CHECK(migrated.at("fileVersion") == 16);
     CHECK(migrated.at("project").at("startScreen") == Json({
         {"title", "读取的项目"},
         {"backgroundAssetId", nullptr},
@@ -720,8 +734,8 @@ void round_trips_v7_audio_timeline_strictly() {
   const auto& bgm = std::get<vnengine::BgmNode>(
       parsed.project.scenes[0].nodes[1]);
   CHECK(bgm.asset_id == "asset-audio-1");
-  Json migrated = with_v15_cg_pages(
-      with_v14_cg_gallery(with_v13_start_screen(source)));
+  Json migrated = with_v16_logic(with_v15_cg_pages(
+      with_v14_cg_gallery(with_v13_start_screen(source))));
   CHECK(vnengine::backend::project_file_to_json(parsed) == migrated);
   CHECK(vnengine::backend::project_to_json(parsed.project)
             .at("scenes")[0]
@@ -765,8 +779,8 @@ void round_trips_v8_video_timeline_strictly() {
   const auto& video = std::get<vnengine::VideoNode>(
       parsed.project.scenes[0].nodes[1]);
   CHECK(video.asset_id == "asset-video-1");
-  Json migrated = with_v15_cg_pages(
-      with_v14_cg_gallery(with_v13_start_screen(source)));
+  Json migrated = with_v16_logic(with_v15_cg_pages(
+      with_v14_cg_gallery(with_v13_start_screen(source))));
   CHECK(vnengine::backend::project_file_to_json(parsed) == migrated);
   CHECK(vnengine::backend::project_to_json(parsed.project)
             .at("scenes")[0]
@@ -842,8 +856,8 @@ void round_trips_v9_choice_timeline_strictly() {
             .options.empty());
   CHECK(
       vnengine::backend::project_file_to_json(parsed) ==
-      with_v15_cg_pages(
-          with_v14_cg_gallery(with_v13_start_screen(source))));
+      with_v16_logic(with_v15_cg_pages(
+          with_v14_cg_gallery(with_v13_start_screen(source)))));
   CHECK(vnengine::backend::project_to_json(parsed.project)
             .at("scenes")[0]
             .at("nodes")[1] ==
@@ -915,7 +929,7 @@ void migrates_legacy_start_screens_and_round_trips_v14_strictly() {
     CHECK(!parsed.project.start_screen.background_asset_id.has_value());
     CHECK(!parsed.project.start_screen.music_asset_id.has_value());
     const Json migrated = vnengine::backend::project_file_to_json(parsed);
-    CHECK(migrated.at("fileVersion") == 15);
+    CHECK(migrated.at("fileVersion") == 16);
     CHECK(migrated.at("project").at("startScreen") == Json({
         {"title", "读取的项目"},
         {"backgroundAssetId", nullptr},
@@ -938,7 +952,7 @@ void migrates_legacy_start_screens_and_round_trips_v14_strictly() {
       vnengine::backend::project_file_from_json(legacy_v10);
   CHECK(migrated_v10.project.start_screen.title == "读取的项目");
   Json expected_migration = legacy_v10;
-  expected_migration["fileVersion"] = 15;
+  expected_migration["fileVersion"] = 16;
   expected_migration["project"]["startScreen"]["title"] = "读取的项目";
   expected_migration["project"]["cgGallery"] =
       migrated_v15_document().at("project").at("cgGallery");
@@ -1021,7 +1035,7 @@ void round_trips_v14_story_extensions_strictly() {
   const auto migrated_from_v12 =
       vnengine::backend::project_file_from_json(legacy_v12);
   Json source = vnengine::backend::project_file_to_json(migrated_from_v12);
-  CHECK(source == migrated_to_v15(legacy_v12));
+  CHECK(source == migrated_to_v16(legacy_v12));
   source["project"]["scenes"][0]["nodes"].push_back({
       {"id", "custom-character"},
       {"type", "character"},
@@ -1090,7 +1104,7 @@ void round_trips_v14_story_extensions_strictly() {
   expect_file_error(malformed, Kind::invalid_document);
 }
 
-void migrates_v14_and_round_trips_v15_cg_pages_strictly() {
+void migrates_v14_and_v15_cg_pages_to_v16_strictly() {
   using Kind = vnengine::backend::ProjectFileErrorKind;
 
   Json legacy = migrated_v14_document();
@@ -1122,7 +1136,7 @@ void migrates_v14_and_round_trips_v15_cg_pages_strictly() {
              .image_asset_ids[1]
              .has_value());
   CHECK(vnengine::backend::project_file_to_json(migrated) ==
-        with_v15_cg_pages(legacy));
+        with_v16_logic(with_v15_cg_pages(legacy)));
 
   Json source = with_v15_cg_pages(legacy);
   source["project"]["cgGallery"]["pages"] = Json::array({
@@ -1138,7 +1152,8 @@ void migrates_v14_and_round_trips_v15_cg_pages_strictly() {
              .has_value());
   CHECK(parsed.project.cg_gallery.pages[0].image_asset_ids[3] ==
         "asset-image-1");
-  CHECK(vnengine::backend::project_file_to_json(parsed) == source);
+  CHECK(vnengine::backend::project_file_to_json(parsed) ==
+        with_v16_logic(source));
   CHECK(vnengine::backend::project_to_json(parsed.project).at("cgGallery") ==
         source.at("project").at("cgGallery"));
 
@@ -1311,7 +1326,7 @@ void expect_session(
 
 void updates_and_persists_cg_gallery_atomically() {
   TemporaryDirectory temporary;
-  Json source_document = migrated_v15_document();
+  Json source_document = migrated_v16_document();
   source_document["assets"].push_back({
       {"id", "asset-image-2"},
       {"type", "image"},
@@ -1398,7 +1413,7 @@ void updates_and_persists_cg_gallery_atomically() {
       {{"filePath", target.string()}});
   expect_session(saved, 1, 1, false);
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 15);
+  CHECK(persisted.at("fileVersion") == 16);
   CHECK(persisted.at("project")
             .at("cgGallery")
             .at("pages") == selected_pages);
@@ -1796,7 +1811,7 @@ void sets_clears_and_persists_scene_backgrounds_atomically() {
       {{"filePath", target.string()}});
   expect_session(saved, 3, 3, false);
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 15);
+  CHECK(persisted.at("fileVersion") == 16);
   CHECK(persisted.at("project")
             .at("scenes")[0]
             .at("visuals")
@@ -1950,7 +1965,7 @@ void updates_and_persists_start_screen_atomically() {
   expect_session(saved, 3, 3, false);
 
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 15);
+  CHECK(persisted.at("fileVersion") == 16);
   CHECK(persisted.at("project").at("startScreen") == expected_screen);
 
   vnengine::backend::Backend reopened_backend;
@@ -2095,7 +2110,7 @@ void mutates_and_persists_mixed_background_timeline() {
       {{"filePath", target.string()}});
   expect_session(saved, 4, 4, false);
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 15);
+  CHECK(persisted.at("fileVersion") == 16);
   CHECK(persisted.at("project").at("scenes")[0].at("nodes") ==
         moved_nodes);
 
@@ -2221,7 +2236,7 @@ void saves_atomically_and_round_trips_assets() {
 
   const Json on_disk = Json::parse(read_file(target));
   CHECK(on_disk.at("format") == "vn-engine-project");
-  CHECK(on_disk.at("fileVersion") == 15);
+  CHECK(on_disk.at("fileVersion") == 16);
   CHECK(on_disk.at("project").at("name") == "保存后的项目");
   CHECK(on_disk.at("assets") == valid_document().at("assets"));
 
@@ -2274,7 +2289,7 @@ void backend_preserves_hidden_v2_visuals_across_mutation_and_save() {
   expect_session(saved, 1, 1, false);
 
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 15);
+  CHECK(persisted.at("fileVersion") == 16);
   CHECK(
       persisted.at("project").at("scenes")[0].at("visuals") ==
       source_document.at("project").at("scenes")[0].at("visuals"));
@@ -2299,7 +2314,7 @@ void failed_open_preserves_dirty_hidden_v2_aggregate() {
       "invalid-v3-timeline.vn.json", invalid_timeline_document.dump(2));
 
   Json future_document = valid_v2_visual_document();
-  future_document["fileVersion"] = 16;
+  future_document["fileVersion"] = 17;
   const std::filesystem::path future = temporary.write(
       "future-v9.vn.json", future_document.dump(2));
   const std::filesystem::path target =
@@ -2355,7 +2370,7 @@ void failed_open_preserves_dirty_hidden_v2_aggregate() {
   expect_session(saved, 1, 1, false);
 
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 15);
+  CHECK(persisted.at("fileVersion") == 16);
   CHECK(persisted.at("project").at("name") == "失败后仍保留");
   CHECK(
       persisted.at("project").at("scenes")[0].at("visuals") ==
@@ -2590,7 +2605,7 @@ void mutates_and_persists_character_timeline() {
       {{"filePath", target.string()}});
   expect_session(saved, 2, 2, false);
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 15);
+  CHECK(persisted.at("fileVersion") == 16);
   CHECK(persisted.at("project")
             .at("scenes")[0]
             .at("nodes")[1]
@@ -2684,7 +2699,7 @@ void mutates_and_persists_scene_jump_timeline() {
   CHECK(saved.at("ok") == true);
   expect_session(saved, 1, 1, false);
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 15);
+  CHECK(persisted.at("fileVersion") == 16);
   CHECK(persisted.at("project")
             .at("scenes")[0]
             .at("nodes")[1]
@@ -2941,7 +2956,7 @@ void mutates_and_persists_choice_timeline_transactionally() {
       backend, 20, "project.save", {{"filePath", target.string()}});
   expect_session(saved, 11, 11, false);
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 15);
+  CHECK(persisted.at("fileVersion") == 16);
   CHECK(persisted.at("project")
             .at("scenes")[0]
             .at("nodes")[0]
@@ -3155,7 +3170,7 @@ void mutates_and_persists_dialogue_voice_and_bgm() {
       backend, 18, "project.save", {{"filePath", target.string()}});
   expect_session(saved, 11, 11, false);
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 15);
+  CHECK(persisted.at("fileVersion") == 16);
   CHECK(persisted.at("project")
             .at("scenes")[0]
             .at("nodes")[0]
@@ -3350,7 +3365,7 @@ void mutates_and_persists_video_timeline() {
       backend, 17, "project.save", {{"filePath", target.string()}});
   expect_session(saved, 8, 8, false);
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 15);
+  CHECK(persisted.at("fileVersion") == 16);
   CHECK(persisted.at("project")
             .at("scenes")[0]
             .at("nodes")[0] == Json({
@@ -3430,7 +3445,7 @@ void mutates_and_persists_story_extension_timeline() {
       backend, 7, "project.save", {{"filePath", target.string()}});
   expect_session(saved, 3, 3, false);
   const Json persisted = Json::parse(read_file(target));
-  CHECK(persisted.at("fileVersion") == 15);
+  CHECK(persisted.at("fileVersion") == 16);
   CHECK(persisted.at("project")
             .at("scenes")[0]
             .at("nodes")[1] == Json({
@@ -3469,12 +3484,460 @@ void mutates_and_persists_story_extension_timeline() {
             .size() == 2);
 }
 
+void mutates_persists_and_guards_logic_timeline() {
+  TemporaryDirectory temporary;
+  const std::filesystem::path target = temporary.path("project.vn.json");
+  vnengine::backend::Backend backend;
+
+  const Json created = request(
+      backend, 1, "project.create", {{"name", "Logic timeline"}});
+  expect_session(created, 0, std::nullopt, true);
+  const std::string scene_id = created.at("result")
+      .at("project")
+      .at("entrySceneId")
+      .get<std::string>();
+  for (const Json& invalid : {
+           request(
+               backend,
+               101,
+               "variableSet.add",
+               {{"sceneId", scene_id},
+                {"variableName", "route"},
+                {"value", true},
+                {"evil", 1}}),
+           request(
+               backend,
+               100,
+               "variableSet.add",
+               {{"sceneId", scene_id}, {"variableName", "route"}}),
+           request(
+               backend,
+               102,
+               "variableSet.add",
+               {{"sceneId", scene_id},
+                {"variableName", std::string("bad\0name", 8)},
+                {"value", true}}),
+           request(
+               backend,
+               103,
+               "variableSet.add",
+               {{"sceneId", scene_id},
+                {"variableName", std::string(65, 'x')},
+                {"value", true}}),
+           request(
+               backend,
+               104,
+               "variableSet.add",
+               {{"sceneId", scene_id},
+                {"variableName", "text"},
+                {"value", std::string(4097, 'x')}}),
+           request(
+               backend,
+               105,
+               "variableChange.add",
+               {{"sceneId", scene_id},
+                {"variableName", "score"},
+                {"amount", std::numeric_limits<double>::quiet_NaN()}}),
+       }) {
+    CHECK(invalid.at("ok") == false);
+    CHECK(invalid.at("error").at("code") == "invalid_params");
+  }
+  expect_session(request(backend, 106, "project.get"), 0, std::nullopt, true);
+  const Json condition{
+      {"left", {{"kind", "variable"}, {"name", "route"}}},
+      {"operator", "gte"},
+      {"right", {{"kind", "literal"}, {"value", 2}}},
+  };
+  const Json added_if = request(
+      backend,
+      2,
+      "logicIf.add",
+      {{"sceneId", scene_id}, {"condition", condition}});
+  expect_session(added_if, 1, std::nullopt, true);
+  const std::string if_id =
+      added_if.at("result").at("nodeId").get<std::string>();
+  const Json& if_nodes = added_if.at("result")
+      .at("project")
+      .at("scenes")[0]
+      .at("nodes");
+  CHECK(if_nodes.size() == 3);
+  CHECK(if_nodes[0].at("type") == "logicIf");
+  CHECK(if_nodes[1].at("type") == "logicElse");
+  CHECK(if_nodes[1].at("ifNodeId") == if_id);
+  CHECK(if_nodes[2].at("type") == "logicEndIf");
+  CHECK(if_nodes[2].at("ifNodeId") == if_id);
+  const std::string else_id = if_nodes[1].at("id").get<std::string>();
+
+  const Json variable = request(
+      backend,
+      3,
+      "variableSet.add",
+      {{"sceneId", scene_id},
+       {"variableName", "route"},
+       {"value", 3},
+       {"beforeNodeId", else_id}});
+  expect_session(variable, 2, std::nullopt, true);
+  const Json repeat = request(
+      backend,
+      4,
+      "logicRepeat.add",
+      {{"sceneId", scene_id}, {"count", 2}, {"beforeNodeId", else_id}});
+  expect_session(repeat, 3, std::nullopt, true);
+
+  const Json split = request(
+      backend,
+      5,
+      "storyExtension.add",
+      {{"sceneId", scene_id}, {"beforeNodeId", else_id}});
+  CHECK(split.at("ok") == false);
+  CHECK(split.at("error").at("code") == "story_extension_logic_boundary");
+  const Json partial_delete = request(
+      backend,
+      6,
+      "timeline.deleteMany",
+      {{"sceneId", scene_id}, {"nodeIds", Json::array({if_id})}});
+  CHECK(partial_delete.at("ok") == false);
+  CHECK(partial_delete.at("error").at("code") ==
+        "logic_control_atomic_required");
+  const Json invalid_repeat = request(
+      backend,
+      7,
+      "logicRepeat.update",
+      {{"sceneId", scene_id},
+       {"nodeId", repeat.at("result").at("nodeId")},
+       {"count", 1001}});
+  CHECK(invalid_repeat.at("ok") == false);
+  CHECK(invalid_repeat.at("error").at("code") == "invalid_params");
+
+  const Json saved = request(
+      backend, 8, "project.save", {{"filePath", target.string()}});
+  expect_session(saved, 3, 3, false);
+  const Json persisted = Json::parse(read_file(target));
+  CHECK(persisted.at("fileVersion") == 16);
+  CHECK(persisted.at("project").at("scenes")[0].at("nodes").size() == 6);
+
+  vnengine::backend::Backend reopened;
+  const Json opened = request(
+      reopened, 1, "project.open", open_params(target));
+  expect_session(opened, 0, 0, false);
+  CHECK(opened.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes") ==
+        saved.at("result").at("project").at("scenes")[0].at("nodes"));
+  const Json deleted = request(
+      reopened,
+      2,
+      "logicControl.delete",
+      {{"sceneId", scene_id}, {"nodeId", if_id}});
+  expect_session(deleted, 1, 0, true);
+  CHECK(deleted.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")
+            .empty());
+
+  Json malformed = persisted;
+  malformed["project"]["scenes"][0]["nodes"].erase(4);
+  expect_file_error(malformed, vnengine::backend::ProjectFileErrorKind::invalid_document);
+  malformed = persisted;
+  malformed["project"]["scenes"][0]["nodes"][1]["variableName"] =
+      std::string("bad\0name", 8);
+  expect_file_error(malformed, vnengine::backend::ProjectFileErrorKind::invalid_document);
+  malformed = persisted;
+  malformed["project"]["scenes"][0]["nodes"][1]["unexpected"] = true;
+  expect_file_error(
+      malformed,
+      vnengine::backend::ProjectFileErrorKind::invalid_document);
+  Json legacy_with_logic = persisted;
+  legacy_with_logic["fileVersion"] = 15;
+  expect_file_error(
+      legacy_with_logic,
+      vnengine::backend::ProjectFileErrorKind::unsupported_format);
+
+  vnengine::backend::Backend limit_backend;
+  const Json limit_created = request(
+      limit_backend, 1, "project.create", {{"name", "Variable limit"}});
+  const std::string limit_scene_id = limit_created.at("result")
+      .at("project")
+      .at("entrySceneId")
+      .get<std::string>();
+  for (std::size_t index = 0;
+       index < vnengine::kMaximumLogicVariableCount;
+       ++index) {
+    const Json added = request(
+        limit_backend,
+        static_cast<int>(index) + 2,
+        "variableSet.add",
+        {{"sceneId", limit_scene_id},
+         {"variableName", "variable-" + std::to_string(index)},
+         {"value", static_cast<double>(index)}});
+    CHECK(added.at("ok") == true);
+  }
+  const Json budget_if = request(
+      limit_backend,
+      90,
+      "logicIf.add",
+      {{"sceneId", limit_scene_id},
+       {"condition",
+        {{"left", {{"kind", "variable"}, {"name", "variable-0"}}},
+         {"operator", "eq"},
+         {"right", {{"kind", "literal"}, {"value", true}}}}}});
+  CHECK(budget_if.at("ok") == true);
+  const Json update_overflow = request(
+      limit_backend,
+      91,
+      "logicIf.update",
+      {{"sceneId", limit_scene_id},
+       {"nodeId", budget_if.at("result").at("nodeId")},
+       {"condition",
+        {{"left", {{"kind", "variable"}, {"name", "overflow"}}},
+         {"operator", "eq"},
+         {"right", {{"kind", "literal"}, {"value", true}}}}}});
+  CHECK(update_overflow.at("ok") == false);
+  CHECK(update_overflow.at("error").at("code") ==
+        "logic_variable_limit");
+  const Json overflow = request(
+      limit_backend,
+      100,
+      "variableSet.add",
+      {{"sceneId", limit_scene_id},
+       {"variableName", "overflow"},
+       {"value", true}});
+  CHECK(overflow.at("ok") == false);
+  CHECK(overflow.at("error").at("code") == "logic_variable_limit");
+  expect_session(
+      request(limit_backend, 101, "project.get"),
+      vnengine::kMaximumLogicVariableCount + 1,
+      std::nullopt,
+      true);
+}
+
+void reorders_complete_logic_story_pages_via_protocol() {
+  vnengine::backend::Backend backend;
+  const Json created = request(
+      backend, 1, "project.create", {{"name", "Logic page reorder"}});
+  const std::string scene_id = created.at("result")
+      .at("project")
+      .at("entrySceneId")
+      .get<std::string>();
+
+  const Json head = request(
+      backend,
+      2,
+      "dialogue.add",
+      {{"sceneId", scene_id}, {"speaker", "旁白"}, {"text", "第一页"}});
+  const std::string head_id =
+      head.at("result").at("nodeId").get<std::string>();
+  const Json page_start = request(
+      backend, 3, "storyExtension.add", {{"sceneId", scene_id}});
+  const std::string page_start_id =
+      page_start.at("result").at("nodeId").get<std::string>();
+  const Json added_if = request(
+      backend,
+      4,
+      "logicIf.add",
+      {{"sceneId", scene_id},
+       {"condition",
+        {{"left", {{"kind", "literal"}, {"value", true}}},
+         {"operator", "eq"},
+         {"right", {{"kind", "literal"}, {"value", true}}}}}});
+  const std::string if_id =
+      added_if.at("result").at("nodeId").get<std::string>();
+  const Json& if_nodes = added_if.at("result")
+      .at("project")
+      .at("scenes")[0]
+      .at("nodes");
+  const auto node_id_with_type = [](const Json& nodes,
+                                    const std::string_view type) {
+    const auto found = std::find_if(
+        nodes.begin(), nodes.end(), [type](const Json& node) {
+          return node.at("type").get<std::string>() == type;
+        });
+    if (found == nodes.end()) {
+      throw std::runtime_error("expected timeline node type");
+    }
+    return found->at("id").get<std::string>();
+  };
+  const std::string else_id = node_id_with_type(if_nodes, "logicElse");
+  const std::string end_if_id = node_id_with_type(if_nodes, "logicEndIf");
+
+  const Json added_repeat = request(
+      backend,
+      5,
+      "logicRepeat.add",
+      {{"sceneId", scene_id}, {"count", 2}, {"beforeNodeId", else_id}});
+  const std::string repeat_id =
+      added_repeat.at("result").at("nodeId").get<std::string>();
+  const std::string end_repeat_id = node_id_with_type(
+      added_repeat.at("result").at("project").at("scenes")[0].at("nodes"),
+      "logicEndRepeat");
+  const Json repeat_body = request(
+      backend,
+      6,
+      "dialogue.add",
+      {{"sceneId", scene_id},
+       {"speaker", "旁白"},
+       {"text", "循环内"},
+       {"beforeNodeId", end_repeat_id}});
+  const std::string repeat_body_id =
+      repeat_body.at("result").at("nodeId").get<std::string>();
+  const Json else_body = request(
+      backend,
+      7,
+      "dialogue.add",
+      {{"sceneId", scene_id},
+       {"speaker", "旁白"},
+       {"text", "否则"},
+       {"beforeNodeId", end_if_id}});
+  const std::string else_body_id =
+      else_body.at("result").at("nodeId").get<std::string>();
+  const Json next_page = request(
+      backend, 8, "storyExtension.add", {{"sceneId", scene_id}});
+  const std::string next_page_id =
+      next_page.at("result").at("nodeId").get<std::string>();
+  request(
+      backend,
+      9,
+      "dialogue.add",
+      {{"sceneId", scene_id}, {"speaker", "旁白"}, {"text", "第三页"}});
+
+  const Json moved_leaf = request(
+      backend,
+      10,
+      "timeline.reorder",
+      {{"sceneId", scene_id},
+       {"nodeId", repeat_body_id},
+       {"beforeNodeId", head_id}});
+  expect_session(moved_leaf, 9, std::nullopt, true);
+  CHECK(moved_leaf.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[0]
+            .at("id") == repeat_body_id);
+  expect_session(
+      request(
+          backend,
+          11,
+          "timeline.reorder",
+          {{"sceneId", scene_id},
+           {"nodeId", repeat_body_id},
+           {"beforeNodeId", end_repeat_id}}),
+      10,
+      std::nullopt,
+      true);
+
+  const std::vector<std::string> nested_control{
+      repeat_id, repeat_body_id, end_repeat_id};
+  const Json moved_nested = request(
+      backend,
+      12,
+      "timeline.reorderMany",
+      {{"sceneId", scene_id},
+       {"nodeIds", nested_control},
+       {"beforeNodeId", head_id}});
+  expect_session(moved_nested, 11, std::nullopt, true);
+  for (std::size_t index = 0; index < nested_control.size(); ++index) {
+    CHECK(moved_nested.at("result")
+              .at("project")
+              .at("scenes")[0]
+              .at("nodes")[index]
+              .at("id") == nested_control[index]);
+  }
+  expect_session(
+      request(
+          backend,
+          13,
+          "timeline.reorderMany",
+          {{"sceneId", scene_id},
+           {"nodeIds", nested_control},
+           {"beforeNodeId", else_id}}),
+      12,
+      std::nullopt,
+      true);
+
+  const std::vector<std::string> complete_page{
+      page_start_id,
+      if_id,
+      repeat_id,
+      repeat_body_id,
+      end_repeat_id,
+      else_id,
+      else_body_id,
+      end_if_id,
+  };
+  const Json moved_page = request(
+      backend,
+      14,
+      "timeline.reorderMany",
+      {{"sceneId", scene_id},
+       {"nodeIds", complete_page},
+       {"beforeNodeId", head_id}});
+  expect_session(moved_page, 13, std::nullopt, true);
+  for (std::size_t index = 0; index < complete_page.size(); ++index) {
+    CHECK(moved_page.at("result")
+              .at("project")
+              .at("scenes")[0]
+              .at("nodes")[index]
+              .at("id") == complete_page[index]);
+  }
+
+  const auto without_id = [](const std::vector<std::string>& ids,
+                             const std::string_view omitted) {
+    std::vector<std::string> result;
+    std::copy_if(
+        ids.begin(),
+        ids.end(),
+        std::back_inserter(result),
+        [omitted](const std::string& id) { return id != omitted; });
+    return result;
+  };
+  const std::vector<std::vector<std::string>> partial_selections{
+      without_id(complete_page, if_id),
+      without_id(complete_page, end_repeat_id),
+      without_id(complete_page, repeat_body_id),
+      {repeat_id, repeat_body_id},
+  };
+  int request_id = 15;
+  for (const std::vector<std::string>& selection : partial_selections) {
+    const Json rejected = request(
+        backend,
+        request_id++,
+        "timeline.reorderMany",
+        {{"sceneId", scene_id},
+         {"nodeIds", selection},
+         {"beforeNodeId", head_id}});
+    CHECK(rejected.at("ok") == false);
+    CHECK(rejected.at("error").at("code") ==
+          "logic_control_atomic_required");
+  }
+  const Json selected_anchor = request(
+      backend,
+      request_id++,
+      "timeline.reorderMany",
+      {{"sceneId", scene_id},
+       {"nodeIds", complete_page},
+       {"beforeNodeId", repeat_id}});
+  CHECK(selected_anchor.at("ok") == false);
+  CHECK(selected_anchor.at("error").at("code") == "invalid_params");
+
+  const Json unchanged = request(backend, request_id, "project.get");
+  expect_session(unchanged, 13, std::nullopt, true);
+  CHECK(unchanged.at("result").at("project") ==
+        moved_page.at("result").at("project"));
+  CHECK(unchanged.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[complete_page.size() + 1]
+            .at("id") == next_page_id);
+}
+
 }  // namespace
 
 int main() {
   const std::vector<std::pair<std::string, std::function<void()>>> tests{
-      {"reads v1 and writes a migrated v15 document",
-       reads_v1_and_writes_a_migrated_v15_document},
+      {"reads v1 and writes a migrated v16 document",
+       reads_v1_and_writes_a_migrated_v16_document},
       {"round trips v2 visuals and preserves character order",
        round_trips_v2_visuals_and_preserves_character_order},
       {"v1 reader rejects unversioned visual fields",
@@ -3497,8 +3960,8 @@ int main() {
        migrates_legacy_start_screens_and_round_trips_v14_strictly},
       {"round trips v14 story extensions strictly",
        round_trips_v14_story_extensions_strictly},
-      {"migrates v14 and round trips v15 CG pages strictly",
-       migrates_v14_and_round_trips_v15_cg_pages_strictly},
+      {"migrates v14 and v15 CG pages to v16 strictly",
+       migrates_v14_and_v15_cg_pages_to_v16_strictly},
       {"tracks real mutations and normalizes project names",
        tracks_real_mutations_and_normalizes_project_names},
       {"imports an image without exposing paths or autosaving manifest",
@@ -3543,6 +4006,10 @@ int main() {
        mutates_and_persists_video_timeline},
       {"mutates and persists story extension timeline",
        mutates_and_persists_story_extension_timeline},
+      {"mutates persists and guards logic timeline",
+       mutates_persists_and_guards_logic_timeline},
+      {"reorders complete logic story pages via protocol",
+       reorders_complete_logic_story_pages_via_protocol},
   };
 
   int failures = 0;

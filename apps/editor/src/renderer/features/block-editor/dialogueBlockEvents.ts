@@ -9,6 +9,13 @@ import {
 import { STORY_CONTINUATION_BLOCK_TYPE } from './blocks/storyContinuationBlock';
 import { isStoryBlockType } from './storyBlockTypes';
 import { isStoryPaginationProjectionConsistent } from './storyBlockPagination';
+import { getLogicControlNodeIds } from './logicStructure';
+import {
+  LOGIC_CONTROL_INPUTS,
+  LOGIC_IF_BLOCK_TYPE,
+  LOGIC_REPEAT_BLOCK_TYPE,
+  getLogicControlMarkers,
+} from './blocks/logicControlBlock';
 
 export type DialogueFieldUpdate = {
   nodeId: string;
@@ -145,12 +152,36 @@ export function getTimelineBeforeNodeIdForBlock(
   block: Blockly.BlockSvg,
   scene: SceneDocument,
 ): string | null {
-  const nextBlock = block.getNextBlock();
+  let nextBlock = block.getNextBlock();
+  while (nextBlock !== null) {
+    if (scene.nodes.some((node) => node.id === nextBlock?.id)) {
+      return nextBlock.id;
+    }
+    nextBlock = nextBlock.getNextBlock();
+  }
+
+  // C 形积木的分支尾部没有可见 next block，但在权威
+  // flat timeline 中必须放在 Else/End marker 之前。marker ID 只从
+  // 投影时写入的 block.data 取得，不会猜测或生成。
+  const surroundParent = getSurroundParent(block);
+  const markers = surroundParent
+    ? getLogicControlMarkers(surroundParent)
+    : null;
   if (
-    nextBlock !== null &&
-    scene.nodes.some((node) => node.id === nextBlock.id)
+    surroundParent?.type === LOGIC_IF_BLOCK_TYPE &&
+    markers?.kind === 'if'
   ) {
-    return nextBlock.id;
+    const isInThenBranch = blockAppearsInStatementChain(
+      surroundParent.getInputTargetBlock(LOGIC_CONTROL_INPUTS.then),
+      block,
+    );
+    return isInThenBranch ? markers.elseNodeId : markers.endNodeId;
+  }
+  if (
+    surroundParent?.type === LOGIC_REPEAT_BLOCK_TYPE &&
+    markers?.kind === 'repeat'
+  ) {
+    return markers.endNodeId;
   }
 
   // 分页或显式跳转会让某些权威后继不再是物理 next 积木。
@@ -161,6 +192,23 @@ export function getTimelineBeforeNodeIdForBlock(
     ? scene.nodes.findIndex((node) => node.id === previousBlock.id)
     : -1;
   if (previousIndex >= 0) {
+    const previousNode = scene.nodes[previousIndex];
+    if (
+      previousNode.type === 'logicIf' ||
+      previousNode.type === 'logicRepeat'
+    ) {
+      const controlNodeIds = getLogicControlNodeIds(
+        scene,
+        previousNode.id,
+      );
+      const endNodeId = controlNodeIds.at(-1);
+      const endIndex = endNodeId
+        ? scene.nodes.findIndex((node) => node.id === endNodeId)
+        : -1;
+      if (endIndex >= 0) {
+        return scene.nodes[endIndex + 1]?.id ?? null;
+      }
+    }
     return (
       scene.nodes
         .slice(previousIndex + 1)
@@ -169,6 +217,29 @@ export function getTimelineBeforeNodeIdForBlock(
   }
 
   return null;
+}
+
+function getSurroundParent(block: Blockly.Block): Blockly.Block | null {
+  // Lightweight event-unit fakes created before nested controls do not expose
+  // this Blockly API. Real Blockly blocks always do; treating a legacy fake as
+  // top-level preserves the original non-logic behavior.
+  return typeof block.getSurroundParent === 'function'
+    ? block.getSurroundParent()
+    : null;
+}
+
+function blockAppearsInStatementChain(
+  firstBlock: Blockly.Block | null,
+  target: Blockly.Block,
+): boolean {
+  let block = firstBlock;
+  while (block) {
+    if (block.id === target.id) {
+      return true;
+    }
+    block = block.getNextBlock();
+  }
+  return false;
 }
 
 export function getNewStoryExtensionDropResolution(
@@ -204,7 +275,8 @@ export function getNewStoryExtensionDropResolution(
   if (
     (nextBlock !== null &&
       (!nextNode || nextNode.type === 'storyExtension')) ||
-    block.getPreviousBlock() !== null
+    block.getPreviousBlock() !== null ||
+    getSurroundParent(block) !== null
   ) {
     return { kind: 'rollback' };
   }
@@ -325,6 +397,11 @@ export function getTimelineReorderDropResolution(
     // 延伸代表一整页，不允许通过单块拖拽只移动 marker。
     // 页序只由它的数字字段触发 reorderMany 原子修改。
     return { kind: 'restore-projection' };
+  }
+  if (movedNode?.type === 'logicIf' || movedNode?.type === 'logicRepeat') {
+    // C 形控制积木必须携带整个作用域移动，由专用
+    // logicControl.reorder 命令处理，不能当作单个 timeline node。
+    return null;
   }
 
   const currentIndex = scene.nodes.findIndex(

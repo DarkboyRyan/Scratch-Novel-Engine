@@ -97,6 +97,39 @@ function withRendererProjectDefaults(
 function readableError(error: unknown, labels: EditorLabels): string {
   if (
     error instanceof Error &&
+    (error.message.includes('[logic-module]') ||
+      error.message.includes('addVariableSet is not a function') ||
+      error.message.includes('updateVariableSet is not a function') ||
+      error.message.includes('addVariableChange is not a function') ||
+      error.message.includes('updateVariableChange is not a function') ||
+      error.message.includes('addLogicIf is not a function') ||
+      error.message.includes('updateLogicIf is not a function') ||
+      error.message.includes('addLogicRepeat is not a function') ||
+      error.message.includes('updateLogicRepeat is not a function') ||
+      error.message.includes('deleteLogicControl is not a function') ||
+      error.message.includes('reorderLogicControl is not a function') ||
+      error.message.includes('unknown method: variableSet.') ||
+      error.message.includes('unknown method: variableChange.') ||
+      error.message.includes('unknown method: logicIf.') ||
+      error.message.includes('unknown method: logicRepeat.') ||
+      error.message.includes('unknown method: logicControl.'))
+  ) {
+    return labels.messages.logicModuleUnavailable;
+  }
+
+  if (
+    error instanceof Error &&
+    (error.name === 'VnEngineError:logic_variable_limit' ||
+      error.message.includes('logic_variable_limit') ||
+      error.message.includes(
+        'project cannot contain more than 32 logic variables',
+      ))
+  ) {
+    return labels.messages.logicVariableLimit;
+  }
+
+  if (
+    error instanceof Error &&
     (error.message.includes('updateCgGallery is not a function') ||
       error.message.includes('unknown method: cgGallery.update'))
   ) {
@@ -321,6 +354,9 @@ export function useEngineProject(
     },
     onStoryExtensionUnavailable: () => {
       setEngineMessage(labelsRef.current.messages.extensionModuleUnavailable);
+    },
+    onLogicModuleUnavailable: () => {
+      setEngineMessage(labelsRef.current.messages.logicModuleUnavailable);
     },
   });
 

@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
+import { startGame } from '@vnengine/runtime';
 
 import { loadRuntimeBundle } from '../../../player/src/main/content/PlayerBundleLoader';
 import { compileAuthorProjectV15 } from '../../src/main/export/AuthorProjectCompiler';
@@ -25,7 +26,7 @@ afterEach(async () => {
 });
 
 describe('Editor export to Player compatibility', () => {
-  it('reopens an exported runtime v6 bundle through the Player strict reader', async () => {
+  it('reopens an exported runtime v7 bundle through the Player strict reader', async () => {
     const testRoot = await mkdtemp(
       path.join(tmpdir(), 'vn-export-player-contract-'),
     );
@@ -40,7 +41,7 @@ describe('Editor export to Player compatibility', () => {
 
     const authorDocument = {
       format: 'vn-engine-project',
-      fileVersion: 15,
+      fileVersion: 16,
       project: {
         schemaVersion: 1,
         id: 'contract-project',
@@ -71,12 +72,36 @@ describe('Editor export to Player compatibility', () => {
             },
             nodes: [
               {
+                id: 'set-route',
+                type: 'variableSet',
+                variableName: 'route',
+                value: 'open',
+              },
+              {
+                id: 'if-route',
+                type: 'logicIf',
+                condition: {
+                  left: { kind: 'variable', name: 'route' },
+                  operator: 'eq',
+                  right: { kind: 'literal', value: 'open' },
+                },
+              },
+              {
                 id: 'dialogue-1',
                 type: 'dialogue',
                 speaker: 'Narrator',
                 text: 'Export contract',
                 voiceAssetId: null,
               },
+              { id: 'else-route', type: 'logicElse', ifNodeId: 'if-route' },
+              {
+                id: 'dialogue-2',
+                type: 'dialogue',
+                speaker: 'Narrator',
+                text: 'Wrong branch',
+                voiceAssetId: null,
+              },
+              { id: 'end-route', type: 'logicEndIf', ifNodeId: 'if-route' },
               { id: 'extension-1', type: 'storyExtension' },
             ],
           },
@@ -120,6 +145,10 @@ describe('Editor export to Player compatibility', () => {
     expect(loaded.game.project.scenes[0].nodes).not.toContainEqual(
       expect.objectContaining({ type: 'storyExtension' }),
     );
+    expect(startGame(loaded.game.project)).toMatchObject({
+      dialogue: { id: 'dialogue-1' },
+      variables: { route: 'open' },
+    });
     expect([...loaded.assets.keys()]).toEqual(['background-asset']);
     expect(loaded.assets.get('background-asset')).toMatchObject({
       type: 'image',

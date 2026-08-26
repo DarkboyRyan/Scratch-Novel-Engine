@@ -437,7 +437,9 @@ function validateManifestDocument(input, projectId, runtimeVersion) {
               ? '>=4 <5'
               : runtimeVersion === 5
                 ? '>=5 <6'
-                : '>=6 <7'
+                : runtimeVersion === 6
+                  ? '>=6 <7'
+                  : '>=7 <8'
     )
   ) {
     throw new Error('manifest.json 的格式或版本不受支持');
@@ -515,7 +517,8 @@ function validateGameDocument(input) {
       root.runtimeVersion !== 3 &&
       root.runtimeVersion !== 4 &&
       root.runtimeVersion !== 5 &&
-      root.runtimeVersion !== 6
+      root.runtimeVersion !== 6 &&
+      root.runtimeVersion !== 7
     )
   ) {
     throw new Error('game.json 的格式或版本不受支持');

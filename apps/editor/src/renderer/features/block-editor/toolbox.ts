@@ -15,6 +15,14 @@ import {
 } from './blocks/choiceBlock';
 import { STORY_CONTINUATION_BLOCK_TYPE } from './blocks/storyContinuationBlock';
 import {
+  LOGIC_IF_BLOCK_TYPE,
+  LOGIC_REPEAT_BLOCK_TYPE,
+} from './blocks/logicControlBlock';
+import {
+  VARIABLE_CHANGE_BLOCK_TYPE,
+  VARIABLE_SET_BLOCK_TYPE,
+} from './blocks/variableBlock';
+import {
   DEFAULT_EDITOR_LANGUAGE,
   getEditorLabels,
   type EditorLabels,
@@ -39,6 +47,24 @@ export function createBlockEditorToolbox(
           ...(includeSceneJump
             ? [{ kind: 'block' as const, type: SCENE_JUMP_BLOCK_TYPE }]
             : []),
+        ],
+      },
+      {
+        kind: 'category',
+        name: labels.blockly.categories.logic,
+        colour: '120',
+        contents: [
+          { kind: 'block', type: LOGIC_IF_BLOCK_TYPE },
+          { kind: 'block', type: LOGIC_REPEAT_BLOCK_TYPE },
+        ],
+      },
+      {
+        kind: 'category',
+        name: labels.blockly.categories.variables,
+        colour: '330',
+        contents: [
+          { kind: 'block', type: VARIABLE_SET_BLOCK_TYPE },
+          { kind: 'block', type: VARIABLE_CHANGE_BLOCK_TYPE },
         ],
       },
       {

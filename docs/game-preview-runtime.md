@@ -12,6 +12,7 @@
 - 背景节点自动执行，不消耗玩家点击。
 - 人物立绘节点自动执行，不消耗玩家点击。
 - BGM 节点自动切换/停止循环音乐，不消耗玩家点击。
+- 变量 Set/Change 自动执行；If/Else 只执行条件命中的分支，Repeat 按固定次数执行内部剧情。
 - 空视频节点自动跳过；绑定视频的节点阻塞播放，ended 或按 Enter 后继续。
 - 空选项节点自动跳过；存在选项时显示居中选择框并等待玩家点击。
 - 遇到对白节点后显示对白并暂停。
@@ -28,7 +29,7 @@
 | 技术 | 用途 | 为什么这样选 |
 | --- | --- | --- |
 | React 19 | 预览组件、会话 Hook 和输入状态 | 与编辑器 UI 共用组件和生命周期 |
-| TypeScript | 判别联合、纯状态机、`Map`/`Set` | 节点缩窄明确，输入输出容易单测 |
+| TypeScript | 判别联合、纯状态机、`Map`/`Set` 与显式 loop stack | 节点缩窄明确，逻辑和输入输出容易单测 |
 | HTML/CSS | `VisualStage` 的背景、人物、对白、选项和视频分层 | 当前画面无需引入 Canvas/Pixi |
 | ResizeObserver + CSS transform | 测量标题菜单与实际容器，并从中心等比缩放整张菜单卡 | 同时适配 Player、全屏预览和表单内嵌预览，避免固定像素高度裁切 |
 | Electron | 复用 `vn-asset://` 图片/音频/视频能力 URL与 Range | 预览不需要新增本机路径接口 |
@@ -37,16 +38,17 @@
 | C++20 | 提供最新权威 Project 快照 | 预览只读，不在 Renderer 复制业务数据 |
 | Vitest | reducer、跳转、选项、循环与输入规则测试 | 纯函数不需要启动整个 Electron 即可验证 |
 
-面试时可以解释：当前预览是编辑器内的只读功能，所以先用 TypeScript 纯状态机
-实现。独立 Player 的第一阶段应先把这套 reducer 抽成 Editor/Player 共享包；
-只有在变量、存档、脚本与确定性回放变得复杂后，才需要评估迁移到 C++ Runtime。
+面试时可以解释：当前预览是编辑器内的只读功能，使用已抽离到
+`@vnengine/runtime` 的纯 TypeScript reducer；Editor、桌面 Player 与 Web Player
+共用条件、循环、变量和错误语义。只有未来需要任意脚本或跨语言确定性回放时，才需要
+评估把同一运行协议迁到 C++/WASM Runtime。
 
 ## 核心边界
 
 ```text
 C++ Project（唯一剧情真相）
   → Renderer 获取只读快照
-  → previewRuntime 逐节点归约
+  → @vnengine/runtime 预编译控制流并逐节点归约
   → GamePreviewRuntime（一次临时播放会话）
   → VisualStage（背景 / 立绘 / 对白 / 选项 / 视频）
 ```
@@ -74,6 +76,9 @@ type GamePreviewRuntime = {
   characters: TimelineCharacterState[];
   dialogue: DialogueNode | null;
   choices: ChoiceOption[];
+  variables: Record<string, boolean | number | string>;
+  loopStack: RuntimeLoopFrame[];
+  errorCode?: RuntimeErrorCode;
   errorMessage?: string;
 };
 ```
@@ -86,14 +91,17 @@ type GamePreviewRuntime = {
 2. 背景节点修改当前背景后继续扫描。
 3. 立绘节点设置、替换或清除对应 layer 后继续扫描。
 4. BGM 节点更新 BGM ID 和播放序号，之后继续扫描。
-5. 空 VideoNode 直接跳过；非空 VideoNode 增加 occurrence 序号并返回 `playingVideo`，index 已指向视频之后。
-6. 空 ChoiceNode 直接跳过；非空 ChoiceNode 返回 `choosing`，index 已指向选项节点之后。
-7. 场景跳转节点切换 `sceneId`、把 index 设为 0、清空人物并载入目标场景初始背景；BGM 保持。
-8. 使用 `Set<sceneId:index>` 检测自动节点形成的无对白/可选项循环。
-9. 遇到对白节点时保存对白并增加 occurrence 序号，把 index 移到其后，然后返回等待玩家。
-10. 视频 ended 或 Enter 跳过由 `completeVideo()` 从已保存的 index 继续扫描。
-11. `selectGamePreviewChoice()` 用 optionId 验证当前阻塞节点和目标场景，然后按场景跳转语义继续扫描。
-12. 扫描到结尾且没有跳转时返回 `finished`。
+5. VariableSet 写入严格值；VariableChange 从现值或默认 `0` 增减，非数字或溢出进入错误态。
+6. LogicIf 严格比较变量/字面量并跳到 Then 或 Else；LogicElse 跳到配对 EndIf。
+7. LogicRepeat 推入显式循环帧；EndRepeat 减少剩余次数并回到 body，结束后弹栈。
+8. 空 VideoNode 直接跳过；非空 VideoNode 增加 occurrence 序号并返回 `playingVideo`，index 已指向视频之后。
+9. 空 ChoiceNode 直接跳过；非空 ChoiceNode 返回 `choosing`，index 已指向选项节点之后。
+10. 场景跳转节点切换 `sceneId`、把 index 设为 0、清空人物并载入目标场景初始背景；BGM 保持。
+11. 使用包含变量与循环栈的执行签名检测重复状态；每次推进最多自动执行 10000 步。
+12. 遇到对白节点时保存对白并增加 occurrence 序号，把 index 移到其后，然后返回等待玩家。
+13. 视频 ended 或 Enter 跳过由 `completeVideo()` 从已保存的 index 继续扫描。
+14. `selectGamePreviewChoice()` 用 optionId 验证当前阻塞节点和目标场景，然后按场景跳转语义继续扫描。
+15. 扫描到结尾且没有跳转时返回 `finished`。
 
 选择跳转和 SceneJumpNode 共享视觉边界：目标场景使用自己的初始背景、清空上一
 场景人物层，同时保留跨场景 BGM。选择界面会停止上一句对白语音。
@@ -155,15 +163,15 @@ renderer/components/
 
 - 逐字显示和“第一次点击补全文字”。
 - 自动播放计时。
-- 变量、条件表达式、选项可见性和选项副作用。
+- 复合 `and/or/not`、任意脚本、条件选项可见性和选项副作用。
 - Editor 预览中的持久化存档/读档；正式 Player 已提供本地手动槽和快速槽。
 - BGM 淡入淡出、音量自动化、波形和音效节点。
 - 视频裁剪、字幕、转码、淡入淡出和节点级音量。
 - 把运行状态写入 C++。
 
-独立 Player 的 MVP 应直接复用抽离后的 TypeScript reducer，保证编辑器预览与
-导出游戏语义一致。未来引入复杂变量、脚本、跨版本存档或确定性回放时，
-可再将同一语义下沉到 C++ RuntimeSession。
+独立 Player 与 Web Player 已复用抽离后的 TypeScript reducer，保证编辑器预览与
+导出游戏语义一致。未来引入任意脚本或跨语言确定性回放时，可再评估把同一语义下沉到
+C++ RuntimeSession/WASM。
 
 ## 验收
 
@@ -188,4 +196,6 @@ renderer/components/
 19. 空 ChoiceNode 自动跳过；非空节点进入 `choosing` 且普通推进输入不穿透。
 20. 选项按钮固定 54px 高并整体垂直居中；数量增加只改变列表高度和坐标，超量时列表内部滚动。
 21. 点击选项按稳定 optionId 跳转，目标场景重置背景/人物但延续 BGM；坏引用进入明确错误。
+22. 变量 Set/Change、If/Else 和 Repeat 在 Editor、桌面 Player 与 Web Player 中得到相同结果。
+23. 自动执行超过 10000 步返回 `logicStepLimit`，不会让预览卡死或请求超时。
 22. TypeScript、ESLint、Vitest、CTest 和生产打包通过。

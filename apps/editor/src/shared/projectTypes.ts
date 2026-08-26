@@ -18,8 +18,19 @@ export type {
   ChoiceNode,
   ChoiceOption,
   DialogueNode,
+  LogicComparisonOperator,
+  LogicCondition,
+  LogicElseNode,
+  LogicEndIfNode,
+  LogicEndRepeatNode,
+  LogicIfNode,
+  LogicOperand,
+  LogicRepeatNode,
+  LogicValue,
   SceneJumpNode,
   StartScreenDocument,
+  VariableChangeNode,
+  VariableSetNode,
   VideoNode,
 } from '@vnengine/runtime';
 
@@ -29,6 +40,14 @@ export type StoryExtensionNode = {
 };
 
 export type SemanticSceneNode = RuntimeSceneNode;
+export type HiddenLogicMarkerNode = Extract<
+  RuntimeSceneNode,
+  { type: 'logicElse' | 'logicEndIf' | 'logicEndRepeat' }
+>;
+export type FormVisibleSceneNode = Exclude<
+  RuntimeSceneNode,
+  HiddenLogicMarkerNode
+>;
 export type SceneNode = RuntimeSceneNode | StoryExtensionNode;
 
 export type SceneDocument = Omit<RuntimeSceneDocument, 'nodes'> & {
@@ -55,6 +74,23 @@ export function semanticSceneNodes(
   scene: Pick<SceneDocument, 'nodes'>,
 ): SemanticSceneNode[] {
   return scene.nodes.filter(isSemanticSceneNode);
+}
+
+export function isHiddenLogicMarkerNode(
+  node: SceneNode,
+): node is HiddenLogicMarkerNode {
+  return node.type === 'logicElse' ||
+    node.type === 'logicEndIf' ||
+    node.type === 'logicEndRepeat';
+}
+
+export function formVisibleSceneNodes(
+  scene: Pick<SceneDocument, 'nodes'>,
+): FormVisibleSceneNode[] {
+  return scene.nodes.filter(
+    (node): node is FormVisibleSceneNode =>
+      node.type !== 'storyExtension' && !isHiddenLogicMarkerNode(node),
+  );
 }
 
 export function toRuntimeProjectDocument(

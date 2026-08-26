@@ -34,7 +34,7 @@ const runtimeMocks = vi.hoisted(() => ({
 
 vi.mock('../../src/main/export/RuntimeBundleExporter', () => ({
   exportRuntimeBundle: runtimeMocks.exportRuntimeBundle,
-  PLAYER_COMPATIBILITY: '>=6 <7',
+  PLAYER_COMPATIBILITY: '>=7 <8',
   RUNTIME_MANIFEST_FORMAT: 'vn-engine-runtime-manifest',
 }));
 
@@ -222,7 +222,7 @@ describe('Web Player ZIP exporter', () => {
         templateVersion: WEB_PLAYER_TEMPLATE_VERSION,
         payloadRoot: 'payload',
         entry: 'index.html',
-        runtimeCompatibility: '>=1 <7',
+        runtimeCompatibility: '>=1 <8',
         playerVersion: '1.0.0',
         files,
       })}\n`,
@@ -262,7 +262,7 @@ describe('Web Player ZIP exporter', () => {
         });
         await writeFile(
           path.join(runtimeOptions.targetBundlePath, 'game.json'),
-          '{"runtimeVersion":6}\n',
+          '{"runtimeVersion":7}\n',
         );
         await writeFile(
           path.join(runtimeOptions.targetBundlePath, 'manifest.json'),
@@ -272,8 +272,8 @@ describe('Web Player ZIP exporter', () => {
             buildId: runtimeOptions.buildId,
             projectId: 'project-1',
             sourceRevision: runtimeOptions.sourceRevision,
-            runtimeVersion: 6,
-            playerCompatibility: '>=6 <7',
+            runtimeVersion: 7,
+            playerCompatibility: '>=7 <8',
             createdAt: '2026-08-25T00:00:00.000Z',
             files: [],
           })}\n`,
@@ -341,8 +341,8 @@ describe('Web Player ZIP exporter', () => {
     expect(JSON.parse(webExport)).toEqual({
       format: WEB_EXPORT_FORMAT,
       webExportVersion: 1,
-      runtimeVersion: 6,
-      playerCompatibility: '>=6 <7',
+      runtimeVersion: 7,
+      playerCompatibility: '>=7 <8',
       gameRoot: 'game/build-7',
     });
     expect(readme).toBe(WEB_EXPORT_README);

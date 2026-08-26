@@ -44,7 +44,7 @@ function gameDocument(assetId: string | null = null) {
 
 function manifestDocument(
   files: unknown[] = [],
-  runtimeVersion: 1 | 2 | 3 | 4 | 5 | 6 = 1,
+  runtimeVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 = 1,
 ): Record<string, unknown> {
   return {
     format: 'vn-engine-runtime-manifest',
@@ -63,7 +63,9 @@ function manifestDocument(
             ? '>=4 <5'
             : runtimeVersion === 5
               ? '>=5 <6'
-              : '>=6 <7',
+              : runtimeVersion === 6
+                ? '>=6 <7'
+                : '>=7 <8',
     createdAt: '2026-08-18T00:00:00.000Z',
     files,
   };
@@ -503,6 +505,60 @@ describe('runtime bundle loader', () => {
         JSON.stringify(manifestDocument([cgAsset], 6)),
       ),
     ).toThrow('不能包含重复资源 ID');
+  });
+
+  it('strictly reads runtime v7 variables and paired control markers', () => {
+    const runtimeV7 = {
+      ...gameDocument(),
+      runtimeVersion: 7,
+      game: {
+        ...gameDocument().game,
+        startScreen: {
+          title: 'Logic',
+          backgroundAssetId: null,
+          musicAssetId: null,
+        },
+        cgGallery: {
+          pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+        },
+      },
+      scenes: [{
+        ...gameDocument().scenes[0],
+        nodes: [
+          { id: 'set', type: 'variableSet', variableName: 'score', value: 1 },
+          {
+            id: 'if',
+            type: 'logicIf',
+            condition: {
+              left: { kind: 'variable', name: 'score' },
+              operator: 'gte',
+              right: { kind: 'literal', value: 1 },
+            },
+          },
+          { id: 'repeat', type: 'logicRepeat', count: 2 },
+          { id: 'change', type: 'variableChange', variableName: 'score', amount: 1 },
+          { id: 'end-repeat', type: 'logicEndRepeat', repeatNodeId: 'repeat' },
+          { id: 'else', type: 'logicElse', ifNodeId: 'if' },
+          { id: 'reset', type: 'variableSet', variableName: 'score', value: 0 },
+          { id: 'end-if', type: 'logicEndIf', ifNodeId: 'if' },
+        ],
+      }],
+    };
+
+    expect(parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV7),
+      JSON.stringify(manifestDocument([], 7)),
+    )).toMatchObject({ runtimeVersion: 7 });
+
+    runtimeV7.scenes[0]!.nodes[5] = {
+      id: 'else',
+      type: 'logicElse',
+      ifNodeId: 'wrong-if',
+    };
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV7),
+      JSON.stringify(manifestDocument([], 7)),
+    )).toThrow('没有匹配的条件节点');
   });
 
   it('rejects mismatched or incorrectly typed runtime v2 title assets', () => {

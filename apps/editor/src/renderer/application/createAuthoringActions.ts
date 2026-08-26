@@ -6,13 +6,18 @@ import type {
   AddChoiceAction,
   AddChoiceOptionAction,
   AddDialogueAction,
+  AddLogicIfAction,
+  AddLogicRepeatAction,
   AddSceneJumpAction,
   AddStoryExtensionAction,
+  AddVariableChangeAction,
+  AddVariableSetAction,
   AddVideoAction,
   DeleteBackgroundAction,
   DeleteChoiceOptionAction,
   DeleteDialoguesAction,
   DeleteTimelineNodesAction,
+  DeleteLogicControlAction,
   EngineMutationRunner,
   ReorderBackgroundAction,
   ReorderChoiceOptionAction,
@@ -20,14 +25,19 @@ import type {
   ReorderDialoguesAction,
   ReorderTimelineNodeAction,
   ReorderTimelineNodesAction,
+  ReorderLogicControlAction,
   SetDialogueVoiceAction,
   UpdateBackgroundAction,
   UpdateBgmAction,
   UpdateCharacterAction,
   UpdateChoiceOptionAction,
   UpdateDialogueAction,
+  UpdateLogicIfAction,
+  UpdateLogicRepeatAction,
   UpdateSceneJumpAction,
   UpdateVideoAction,
+  UpdateVariableChangeAction,
+  UpdateVariableSetAction,
 } from './authoringPorts';
 
 export type AuthoringActions = {
@@ -45,6 +55,16 @@ export type AuthoringActions = {
   updateCharacter: UpdateCharacterAction;
   addSceneJump: AddSceneJumpAction;
   addStoryExtension: AddStoryExtensionAction;
+  addVariableSet: AddVariableSetAction;
+  updateVariableSet: UpdateVariableSetAction;
+  addVariableChange: AddVariableChangeAction;
+  updateVariableChange: UpdateVariableChangeAction;
+  addLogicIf: AddLogicIfAction;
+  updateLogicIf: UpdateLogicIfAction;
+  addLogicRepeat: AddLogicRepeatAction;
+  updateLogicRepeat: UpdateLogicRepeatAction;
+  deleteLogicControl: DeleteLogicControlAction;
+  reorderLogicControl: ReorderLogicControlAction;
   updateSceneJump: UpdateSceneJumpAction;
   addBgm: AddBgmAction;
   updateBgm: UpdateBgmAction;
@@ -65,6 +85,7 @@ type CreateAuthoringActionsOptions = {
   run: EngineMutationRunner;
   onSceneJumpUnavailable(): void;
   onStoryExtensionUnavailable(): void;
+  onLogicModuleUnavailable(): void;
 };
 
 // Maps feature-facing boolean actions onto the result-returning engine port.
@@ -75,10 +96,38 @@ export function createAuthoringActions({
   run,
   onSceneJumpUnavailable,
   onStoryExtensionUnavailable,
+  onLogicModuleUnavailable,
 }: CreateAuthoringActionsOptions): AuthoringActions {
   const succeeds = async (
     action: Parameters<EngineMutationRunner>[0],
   ): Promise<boolean> => (await run(action)) !== null;
+  const succeedsWithLogicCommand = (
+    command: unknown,
+    method: string,
+    action: Parameters<EngineMutationRunner>[0],
+  ): Promise<boolean> => {
+    if (typeof command !== 'function') {
+      onLogicModuleUnavailable();
+      return Promise.resolve(false);
+    }
+    return succeeds(async () => {
+      try {
+        return await action();
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        const isStaleModule =
+          message.includes('No handler registered') ||
+          message.includes(`unknown method: ${method}`) ||
+          message.includes('invalid engine invocation') ||
+          message.includes('invalid engine request') ||
+          message.includes('无效的引擎请求');
+        if (isStaleModule) {
+          throw new Error(`[logic-module] ${message}`, { cause: error });
+        }
+        throw error;
+      }
+    });
+  };
 
   return {
     addDialogue: (params) =>
@@ -121,6 +170,36 @@ export function createAuthoringActions({
       }
       return succeeds(() => commands.addStoryExtension(params));
     },
+    addVariableSet: (params) =>
+      succeedsWithLogicCommand(commands.addVariableSet, 'variableSet.add', () =>
+        commands.addVariableSet(params)),
+    updateVariableSet: (params) =>
+      succeedsWithLogicCommand(commands.updateVariableSet, 'variableSet.update', () =>
+        commands.updateVariableSet(params)),
+    addVariableChange: (params) =>
+      succeedsWithLogicCommand(commands.addVariableChange, 'variableChange.add', () =>
+        commands.addVariableChange(params)),
+    updateVariableChange: (params) =>
+      succeedsWithLogicCommand(commands.updateVariableChange, 'variableChange.update', () =>
+        commands.updateVariableChange(params)),
+    addLogicIf: (params) =>
+      succeedsWithLogicCommand(commands.addLogicIf, 'logicIf.add', () =>
+        commands.addLogicIf(params)),
+    updateLogicIf: (params) =>
+      succeedsWithLogicCommand(commands.updateLogicIf, 'logicIf.update', () =>
+        commands.updateLogicIf(params)),
+    addLogicRepeat: (params) =>
+      succeedsWithLogicCommand(commands.addLogicRepeat, 'logicRepeat.add', () =>
+        commands.addLogicRepeat(params)),
+    updateLogicRepeat: (params) =>
+      succeedsWithLogicCommand(commands.updateLogicRepeat, 'logicRepeat.update', () =>
+        commands.updateLogicRepeat(params)),
+    deleteLogicControl: (params) =>
+      succeedsWithLogicCommand(commands.deleteLogicControl, 'logicControl.delete', () =>
+        commands.deleteLogicControl(params)),
+    reorderLogicControl: (params) =>
+      succeedsWithLogicCommand(commands.reorderLogicControl, 'logicControl.reorder', () =>
+        commands.reorderLogicControl(params)),
     updateSceneJump: (params) => {
       if (typeof commands.updateSceneJump !== 'function') {
         onSceneJumpUnavailable();

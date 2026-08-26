@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <functional>
 #include <iostream>
 #include <optional>
@@ -1671,6 +1672,333 @@ void manages_story_extension_nodes_in_the_generic_timeline() {
   CHECK(vnengine::validate_project(invalid).has_value());
 }
 
+vnengine::LogicCondition flag_equals(const vnengine::LogicValue value) {
+  return vnengine::LogicCondition{
+      .left = vnengine::LogicVariableOperand{.name = "flag"},
+      .comparison = vnengine::LogicComparisonOperator::equal,
+      .right = vnengine::LogicLiteralOperand{.value = value},
+  };
+}
+
+void manages_logic_controls_and_variables_atomically() {
+  using AddStatus = vnengine::AddLogicNodeStatus;
+  using ControlResult = vnengine::LogicControlMutationResult;
+
+  SequenceIdGenerator ids;
+  vnengine::Project project = vnengine::create_empty_project(ids);
+  const std::string scene_id = project.entry_scene_id;
+  vnengine::Scene& scene = project.scenes[0];
+
+  const auto condition = vnengine::add_logic_if_node(
+      project, ids, scene_id, flag_equals(true));
+  CHECK(condition.status == AddStatus::added);
+  CHECK(condition.node_id.has_value());
+  CHECK(scene.nodes.size() == 3);
+  const std::string if_id = *condition.node_id;
+  const std::string else_id =
+      std::get<vnengine::LogicElseNode>(scene.nodes[1]).id;
+  CHECK(std::get<vnengine::LogicElseNode>(scene.nodes[1]).if_node_id == if_id);
+  CHECK(std::get<vnengine::LogicEndIfNode>(scene.nodes[2]).if_node_id == if_id);
+
+  const std::string then_dialogue = *vnengine::add_dialogue(
+      project, ids, scene_id, "Alice", "then", std::nullopt, else_id);
+  const auto repeat = vnengine::add_logic_repeat_node(
+      project, ids, scene_id, 3, std::nullopt, else_id);
+  CHECK(repeat.status == AddStatus::added);
+  const std::string repeat_id = *repeat.node_id;
+  const auto repeat_end = std::find_if(
+      scene.nodes.begin(),
+      scene.nodes.end(),
+      [&repeat_id](const vnengine::SceneNode& node) {
+        const auto* marker = std::get_if<vnengine::LogicEndRepeatNode>(&node);
+        return marker != nullptr && marker->repeat_node_id == repeat_id;
+      });
+  CHECK(repeat_end != scene.nodes.end());
+  const std::string repeat_end_id =
+      std::string(vnengine::scene_node_id(*repeat_end));
+  const auto variable = vnengine::add_variable_change_node(
+      project, ids, scene_id, "score", 1.5, std::nullopt, repeat_end_id);
+  CHECK(variable.status == AddStatus::added);
+  CHECK(!vnengine::validate_project(project).has_value());
+
+  const auto trailing_extension = vnengine::add_story_extension_node(
+      project, ids, scene_id);
+  CHECK(trailing_extension.status ==
+        vnengine::AddStoryExtensionNodeStatus::added);
+  const vnengine::Project before_cross_page_reorder = project;
+  CHECK(!vnengine::reorder_scene_node(
+      project, scene_id, *trailing_extension.node_id, else_id));
+  CHECK(project == before_cross_page_reorder);
+  CHECK(vnengine::delete_scene_nodes(
+      project, scene_id, {*trailing_extension.node_id}));
+
+  const vnengine::Project before_invalid = project;
+  CHECK(vnengine::add_story_extension_node(
+            project, ids, scene_id, std::nullopt, else_id).status ==
+        vnengine::AddStoryExtensionNodeStatus::logic_boundary_conflict);
+  CHECK(project == before_invalid);
+  CHECK(!vnengine::delete_scene_nodes(project, scene_id, {if_id}));
+  CHECK(!vnengine::reorder_scene_node(
+      project, scene_id, repeat_end_id, std::nullopt));
+  CHECK(project == before_invalid);
+
+  CHECK(vnengine::update_logic_if_node(
+            project, scene_id, if_id, flag_equals(false)) ==
+        vnengine::UpdateLogicNodeResult::changed);
+  CHECK(vnengine::update_logic_repeat_node(
+            project, scene_id, repeat_id, 1001) ==
+        vnengine::UpdateLogicNodeResult::invalid_logic);
+  CHECK(vnengine::add_variable_set_node(
+            project,
+            ids,
+            scene_id,
+            std::string("bad\0name", 8),
+            true).status == AddStatus::invalid_logic);
+  CHECK(vnengine::add_variable_set_node(
+            project,
+            ids,
+            scene_id,
+            std::string(65, 'x'),
+            true).status == AddStatus::invalid_logic);
+
+  CHECK(vnengine::delete_logic_control(project, scene_id, if_id) ==
+        ControlResult::changed);
+  CHECK(scene.nodes.empty());
+  CHECK(!vnengine::find_scene_node(scene, then_dialogue));
+  CHECK(!vnengine::find_scene_node(scene, repeat_id));
+  CHECK(!vnengine::validate_project(project).has_value());
+
+  const auto first = vnengine::add_logic_repeat_node(
+      project, ids, scene_id, 2);
+  const auto second = vnengine::add_logic_if_node(
+      project, ids, scene_id, flag_equals(0.0));
+  CHECK(first.status == AddStatus::added);
+  CHECK(second.status == AddStatus::added);
+  CHECK(vnengine::reorder_logic_control(
+            project, scene_id, *second.node_id, *first.node_id) ==
+        ControlResult::changed);
+  CHECK(vnengine::scene_node_id(scene.nodes.front()) == *second.node_id);
+  CHECK(!vnengine::validate_project(project).has_value());
+
+  SequenceIdGenerator budget_ids;
+  vnengine::Project budget_project =
+      vnengine::create_empty_project(budget_ids, "变量预算");
+  for (std::size_t index = 0;
+       index < vnengine::kMaximumLogicVariableCount;
+       ++index) {
+    CHECK(vnengine::add_variable_set_node(
+              budget_project,
+              budget_ids,
+              budget_project.entry_scene_id,
+              "variable-" + std::to_string(index),
+              static_cast<double>(index)).status == AddStatus::added);
+  }
+  CHECK(vnengine::add_logic_if_node(
+            budget_project,
+            budget_ids,
+            budget_project.entry_scene_id,
+            vnengine::LogicCondition{
+                .left = vnengine::LogicVariableOperand{.name = "overflow"},
+                .comparison = vnengine::LogicComparisonOperator::equal,
+                .right = vnengine::LogicLiteralOperand{.value = 0.0},
+            }).status == AddStatus::variable_limit);
+  CHECK(!vnengine::validate_project(budget_project).has_value());
+  vnengine::Project invalid_budget = budget_project;
+  invalid_budget.scenes[0].nodes.emplace_back(vnengine::VariableSetNode{
+      .id = "manual-overflow-id",
+      .variable_name = "manual-overflow",
+      .value = true,
+  });
+  CHECK(vnengine::validate_project(invalid_budget).has_value());
+
+  SequenceIdGenerator utf8_ids;
+  vnengine::Project utf8_project =
+      vnengine::create_empty_project(utf8_ids, "UTF-8 边界");
+  std::string multibyte_name;
+  for (int index = 0; index < 21; ++index) {
+    multibyte_name += "界";
+  }
+  CHECK(multibyte_name.size() == 63);
+  CHECK(vnengine::add_variable_set_node(
+            utf8_project,
+            utf8_ids,
+            utf8_project.entry_scene_id,
+            multibyte_name,
+            std::string("有效")).status == AddStatus::added);
+  multibyte_name += "界";
+  CHECK(multibyte_name.size() == 66);
+  CHECK(vnengine::add_variable_set_node(
+            utf8_project,
+            utf8_ids,
+            utf8_project.entry_scene_id,
+            multibyte_name,
+            true).status == AddStatus::invalid_logic);
+  CHECK(vnengine::add_variable_set_node(
+            utf8_project,
+            utf8_ids,
+            utf8_project.entry_scene_id,
+            "text",
+            std::string("bad\0value", 9)).status == AddStatus::invalid_logic);
+}
+
+void reorders_story_pages_with_complete_logic_ranges() {
+  SequenceIdGenerator ids;
+  vnengine::Project project =
+      vnengine::create_empty_project(ids, "逻辑分页重排");
+  const std::string scene_id = project.entry_scene_id;
+  vnengine::Scene& scene = project.scenes[0];
+
+  const std::string head = *vnengine::add_dialogue(
+      project, ids, scene_id, "旁白", "第一页");
+  const auto page_start = vnengine::add_story_extension_node(
+      project, ids, scene_id);
+  CHECK(page_start.status == vnengine::AddStoryExtensionNodeStatus::added);
+  const auto if_result = vnengine::add_logic_if_node(
+      project, ids, scene_id, flag_equals(true));
+  CHECK(if_result.status == vnengine::AddLogicNodeStatus::added);
+  const std::string if_id = *if_result.node_id;
+
+  const auto else_node = std::find_if(
+      scene.nodes.begin(),
+      scene.nodes.end(),
+      [&if_id](const vnengine::SceneNode& node) {
+        const auto* marker = std::get_if<vnengine::LogicElseNode>(&node);
+        return marker != nullptr && marker->if_node_id == if_id;
+      });
+  const auto end_if_node = std::find_if(
+      scene.nodes.begin(),
+      scene.nodes.end(),
+      [&if_id](const vnengine::SceneNode& node) {
+        const auto* marker = std::get_if<vnengine::LogicEndIfNode>(&node);
+        return marker != nullptr && marker->if_node_id == if_id;
+      });
+  CHECK(else_node != scene.nodes.end());
+  CHECK(end_if_node != scene.nodes.end());
+  const std::string else_id = std::string(vnengine::scene_node_id(*else_node));
+  const std::string end_if_id =
+      std::string(vnengine::scene_node_id(*end_if_node));
+
+  const auto repeat_result = vnengine::add_logic_repeat_node(
+      project, ids, scene_id, 3, std::nullopt, else_id);
+  CHECK(repeat_result.status == vnengine::AddLogicNodeStatus::added);
+  const std::string repeat_id = *repeat_result.node_id;
+  const auto end_repeat_node = std::find_if(
+      scene.nodes.begin(),
+      scene.nodes.end(),
+      [&repeat_id](const vnengine::SceneNode& node) {
+        const auto* marker = std::get_if<vnengine::LogicEndRepeatNode>(&node);
+        return marker != nullptr && marker->repeat_node_id == repeat_id;
+      });
+  CHECK(end_repeat_node != scene.nodes.end());
+  const std::string end_repeat_id =
+      std::string(vnengine::scene_node_id(*end_repeat_node));
+  const std::string repeat_body = *vnengine::add_dialogue(
+      project,
+      ids,
+      scene_id,
+      "旁白",
+      "循环内",
+      std::nullopt,
+      end_repeat_id);
+  CHECK(vnengine::add_dialogue(
+            project,
+            ids,
+            scene_id,
+            "旁白",
+            "否则",
+            std::nullopt,
+            end_if_id).has_value());
+
+  const auto next_page = vnengine::add_story_extension_node(
+      project, ids, scene_id);
+  CHECK(next_page.status == vnengine::AddStoryExtensionNodeStatus::added);
+  CHECK(vnengine::add_dialogue(
+            project, ids, scene_id, "旁白", "第三页").has_value());
+  CHECK(!vnengine::validate_project(project).has_value());
+
+  CHECK(vnengine::scene_node_selection_respects_logic_boundaries(
+      scene, {repeat_body}));
+  vnengine::Project leaf_project = project;
+  CHECK(vnengine::reorder_scene_node(
+      leaf_project, scene_id, repeat_body, head));
+  CHECK(vnengine::scene_node_id(
+            leaf_project.scenes[0].nodes.front()) == repeat_body);
+  CHECK(!vnengine::validate_project(leaf_project).has_value());
+
+  const std::vector<std::string> nested_control{
+      repeat_id, repeat_body, end_repeat_id};
+  CHECK(vnengine::scene_node_selection_respects_logic_boundaries(
+      scene, nested_control));
+  vnengine::Project nested_project = project;
+  CHECK(vnengine::reorder_scene_nodes(
+      nested_project, scene_id, nested_control, head));
+  CHECK(std::equal(
+      nested_control.begin(),
+      nested_control.end(),
+      nested_project.scenes[0].nodes.begin(),
+      [](const std::string& expected, const vnengine::SceneNode& node) {
+        return expected == vnengine::scene_node_id(node);
+      }));
+  CHECK(!vnengine::validate_project(nested_project).has_value());
+
+  std::vector<std::string> complete_page;
+  bool inside_page = false;
+  for (const vnengine::SceneNode& node : scene.nodes) {
+    const std::string id(vnengine::scene_node_id(node));
+    if (id == *page_start.node_id) {
+      inside_page = true;
+    } else if (id == *next_page.node_id) {
+      break;
+    }
+    if (inside_page) {
+      complete_page.push_back(id);
+    }
+  }
+  CHECK(complete_page.size() >= 8);
+  CHECK(vnengine::scene_node_selection_respects_logic_boundaries(
+      scene, complete_page));
+  CHECK(vnengine::reorder_scene_nodes(
+      project, scene_id, complete_page, head));
+  CHECK(std::equal(
+      complete_page.begin(),
+      complete_page.end(),
+      scene.nodes.begin(),
+      [](const std::string& expected, const vnengine::SceneNode& node) {
+        return expected == vnengine::scene_node_id(node);
+      }));
+  CHECK(!vnengine::validate_project(project).has_value());
+
+  const auto expect_atomic_rejection =
+      [&](std::vector<std::string> selection,
+          std::optional<std::string> before_node_id) {
+        const vnengine::Project before = project;
+        CHECK(!vnengine::reorder_scene_nodes(
+            project,
+            scene_id,
+            selection,
+            std::move(before_node_id)));
+        CHECK(project == before);
+      };
+
+  std::vector<std::string> missing_root = complete_page;
+  std::erase(missing_root, if_id);
+  CHECK(!vnengine::scene_node_selection_respects_logic_boundaries(
+      scene, missing_root));
+  expect_atomic_rejection(missing_root, head);
+
+  std::vector<std::string> missing_marker = complete_page;
+  std::erase(missing_marker, end_repeat_id);
+  CHECK(!vnengine::scene_node_selection_respects_logic_boundaries(
+      scene, missing_marker));
+  expect_atomic_rejection(missing_marker, head);
+
+  const std::vector<std::string> partial_repeat{repeat_id, repeat_body};
+  CHECK(!vnengine::scene_node_selection_respects_logic_boundaries(
+      scene, partial_repeat));
+  expect_atomic_rejection(partial_repeat, head);
+  expect_atomic_rejection(complete_page, repeat_id);
+}
+
 }  // namespace
 
 int main() {
@@ -1728,6 +2056,10 @@ int main() {
        manages_choice_nodes_and_options_atomically},
       {"manages story extension nodes in the generic timeline",
        manages_story_extension_nodes_in_the_generic_timeline},
+      {"manages logic controls and variables atomically",
+       manages_logic_controls_and_variables_atomically},
+      {"reorders story pages with complete logic ranges",
+       reorders_story_pages_with_complete_logic_ranges},
   };
 
   int failures = 0;

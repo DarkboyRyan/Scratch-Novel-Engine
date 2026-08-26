@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { TitleScreen } from '@vnengine/player-ui';
+import { getLocalizedRuntimeErrorMessage } from '@vnengine/runtime';
 
 import type { AssetDocument } from '../../../shared/projectTypes';
 import type { MediaUrlResolver } from '../../application/mediaPort';
@@ -125,9 +126,11 @@ function StoryGamePreview({
           <div className="game-preview-finished game-preview-error" role="alert">
             <strong>{labels.preview.cannotContinue}</strong>
             <span>
-              {language === 'zh-CN'
-                ? runtime.errorMessage
-                : labels.preview.runtimeErrorFallback}
+              {getLocalizedRuntimeErrorMessage(
+                runtime,
+                language,
+                labels.preview.runtimeErrorFallback,
+              )}
             </span>
           </div>
         ) : null}

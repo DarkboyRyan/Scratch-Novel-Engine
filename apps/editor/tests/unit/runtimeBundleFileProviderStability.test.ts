@@ -40,7 +40,7 @@ type FileHandleMethodInterceptor = (
 function projectDocument(): unknown {
   return {
     format: 'vn-engine-project',
-    fileVersion: 15,
+    fileVersion: 16,
     project: {
       schemaVersion: 1,
       id: 'project-1',

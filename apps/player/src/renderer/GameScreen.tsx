@@ -10,6 +10,7 @@ import {
 } from '@vnengine/player-ui';
 import {
   getChoices,
+  getLocalizedRuntimeErrorMessage,
   type GameRuntime,
   type ProjectDocument,
 } from '@vnengine/runtime';
@@ -152,10 +153,11 @@ export function GameScreen({
     }),
   );
   const choices = getChoices(project, runtime);
-  const runtimeErrorMessage = allLabels.locale === 'zh-CN' &&
-    runtime.errorMessage !== null
-    ? runtime.errorMessage
-    : labels.runtimeErrorFallback;
+  const runtimeErrorMessage = getLocalizedRuntimeErrorMessage(
+    runtime,
+    allLabels.locale,
+    labels.runtimeErrorFallback,
+  );
 
   useEffect(() => {
     rootRef.current?.focus();

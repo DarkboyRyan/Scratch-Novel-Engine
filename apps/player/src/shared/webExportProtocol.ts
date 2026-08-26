@@ -4,7 +4,7 @@ export const WEB_EXPORT_VERSION = 1 as const;
 export type WebExportDescriptor = {
   format: typeof WEB_EXPORT_FORMAT;
   webExportVersion: typeof WEB_EXPORT_VERSION;
-  runtimeVersion: 1 | 2 | 3 | 4 | 5 | 6;
+  runtimeVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7;
   playerCompatibility: string;
   gameRoot: `game/${string}`;
 };
@@ -33,7 +33,7 @@ function isSupportedRuntimeVersion(
   value: unknown,
 ): value is WebExportDescriptor['runtimeVersion'] {
   return value === 1 || value === 2 || value === 3 ||
-    value === 4 || value === 5 || value === 6;
+    value === 4 || value === 5 || value === 6 || value === 7;
 }
 
 function isSafeGameRoot(value: unknown): value is `game/${string}` {

@@ -33,6 +33,16 @@ import type {
   UpdateChoiceOptionAction,
   ReorderChoiceOptionAction,
   SetDialogueVoiceAction,
+  AddVariableSetAction,
+  UpdateVariableSetAction,
+  AddVariableChangeAction,
+  UpdateVariableChangeAction,
+  AddLogicIfAction,
+  UpdateLogicIfAction,
+  AddLogicRepeatAction,
+  UpdateLogicRepeatAction,
+  DeleteLogicControlAction,
+  ReorderLogicControlAction,
 } from '../../application/authoringPorts';
 import {
   VN_AUDIO_ASSET_DRAG_TYPE,
@@ -140,6 +150,26 @@ import { STORY_BLOCK_TYPES } from './storyBlockTypes';
 import { paginateStoryNodes } from './storyBlockPagination';
 import { installInlineZoomControlIcons } from './zoomControlIcons';
 import { useEditorLabels } from '../../i18n/editorLocalization';
+import {
+  applyLogicControlBlockLocalization,
+  LOGIC_IF_BLOCK_TYPE,
+  LOGIC_REPEAT_BLOCK_TYPE,
+  registerLogicControlBlocks,
+} from './blocks/logicControlBlock';
+import {
+  applyVariableBlockLocalization,
+  registerVariableBlocks,
+  VARIABLE_CHANGE_BLOCK_TYPE,
+  VARIABLE_SET_BLOCK_TYPE,
+} from './blocks/variableBlock';
+import {
+  collectLogicFieldDrafts,
+  getLogicControlDeleteResolution,
+  getLogicControlReorderResolution,
+  getLogicFieldUpdate,
+  getNewLogicBlockDrop,
+  type LogicFieldDraft,
+} from './logicBlockEvents';
 
 // Blockly 默认值是 28，连接预览会在积木还离得较远时出现。
 // 12 个工作区单位要求连接口真正靠近后才进入吸附候选。
@@ -185,6 +215,16 @@ type BlocklyWorkspaceProps = {
   onChoiceAdd: AddChoiceAction;
   onChoiceOptionAdd: AddChoiceOptionAction;
   onStoryExtensionAdd: AddStoryExtensionAction;
+  onVariableSetAdd: AddVariableSetAction;
+  onVariableSetUpdate: UpdateVariableSetAction;
+  onVariableChangeAdd: AddVariableChangeAction;
+  onVariableChangeUpdate: UpdateVariableChangeAction;
+  onLogicIfAdd: AddLogicIfAction;
+  onLogicIfUpdate: UpdateLogicIfAction;
+  onLogicRepeatAdd: AddLogicRepeatAction;
+  onLogicRepeatUpdate: UpdateLogicRepeatAction;
+  onLogicControlDelete: DeleteLogicControlAction;
+  onLogicControlReorder: ReorderLogicControlAction;
   onChoiceOptionUpdate: UpdateChoiceOptionAction;
   onChoiceOptionDelete: DeleteChoiceOptionAction;
   onChoiceOptionReorder: ReorderChoiceOptionAction;
@@ -253,6 +293,16 @@ export const BlocklyWorkspace = forwardRef<
     onChoiceAdd,
     onChoiceOptionAdd,
     onStoryExtensionAdd,
+    onVariableSetAdd,
+    onVariableSetUpdate,
+    onVariableChangeAdd,
+    onVariableChangeUpdate,
+    onLogicIfAdd,
+    onLogicIfUpdate,
+    onLogicRepeatAdd,
+    onLogicRepeatUpdate,
+    onLogicControlDelete,
+    onLogicControlReorder,
     onChoiceOptionUpdate,
     onChoiceOptionDelete,
     onChoiceOptionReorder,
@@ -300,6 +350,16 @@ export const BlocklyWorkspace = forwardRef<
   const addChoiceRef = useRef(onChoiceAdd);
   const addChoiceOptionRef = useRef(onChoiceOptionAdd);
   const addStoryExtensionRef = useRef(onStoryExtensionAdd);
+  const addVariableSetRef = useRef(onVariableSetAdd);
+  const updateVariableSetRef = useRef(onVariableSetUpdate);
+  const addVariableChangeRef = useRef(onVariableChangeAdd);
+  const updateVariableChangeRef = useRef(onVariableChangeUpdate);
+  const addLogicIfRef = useRef(onLogicIfAdd);
+  const updateLogicIfRef = useRef(onLogicIfUpdate);
+  const addLogicRepeatRef = useRef(onLogicRepeatAdd);
+  const updateLogicRepeatRef = useRef(onLogicRepeatUpdate);
+  const deleteLogicControlRef = useRef(onLogicControlDelete);
+  const reorderLogicControlRef = useRef(onLogicControlReorder);
   const updateChoiceOptionRef = useRef(onChoiceOptionUpdate);
   const deleteChoiceOptionRef = useRef(onChoiceOptionDelete);
   const reorderChoiceOptionRef = useRef(onChoiceOptionReorder);
@@ -333,6 +393,16 @@ export const BlocklyWorkspace = forwardRef<
   addChoiceRef.current = onChoiceAdd;
   addChoiceOptionRef.current = onChoiceOptionAdd;
   addStoryExtensionRef.current = onStoryExtensionAdd;
+  addVariableSetRef.current = onVariableSetAdd;
+  updateVariableSetRef.current = onVariableSetUpdate;
+  addVariableChangeRef.current = onVariableChangeAdd;
+  updateVariableChangeRef.current = onVariableChangeUpdate;
+  addLogicIfRef.current = onLogicIfAdd;
+  updateLogicIfRef.current = onLogicIfUpdate;
+  addLogicRepeatRef.current = onLogicRepeatAdd;
+  updateLogicRepeatRef.current = onLogicRepeatUpdate;
+  deleteLogicControlRef.current = onLogicControlDelete;
+  reorderLogicControlRef.current = onLogicControlReorder;
   updateChoiceOptionRef.current = onChoiceOptionUpdate;
   deleteChoiceOptionRef.current = onChoiceOptionDelete;
   reorderChoiceOptionRef.current = onChoiceOptionReorder;
@@ -427,11 +497,14 @@ export const BlocklyWorkspace = forwardRef<
       layoutKey: nextLayoutKey,
       scene: nextScene,
     };
+    const logicDrafts = collectLogicFieldDrafts(workspace, nextScene);
     draftDirtyChangeRef.current(
       collectDialogueFieldDrafts(workspace, nextScene).length > 0 ||
         collectChoiceOptionFieldDrafts(workspace, nextScene).length > 0 ||
         collectStoryContinuationSequenceDraft(workspace, nextScene) !==
-          null,
+          null ||
+        logicDrafts.drafts.length > 0 ||
+        logicDrafts.invalidNodeId !== null,
     );
 
     // 保存经过内容边界夹紧后的实际视角值。
@@ -460,6 +533,8 @@ export const BlocklyWorkspace = forwardRef<
     registerBgmBlock(initialLabels);
     registerVideoBlock(initialLabels);
     registerStoryContinuationBlock(initialLabels);
+    registerVariableBlocks(initialLabels);
+    registerLogicControlBlocks(initialLabels);
     registerSceneStartBlock(initialLabels);
     setChoiceOptionSceneOptions(scenesRef.current, initialLabels);
     registerChoiceBlocks(initialLabels);
@@ -529,6 +604,40 @@ export const BlocklyWorkspace = forwardRef<
     let isActive = true;
 
     let activeMutation: Promise<boolean> | null = null;
+
+    const saveLogicDraft = (
+      draft: LogicFieldDraft,
+      currentScene: SceneDocument,
+    ): Promise<boolean> => {
+      const base = {
+        sceneId: currentScene.id,
+        nodeId: draft.nodeId,
+      };
+      if (draft.kind === 'variableSet') {
+        return updateVariableSetRef.current({
+          ...base,
+          variableName: draft.variableName,
+          value: draft.value,
+        });
+      }
+      if (draft.kind === 'variableChange') {
+        return updateVariableChangeRef.current({
+          ...base,
+          variableName: draft.variableName,
+          amount: draft.amount,
+        });
+      }
+      if (draft.kind === 'logicIf') {
+        return updateLogicIfRef.current({
+          ...base,
+          condition: draft.condition,
+        });
+      }
+      return updateLogicRepeatRef.current({
+        ...base,
+        count: draft.count,
+      });
+    };
 
     const saveWorkspaceMutation = (
       action: () => Promise<boolean>,
@@ -787,10 +896,16 @@ export const BlocklyWorkspace = forwardRef<
           workspace,
           currentScene,
         );
+      const logicDrafts = collectLogicFieldDrafts(
+        workspace,
+        currentScene,
+      );
       draftDirtyChangeRef.current(
         drafts.length > 0 ||
           choiceDrafts.length > 0 ||
-          storyContinuationDraft !== null,
+          storyContinuationDraft !== null ||
+          logicDrafts.drafts.length > 0 ||
+          logicDrafts.invalidNodeId !== null,
       );
 
       return saveWorkspaceMutation(async () => {
@@ -822,6 +937,16 @@ export const BlocklyWorkspace = forwardRef<
             ...draft,
           });
 
+          if (!saved) {
+            return false;
+          }
+        }
+
+        if (logicDrafts.invalidNodeId !== null) {
+          return false;
+        }
+        for (const draft of logicDrafts.drafts) {
+          const saved = await saveLogicDraft(draft, currentScene);
           if (!saved) {
             return false;
           }
@@ -904,6 +1029,30 @@ export const BlocklyWorkspace = forwardRef<
         : selectedNodeIds;
 
       if (nodeIds.length === 0) {
+        return;
+      }
+
+      const logicControlDelete = getLogicControlDeleteResolution(
+        currentScene,
+        nodeIds,
+      );
+      if (logicControlDelete?.kind === 'reject-mixed-selection') {
+        // There is no atomic command for deleting an unrelated mixed
+        // selection. Never partially delete the first control and silently
+        // leave the rest behind.
+        void saveWorkspaceMutation(() => Promise.resolve(false));
+        return;
+      }
+      if (logicControlDelete?.kind === 'delete') {
+        // Deleting a C block means deleting its complete paired structure and
+        // nested body. Keeping the body would turn Else content unconditional.
+        selection.selectOnly();
+        void saveWorkspaceMutation(() =>
+          deleteLogicControlRef.current({
+            sceneId: currentScene.id,
+            nodeId: logicControlDelete.nodeId,
+          }),
+        );
         return;
       }
 
@@ -1028,6 +1177,10 @@ export const BlocklyWorkspace = forwardRef<
         event.type ===
         Blockly.Events.BLOCK_FIELD_INTERMEDIATE_CHANGE
       ) {
+        const logicDrafts = collectLogicFieldDrafts(
+          workspace,
+          currentScene,
+        );
         // Blockly 输入框尚未失焦时也要立即更新“未保存”。
         // 这个事件不写 C++，只报告 Renderer 草稿状态。
         draftDirtyChangeRef.current(
@@ -1038,7 +1191,9 @@ export const BlocklyWorkspace = forwardRef<
             collectStoryContinuationSequenceDraft(
               workspace,
               currentScene,
-            ) !== null,
+            ) !== null ||
+            logicDrafts.drafts.length > 0 ||
+            logicDrafts.invalidNodeId !== null,
         );
         return;
       }
@@ -1087,6 +1242,26 @@ export const BlocklyWorkspace = forwardRef<
           // 单块场景移动、或重新吸附成完整链后，记录用户选择的新位置。
           rememberProjectedLayout();
         }
+      }
+
+      const logicControlReorder = getLogicControlReorderResolution(
+        event,
+        workspace,
+        currentScene,
+      );
+      if (logicControlReorder?.kind === 'reorder') {
+        void saveWorkspaceMutation(() =>
+          reorderLogicControlRef.current({
+            sceneId: currentScene.id,
+            nodeId: logicControlReorder.nodeId,
+            beforeNodeId: logicControlReorder.beforeNodeId,
+          }),
+        );
+        return;
+      }
+      if (logicControlReorder?.kind === 'restore-projection') {
+        void saveWorkspaceMutation(() => Promise.resolve(false));
+        return;
       }
 
       const reorderResolution = getTimelineReorderDropResolution(
@@ -1228,6 +1403,54 @@ export const BlocklyWorkspace = forwardRef<
         return;
       }
 
+      const newLogicBlockDrop = getNewLogicBlockDrop(
+        event,
+        workspace,
+        currentScene,
+      );
+      if (newLogicBlockDrop === 'restore-projection') {
+        void saveWorkspaceMutation(() => Promise.resolve(false));
+        return;
+      }
+      if (newLogicBlockDrop) {
+        const { block, beforeNodeId } = newLogicBlockDrop;
+        block.setMovable(false);
+        block.setDeletable(false);
+        block.setEditable(false);
+        block.contextMenu = false;
+        void saveWorkspaceMutation(() => {
+          const placement = {
+            sceneId: currentScene.id,
+            beforeNodeId,
+          };
+          if (newLogicBlockDrop.kind === 'variableSet') {
+            return addVariableSetRef.current({
+              ...placement,
+              variableName: newLogicBlockDrop.variableName,
+              value: newLogicBlockDrop.value,
+            });
+          }
+          if (newLogicBlockDrop.kind === 'variableChange') {
+            return addVariableChangeRef.current({
+              ...placement,
+              variableName: newLogicBlockDrop.variableName,
+              amount: newLogicBlockDrop.amount,
+            });
+          }
+          if (newLogicBlockDrop.kind === 'logicIf') {
+            return addLogicIfRef.current({
+              ...placement,
+              condition: newLogicBlockDrop.condition,
+            });
+          }
+          return addLogicRepeatRef.current({
+            ...placement,
+            count: newLogicBlockDrop.count,
+          });
+        });
+        return;
+      }
+
       const newDialogueDrop = getDroppedNewDialogueBlock(
         event,
         workspace,
@@ -1361,6 +1584,22 @@ export const BlocklyWorkspace = forwardRef<
             return;
           }
         }
+      }
+
+      const logicFieldUpdate = getLogicFieldUpdate(
+        event,
+        workspace,
+        currentScene,
+      );
+      if (logicFieldUpdate === 'restore-projection') {
+        void saveWorkspaceMutation(() => Promise.resolve(false));
+        return;
+      }
+      if (logicFieldUpdate) {
+        void saveWorkspaceMutation(() =>
+          saveLogicDraft(logicFieldUpdate, currentScene),
+        );
+        return;
       }
 
       const characterUpdate = getCharacterFieldUpdate(
@@ -1501,6 +1740,8 @@ export const BlocklyWorkspace = forwardRef<
     registerBgmBlock(labels);
     registerVideoBlock(labels);
     registerStoryContinuationBlock(labels);
+    registerVariableBlocks(labels);
+    registerLogicControlBlocks(labels);
     registerSceneStartBlock(labels);
     setChoiceOptionSceneOptions(scenesRef.current, labels);
     registerChoiceBlocks(labels);
@@ -1529,6 +1770,14 @@ export const BlocklyWorkspace = forwardRef<
             break;
           case STORY_CONTINUATION_BLOCK_TYPE:
             applyStoryContinuationBlockLocalization(block, labels);
+            break;
+          case VARIABLE_SET_BLOCK_TYPE:
+          case VARIABLE_CHANGE_BLOCK_TYPE:
+            applyVariableBlockLocalization(block, labels);
+            break;
+          case LOGIC_IF_BLOCK_TYPE:
+          case LOGIC_REPEAT_BLOCK_TYPE:
+            applyLogicControlBlockLocalization(block, labels);
             break;
           case SCENE_START_BLOCK_TYPE:
             applySceneStartBlockLocalization(block, labels);

@@ -28,6 +28,16 @@ import type {
   UpdateChoiceOptionAction,
   ReorderChoiceOptionAction,
   SetDialogueVoiceAction,
+  AddVariableSetAction,
+  UpdateVariableSetAction,
+  AddVariableChangeAction,
+  UpdateVariableChangeAction,
+  AddLogicIfAction,
+  UpdateLogicIfAction,
+  AddLogicRepeatAction,
+  UpdateLogicRepeatAction,
+  DeleteLogicControlAction,
+  ReorderLogicControlAction,
 } from '../../application/authoringPorts';
 
 import type {
@@ -72,6 +82,16 @@ type BlockEditorProps = {
   onChoiceAdd: AddChoiceAction;
   onChoiceOptionAdd: AddChoiceOptionAction;
   onStoryExtensionAdd: AddStoryExtensionAction;
+  onVariableSetAdd: AddVariableSetAction;
+  onVariableSetUpdate: UpdateVariableSetAction;
+  onVariableChangeAdd: AddVariableChangeAction;
+  onVariableChangeUpdate: UpdateVariableChangeAction;
+  onLogicIfAdd: AddLogicIfAction;
+  onLogicIfUpdate: UpdateLogicIfAction;
+  onLogicRepeatAdd: AddLogicRepeatAction;
+  onLogicRepeatUpdate: UpdateLogicRepeatAction;
+  onLogicControlDelete: DeleteLogicControlAction;
+  onLogicControlReorder: ReorderLogicControlAction;
   onChoiceOptionUpdate: UpdateChoiceOptionAction;
   onChoiceOptionDelete: DeleteChoiceOptionAction;
   onChoiceOptionReorder: ReorderChoiceOptionAction;
@@ -111,6 +131,16 @@ export const BlockEditor = forwardRef<
     onChoiceAdd,
     onChoiceOptionAdd,
     onStoryExtensionAdd,
+    onVariableSetAdd,
+    onVariableSetUpdate,
+    onVariableChangeAdd,
+    onVariableChangeUpdate,
+    onLogicIfAdd,
+    onLogicIfUpdate,
+    onLogicRepeatAdd,
+    onLogicRepeatUpdate,
+    onLogicControlDelete,
+    onLogicControlReorder,
     onChoiceOptionUpdate,
     onChoiceOptionDelete,
     onChoiceOptionReorder,
@@ -220,6 +250,16 @@ export const BlockEditor = forwardRef<
           onChoiceAdd={onChoiceAdd}
           onChoiceOptionAdd={onChoiceOptionAdd}
           onStoryExtensionAdd={onStoryExtensionAdd}
+          onVariableSetAdd={onVariableSetAdd}
+          onVariableSetUpdate={onVariableSetUpdate}
+          onVariableChangeAdd={onVariableChangeAdd}
+          onVariableChangeUpdate={onVariableChangeUpdate}
+          onLogicIfAdd={onLogicIfAdd}
+          onLogicIfUpdate={onLogicIfUpdate}
+          onLogicRepeatAdd={onLogicRepeatAdd}
+          onLogicRepeatUpdate={onLogicRepeatUpdate}
+          onLogicControlDelete={onLogicControlDelete}
+          onLogicControlReorder={onLogicControlReorder}
           onChoiceOptionUpdate={onChoiceOptionUpdate}
           onChoiceOptionDelete={onChoiceOptionDelete}
           onChoiceOptionReorder={onChoiceOptionReorder}

@@ -1,8 +1,18 @@
 import type {
   ChoiceOption,
+  LogicCondition,
+  LogicOperand,
+  LogicValue,
   ProjectDocument,
   SceneDocument,
   SceneNode,
+} from '@vnengine/runtime';
+import {
+  isLogicValue,
+  isLogicVariableName,
+  MAX_REPEAT_COUNT,
+  validateProjectLogicVariableBudget,
+  validateSceneControlFlow,
 } from '@vnengine/runtime';
 
 import type {
@@ -31,7 +41,7 @@ export type ParsedRuntimeBundle = {
   buildId: string;
 };
 
-type SupportedRuntimeVersion = 1 | 2 | 3 | 4 | 5 | 6;
+type SupportedRuntimeVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 type ParsedRuntimeGame = {
   project: ProjectDocument;
@@ -132,6 +142,8 @@ function playerCompatibilityForRuntime(
       return '>=5 <6';
     case 6:
       return '>=6 <7';
+    case 7:
+      return '>=7 <8';
   }
 }
 
@@ -156,6 +168,53 @@ function parseChoiceOption(
   };
   registerId(ids, option.id);
   return option;
+}
+
+function parseLogicValue(input: unknown, context: string): LogicValue {
+  if (!isLogicValue(input)) {
+    throw new Error(`${context} 不是有效的逻辑值`);
+  }
+  return input;
+}
+
+function parseLogicOperand(input: unknown, context: string): LogicOperand {
+  const value = objectValue(input, context);
+  if (value.kind === 'variable') {
+    exactFields(value, ['kind', 'name'], context);
+    if (!isLogicVariableName(value.name)) {
+      throw new Error(`${context}.name 不是有效变量名`);
+    }
+    return { kind: 'variable', name: value.name };
+  }
+  if (value.kind === 'literal') {
+    exactFields(value, ['kind', 'value'], context);
+    return {
+      kind: 'literal',
+      value: parseLogicValue(value.value, `${context}.value`),
+    };
+  }
+  throw new Error(`${context}.kind 无效`);
+}
+
+function parseLogicCondition(input: unknown, context: string): LogicCondition {
+  const value = objectValue(input, context);
+  exactFields(value, ['left', 'operator', 'right'], context);
+  const operator = value.operator;
+  if (
+    operator !== 'eq' &&
+    operator !== 'neq' &&
+    operator !== 'gt' &&
+    operator !== 'gte' &&
+    operator !== 'lt' &&
+    operator !== 'lte'
+  ) {
+    throw new Error(`${context}.operator 无效`);
+  }
+  return {
+    left: parseLogicOperand(value.left, `${context}.left`),
+    operator,
+    right: parseLogicOperand(value.right, `${context}.right`),
+  };
 }
 
 function parseSceneNode(
@@ -258,6 +317,77 @@ function parseSceneNode(
           parseChoiceOption(option, `${context}.options[${index}]`, ids),
         ),
       };
+    case 'variableSet':
+      if (runtimeVersion < 7) {
+        throw new Error(`${context}.type 不受 runtime v${runtimeVersion} 支持`);
+      }
+      exactFields(value, ['id', 'type', 'variableName', 'value'], context);
+      if (!isLogicVariableName(value.variableName)) {
+        throw new Error(`${context}.variableName 不是有效变量名`);
+      }
+      return {
+        id,
+        type,
+        variableName: value.variableName,
+        value: parseLogicValue(value.value, `${context}.value`),
+      };
+    case 'variableChange':
+      if (runtimeVersion < 7) {
+        throw new Error(`${context}.type 不受 runtime v${runtimeVersion} 支持`);
+      }
+      exactFields(value, ['id', 'type', 'variableName', 'amount'], context);
+      if (!isLogicVariableName(value.variableName)) {
+        throw new Error(`${context}.variableName 不是有效变量名`);
+      }
+      if (typeof value.amount !== 'number' || !Number.isFinite(value.amount)) {
+        throw new Error(`${context}.amount 必须是有限数值`);
+      }
+      return { id, type, variableName: value.variableName, amount: value.amount };
+    case 'logicIf':
+      if (runtimeVersion < 7) {
+        throw new Error(`${context}.type 不受 runtime v${runtimeVersion} 支持`);
+      }
+      exactFields(value, ['id', 'type', 'condition'], context);
+      return {
+        id,
+        type,
+        condition: parseLogicCondition(value.condition, `${context}.condition`),
+      };
+    case 'logicElse':
+      if (runtimeVersion < 7) {
+        throw new Error(`${context}.type 不受 runtime v${runtimeVersion} 支持`);
+      }
+      exactFields(value, ['id', 'type', 'ifNodeId'], context);
+      return { id, type, ifNodeId: idValue(value, 'ifNodeId', context) };
+    case 'logicEndIf':
+      if (runtimeVersion < 7) {
+        throw new Error(`${context}.type 不受 runtime v${runtimeVersion} 支持`);
+      }
+      exactFields(value, ['id', 'type', 'ifNodeId'], context);
+      return { id, type, ifNodeId: idValue(value, 'ifNodeId', context) };
+    case 'logicRepeat':
+      if (runtimeVersion < 7) {
+        throw new Error(`${context}.type 不受 runtime v${runtimeVersion} 支持`);
+      }
+      exactFields(value, ['id', 'type', 'count'], context);
+      if (
+        !Number.isSafeInteger(value.count) ||
+        (value.count as number) < 1 ||
+        (value.count as number) > MAX_REPEAT_COUNT
+      ) {
+        throw new Error(`${context}.count 必须是 1 到 ${MAX_REPEAT_COUNT} 的整数`);
+      }
+      return { id, type, count: value.count as number };
+    case 'logicEndRepeat':
+      if (runtimeVersion < 7) {
+        throw new Error(`${context}.type 不受 runtime v${runtimeVersion} 支持`);
+      }
+      exactFields(value, ['id', 'type', 'repeatNodeId'], context);
+      return {
+        id,
+        type,
+        repeatNodeId: idValue(value, 'repeatNodeId', context),
+      };
     default:
       throw new Error(`${context}.type 不受 runtime 支持`);
   }
@@ -279,14 +409,19 @@ function parseScene(
   requireLiteral(value, 'schemaVersion', 1, context);
   const id = idValue(value, 'id', context);
   registerId(ids, id);
+  const nodes = arrayValue(value, 'nodes', context).map((node, nodeIndex) =>
+    parseSceneNode(node, `${context}.nodes[${nodeIndex}]`, ids, runtimeVersion),
+  );
+  const controlError = validateSceneControlFlow(nodes);
+  if (controlError !== null) {
+    throw new Error(`${context}.nodes ${controlError}`);
+  }
   return {
     schemaVersion: 1,
     id,
     name: stringValue(value, 'name', context, { maximum: 4096 }),
     backgroundAssetId: nullableId(value, 'backgroundAssetId', context),
-    nodes: arrayValue(value, 'nodes', context).map((node, nodeIndex) =>
-      parseSceneNode(node, `${context}.nodes[${nodeIndex}]`, ids, runtimeVersion),
-    ),
+    nodes,
   };
 }
 
@@ -300,7 +435,8 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
     root.runtimeVersion !== 3 &&
     root.runtimeVersion !== 4 &&
     root.runtimeVersion !== 5 &&
-    root.runtimeVersion !== 6
+    root.runtimeVersion !== 6 &&
+    root.runtimeVersion !== 7
   ) {
     throw new Error('game.json.runtimeVersion 版本或格式不受支持');
   }
@@ -463,17 +599,22 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
     };
   }
 
+  const project: ProjectDocument = {
+    schemaVersion: 1,
+    id: projectId,
+    name: projectName,
+    entrySceneId: idValue(metadata, 'entrySceneId', 'game.json.game'),
+    startScreen,
+    cgGallery,
+    scenes,
+  };
+  const variableBudgetError = validateProjectLogicVariableBudget(project);
+  if (variableBudgetError !== null) {
+    throw new Error(`game.json.scenes ${variableBudgetError}`);
+  }
   return {
     runtimeVersion,
-    project: {
-      schemaVersion: 1,
-      id: projectId,
-      name: projectName,
-      entrySceneId: idValue(metadata, 'entrySceneId', 'game.json.game'),
-      startScreen,
-      cgGallery,
-      scenes,
-    },
+    project,
   };
 }
 

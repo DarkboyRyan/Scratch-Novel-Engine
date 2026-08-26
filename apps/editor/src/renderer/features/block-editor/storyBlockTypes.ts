@@ -9,6 +9,14 @@ import { SCENE_JUMP_BLOCK_TYPE } from './blocks/sceneJumpBlock';
 import { VIDEO_BLOCK_TYPE } from './blocks/videoBlock';
 import { CHOICE_BLOCK_TYPE } from './blocks/choiceBlock';
 import { STORY_CONTINUATION_BLOCK_TYPE } from './blocks/storyContinuationBlock';
+import {
+  LOGIC_IF_BLOCK_TYPE,
+  LOGIC_REPEAT_BLOCK_TYPE,
+} from './blocks/logicControlBlock';
+import {
+  VARIABLE_CHANGE_BLOCK_TYPE,
+  VARIABLE_SET_BLOCK_TYPE,
+} from './blocks/variableBlock';
 
 // Every generic timeline behavior (selection, layout, delete and reorder)
 // must use this one registry. A new SceneNode block should never be added to
@@ -23,6 +31,10 @@ export const STORY_BLOCK_TYPES = [
   VIDEO_BLOCK_TYPE,
   CHOICE_BLOCK_TYPE,
   STORY_CONTINUATION_BLOCK_TYPE,
+  VARIABLE_SET_BLOCK_TYPE,
+  VARIABLE_CHANGE_BLOCK_TYPE,
+  LOGIC_IF_BLOCK_TYPE,
+  LOGIC_REPEAT_BLOCK_TYPE,
 ] as const;
 
 export function isStoryBlockType(type: string): boolean {

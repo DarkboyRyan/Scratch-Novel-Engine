@@ -244,6 +244,56 @@ const vnEngine: VnEngineApi = {
       method: 'storyExtension.add',
       params,
     }),
+  addVariableSet: (params) =>
+    invokeEngine({
+      method: 'variableSet.add',
+      params,
+    }),
+  updateVariableSet: (params) =>
+    invokeEngine({
+      method: 'variableSet.update',
+      params,
+    }),
+  addVariableChange: (params) =>
+    invokeEngine({
+      method: 'variableChange.add',
+      params,
+    }),
+  updateVariableChange: (params) =>
+    invokeEngine({
+      method: 'variableChange.update',
+      params,
+    }),
+  addLogicIf: (params) =>
+    invokeEngine({
+      method: 'logicIf.add',
+      params,
+    }),
+  updateLogicIf: (params) =>
+    invokeEngine({
+      method: 'logicIf.update',
+      params,
+    }),
+  addLogicRepeat: (params) =>
+    invokeEngine({
+      method: 'logicRepeat.add',
+      params,
+    }),
+  updateLogicRepeat: (params) =>
+    invokeEngine({
+      method: 'logicRepeat.update',
+      params,
+    }),
+  deleteLogicControl: (params) =>
+    invokeEngine({
+      method: 'logicControl.delete',
+      params,
+    }),
+  reorderLogicControl: (params) =>
+    invokeEngine({
+      method: 'logicControl.reorder',
+      params,
+    }),
   deleteTimelineNodes: (params) =>
     invokeEngine({
       method: 'timeline.deleteMany',

@@ -18,7 +18,7 @@
 - [项目文件夹与媒体资源](./project-folder-storage.md)：项目目录格式、安全保存、资源导入、
   capability URL 与媒体读取。
 - [独立游戏 Player 与导出流程](./game-export-player.md)：记录已完成的共享 Runtime 与
-  Player、v15→runtime v6 内容包、runtime v1–v6 兼容读取、macOS `*-macOS.zip`
+  Player、v16→runtime v7 内容包、runtime v1–v7 兼容读取、macOS `*-macOS.zip`
   独立应用导出（ZIP 内含唯一
   已签名 `.app`）、embedded 模式和多平台
   workflow；也列出 `player-release`/`game-release` protected Environments、不可变 tag/
@@ -27,7 +27,7 @@
   ZIP 契约、预构建 Vite 模板、WebGateway、IndexedDB 存档/设置、跨平台 ZIP 事务、
   部署限制、技术栈与浏览器验收矩阵。
 - [Player 保存与读取](./save-load-implementation.md)：3 个手动槽和独立快速槽、
-  `GameRuntimeSnapshot v1`、Main-owned 游戏身份、原子本地存储、标题页读取入口与
+  `GameRuntimeSnapshot v2`（受限兼容无逻辑旧 v1 存档）、Main-owned 游戏身份、原子本地存储、标题页读取入口与
   游戏内底栏，以及完整实现流程和技术栈。
 - [Player 选项系统](./player-options-implementation.md)：`PlayerSettingsV2`、中英界面切换、
   四通道音量、窗口/全屏与三档尺寸、v1 严格迁移、userData 原子设置文件、
@@ -54,6 +54,8 @@
   Blockly 和正式预览。
 - [选项分支](./choice-branch-implementation.md)：ChoiceNode、嵌套 ChoiceOption、Blockly
   容器和 Galgame 选择界面。
+- [逻辑 Blockly](./logic-blockly-implementation.md)：变量 Set/Change、If/Else、固定次数
+  Repeat、隐藏 paired markers、表单只读树、Runtime 执行与 v2 存档。
 
 ### 运行时与媒体
 
@@ -69,7 +71,7 @@
 ## 面试准备推荐顺序
 
 1. [技术栈与面试讲解指南](./technical-stack-interview-guide.md)：先掌握 30 秒介绍、
-   总技术栈、六条调用链和常见问答。
+   总技术栈、七条调用链和常见问答。
 2. [当前架构](./architecture.md)：理解 Renderer、Preload、Main、C++ 和文件系统
    的职责边界。
 3. [代码结构整理与解耦](./code-organization-and-decoupling.md)：理解如何把现有编辑器
@@ -83,14 +85,16 @@
 8. [语音与背景音乐](./audio-implementation.md)：音频导入、Dialogue 语音、BGM 时间线节点与安全播放。
 9. [视频播放积木](./video-playback-block.md)：Blockly 视频节点、阻塞式正式预览和安全 Range 播放。
 10. [选项分支](./choice-branch-implementation.md)：ChoiceNode 数据模型、Blockly 嵌套选项和正式预览分支。
-11. [独立游戏 Player 与导出流程](./game-export-player.md)：最后理解编辑器预览、共享
+11. [逻辑 Blockly](./logic-blockly-implementation.md)：理解扁平权威数据如何投影为嵌套
+    C 形积木，以及变量、循环和存档如何贯穿全栈。
+12. [独立游戏 Player 与导出流程](./game-export-player.md)：最后理解编辑器预览、共享
     Runtime、独立 Player、内容包、Player 模板、平台桌面应用及正式发布门禁之间的
     关系。
-12. [Player 保存与读取](./save-load-implementation.md)：理解为什么只传版本化小快照、
+13. [Player 保存与读取](./save-load-implementation.md)：理解为什么只传版本化小快照、
     如何按游戏身份隔离存档，以及 React、Preload、Main 和原子文件事务的完整调用链。
-13. [Player 选项系统](./player-options-implementation.md)：理解为什么 Renderer 只发送
+14. [Player 选项系统](./player-options-implementation.md)：理解为什么 Renderer 只发送
     exact patch、Main 如何同步原生全屏与 workArea，以及音量调整如何不重置播放位置。
-14. [Editor 中英文切换](./editor-localization-implementation.md)：理解全局偏好如何跨窗口同步，
+15. [Editor 中英文切换](./editor-localization-implementation.md)：理解全局偏好如何跨窗口同步，
     以及 Blockly 如何只替换界面标签而不重建作者工作区。
 
 ## 当前真实技术栈
@@ -98,16 +102,16 @@
 Electron 43、React 19、TypeScript 5.9、Blockly 13、Vite 5、Electron Forge 7、
 C++20、CMake、nlohmann/json、Vitest、Node Test、CTest 和 GitHub Actions。
 
-当前项目 Writer 固定写 `fileVersion: 15`，Reader 支持 v1–v15。v10 新增项目级
+当前项目 Writer 固定写 `fileVersion: 16`，Reader 支持 v1–v16。v10 新增项目级
 `project.startScreen` 背景/音乐配置，v11 新增与项目名彼此独立的主界面显示标题；
 它不是 Scene。v12 新增作者可从 Toolbox 主动插入的“延伸”节点，用于在 Blockly
 中建立向下连接的新分页；白色数字字段会原子调整整页先后。v13 为人物节点新增可空
 百分比坐标；v14 首次以扁平 `project.cgGallery.imageAssetIds` 加入 CG 画廊。v15 改为
 至少一项的 `pages`，每页精确保存九个 `string | null` 槽位，所有非空图片 ID 跨页唯一；
 旧 v14 会按顺序每九张分块并补 `null`，v1–v13 迁移为一张全空页面。表单会隐藏延伸节点，
-Compiler 会在生成 Runtime 前剥离它。可运行的
-`SceneNode` 仍是 Dialogue、Background、Character、SceneJump、Bgm、Video 和 Choice
-七种类型；`ChoiceOption` 是 ChoiceNode 内部的子实体。
+Compiler 会在生成 Runtime 前剥离它。v16 新增变量 Set/Change、If/Else 和固定次数 Repeat，
+控制结构用隐藏 paired markers 严格配对；当前 Runtime v7 执行这些逻辑节点。
+`ChoiceOption` 仍是 ChoiceNode 内部的子实体。
 
 `archive/` 中的历史文档可能出现 PixiJS、Zod、Zustand 或 Playwright 等
 尚未采用的技术。面试时不要把历史计划当作当前实现。

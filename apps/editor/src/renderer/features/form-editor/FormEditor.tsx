@@ -11,6 +11,7 @@ type FormEditorProps = {
   backgroundUrl: string | null;
   backgroundName: string | null;
   showDialogue: boolean;
+  logicPreviewUncertain: boolean;
   characters: PreviewCharacter[];
   isStartPreviewDisabled: boolean;
   onStartPreview: () => void;
@@ -24,6 +25,7 @@ export function FormEditor({
   backgroundUrl,
   backgroundName,
   showDialogue,
+  logicPreviewUncertain,
   characters,
   isStartPreviewDisabled,
   onStartPreview,
@@ -61,6 +63,7 @@ export function FormEditor({
         backgroundUrl={backgroundUrl}
         backgroundName={backgroundName}
         showDialogue={showDialogue}
+        logicPreviewUncertain={logicPreviewUncertain}
         characters={characters}
         isStartDisabled={isStartPreviewDisabled}
         onStartPreview={onStartPreview}

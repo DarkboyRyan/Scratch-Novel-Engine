@@ -454,6 +454,7 @@ enum class AddStoryExtensionNodeStatus {
   scene_not_found,
   placement_conflict,
   anchor_not_found,
+  logic_boundary_conflict,
 };
 
 struct AddStoryExtensionNodeResult {
@@ -470,9 +471,139 @@ AddStoryExtensionNodeResult add_story_extension_node(
     std::optional<std::string> after_node_id = std::nullopt,
     std::optional<std::string> before_node_id = std::nullopt);
 
-// Generic timeline ordering supports every SceneNode variant, including
-// Choice and authoring-only StoryExtension nodes. A null before ID means the
-// end of the Scene.
+inline constexpr std::size_t kMaximumLogicVariableNameBytes = 64;
+inline constexpr std::size_t kMaximumLogicStringBytes = 4096;
+inline constexpr std::size_t kMaximumLogicVariableCount = 32;
+inline constexpr int kMaximumLogicNestingDepth = 16;
+inline constexpr int kMaximumLogicRepeatCount = 1000;
+
+// Logic validation is shared by persistence, authoring commands, and the
+// structural timeline guard. Returning a message keeps the pure Core API
+// useful to non-Electron callers without exposing protocol error codes.
+std::optional<std::string> validate_logic_value(const LogicValue& value);
+std::optional<std::string> validate_logic_operand(const LogicOperand& operand);
+std::optional<std::string> validate_logic_condition(
+    const LogicCondition& condition);
+std::optional<std::string> validate_scene_logic_structure(const Scene& scene);
+
+enum class AddLogicNodeStatus {
+  added,
+  scene_not_found,
+  placement_conflict,
+  anchor_not_found,
+  invalid_logic,
+  variable_limit,
+};
+
+struct AddLogicNodeResult {
+  AddLogicNodeStatus status;
+  std::optional<std::string> node_id;
+};
+
+enum class UpdateLogicNodeResult {
+  changed,
+  unchanged,
+  scene_not_found,
+  node_not_found,
+  invalid_logic,
+  variable_limit,
+};
+
+AddLogicNodeResult add_variable_set_node(
+    Project& project,
+    IdGenerator& ids,
+    std::string_view scene_id,
+    std::string variable_name,
+    LogicValue value,
+    std::optional<std::string> after_node_id = std::nullopt,
+    std::optional<std::string> before_node_id = std::nullopt);
+UpdateLogicNodeResult update_variable_set_node(
+    Project& project,
+    std::string_view scene_id,
+    std::string_view node_id,
+    std::string variable_name,
+    LogicValue value);
+
+AddLogicNodeResult add_variable_change_node(
+    Project& project,
+    IdGenerator& ids,
+    std::string_view scene_id,
+    std::string variable_name,
+    double amount,
+    std::optional<std::string> after_node_id = std::nullopt,
+    std::optional<std::string> before_node_id = std::nullopt);
+UpdateLogicNodeResult update_variable_change_node(
+    Project& project,
+    std::string_view scene_id,
+    std::string_view node_id,
+    std::string variable_name,
+    double amount);
+
+// Adding a control root atomically creates every paired marker. An if always
+// has an else branch, even while both branches are empty.
+AddLogicNodeResult add_logic_if_node(
+    Project& project,
+    IdGenerator& ids,
+    std::string_view scene_id,
+    LogicCondition condition,
+    std::optional<std::string> after_node_id = std::nullopt,
+    std::optional<std::string> before_node_id = std::nullopt);
+UpdateLogicNodeResult update_logic_if_node(
+    Project& project,
+    std::string_view scene_id,
+    std::string_view node_id,
+    LogicCondition condition);
+
+AddLogicNodeResult add_logic_repeat_node(
+    Project& project,
+    IdGenerator& ids,
+    std::string_view scene_id,
+    int count,
+    std::optional<std::string> after_node_id = std::nullopt,
+    std::optional<std::string> before_node_id = std::nullopt);
+UpdateLogicNodeResult update_logic_repeat_node(
+    Project& project,
+    std::string_view scene_id,
+    std::string_view node_id,
+    int count);
+
+enum class LogicControlMutationResult {
+  changed,
+  unchanged,
+  scene_not_found,
+  node_not_found,
+  not_control_root,
+  anchor_not_found,
+  anchor_inside_control,
+};
+
+// Deletion follows Blockly's C-block semantics: the root, paired markers,
+// and every nested body node are removed as one transaction.
+LogicControlMutationResult delete_logic_control(
+    Project& project,
+    std::string_view scene_id,
+    std::string_view node_id);
+LogicControlMutationResult reorder_logic_control(
+    Project& project,
+    std::string_view scene_id,
+    std::string_view node_id,
+    std::optional<std::string> before_node_id);
+
+bool is_logic_control_marker(const SceneNode& node);
+
+// A generic multi-node move may carry controls only when selecting any of that
+// control's own root/branch/end markers also selects its complete range.
+// Semantic body leaves remain independently movable. This is used by
+// StoryExtension page moves, which send the entire page through
+// timeline.reorderMany.
+bool scene_node_selection_respects_logic_boundaries(
+    const Scene& scene,
+    const std::vector<std::string>& node_ids);
+
+// Generic timeline ordering supports semantic leaf nodes and complete,
+// balanced control ranges. Individual or partial control selections must use
+// the atomic logic-control commands so they can never become orphaned.
+// A null before ID means the end of the Scene.
 bool reorder_scene_node(
     Project& project,
     std::string_view scene_id,

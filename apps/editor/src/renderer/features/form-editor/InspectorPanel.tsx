@@ -460,6 +460,31 @@ export function InspectorPanel({
     );
   }
 
+  if (
+    selectedNode?.type === 'variableSet' ||
+    selectedNode?.type === 'variableChange' ||
+    selectedNode?.type === 'logicIf' ||
+    selectedNode?.type === 'logicRepeat'
+  ) {
+    const title = selectedNode.type === 'variableSet'
+      ? labels.blockly.setVariable
+      : selectedNode.type === 'variableChange'
+        ? labels.blockly.changeVariable
+        : selectedNode.type === 'logicIf'
+          ? labels.blockly.logicIf
+          : labels.blockly.logicRepeat;
+    return (
+      <aside className="panel inspector-panel logic-inspector">
+        <div className="panel-heading timeline-panel-heading">
+          <h2>{title}</h2>
+        </div>
+        <p className="logic-inspector-help">
+          {labels.inspector.logicTreeHelp}
+        </p>
+      </aside>
+    );
+  }
+
   const dialogueNode =
     selectedNode?.type === 'dialogue' ? selectedNode : undefined;
 

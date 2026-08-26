@@ -102,7 +102,7 @@ const project = {
 
 const sourceManifestContents = JSON.stringify({
   format: 'vn-engine-project',
-  fileVersion: 15,
+  fileVersion: 16,
   project,
   assets: [],
 });
@@ -139,7 +139,7 @@ describe.runIf(process.platform === 'darwin')(
           platform: process.platform,
           arch: process.arch,
           playerVersion: '0.1.0',
-          runtimeCompatibility: '>=1 <7',
+          runtimeCompatibility: '>=1 <8',
           payloadRoot: 'payload',
           artifactEntry: 'VN Engine Player.app',
           gameResourceDirectory: 'Contents/Resources/game',

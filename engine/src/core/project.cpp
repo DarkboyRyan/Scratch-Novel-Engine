@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstddef>
 #include <iomanip>
+#include <initializer_list>
 #include <iterator>
 #include <sstream>
 #include <type_traits>
@@ -56,6 +57,197 @@ bool project_contains_entity_id(
     }
   }
   return false;
+}
+
+bool is_valid_logic_variable_name(const std::string_view name) {
+  return !name.empty() && name.size() <= kMaximumLogicVariableNameBytes &&
+      name.find('\0') == std::string_view::npos &&
+      trim_ascii_whitespace(std::string(name)) == name;
+}
+
+void collect_logic_operand_variable(
+    const LogicOperand& operand,
+    std::unordered_set<std::string>& names) {
+  if (const auto* variable = std::get_if<LogicVariableOperand>(&operand);
+      variable != nullptr) {
+    names.insert(variable->name);
+  }
+}
+
+bool logic_variable_budget_allows(
+    const Project& project,
+    const std::optional<std::string_view> excluded_node_id,
+    const std::initializer_list<std::string_view> added_names) {
+  std::unordered_set<std::string> names;
+  for (const Scene& scene : project.scenes) {
+    for (const SceneNode& node : scene.nodes) {
+      if (excluded_node_id.has_value() &&
+          scene_node_id(node) == *excluded_node_id) {
+        continue;
+      }
+      if (const auto* variable_set = std::get_if<VariableSetNode>(&node);
+          variable_set != nullptr) {
+        names.insert(variable_set->variable_name);
+      } else if (const auto* variable_change =
+                     std::get_if<VariableChangeNode>(&node);
+                 variable_change != nullptr) {
+        names.insert(variable_change->variable_name);
+      } else if (const auto* condition = std::get_if<LogicIfNode>(&node);
+                 condition != nullptr) {
+        collect_logic_operand_variable(condition->condition.left, names);
+        collect_logic_operand_variable(condition->condition.right, names);
+      }
+    }
+  }
+  for (const std::string_view name : added_names) {
+    if (!name.empty()) {
+      names.emplace(name);
+    }
+  }
+  return names.size() <= kMaximumLogicVariableCount;
+}
+
+bool logic_variable_budget_allows_condition(
+    const Project& project,
+    const std::optional<std::string_view> excluded_node_id,
+    const LogicCondition& condition) {
+  std::vector<std::string_view> names;
+  for (const LogicOperand* operand : {&condition.left, &condition.right}) {
+    if (const auto* variable = std::get_if<LogicVariableOperand>(operand);
+        variable != nullptr) {
+      names.push_back(variable->name);
+    }
+  }
+  if (names.empty()) {
+    return logic_variable_budget_allows(project, excluded_node_id, {});
+  }
+  if (names.size() == 1) {
+    return logic_variable_budget_allows(
+        project, excluded_node_id, {names[0]});
+  }
+  return logic_variable_budget_allows(
+      project, excluded_node_id, {names[0], names[1]});
+}
+
+AddLogicNodeStatus resolve_logic_insertion_index(
+    const Scene& scene,
+    const std::optional<std::string>& after_node_id,
+    const std::optional<std::string>& before_node_id,
+    std::size_t& insertion_index) {
+  if (after_node_id.has_value() && before_node_id.has_value()) {
+    return AddLogicNodeStatus::placement_conflict;
+  }
+  insertion_index = scene.nodes.size();
+  if (before_node_id.has_value()) {
+    const auto anchor = std::find_if(
+        scene.nodes.begin(),
+        scene.nodes.end(),
+        [&before_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *before_node_id;
+        });
+    if (anchor == scene.nodes.end()) {
+      return AddLogicNodeStatus::anchor_not_found;
+    }
+    insertion_index = static_cast<std::size_t>(
+        std::distance(scene.nodes.begin(), anchor));
+  } else if (after_node_id.has_value()) {
+    const auto anchor = std::find_if(
+        scene.nodes.begin(),
+        scene.nodes.end(),
+        [&after_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *after_node_id;
+        });
+    if (anchor == scene.nodes.end()) {
+      return AddLogicNodeStatus::anchor_not_found;
+    }
+    insertion_index = static_cast<std::size_t>(
+        std::distance(scene.nodes.begin(), std::next(anchor)));
+  }
+  return AddLogicNodeStatus::added;
+}
+
+AddLogicNodeResult insert_logic_nodes(
+    Scene& scene,
+    std::vector<SceneNode> nodes,
+    const std::string& root_id,
+    const std::optional<std::string>& after_node_id,
+    const std::optional<std::string>& before_node_id) {
+  std::size_t insertion_index = 0;
+  const AddLogicNodeStatus placement = resolve_logic_insertion_index(
+      scene,
+      after_node_id,
+      before_node_id,
+      insertion_index);
+  if (placement != AddLogicNodeStatus::added) {
+    return {placement, std::nullopt};
+  }
+
+  Scene candidate = scene;
+  candidate.nodes.insert(
+      candidate.nodes.begin() + static_cast<std::ptrdiff_t>(insertion_index),
+      std::make_move_iterator(nodes.begin()),
+      std::make_move_iterator(nodes.end()));
+  if (validate_scene_logic_structure(candidate).has_value()) {
+    return {AddLogicNodeStatus::invalid_logic, std::nullopt};
+  }
+  scene.nodes.swap(candidate.nodes);
+  return {AddLogicNodeStatus::added, root_id};
+}
+
+struct LogicControlRange {
+  std::size_t begin;
+  std::size_t end;
+};
+
+std::optional<LogicControlRange> find_logic_control_range(
+    const Scene& scene,
+    const std::string_view root_id) {
+  const auto root = std::find_if(
+      scene.nodes.begin(),
+      scene.nodes.end(),
+      [root_id](const SceneNode& node) {
+        return scene_node_id(node) == root_id;
+      });
+  if (root == scene.nodes.end()) {
+    return std::nullopt;
+  }
+  const std::size_t begin = static_cast<std::size_t>(
+      std::distance(scene.nodes.begin(), root));
+  if (std::holds_alternative<LogicIfNode>(*root)) {
+    const auto end = std::find_if(
+        std::next(root),
+        scene.nodes.end(),
+        [root_id](const SceneNode& node) {
+          const auto* marker = std::get_if<LogicEndIfNode>(&node);
+          return marker != nullptr && marker->if_node_id == root_id;
+        });
+    if (end == scene.nodes.end()) {
+      return std::nullopt;
+    }
+    return LogicControlRange{
+        .begin = begin,
+        .end = static_cast<std::size_t>(
+            std::distance(scene.nodes.begin(), end)) + 1,
+    };
+  }
+  if (std::holds_alternative<LogicRepeatNode>(*root)) {
+    const auto end = std::find_if(
+        std::next(root),
+        scene.nodes.end(),
+        [root_id](const SceneNode& node) {
+          const auto* marker = std::get_if<LogicEndRepeatNode>(&node);
+          return marker != nullptr && marker->repeat_node_id == root_id;
+        });
+    if (end == scene.nodes.end()) {
+      return std::nullopt;
+    }
+    return LogicControlRange{
+        .begin = begin,
+        .end = static_cast<std::size_t>(
+            std::distance(scene.nodes.begin(), end)) + 1,
+    };
+  }
+  return std::nullopt;
 }
 
 }  // namespace
@@ -1080,11 +1272,497 @@ AddStoryExtensionNodeResult add_story_extension_node(
 
   StoryExtensionNode extension{.id = ids.next()};
   std::string created_id = extension.id;
-  scene->nodes.insert(insertion_iterator, std::move(extension));
+  const std::size_t insertion_index = static_cast<std::size_t>(
+      std::distance(scene->nodes.begin(), insertion_iterator));
+  Scene candidate = *scene;
+  candidate.nodes.insert(
+      candidate.nodes.begin() + static_cast<std::ptrdiff_t>(insertion_index),
+      std::move(extension));
+  if (validate_scene_logic_structure(candidate).has_value()) {
+    return {
+        AddStoryExtensionNodeStatus::logic_boundary_conflict,
+        std::nullopt,
+    };
+  }
+  scene->nodes.swap(candidate.nodes);
   return {
       AddStoryExtensionNodeStatus::added,
       std::move(created_id),
   };
+}
+
+AddLogicNodeResult add_variable_set_node(
+    Project& project,
+    IdGenerator& ids,
+    const std::string_view scene_id,
+    std::string variable_name,
+    LogicValue value,
+    std::optional<std::string> after_node_id,
+    std::optional<std::string> before_node_id) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return {AddLogicNodeStatus::scene_not_found, std::nullopt};
+  }
+  if (!is_valid_logic_variable_name(variable_name) ||
+      validate_logic_value(value).has_value()) {
+    return {AddLogicNodeStatus::invalid_logic, std::nullopt};
+  }
+  if (!logic_variable_budget_allows(
+          project, std::nullopt, {variable_name})) {
+    return {AddLogicNodeStatus::variable_limit, std::nullopt};
+  }
+  VariableSetNode node{
+      .id = ids.next(),
+      .variable_name = std::move(variable_name),
+      .value = std::move(value),
+  };
+  const std::string root_id = node.id;
+  return insert_logic_nodes(
+      *scene,
+      {SceneNode{std::move(node)}},
+      root_id,
+      after_node_id,
+      before_node_id);
+}
+
+UpdateLogicNodeResult update_variable_set_node(
+    Project& project,
+    const std::string_view scene_id,
+    const std::string_view node_id,
+    std::string variable_name,
+    LogicValue value) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return UpdateLogicNodeResult::scene_not_found;
+  }
+  SceneNode* candidate_node = find_scene_node(*scene, node_id);
+  auto* node = candidate_node == nullptr
+      ? nullptr
+      : std::get_if<VariableSetNode>(candidate_node);
+  if (node == nullptr) {
+    return UpdateLogicNodeResult::node_not_found;
+  }
+  if (!is_valid_logic_variable_name(variable_name) ||
+      validate_logic_value(value).has_value()) {
+    return UpdateLogicNodeResult::invalid_logic;
+  }
+  if (!logic_variable_budget_allows(project, node_id, {variable_name})) {
+    return UpdateLogicNodeResult::variable_limit;
+  }
+  if (node->variable_name == variable_name && node->value == value) {
+    return UpdateLogicNodeResult::unchanged;
+  }
+  node->variable_name = std::move(variable_name);
+  node->value = std::move(value);
+  return UpdateLogicNodeResult::changed;
+}
+
+AddLogicNodeResult add_variable_change_node(
+    Project& project,
+    IdGenerator& ids,
+    const std::string_view scene_id,
+    std::string variable_name,
+    const double amount,
+    std::optional<std::string> after_node_id,
+    std::optional<std::string> before_node_id) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return {AddLogicNodeStatus::scene_not_found, std::nullopt};
+  }
+  if (!is_valid_logic_variable_name(variable_name) || !std::isfinite(amount)) {
+    return {AddLogicNodeStatus::invalid_logic, std::nullopt};
+  }
+  if (!logic_variable_budget_allows(
+          project, std::nullopt, {variable_name})) {
+    return {AddLogicNodeStatus::variable_limit, std::nullopt};
+  }
+  VariableChangeNode node{
+      .id = ids.next(),
+      .variable_name = std::move(variable_name),
+      .amount = amount,
+  };
+  const std::string root_id = node.id;
+  return insert_logic_nodes(
+      *scene,
+      {SceneNode{std::move(node)}},
+      root_id,
+      after_node_id,
+      before_node_id);
+}
+
+UpdateLogicNodeResult update_variable_change_node(
+    Project& project,
+    const std::string_view scene_id,
+    const std::string_view node_id,
+    std::string variable_name,
+    const double amount) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return UpdateLogicNodeResult::scene_not_found;
+  }
+  SceneNode* candidate_node = find_scene_node(*scene, node_id);
+  auto* node = candidate_node == nullptr
+      ? nullptr
+      : std::get_if<VariableChangeNode>(candidate_node);
+  if (node == nullptr) {
+    return UpdateLogicNodeResult::node_not_found;
+  }
+  if (!is_valid_logic_variable_name(variable_name) || !std::isfinite(amount)) {
+    return UpdateLogicNodeResult::invalid_logic;
+  }
+  if (!logic_variable_budget_allows(project, node_id, {variable_name})) {
+    return UpdateLogicNodeResult::variable_limit;
+  }
+  if (node->variable_name == variable_name && node->amount == amount) {
+    return UpdateLogicNodeResult::unchanged;
+  }
+  node->variable_name = std::move(variable_name);
+  node->amount = amount;
+  return UpdateLogicNodeResult::changed;
+}
+
+AddLogicNodeResult add_logic_if_node(
+    Project& project,
+    IdGenerator& ids,
+    const std::string_view scene_id,
+    LogicCondition condition,
+    std::optional<std::string> after_node_id,
+    std::optional<std::string> before_node_id) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return {AddLogicNodeStatus::scene_not_found, std::nullopt};
+  }
+  if (validate_logic_condition(condition).has_value()) {
+    return {AddLogicNodeStatus::invalid_logic, std::nullopt};
+  }
+  if (!logic_variable_budget_allows_condition(
+          project, std::nullopt, condition)) {
+    return {AddLogicNodeStatus::variable_limit, std::nullopt};
+  }
+  const std::string root_id = ids.next();
+  std::vector<SceneNode> nodes;
+  nodes.reserve(3);
+  nodes.emplace_back(LogicIfNode{
+      .id = root_id,
+      .condition = std::move(condition),
+  });
+  nodes.emplace_back(LogicElseNode{
+      .id = ids.next(),
+      .if_node_id = root_id,
+  });
+  nodes.emplace_back(LogicEndIfNode{
+      .id = ids.next(),
+      .if_node_id = root_id,
+  });
+  return insert_logic_nodes(
+      *scene,
+      std::move(nodes),
+      root_id,
+      after_node_id,
+      before_node_id);
+}
+
+UpdateLogicNodeResult update_logic_if_node(
+    Project& project,
+    const std::string_view scene_id,
+    const std::string_view node_id,
+    LogicCondition condition) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return UpdateLogicNodeResult::scene_not_found;
+  }
+  SceneNode* candidate_node = find_scene_node(*scene, node_id);
+  auto* node = candidate_node == nullptr
+      ? nullptr
+      : std::get_if<LogicIfNode>(candidate_node);
+  if (node == nullptr) {
+    return UpdateLogicNodeResult::node_not_found;
+  }
+  if (validate_logic_condition(condition).has_value()) {
+    return UpdateLogicNodeResult::invalid_logic;
+  }
+  if (!logic_variable_budget_allows_condition(project, node_id, condition)) {
+    return UpdateLogicNodeResult::variable_limit;
+  }
+  if (node->condition == condition) {
+    return UpdateLogicNodeResult::unchanged;
+  }
+  node->condition = std::move(condition);
+  return UpdateLogicNodeResult::changed;
+}
+
+AddLogicNodeResult add_logic_repeat_node(
+    Project& project,
+    IdGenerator& ids,
+    const std::string_view scene_id,
+    const int count,
+    std::optional<std::string> after_node_id,
+    std::optional<std::string> before_node_id) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return {AddLogicNodeStatus::scene_not_found, std::nullopt};
+  }
+  if (count < 1 || count > kMaximumLogicRepeatCount) {
+    return {AddLogicNodeStatus::invalid_logic, std::nullopt};
+  }
+  const std::string root_id = ids.next();
+  std::vector<SceneNode> nodes;
+  nodes.reserve(2);
+  nodes.emplace_back(LogicRepeatNode{.id = root_id, .count = count});
+  nodes.emplace_back(LogicEndRepeatNode{
+      .id = ids.next(),
+      .repeat_node_id = root_id,
+  });
+  return insert_logic_nodes(
+      *scene,
+      std::move(nodes),
+      root_id,
+      after_node_id,
+      before_node_id);
+}
+
+UpdateLogicNodeResult update_logic_repeat_node(
+    Project& project,
+    const std::string_view scene_id,
+    const std::string_view node_id,
+    const int count) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return UpdateLogicNodeResult::scene_not_found;
+  }
+  SceneNode* candidate_node = find_scene_node(*scene, node_id);
+  auto* node = candidate_node == nullptr
+      ? nullptr
+      : std::get_if<LogicRepeatNode>(candidate_node);
+  if (node == nullptr) {
+    return UpdateLogicNodeResult::node_not_found;
+  }
+  if (count < 1 || count > kMaximumLogicRepeatCount) {
+    return UpdateLogicNodeResult::invalid_logic;
+  }
+  if (node->count == count) {
+    return UpdateLogicNodeResult::unchanged;
+  }
+  node->count = count;
+  return UpdateLogicNodeResult::changed;
+}
+
+bool is_logic_control_marker(const SceneNode& node) {
+  return std::holds_alternative<LogicIfNode>(node) ||
+      std::holds_alternative<LogicElseNode>(node) ||
+      std::holds_alternative<LogicEndIfNode>(node) ||
+      std::holds_alternative<LogicRepeatNode>(node) ||
+      std::holds_alternative<LogicEndRepeatNode>(node);
+}
+
+bool scene_node_selection_respects_logic_boundaries(
+    const Scene& scene,
+    const std::vector<std::string>& node_ids) {
+  if (node_ids.empty() ||
+      validate_scene_logic_structure(scene).has_value()) {
+    return false;
+  }
+
+  std::unordered_set<std::string> selected_ids;
+  for (const std::string& node_id : node_ids) {
+    if (!selected_ids.insert(node_id).second) {
+      return false;
+    }
+  }
+
+  std::vector<bool> selected_by_index(scene.nodes.size(), false);
+  std::vector<std::size_t> selected_prefix(scene.nodes.size() + 1, 0);
+  std::size_t found = 0;
+  for (std::size_t index = 0; index < scene.nodes.size(); ++index) {
+    const bool selected = selected_ids.contains(
+        std::string(scene_node_id(scene.nodes[index])));
+    selected_by_index[index] = selected;
+    found += selected ? 1U : 0U;
+    selected_prefix[index + 1] = selected_prefix[index] +
+        (selected ? 1U : 0U);
+  }
+  if (found != selected_ids.size()) {
+    return false;
+  }
+
+  enum class ControlKind { if_control, repeat };
+  struct OpenControl {
+    ControlKind kind;
+    std::string_view id;
+    std::size_t begin;
+    bool own_marker_selected;
+  };
+  std::vector<OpenControl> stack;
+  stack.reserve(kMaximumLogicNestingDepth);
+
+  const auto closes_complete_range =
+      [&selected_prefix](
+          const OpenControl& control,
+          const std::size_t end,
+          const bool end_marker_selected) {
+        if (!control.own_marker_selected && !end_marker_selected) {
+          return true;
+        }
+        const std::size_t selected_count =
+            selected_prefix[end] - selected_prefix[control.begin];
+        return selected_count == end - control.begin;
+      };
+
+  for (std::size_t index = 0; index < scene.nodes.size(); ++index) {
+    const SceneNode& node = scene.nodes[index];
+    if (const auto* control = std::get_if<LogicIfNode>(&node)) {
+      stack.push_back(OpenControl{
+          .kind = ControlKind::if_control,
+          .id = control->id,
+          .begin = index,
+          .own_marker_selected = selected_by_index[index],
+      });
+      continue;
+    }
+    if (const auto* control = std::get_if<LogicRepeatNode>(&node)) {
+      stack.push_back(OpenControl{
+          .kind = ControlKind::repeat,
+          .id = control->id,
+          .begin = index,
+          .own_marker_selected = selected_by_index[index],
+      });
+      continue;
+    }
+    if (const auto* marker = std::get_if<LogicElseNode>(&node)) {
+      if (stack.empty() ||
+          stack.back().kind != ControlKind::if_control ||
+          stack.back().id != marker->if_node_id) {
+        return false;
+      }
+      stack.back().own_marker_selected =
+          stack.back().own_marker_selected || selected_by_index[index];
+      continue;
+    }
+    if (const auto* marker = std::get_if<LogicEndIfNode>(&node)) {
+      if (stack.empty() ||
+          stack.back().kind != ControlKind::if_control ||
+          stack.back().id != marker->if_node_id ||
+          !closes_complete_range(
+              stack.back(), index + 1, selected_by_index[index])) {
+        return false;
+      }
+      stack.pop_back();
+      continue;
+    }
+    if (const auto* marker = std::get_if<LogicEndRepeatNode>(&node)) {
+      if (stack.empty() ||
+          stack.back().kind != ControlKind::repeat ||
+          stack.back().id != marker->repeat_node_id ||
+          !closes_complete_range(
+              stack.back(), index + 1, selected_by_index[index])) {
+        return false;
+      }
+      stack.pop_back();
+    }
+  }
+  return stack.empty();
+}
+
+LogicControlMutationResult delete_logic_control(
+    Project& project,
+    const std::string_view scene_id,
+    const std::string_view node_id) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return LogicControlMutationResult::scene_not_found;
+  }
+  if (find_scene_node(*scene, node_id) == nullptr) {
+    return LogicControlMutationResult::node_not_found;
+  }
+  const auto range = find_logic_control_range(*scene, node_id);
+  if (!range.has_value()) {
+    return LogicControlMutationResult::not_control_root;
+  }
+  scene->nodes.erase(
+      scene->nodes.begin() + static_cast<std::ptrdiff_t>(range->begin),
+      scene->nodes.begin() + static_cast<std::ptrdiff_t>(range->end));
+  return LogicControlMutationResult::changed;
+}
+
+LogicControlMutationResult reorder_logic_control(
+    Project& project,
+    const std::string_view scene_id,
+    const std::string_view node_id,
+    std::optional<std::string> before_node_id) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return LogicControlMutationResult::scene_not_found;
+  }
+  if (find_scene_node(*scene, node_id) == nullptr) {
+    return LogicControlMutationResult::node_not_found;
+  }
+  const auto range = find_logic_control_range(*scene, node_id);
+  if (!range.has_value()) {
+    return LogicControlMutationResult::not_control_root;
+  }
+  if (before_node_id.has_value()) {
+    const auto anchor = std::find_if(
+        scene->nodes.begin(),
+        scene->nodes.end(),
+        [&before_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *before_node_id;
+        });
+    if (anchor == scene->nodes.end()) {
+      return LogicControlMutationResult::anchor_not_found;
+    }
+    const std::size_t anchor_index = static_cast<std::size_t>(
+        std::distance(scene->nodes.begin(), anchor));
+    if (anchor_index >= range->begin && anchor_index < range->end) {
+      return LogicControlMutationResult::anchor_inside_control;
+    }
+  }
+
+  std::vector<SceneNode> moving(
+      scene->nodes.begin() + static_cast<std::ptrdiff_t>(range->begin),
+      scene->nodes.begin() + static_cast<std::ptrdiff_t>(range->end));
+  std::vector<SceneNode> remaining;
+  remaining.reserve(scene->nodes.size() - moving.size());
+  remaining.insert(
+      remaining.end(),
+      scene->nodes.begin(),
+      scene->nodes.begin() + static_cast<std::ptrdiff_t>(range->begin));
+  remaining.insert(
+      remaining.end(),
+      scene->nodes.begin() + static_cast<std::ptrdiff_t>(range->end),
+      scene->nodes.end());
+
+  auto insertion = remaining.end();
+  if (before_node_id.has_value()) {
+    insertion = std::find_if(
+        remaining.begin(),
+        remaining.end(),
+        [&before_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *before_node_id;
+        });
+  }
+  std::vector<SceneNode> reordered;
+  reordered.reserve(scene->nodes.size());
+  reordered.insert(reordered.end(), remaining.begin(), insertion);
+  reordered.insert(reordered.end(), moving.begin(), moving.end());
+  reordered.insert(reordered.end(), insertion, remaining.end());
+
+  const bool changed = !std::equal(
+      scene->nodes.begin(),
+      scene->nodes.end(),
+      reordered.begin(),
+      [](const SceneNode& current, const SceneNode& next) {
+        return scene_node_id(current) == scene_node_id(next);
+      });
+  if (!changed) {
+    return LogicControlMutationResult::unchanged;
+  }
+  Scene candidate = *scene;
+  candidate.nodes = reordered;
+  if (validate_scene_logic_structure(candidate).has_value()) {
+    return LogicControlMutationResult::anchor_inside_control;
+  }
+  scene->nodes.swap(reordered);
+  return LogicControlMutationResult::changed;
 }
 
 bool reorder_scene_node(
@@ -1110,15 +1788,21 @@ bool delete_scene_nodes(
 
   std::unordered_set<std::string> requested_ids;
   for (const std::string& node_id : node_ids) {
-    if (!requested_ids.insert(node_id).second ||
-        find_scene_node(*scene, node_id) == nullptr) {
+    const SceneNode* node = find_scene_node(*scene, node_id);
+    if (!requested_ids.insert(node_id).second || node == nullptr ||
+        is_logic_control_marker(*node)) {
       return false;
     }
   }
 
-  std::erase_if(scene->nodes, [&requested_ids](const SceneNode& node) {
+  Scene candidate = *scene;
+  std::erase_if(candidate.nodes, [&requested_ids](const SceneNode& node) {
     return requested_ids.contains(std::string(scene_node_id(node)));
   });
+  if (validate_scene_logic_structure(candidate).has_value()) {
+    return false;
+  }
+  scene->nodes.swap(candidate.nodes);
   return true;
 }
 
@@ -1134,10 +1818,14 @@ bool reorder_scene_nodes(
 
   std::unordered_set<std::string> selected_ids;
   for (const std::string& node_id : node_ids) {
-    if (!selected_ids.insert(node_id).second ||
-        find_scene_node(*scene, node_id) == nullptr) {
+    const SceneNode* node = find_scene_node(*scene, node_id);
+    if (!selected_ids.insert(node_id).second || node == nullptr) {
       return false;
     }
+  }
+
+  if (!scene_node_selection_respects_logic_boundaries(*scene, node_ids)) {
+    return false;
   }
 
   if (before_node_id.has_value() &&
@@ -1186,6 +1874,11 @@ bool reorder_scene_nodes(
     return false;
   }
 
+  Scene candidate = *scene;
+  candidate.nodes = reordered;
+  if (validate_scene_logic_structure(candidate).has_value()) {
+    return false;
+  }
   scene->nodes.swap(reordered);
   return true;
 }

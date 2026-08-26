@@ -94,12 +94,13 @@ describe('form character insertion', () => {
   let container: HTMLDivElement;
   let root: Root;
   let current: ReturnType<typeof useFormEditor> | null;
+  let activeProject: ProjectDocument;
   let addCharacter: ReturnType<typeof vi.fn>;
   let addDialogue: ReturnType<typeof vi.fn>;
 
   function Harness() {
     current = useFormEditor({
-      project,
+      project: activeProject,
       isBusy: false,
       engineMessage: '',
       setEngineMessage: vi.fn(),
@@ -122,6 +123,7 @@ describe('form character insertion', () => {
     document.body.append(container);
     root = createRoot(container);
     current = null;
+    activeProject = project;
     addCharacter = vi.fn().mockResolvedValue(addCharacterResult);
     addDialogue = vi.fn().mockResolvedValue({
       ...addCharacterResult,
@@ -145,7 +147,7 @@ describe('form character insertion', () => {
       },
       nodeId: 'dialogue-created',
     });
-    await act(async () => root.render(<Harness />));
+    await act(async () => root.render(<Harness key={activeProject.id} />));
   });
 
   afterEach(async () => {
@@ -199,6 +201,145 @@ describe('form character insertion', () => {
     expect(addCharacter).toHaveBeenCalledWith({
       sceneId: 'scene-1',
       beforeNodeId: 'dialogue-created',
+    });
+  });
+
+  async function renderLogicProject(
+    id: string,
+    nodes: ProjectDocument['scenes'][number]['nodes'],
+  ): Promise<ProjectDocument> {
+    activeProject = {
+      ...project,
+      id,
+      scenes: [{ ...project.scenes[0], nodes }],
+    };
+    await act(async () => {
+      root.render(<Harness key={activeProject.id} />);
+    });
+    return activeProject;
+  }
+
+  it('does not search across Then into Else for a portrait dialogue anchor', async () => {
+    const logicProject = await renderLogicProject('then-boundary', [
+      {
+        id: 'if-1',
+        type: 'logicIf',
+        condition: {
+          left: { kind: 'variable', name: 'route' },
+          operator: 'eq',
+          right: { kind: 'literal', value: 'A' },
+        },
+      },
+      {
+        id: 'then-character',
+        type: 'character',
+        assetId: 'then-portrait',
+        slot: 'left',
+        layer: 1,
+        position: null,
+      },
+      { id: 'else-1', type: 'logicElse', ifNodeId: 'if-1' },
+      {
+        id: 'else-dialogue',
+        type: 'dialogue',
+        speaker: 'B',
+        text: 'Else',
+        voiceAssetId: null,
+      },
+      { id: 'endif-1', type: 'logicEndIf', ifNodeId: 'if-1' },
+    ]);
+    const character = logicProject.scenes[0].nodes[1];
+    if (character.type !== 'character') {
+      throw new Error('Then fixture character is invalid');
+    }
+
+    await act(async () => current?.selectNode(character));
+    await act(async () => current?.insertCharacter());
+
+    expect(addCharacter).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      afterNodeId: 'then-character',
+    });
+  });
+
+  it('does not search past Else into the root sequence', async () => {
+    const logicProject = await renderLogicProject('else-boundary', [
+      {
+        id: 'if-1',
+        type: 'logicIf',
+        condition: {
+          left: { kind: 'variable', name: 'route' },
+          operator: 'eq',
+          right: { kind: 'literal', value: 'A' },
+        },
+      },
+      { id: 'else-1', type: 'logicElse', ifNodeId: 'if-1' },
+      {
+        id: 'else-character',
+        type: 'character',
+        assetId: 'else-portrait',
+        slot: 'right',
+        layer: 1,
+        position: null,
+      },
+      { id: 'endif-1', type: 'logicEndIf', ifNodeId: 'if-1' },
+      {
+        id: 'root-dialogue',
+        type: 'dialogue',
+        speaker: 'C',
+        text: 'After',
+        voiceAssetId: null,
+      },
+    ]);
+    const character = logicProject.scenes[0].nodes[2];
+    if (character.type !== 'character') {
+      throw new Error('Else fixture character is invalid');
+    }
+
+    await act(async () => current?.selectNode(character));
+    await act(async () => current?.insertCharacter());
+
+    expect(addCharacter).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      afterNodeId: 'else-character',
+    });
+  });
+
+  it('does not search past a Repeat body into the root sequence', async () => {
+    const logicProject = await renderLogicProject('repeat-boundary', [
+      { id: 'repeat-1', type: 'logicRepeat', count: 2 },
+      {
+        id: 'body-character',
+        type: 'character',
+        assetId: 'body-portrait',
+        slot: 'center',
+        layer: 1,
+        position: null,
+      },
+      {
+        id: 'endrepeat-1',
+        type: 'logicEndRepeat',
+        repeatNodeId: 'repeat-1',
+      },
+      {
+        id: 'root-dialogue',
+        type: 'dialogue',
+        speaker: 'C',
+        text: 'After',
+        voiceAssetId: null,
+      },
+    ]);
+    const character = logicProject.scenes[0].nodes[1];
+    if (character.type !== 'character') {
+      throw new Error('Repeat fixture character is invalid');
+    }
+
+    await act(async () => current?.selectNode(character));
+    await act(async () => current?.insertCharacter());
+
+    expect(addCharacter).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      afterNodeId: 'body-character',
     });
   });
 });

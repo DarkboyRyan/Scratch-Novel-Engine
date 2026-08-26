@@ -55,7 +55,7 @@ describe('English Editor density style contract', () => {
       inspectorSource.match(
         /className="panel-heading timeline-panel-heading"/g,
       ),
-    ).toHaveLength(7);
+    ).toHaveLength(8);
     expect(
       rule(
         css,

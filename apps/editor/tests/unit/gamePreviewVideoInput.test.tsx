@@ -50,6 +50,8 @@ const session: GamePreviewSession = {
     characters: [],
     dialogue: null,
     choices: [],
+    variables: {},
+    loopStack: [],
   },
 };
 

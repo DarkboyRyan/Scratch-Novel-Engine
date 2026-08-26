@@ -55,6 +55,8 @@ function runtime(
       voiceAssetId,
     },
     choices: [],
+    variables: {},
+    loopStack: [],
   };
 }
 

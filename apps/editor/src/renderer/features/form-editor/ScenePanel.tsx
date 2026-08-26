@@ -1,17 +1,22 @@
-import { useEffect, useRef, useState } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 
 import type {
   AssetDocument,
   ProjectDocument,
   SceneDocument,
-  SemanticSceneNode,
+  FormVisibleSceneNode,
 } from '../../../shared/projectTypes';
-import { semanticSceneNodes } from '../../../shared/projectTypes';
 import {
   CG_GALLERY_SCENE_ID,
   START_SCREEN_SCENE_ID,
 } from '../start-screen/startScreenScene';
 import { useEditorLabels } from '../../i18n/editorLocalization';
+import { createFormLogicTree } from './formLogicTree';
 
 type ScenePanelProps = {
   project: ProjectDocument;
@@ -23,7 +28,7 @@ type ScenePanelProps = {
   onSelectScene: (sceneId: string) => Promise<void>;
   onSelectStartScreen?: () => Promise<void>;
   onSelectCgGallery?: () => Promise<void>;
-  onSelectNode: (node: SemanticSceneNode) => Promise<void>;
+  onSelectNode: (node: FormVisibleSceneNode) => Promise<void>;
   onInsertBackground: () => Promise<void>;
   onInsertSceneJump: () => Promise<void>;
   onMoveNode: (
@@ -55,7 +60,16 @@ export function ScenePanel({
   const imageAssets = assets.filter((asset) => asset.type === 'image');
   const audioAssets = assets.filter((asset) => asset.type === 'audio');
   const videoAssets = assets.filter((asset) => asset.type === 'video');
-  const storyNodes = semanticSceneNodes(scene);
+  const treeEntries = createFormLogicTree(scene);
+  const storyNodes = treeEntries.flatMap((entry) =>
+    entry.kind === 'node' ? [entry.node] : [],
+  );
+  const nodeNumbers = new Map(
+    storyNodes.map((node, index) => [node.id, index + 1]),
+  );
+  const hasLogicControls = storyNodes.some(
+    (node) => node.type === 'logicIf' || node.type === 'logicRepeat',
+  );
   const currentSceneNumber =
     project.scenes.findIndex((projectScene) => projectScene.id === scene.id) +
     1;
@@ -221,9 +235,39 @@ export function ScenePanel({
       </div>
 
       <ol className="dialogue-list timeline-list">
-        {storyNodes.map((node, index) => (
-          <li
+        {treeEntries.map((entry) => {
+          if (entry.kind === 'branch') {
+            return (
+              <li
+                key={entry.id}
+                className="logic-branch-row"
+                style={{
+                  '--logic-depth': entry.depth,
+                } as CSSProperties}
+              >
+                <span aria-hidden="true" className="logic-branch-line" />
+                <strong>
+                  {entry.branch === 'then'
+                    ? labels.blockly.logicThen
+                    : entry.branch === 'else'
+                      ? labels.blockly.logicElse
+                      : labels.blockly.logicRepeatBody}
+                </strong>
+              </li>
+            );
+          }
+
+          const { node } = entry;
+          const index = (nodeNumbers.get(node.id) ?? 1) - 1;
+          const isLogicControl =
+            node.type === 'logicIf' || node.type === 'logicRepeat';
+          const logicStyle = {
+            '--logic-depth': entry.depth,
+          } as CSSProperties;
+          return (
+            <li
             key={node.id}
+            style={logicStyle}
             className={`${node.id === selectedNodeId ? 'selected' : ''}${
               node.type === 'background'
                 ? ' is-background-node'
@@ -237,7 +281,12 @@ export function ScenePanel({
                         ? ' is-video-node'
                         : node.type === 'choice'
                           ? ' is-choice-node'
-                          : ''
+                        : node.type === 'variableSet' ||
+                            node.type === 'variableChange'
+                          ? ' is-variable-node'
+                          : isLogicControl
+                            ? ' is-logic-node'
+                            : ''
             }`}
           >
             <button
@@ -302,7 +351,7 @@ export function ScenePanel({
                     <strong>{labels.scenes.playVideo}</strong>
                     <p>{videoName(node.assetId)}</p>
                   </>
-                ) : (
+                ) : node.type === 'choice' ? (
                   <>
                     <strong>{labels.scenes.sceneOptions}</strong>
                     <p>
@@ -310,6 +359,32 @@ export function ScenePanel({
                         ? `${node.options.length} ${labels.scenes.optionUnit}`
                         : labels.scenes.noOptionsSkip}
                     </p>
+                  </>
+                ) : node.type === 'variableSet' ? (
+                  <>
+                    <strong>{labels.blockly.setVariable}</strong>
+                    <p>
+                      {node.variableName} = {String(node.value)}
+                    </p>
+                  </>
+                ) : node.type === 'variableChange' ? (
+                  <>
+                    <strong>{labels.blockly.changeVariable}</strong>
+                    <p>
+                      {node.variableName} {node.amount >= 0 ? '+' : '−'}= {
+                        Math.abs(node.amount)
+                      }
+                    </p>
+                  </>
+                ) : node.type === 'logicIf' ? (
+                  <>
+                    <strong>{labels.blockly.logicIf}</strong>
+                    <p>{formatLogicCondition(node.condition)}</p>
+                  </>
+                ) : (
+                  <>
+                    <strong>{labels.blockly.logicRepeat}</strong>
+                    <p>{node.count} {labels.blockly.logicTimes}</p>
                   </>
                 )}
               </div>
@@ -319,7 +394,7 @@ export function ScenePanel({
               <button
                 type="button"
                 className="dialogue-move-button"
-                disabled={isBusy || index === 0}
+                disabled={isBusy || index === 0 || hasLogicControls}
                 aria-label={`${labels.scenes.moveUp}${labels.common.wordSeparator}${labels.scenes.nodeAriaPrefix}${index + 1}${labels.scenes.nodeAriaSuffix}`}
                 title={labels.scenes.moveUp}
                 onClick={() =>
@@ -333,7 +408,9 @@ export function ScenePanel({
                 type="button"
                 className="dialogue-move-button"
                 disabled={
-                  isBusy || index === storyNodes.length - 1
+                  isBusy ||
+                  index === storyNodes.length - 1 ||
+                  hasLogicControls
                 }
                 aria-label={`${labels.scenes.moveDown}${labels.common.wordSeparator}${labels.scenes.nodeAriaPrefix}${index + 1}${labels.scenes.nodeAriaSuffix}`}
                 title={labels.scenes.moveDown}
@@ -349,7 +426,7 @@ export function ScenePanel({
                 className="dialogue-delete-button"
                 aria-label={`${labels.scenes.delete}${labels.common.wordSeparator}${labels.scenes.nodeAriaPrefix}${index + 1}${labels.scenes.nodeAriaSuffix}`}
                 title={labels.scenes.deleteNode}
-                disabled={isBusy}
+                disabled={isBusy || isLogicControl}
                 onClick={() =>
                   void onDeleteNode(node.id)
                 }
@@ -358,8 +435,40 @@ export function ScenePanel({
               </button>
             </div>
           </li>
-        ))}
+          );
+        })}
       </ol>
     </aside>
   );
+}
+
+function formatLogicOperand(
+  operand: Extract<
+    FormVisibleSceneNode,
+    { type: 'logicIf' }
+  >['condition']['left'],
+): string {
+  if (operand.kind === 'variable') {
+    return operand.name;
+  }
+  return typeof operand.value === 'string'
+    ? `“${operand.value}”`
+    : String(operand.value);
+}
+
+function formatLogicCondition(
+  condition: Extract<
+    FormVisibleSceneNode,
+    { type: 'logicIf' }
+  >['condition'],
+): string {
+  const symbols = {
+    eq: '=',
+    neq: '≠',
+    gt: '>',
+    gte: '≥',
+    lt: '<',
+    lte: '≤',
+  } as const;
+  return `${formatLogicOperand(condition.left)} ${symbols[condition.operator]} ${formatLogicOperand(condition.right)}`;
 }

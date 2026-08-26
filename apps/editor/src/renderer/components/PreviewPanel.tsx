@@ -10,6 +10,7 @@ type PreviewPanelProps = {
   backgroundUrl: string | null;
   backgroundName: string | null;
   showDialogue?: boolean;
+  logicPreviewUncertain?: boolean;
   characters?: PreviewCharacter[];
   isStartDisabled?: boolean;
   onStartPreview?: () => void;
@@ -23,6 +24,7 @@ export function PreviewPanel({
   backgroundUrl,
   backgroundName,
   showDialogue = true,
+  logicPreviewUncertain = false,
   characters = [],
   isStartDisabled = false,
   onStartPreview,
@@ -43,6 +45,12 @@ export function PreviewPanel({
             <span aria-hidden="true">▶</span>
           </button>
         </div>
+      ) : null}
+
+      {logicPreviewUncertain ? (
+        <p className="preview-logic-notice" role="note">
+          {labels.preview.logicPreviewUncertain}
+        </p>
       ) : null}
 
       <VisualStage

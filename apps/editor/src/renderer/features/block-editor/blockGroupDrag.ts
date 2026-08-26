@@ -16,6 +16,7 @@ import {
   getTimelineDropSlotForPoint,
   type TimelineDropTarget,
 } from './dialogueGroupReorder';
+import { isStoryBlockType } from './storyBlockTypes';
 
 const DRAG_THRESHOLD_PX = 5;
 
@@ -50,6 +51,37 @@ type ActiveGesture = {
     | { kind: 'reorder'; params: TimelineReorderManyParams }
     | null;
 };
+
+export type BlockGroupSelectionMode =
+  | 'move-all-layout'
+  | 'reorder-timeline'
+  | 'reject-extension-selection';
+
+export function getBlockGroupSelectionMode(
+  scene: SceneDocument,
+  workspace: Blockly.WorkspaceSvg,
+  selectedNodeIds: string[],
+): BlockGroupSelectionMode {
+  const selectableNodeIds = scene.nodes.flatMap((node) => {
+    const block = workspace.getBlockById(node.id);
+    return block && isStoryBlockType(block.type) ? [node.id] : [];
+  });
+  const selectedIds = new Set(selectedNodeIds);
+  const isExactCompleteSelection =
+    selectedIds.size === selectedNodeIds.length &&
+    selectedIds.size === selectableNodeIds.length &&
+    selectableNodeIds.every((nodeId) => selectedIds.has(nodeId));
+
+  if (isExactCompleteSelection) {
+    return 'move-all-layout';
+  }
+  return scene.nodes.some(
+    (node) =>
+      node.type === 'storyExtension' && selectedIds.has(node.id),
+  )
+    ? 'reject-extension-selection'
+    : 'reorder-timeline';
+}
 
 function containsPoint(rectangle: DOMRect, x: number, y: number): boolean {
   return (
@@ -217,7 +249,13 @@ export function createBlockGroupDragController(
       return;
     }
 
-    if (gesture.selectedNodeIds.length === scene.nodes.length) {
+    if (
+      getBlockGroupSelectionMode(
+        scene,
+        workspace,
+        gesture.selectedNodeIds,
+      ) === 'move-all-layout'
+    ) {
       gesture.outcome = { kind: 'move-all' };
       return;
     }
@@ -424,10 +462,10 @@ export function createBlockGroupDragController(
     const nodeId = blockElement?.getAttribute('data-id');
     const selectedNodeIds = selection.getSelectedNodeIds();
     const scene = getScene();
-    const selectedContainsExtension = scene.nodes.some(
-      (node) =>
-        node.type === 'storyExtension' &&
-        selectedNodeIds.includes(node.id),
+    const selectionMode = getBlockGroupSelectionMode(
+      scene,
+      workspace,
+      selectedNodeIds,
     );
 
     if (
@@ -443,8 +481,7 @@ export function createBlockGroupDragController(
     // 输入口的“整页原子移动”约束。这里同时阻止 Blockly
     // 退化为单块拖动；全选仍可仅移动画布布局。
     if (
-      selectedContainsExtension &&
-      selectedNodeIds.length !== scene.nodes.length
+      selectionMode === 'reject-extension-selection'
     ) {
       event.preventDefault();
       event.stopImmediatePropagation();

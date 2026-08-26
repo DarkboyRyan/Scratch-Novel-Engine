@@ -21,6 +21,18 @@ import {
   SCENE_START_BLOCK_TYPE,
 } from '../../src/renderer/features/block-editor/blocks/sceneStartBlock';
 import { projectSceneToWorkspace } from '../../src/renderer/features/block-editor/projectSceneToWorkspace';
+import {
+  LOGIC_CONTROL_FIELDS,
+  LOGIC_CONTROL_INPUTS,
+  LOGIC_IF_BLOCK_TYPE,
+  LOGIC_REPEAT_BLOCK_TYPE,
+  getLogicControlMarkers,
+} from '../../src/renderer/features/block-editor/blocks/logicControlBlock';
+import {
+  VARIABLE_BLOCK_FIELDS,
+  VARIABLE_CHANGE_BLOCK_TYPE,
+  VARIABLE_SET_BLOCK_TYPE,
+} from '../../src/renderer/features/block-editor/blocks/variableBlock';
 
 class FakeConnection {
   target: FakeConnection | null = null;
@@ -55,6 +67,17 @@ class FakeBlock {
       this.inputs.set(CHOICE_BLOCK_INPUTS.options, {
         connection: new FakeConnection(this),
       });
+    } else if (type === LOGIC_IF_BLOCK_TYPE) {
+      this.inputs.set(LOGIC_CONTROL_INPUTS.then, {
+        connection: new FakeConnection(this),
+      });
+      this.inputs.set(LOGIC_CONTROL_INPUTS.else, {
+        connection: new FakeConnection(this),
+      });
+    } else if (type === LOGIC_REPEAT_BLOCK_TYPE) {
+      this.inputs.set(LOGIC_CONTROL_INPUTS.body, {
+        connection: new FakeConnection(this),
+      });
     }
   }
 
@@ -77,6 +100,10 @@ class FakeBlock {
 
   getInput(name: string) {
     return this.inputs.get(name) ?? null;
+  }
+
+  getInputTargetBlock(name: string): FakeBlock | null {
+    return this.inputs.get(name)?.connection.target?.owner ?? null;
   }
 
   getField(): Blockly.Field | null {
@@ -485,5 +512,116 @@ describe('choice scene projection', () => {
     expect(jump?.getNextBlock()).toBeNull();
     expect(after?.getPreviousBlock()).toBeNull();
     expect(after?.movedTo).toEqual({ x: 540, y: 80 });
+  });
+
+  it('projects paired markers as nested C blocks and never renders markers', () => {
+    vi.spyOn(
+      Blockly.renderManagement,
+      'triggerQueuedRenders',
+    ).mockImplementation(() => {});
+    const scene: SceneDocument = {
+      schemaVersion: 1,
+      id: 'scene-logic',
+      name: '逻辑场景',
+      backgroundAssetId: null,
+      nodes: [
+        {
+          id: 'set-1',
+          type: 'variableSet',
+          variableName: 'score',
+          value: 3,
+        },
+        {
+          id: 'if-1',
+          type: 'logicIf',
+          condition: {
+            left: { kind: 'variable', name: 'score' },
+            operator: 'gte',
+            right: { kind: 'literal', value: 3 },
+          },
+        },
+        { id: 'repeat-1', type: 'logicRepeat', count: 2 },
+        {
+          id: 'change-1',
+          type: 'variableChange',
+          variableName: 'score',
+          amount: 1,
+        },
+        {
+          id: 'repeat-end',
+          type: 'logicEndRepeat',
+          repeatNodeId: 'repeat-1',
+        },
+        { id: 'else-1', type: 'logicElse', ifNodeId: 'if-1' },
+        {
+          id: 'else-line',
+          type: 'dialogue',
+          speaker: 'B',
+          text: 'Else',
+          voiceAssetId: null,
+        },
+        { id: 'if-end', type: 'logicEndIf', ifNodeId: 'if-1' },
+        {
+          id: 'after-line',
+          type: 'dialogue',
+          speaker: 'A',
+          text: 'After',
+          voiceAssetId: null,
+        },
+      ],
+    };
+    const workspace = new FakeWorkspace();
+
+    projectSceneToWorkspace(
+      scene,
+      workspace as unknown as Blockly.WorkspaceSvg,
+      { x: 120, y: 80 },
+    );
+
+    expect(workspace.blocks.map((block) => block.id)).not.toContain('else-1');
+    expect(workspace.blocks.map((block) => block.id)).not.toContain('if-end');
+    expect(workspace.blocks.map((block) => block.id)).not.toContain(
+      'repeat-end',
+    );
+    const set = workspace.blocks.find((block) => block.id === 'set-1');
+    const ifBlock = workspace.blocks.find((block) => block.id === 'if-1');
+    const repeat = workspace.blocks.find((block) => block.id === 'repeat-1');
+    const change = workspace.blocks.find((block) => block.id === 'change-1');
+    const elseLine = workspace.blocks.find((block) => block.id === 'else-line');
+    const afterLine = workspace.blocks.find((block) => block.id === 'after-line');
+
+    expect(set?.type).toBe(VARIABLE_SET_BLOCK_TYPE);
+    expect(set?.fields.get(VARIABLE_BLOCK_FIELDS.name)).toBe('score');
+    expect(set?.getNextBlock()).toBe(ifBlock);
+    expect(ifBlock?.type).toBe(LOGIC_IF_BLOCK_TYPE);
+    expect(
+      ifBlock?.fields.get(LOGIC_CONTROL_FIELDS.operator),
+    ).toBe('gte');
+    expect(ifBlock?.getInputTargetBlock(LOGIC_CONTROL_INPUTS.then)).toBe(
+      repeat,
+    );
+    expect(ifBlock?.getInputTargetBlock(LOGIC_CONTROL_INPUTS.else)).toBe(
+      elseLine,
+    );
+    expect(repeat?.type).toBe(LOGIC_REPEAT_BLOCK_TYPE);
+    expect(repeat?.getInputTargetBlock(LOGIC_CONTROL_INPUTS.body)).toBe(
+      change,
+    );
+    expect(ifBlock?.getNextBlock()).toBe(afterLine);
+    expect(
+      getLogicControlMarkers(
+        ifBlock as unknown as Blockly.Block,
+      ),
+    ).toEqual({
+      kind: 'if',
+      elseNodeId: 'else-1',
+      endNodeId: 'if-end',
+    });
+    expect(
+      getLogicControlMarkers(
+        repeat as unknown as Blockly.Block,
+      ),
+    ).toEqual({ kind: 'repeat', endNodeId: 'repeat-end' });
+    expect(change?.type).toBe(VARIABLE_CHANGE_BLOCK_TYPE);
   });
 });
