@@ -14,6 +14,7 @@ const validProject = {
   entrySceneId: 'scene-1',
   startScreen: {
     title: 'Custom story title',
+    eyebrow: 'A CUSTOM STORY',
     backgroundAssetId: 'asset-1',
     musicAssetId: null,
   },
@@ -202,11 +203,13 @@ describe('backend response validation', () => {
 
   it.each([
     undefined,
-    { title: 'Story', backgroundAssetId: null },
-    { backgroundAssetId: null, musicAssetId: null },
-    { title: 7, backgroundAssetId: null, musicAssetId: null },
-    { title: 'Story', backgroundAssetId: 7, musicAssetId: null },
-    { title: 'Story', backgroundAssetId: null, musicAssetId: false },
+    { title: 'Story', eyebrow: 'STORY', backgroundAssetId: null },
+    { title: 'Story', backgroundAssetId: null, musicAssetId: null },
+    { eyebrow: 'STORY', backgroundAssetId: null, musicAssetId: null },
+    { title: 7, eyebrow: 'STORY', backgroundAssetId: null, musicAssetId: null },
+    { title: 'Story', eyebrow: 7, backgroundAssetId: null, musicAssetId: null },
+    { title: 'Story', eyebrow: 'STORY', backgroundAssetId: 7, musicAssetId: null },
+    { title: 'Story', eyebrow: 'STORY', backgroundAssetId: null, musicAssetId: false },
   ])('rejects a malformed project start screen: %j', (startScreen) => {
     expect(() =>
       parseBackendResponse(

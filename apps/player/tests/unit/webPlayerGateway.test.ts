@@ -52,6 +52,7 @@ const project: ProjectDocument = {
   entrySceneId: 'scene',
   startScreen: {
     title: 'Web gateway',
+    eyebrow: 'A VN ENGINE STORY',
     backgroundAssetId: 'background',
     musicAssetId: null,
   },

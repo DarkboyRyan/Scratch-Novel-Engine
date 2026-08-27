@@ -1,15 +1,40 @@
 # JSONL Backend
 
-| 文件 | 框架 / 技术 | 主要作用 | 关键函数、类与实现 |
-| --- | --- | --- | --- |
-| [`main.cpp`](./main.cpp) | C++20、stdin/stdout | 启动逐行读取请求的 Backend 进程。 | `main` 请求循环。 |
-| [`backend.hpp`](./backend.hpp) | C++20 | 声明内存会话和协议处理器。 | `Backend`。 |
-| [`backend.cpp`](./backend.cpp) | C++20、nlohmann/json | 精确校验 JSONL 方法并调用 Core 原子命令。 | `Backend::handle`、参数解析、revision/session 管理。 |
-| [`serialization.hpp`](./serialization.hpp) | C++20、nlohmann/json | 声明 Author 文件读写及迁移接口。 | `project_file_from_json`、`project_file_to_json`。 |
-| [`serialization.cpp`](./serialization.cpp) | C++20、nlohmann/json | 实现 v1–v19 严格读取、迁移和 v19 写出。 | 节点序列化、版本门禁、人物模式迁移、精确字段校验。 |
-| [`asset_import.hpp`](./asset_import.hpp) | C++20、filesystem | 声明图片、音频和视频的安全导入计划。 | `AssetImportPlan`、`plan_asset_import`、`copy_asset_no_clobber`。 |
-| [`asset_import.cpp`](./asset_import.cpp) | C++20、平台文件 API | 校验源文件并无覆盖发布到项目资源目录。 | 路径隔离、源快照、跨平台 no-follow/no-clobber。 |
-| [`atomic_file.hpp`](./atomic_file.hpp) | C++20 | 声明耐久的原子文件替换。 | `atomic_write_file`。 |
-| [`atomic_file.cpp`](./atomic_file.cpp) | C++20、POSIX/Win32 | 实现临时文件、fsync 与原子替换。 | 同目录临时文件、父目录刷新、失败回滚。 |
-| [`media_sniffer.hpp`](./media_sniffer.hpp) | C++20 | 声明媒体 magic-byte 探测。 | `MediaKind`、`media_magic_matches`、MP3 probe。 |
-| [`media_sniffer.cpp`](./media_sniffer.cpp) | C++20 | 验证 PNG/JPEG/WebP、MP4/WebM、MP3/WAV/Ogg 内容。 | 容器头解析、EBML、MPEG frame 与 Ogg codec 校验。 |
+[返回 C++ 实现层](../README.md)
+
+`src/backend/` 是 Electron Main 与 C++ Core 之间的受信任进程边界。它逐行处理 JSON
+请求，严格解析字段并调用 Core；同时负责 Author v1–v20 迁移、v20 写出、安全媒体识别、
+无覆盖资源导入和耐久原子保存。
+
+## 请求与存储流程
+
+1. `main.cpp` 从 stdin 读取一行，交给 `Backend::handle`。
+2. Handler 校验请求 ID、方法、exact params 和当前会话，再调用 Core 命令。
+3. 成功变更推进 revision；合法 no-op 保持 revision；异常被转换为稳定错误响应。
+4. stdout 只输出单行 JSON 响应，诊断信息写 stderr，避免破坏协议流。
+
+`project.open` 使用 Main 已经稳定读取的内容快照。Reader 在临时对象上完成版本迁移和聚合
+校验后才替换会话；Writer 始终写 Author v20。`asset.import` 在同一文件句柄上验证扩展名、
+magic bytes、大小和普通文件身份，再流式发布到类型目录；`project.save` 使用同目录临时
+文件、flush 和原子替换保护旧文件。
+
+## 文件索引
+
+| 文件 | 主要作用 | 关键实现 |
+| --- | --- | --- |
+| [`main.cpp`](./main.cpp) | 启动 JSONL stdin/stdout 循环。 | 逐行请求与响应 |
+| [`backend.hpp`](./backend.hpp) / [`backend.cpp`](./backend.cpp) | 管理项目会话并分派协议方法。 | `Backend::handle`、参数校验、revision |
+| [`serialization.hpp`](./serialization.hpp) / [`serialization.cpp`](./serialization.cpp) | 严格读取、迁移和写出 Author 文件。 | v1–v20 Reader、v20 Writer、标题上方文字与节点精确字段 |
+| [`asset_import.hpp`](./asset_import.hpp) / [`asset_import.cpp`](./asset_import.cpp) | 规划并发布图片、音频和视频资源。 | 路径隔离、no-follow、no-clobber |
+| [`media_sniffer.hpp`](./media_sniffer.hpp) / [`media_sniffer.cpp`](./media_sniffer.cpp) | 根据内容识别受支持媒体。 | PNG/JPEG/WebP、MP4/WebM、MP3/WAV/Ogg |
+| [`atomic_file.hpp`](./atomic_file.hpp) / [`atomic_file.cpp`](./atomic_file.cpp) | 耐久地替换项目清单。 | 同目录临时文件、fsync、平台原子替换 |
+
+## 开发与验证
+
+```sh
+cmake --build engine/build --parallel
+ctest --test-dir engine/build -R "vn_engine_(backend|atomic_file|asset_import)_tests" --output-on-failure
+```
+
+协议字段、Author 版本和媒体规则属于安全边界。修改时必须补充畸形输入、旧版迁移、失败
+回滚和跨平台路径用例，不能只覆盖成功路径。

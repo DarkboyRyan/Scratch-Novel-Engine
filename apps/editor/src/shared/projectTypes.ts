@@ -7,6 +7,9 @@ import type {
   SceneNode as RuntimeSceneNode,
 } from '@vnengine/runtime';
 
+export const DEFAULT_START_SCREEN_EYEBROW = 'A VN ENGINE STORY';
+export const START_SCREEN_EYEBROW_MAX_UTF8_BYTES = 256;
+
 // Runtime DTOs remain platform-independent. The Editor adds authoring-only
 // nodes at this boundary so layout controls can be persisted without ever
 // becoming executable game commands.

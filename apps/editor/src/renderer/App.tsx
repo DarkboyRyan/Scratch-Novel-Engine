@@ -495,6 +495,18 @@ function EditorApplication({
   const backgroundUrl = backgroundAsset
     ? assetPreviewUrls[backgroundAsset.id] ?? null
     : null;
+  const cgAsset = timelinePreview.cgAssetId
+    ? engine.assets.find(
+        (asset) =>
+          asset.id === timelinePreview.cgAssetId && asset.type === 'image',
+      ) ?? null
+    : null;
+  const cgUrl = cgAsset
+    ? assetPreviewUrls[cgAsset.id] ?? null
+    : null;
+  const cgName = timelinePreview.cgAssetId === null
+    ? null
+    : (cgAsset?.displayName ?? labels.common.missingImage);
   const previewCharacters = timelinePreview.characters.map((character) => {
     const asset = engine.assets.find(
       (item) => item.id === character.assetId,
@@ -636,6 +648,8 @@ function EditorApplication({
           assets={engine.assets}
           backgroundUrl={backgroundUrl}
           backgroundName={backgroundAsset?.displayName ?? null}
+          cgUrl={cgUrl}
+          cgName={cgName}
           showDialogue={timelinePreview.showDialogue}
           logicPreviewUncertain={
             timelinePreview.logicPreviewUncertain === true

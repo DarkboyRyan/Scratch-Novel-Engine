@@ -1,6 +1,6 @@
 /**
- * 文件主要作用：验证 author project v19 compiler 的行为。
- * 测试覆盖：严格编译、v18 人物迁移、Author 人物模式的 Runtime 投影。
+ * 文件主要作用：验证 author project v20 compiler 的行为。
+ * 测试覆盖：严格编译、旧版迁移、Author 人物模式与标题界面的 Runtime 投影。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -18,7 +18,7 @@ import {
 function authorProject(): Record<string, unknown> {
   return {
     format: 'vn-engine-project',
-    fileVersion: 19,
+    fileVersion: 20,
     project: {
       schemaVersion: 1,
       id: 'project-1',
@@ -26,6 +26,7 @@ function authorProject(): Record<string, unknown> {
       entrySceneId: 'scene-1',
       startScreen: {
         title: '星光物语',
+        eyebrow: 'A CUSTOM STORY',
         backgroundAssetId: 'title-background',
         musicAssetId: 'title-music',
       },
@@ -145,6 +146,12 @@ function downgradeTo(
   fileVersion: number,
 ): void {
   document.fileVersion = fileVersion;
+  if (fileVersion < 20) {
+    const startScreen = (document.project as {
+      startScreen: Record<string, unknown>;
+    }).startScreen;
+    delete startScreen.eyebrow;
+  }
   const scenes = (document.project as {
     scenes: Array<{ nodes: Array<Record<string, unknown>> }>;
   }).scenes;
@@ -162,19 +169,20 @@ function downgradeTo(
   }
 }
 
-describe('author project v19 compiler', () => {
-  it('builds exact runtime v9 data and includes fixed CG pages and CG-only assets', () => {
+describe('author project v20 compiler', () => {
+  it('builds exact runtime v10 data and includes fixed CG pages and CG-only assets', () => {
     const result = compile(authorProject());
 
     expect(result.game).toMatchObject({
       format: 'vn-engine-runtime',
-      runtimeVersion: 9,
+      runtimeVersion: 10,
       game: {
         id: 'project-1',
         title: '导出测试',
         entrySceneId: 'scene-1',
         startScreen: {
           title: '星光物语',
+          eyebrow: 'A CUSTOM STORY',
           backgroundAssetId: 'title-background',
           musicAssetId: 'title-music',
         },
@@ -322,7 +330,7 @@ describe('author project v19 compiler', () => {
     expect((thrown as Error).message).toContain('尚未选择人物立绘图片');
   });
 
-  it('compiles explicit clear and strictly validates its v19 null fields', () => {
+  it('compiles explicit clear and strictly validates its v20 null fields', () => {
     const cleared = authorProject();
     const clearCharacter = (cleared.project as {
       scenes: Array<{ nodes: Array<Record<string, unknown>> }>;
@@ -597,7 +605,7 @@ describe('author project v19 compiler', () => {
 
     const unknownField = authorProject();
     (unknownField.project as Record<string, unknown>).nativePath = '/private/tmp';
-    expect(() => compile(unknownField)).toThrow('字段不符合作者项目 v19');
+    expect(() => compile(unknownField)).toThrow('字段不符合作者项目 v20');
   });
 
   it('rejects an empty or ASCII-padded custom title', () => {
@@ -611,6 +619,48 @@ describe('author project v19 compiler', () => {
     expect(() => compile(padded)).toThrow(
       'project.startScreen.title 不能包含首尾空白',
     );
+  });
+
+  it('migrates the v19 eyebrow default and validates v20 eyebrow copy', () => {
+    const legacy = authorProject();
+    downgradeTo(legacy, 19);
+    expect(compile(legacy).game.game.startScreen.eyebrow).toBe(
+      'A VN ENGINE STORY',
+    );
+
+    const empty = authorProject();
+    (empty.project as { startScreen: { eyebrow: string } })
+      .startScreen.eyebrow = '';
+    expect(compile(empty).game.game.startScreen.eyebrow).toBe('');
+
+    const padded = authorProject();
+    (padded.project as { startScreen: { eyebrow: string } })
+      .startScreen.eyebrow = ' PADDED ';
+    expect(() => compile(padded)).toThrow(
+      'project.startScreen.eyebrow 必须是无首尾空白',
+    );
+
+    const tooLong = authorProject();
+    (tooLong.project as { startScreen: { eyebrow: string } })
+      .startScreen.eyebrow = '界'.repeat(86);
+    expect(() => compile(tooLong)).toThrow('256 字节');
+
+    const nul = authorProject();
+    (nul.project as { startScreen: { eyebrow: string } })
+      .startScreen.eyebrow = 'BAD\0COPY';
+    expect(() => compile(nul)).toThrow(
+      'project.startScreen.eyebrow 不是有效字符串',
+    );
+
+    const invalidUnicode = authorProject();
+    (invalidUnicode.project as { startScreen: { eyebrow: string } })
+      .startScreen.eyebrow = '\ud800';
+    expect(() => compile(invalidUnicode)).toThrow('有效 UTF-8');
+
+    const missing = authorProject();
+    delete (missing.project as { startScreen: Record<string, unknown> })
+      .startScreen.eyebrow;
+    expect(() => compile(missing)).toThrow('字段不符合作者项目 v20');
   });
 
   it('rejects duplicate IDs and duplicate asset paths', () => {
@@ -803,7 +853,7 @@ describe('author project v19 compiler', () => {
     const forgedLegacy = authorProject();
     forgedLegacy.fileVersion = 17;
     expect(() => compile(forgedLegacy)).toThrow(
-      '字段不符合作者项目 v19',
+      '字段不符合作者项目 v20',
     );
 
     const missingCurrentField = authorProject();
@@ -812,7 +862,7 @@ describe('author project v19 compiler', () => {
     }).scenes[0]!.nodes[2]!;
     delete missingCharacter.effect;
     expect(() => compile(missingCurrentField)).toThrow(
-      '字段不符合作者项目 v19',
+      '字段不符合作者项目 v20',
     );
   });
 

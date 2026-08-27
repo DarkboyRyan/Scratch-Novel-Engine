@@ -15,6 +15,7 @@ import type {
   AssetDocument,
   ProjectDocument,
 } from '../../shared/projectTypes';
+import { DEFAULT_START_SCREEN_EYEBROW } from '../../shared/projectTypes';
 import type { ProjectFileSessionSnapshot } from '../../shared/projectFileProtocol';
 import { createAuthoringActions } from '../application/createAuthoringActions';
 import {
@@ -51,11 +52,15 @@ function withRendererProjectDefaults(
   project: ProjectDocument,
 ): ProjectDocument {
   // Vite can hot-reload the Renderer while Electron Main, Preload and the C++
-  // backend keep running. A Project snapshot retained by React from before CG
-  // gallery support therefore has no `cgGallery` property. Treat that one
-  // legacy in-memory shape as an empty gallery so selecting the new surface
-  // cannot crash the complete Renderer. Fresh backend responses are still
-  // validated strictly by Main before they reach this boundary.
+  // backend keep running. Project snapshots retained by React can therefore
+  // predate CG gallery or title-eyebrow support. Supply those two legacy
+  // in-memory defaults so the new Renderer can render safely. Fresh backend
+  // responses are still validated strictly by Main before this boundary.
+  const legacyStartScreen = project.startScreen as
+    Omit<ProjectDocument['startScreen'], 'eyebrow'> & {
+      eyebrow?: unknown;
+    };
+  const hasValidEyebrow = typeof legacyStartScreen.eyebrow === 'string';
   const gallery = (
     project as ProjectDocument & {
       cgGallery?: ProjectDocument['cgGallery'];
@@ -133,12 +138,22 @@ function withRendererProjectDefaults(
       return node;
     }),
   }));
-  if (hasValidPages && !normalizedLegacyCharacter) {
+  if (
+    hasValidPages &&
+    hasValidEyebrow &&
+    !normalizedLegacyCharacter
+  ) {
     return project;
   }
 
   return {
     ...project,
+    startScreen: hasValidEyebrow
+      ? project.startScreen
+      : {
+          ...project.startScreen,
+          eyebrow: DEFAULT_START_SCREEN_EYEBROW,
+        },
     cgGallery: hasValidPages
       ? project.cgGallery
       : {
@@ -148,7 +163,41 @@ function withRendererProjectDefaults(
   };
 }
 
+function isStartScreenModuleUnavailableError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const message = error.message.toLowerCase();
+  return (
+    message.includes('[start-screen-module]') ||
+    message.includes('updatestartscreen is not a function') ||
+    message.includes('unknown method: startscreen.update')
+  );
+}
+
+function shouldMarkStartScreenModuleError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const message = error.message.toLowerCase();
+  return (
+    isStartScreenModuleUnavailableError(error) ||
+    message.includes('no handler registered') ||
+    message.includes('renderer 发来了无效的引擎请求') ||
+    message.includes('invalid engine request')
+  );
+}
+
+function startScreenModuleError(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  return new Error(`[start-screen-module] ${message}`, { cause: error });
+}
+
 function readableError(error: unknown, labels: EditorLabels): string {
+  if (isStartScreenModuleUnavailableError(error)) {
+    return labels.messages.startScreenModuleUnavailable;
+  }
+
   if (
     error instanceof Error &&
     error.message.includes('[character-mode-module]')
@@ -629,16 +678,31 @@ export function useEngineProject(
 
   async function updateStartScreen(
     title: string,
+    eyebrow: string,
     backgroundAssetId: string | null,
     musicAssetId: string | null,
   ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      platform.engine.updateStartScreen({
-        title,
-        backgroundAssetId,
-        musicAssetId,
-      }),
-    );
+    const command = platform.engine.updateStartScreen;
+    if (typeof command !== 'function') {
+      setEngineMessage(labelsRef.current.messages.startScreenModuleUnavailable);
+      setExportMessage('');
+      return false;
+    }
+    const result = await runEngineAction(async () => {
+      try {
+        return await command({
+          title,
+          eyebrow,
+          backgroundAssetId,
+          musicAssetId,
+        });
+      } catch (error: unknown) {
+        if (shouldMarkStartScreenModuleError(error)) {
+          throw startScreenModuleError(error);
+        }
+        throw error;
+      }
+    });
     return result !== null;
   }
 

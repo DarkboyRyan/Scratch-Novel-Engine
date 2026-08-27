@@ -74,6 +74,7 @@ const projectResult: EngineMutationResult = {
     entrySceneId: 'scene-1',
     startScreen: {
       title: 'My story',
+      eyebrow: 'A VN ENGINE STORY',
       backgroundAssetId: null,
       musicAssetId: null,
     },

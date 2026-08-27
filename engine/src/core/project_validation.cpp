@@ -248,6 +248,14 @@ std::optional<std::string> validate_project(const Project& project) {
   if (*normalized_title != project.start_screen.title) {
     return "start screen title must not have surrounding whitespace";
   }
+  const auto normalized_eyebrow =
+      normalize_start_screen_eyebrow(project.start_screen.eyebrow);
+  if (!normalized_eyebrow.has_value()) {
+    return "start screen eyebrow must be valid UTF-8 text up to 256 bytes";
+  }
+  if (*normalized_eyebrow != project.start_screen.eyebrow) {
+    return "start screen eyebrow must not have surrounding whitespace";
+  }
   if (project.start_screen.background_asset_id.has_value() &&
       project.start_screen.background_asset_id->empty()) {
     return "start screen background Asset ID must not be empty";

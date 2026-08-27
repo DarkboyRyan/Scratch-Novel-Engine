@@ -195,7 +195,9 @@ export function TitleScreen({
         inert={titleActionsBlocked}
       >
         <section ref={titleFit.contentRef} className="player-title-card">
-          <p className="player-eyebrow">{labels.eyebrow}</p>
+          {startScreen.eyebrow ? (
+            <p className="player-eyebrow">{startScreen.eyebrow}</p>
+          ) : null}
           <h1>{startScreen.title || labels.untitledGame}</h1>
           <div className="player-title-actions player-title-actions-vertical">
             <button

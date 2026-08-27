@@ -71,6 +71,12 @@ const START_SCREEN_FIELDS_V3 = [
   'backgroundAssetId',
   'musicAssetId',
 ];
+const START_SCREEN_FIELDS_V10 = [
+  'title',
+  'eyebrow',
+  'backgroundAssetId',
+  'musicAssetId',
+];
 const CG_GALLERY_FIELDS_V5 = ['imageAssetIds'];
 const CG_GALLERY_FIELDS_V6 = ['pages'];
 const CG_GALLERY_PAGE_FIELDS_V6 = ['imageAssetIds'];
@@ -263,6 +269,50 @@ function boundedString(value, context, maximum = 4096, allowEmpty = false) {
   return value;
 }
 
+function isAsciiWhitespace(codeUnit) {
+  return codeUnit === 0x20 || (codeUnit >= 0x09 && codeUnit <= 0x0d);
+}
+
+function hasOnlyPairedSurrogates(value) {
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index);
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      const nextCodeUnit = value.charCodeAt(index + 1);
+      if (
+        index + 1 >= value.length ||
+        nextCodeUnit < 0xdc00 ||
+        nextCodeUnit > 0xdfff
+      ) {
+        return false;
+      }
+      index += 1;
+      continue;
+    }
+    if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function startScreenEyebrow(value, context) {
+  const eyebrow = boundedString(value, context, 256, true);
+  if (
+    !hasOnlyPairedSurrogates(eyebrow) ||
+    Buffer.byteLength(eyebrow, 'utf8') > 256 ||
+    (
+      eyebrow.length > 0 &&
+      (
+        isAsciiWhitespace(eyebrow.charCodeAt(0)) ||
+        isAsciiWhitespace(eyebrow.charCodeAt(eyebrow.length - 1))
+      )
+    )
+  ) {
+    throw new Error(`${context} 不是有效字符串`);
+  }
+  return eyebrow;
+}
+
 function safeSegmentedRelativePath(relativePath, context) {
   boundedString(relativePath, context);
   const components = relativePath.split('/');
@@ -430,25 +480,7 @@ function validateManifestDocument(input, projectId, runtimeVersion) {
     root.format !== 'vn-engine-runtime-manifest' ||
     root.manifestVersion !== 1 ||
     root.runtimeVersion !== runtimeVersion ||
-    root.playerCompatibility !== (
-      runtimeVersion === 1
-        ? '>=1 <2'
-        : runtimeVersion === 2
-          ? '>=2 <3'
-          : runtimeVersion === 3
-            ? '>=3 <4'
-            : runtimeVersion === 4
-              ? '>=4 <5'
-              : runtimeVersion === 5
-                ? '>=5 <6'
-                : runtimeVersion === 6
-                  ? '>=6 <7'
-                  : runtimeVersion === 7
-                    ? '>=7 <8'
-                    : runtimeVersion === 8
-                      ? '>=8 <9'
-                      : '>=9 <10'
-    )
+    root.playerCompatibility !== `>=${runtimeVersion} <${runtimeVersion + 1}`
   ) {
     throw new Error('manifest.json 的格式或版本不受支持');
   }
@@ -528,7 +560,8 @@ function validateGameDocument(input) {
       root.runtimeVersion !== 6 &&
       root.runtimeVersion !== 7 &&
       root.runtimeVersion !== 8 &&
-      root.runtimeVersion !== 9
+      root.runtimeVersion !== 9 &&
+      root.runtimeVersion !== 10
     )
   ) {
     throw new Error('game.json 的格式或版本不受支持');
@@ -568,7 +601,9 @@ function validateGameDocument(input) {
       value,
       root.runtimeVersion === 2
         ? START_SCREEN_FIELDS_V2
-        : START_SCREEN_FIELDS_V3,
+        : root.runtimeVersion < 10
+          ? START_SCREEN_FIELDS_V3
+          : START_SCREEN_FIELDS_V10,
       'game.json.game.startScreen',
     );
     const nullableAssetId = (field) => {
@@ -581,6 +616,12 @@ function validateGameDocument(input) {
       ...(root.runtimeVersion >= 3
         ? { title: boundedString(value.title, 'game.json.game.startScreen.title') }
         : {}),
+      eyebrow: root.runtimeVersion < 10
+        ? 'A VN ENGINE STORY'
+        : startScreenEyebrow(
+            value.eyebrow,
+            'game.json.game.startScreen.eyebrow',
+          ),
       backgroundAssetId: nullableAssetId('backgroundAssetId'),
       musicAssetId: nullableAssetId('musicAssetId'),
     };

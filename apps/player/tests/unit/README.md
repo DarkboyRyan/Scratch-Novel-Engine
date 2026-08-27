@@ -2,6 +2,21 @@
 
 [返回 Player Tests](../README.md)
 
+这里集中覆盖 Player 的应用代码。测试文件大致对应五条边界：Runtime Bundle 与启动内容、IPC/Preload/媒体安全、存档与设置持久化、Renderer/共享 UI 交互，以及 Web Loader/Gateway/IndexedDB 行为。
+
+## 测试方式
+
+Node 侧用系统临时目录和真实文件操作检查原子写入、链接防护、内容替换及大小/哈希策略；Electron 能力通过窄接口 mock，确保只模拟当前模块需要的行为。React 测试运行在 jsdom，通过 Gateway 或媒体端口注入状态，并以可访问名称、键盘事件和可见结果断言。样式测试读取 `player.css` 的关键契约，保护低高度布局、字体缩放、特效和 Modal 层级。
+
+运行全部或指定文件：
+
+```bash
+pnpm --dir apps/player exec vitest run
+pnpm --dir apps/player exec vitest run tests/unit/playerRenderer.test.tsx
+```
+
+新测试应靠近对应边界并使用稳定公开行为。避免绑定内部 hook 调用次数、生成 token 的具体值或机器相关绝对路径；安全失败场景则应明确断言不会提交会话、不会泄露路径且不会留下部分文件。
+
 ## 文件
 
 | 文件 | 框架技术 | 主要作用 | 关键函数与实现 |

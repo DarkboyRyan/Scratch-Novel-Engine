@@ -65,6 +65,7 @@ const project: ProjectDocument = {
   entrySceneId: 'scene-1',
   startScreen: {
     title: 'CG Project',
+    eyebrow: 'A VN ENGINE STORY',
     backgroundAssetId: null,
     musicAssetId: null,
   },

@@ -2,7 +2,7 @@
 
 # 显示 CG Blockly 实现
 
-> 实现状态：已完成。当前作者项目格式为 v19，导出为 runtime v9；桌面 Player、
+> 实现状态：已完成。当前作者项目格式为 v20，导出为 runtime v10；桌面 Player、
 > Web Player 与 Editor 正式预览共用同一套 CG 显示、对白和计时语义。显示 CG 首次
 > 引入的历史里程碑仍是 Author v17 / Runtime v8 / Snapshot v3。
 
@@ -108,7 +108,7 @@ Main 的后端响应解析器同时认识并净化两个新节点；畸形响应
 
 ## 5. Runtime、计时与媒体生命周期
 
-Runtime v8 首次新增、当前 Runtime v9 继续使用以下阻塞状态与展示字段：
+Runtime v8 首次新增、当前 Runtime v10 继续使用以下阻塞状态与展示字段：
 
 ```ts
 status: 'waitingCgLeadIn' | /* existing states */;
@@ -139,12 +139,12 @@ CG 是视觉层，进入等待态不会停止或重置 BGM；没有对白时 voi
 
 ## 6. 保存、导出与兼容
 
-- Writer 固定写 author v19；Reader 支持 v1–v19，v1–v16 迁移后没有 CG 显示节点；
+- Writer 固定写 author v20；Reader 支持 v1–v20，v1–v16 迁移后没有 CG 显示节点；
 - 伪装成旧版本的 `cgDisplay` / `cgEndDisplay` 会被严格拒绝；
-- Editor Main 把 author v19 编译为 runtime v9，并把 CG 图片纳入导出资源闭包；
-- 当前 runtime v9 manifest 使用 `playerCompatibility: ">=9 <10"`；
-- Desktop/Web Player Reader 支持 runtime v1–v9，CG 节点从 v8 起可用；
-- 当前 Player 模板使用 `runtimeCompatibility: ">=1 <10"`。
+- Editor Main 把 author v20 编译为 runtime v10，并把 CG 图片纳入导出资源闭包；
+- 当前 runtime v10 manifest 使用 `playerCompatibility: ">=10 <11"`；
+- Desktop/Web Player Reader 支持 runtime v1–v10，CG 节点从 v8 起可用；
+- 当前 Player 模板使用 `runtimeCompatibility: ">=1 <11"`。
 
 游戏进度当前使用 `GameRuntimeSnapshot v4`，继续保存 snapshot v3 引入的 `cgAssetId`、
 `cgLeadInMs` 和 `cgSequence`，并增加人物特效的最终视觉状态。恢复时不会信任派生对白或
@@ -157,12 +157,12 @@ CG 是视觉层，进入等待态不会停止或重置 BGM；没有对白时 voi
 | 层 | 技术与职责 |
 | --- | --- |
 | C++ Core | C++20、`std::variant`、候选副本事务、paired range 校验 |
-| C++ Backend | nlohmann/json、JSONL、exact params、author v19 strict Reader/Writer |
+| C++ Backend | nlohmann/json、JSONL、exact params、author v20 strict Reader/Writer |
 | Electron | TypeScript protocol、trusted IPC、contextBridge、响应净化与即时 pending reject |
 | Editor | React 19、Blockly 13、C 形投影、图片下拉、秒↔整数毫秒转换、表单只读树 |
 | Runtime | 纯 TypeScript reducer、预编译控制流、`waitingCgLeadIn`、snapshot v4 |
 | Player | React、HTML `<img>` load/decode、可暂停剩余时间、CSS 分层与本地化错误 |
-| Web | Vite Web Player、同源媒体 URL、IndexedDB 存档，与 Desktop 共用 runtime v9 |
+| Web | Vite Web Player、同源媒体 URL、IndexedDB 存档，与 Desktop 共用 runtime v10 |
 
 主要实现入口：
 

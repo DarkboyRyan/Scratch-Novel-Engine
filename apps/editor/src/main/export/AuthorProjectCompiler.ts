@@ -35,9 +35,9 @@ import {
 } from '../media/MediaFormat';
 
 export const AUTHOR_PROJECT_FORMAT = 'vn-engine-project';
-export const AUTHOR_PROJECT_FILE_VERSION = 19;
+export const AUTHOR_PROJECT_FILE_VERSION = 20;
 export const RUNTIME_FORMAT = 'vn-engine-runtime';
-export const RUNTIME_VERSION = 9;
+export const RUNTIME_VERSION = 10;
 
 export const AUTHOR_PROJECT_COMPILE_ERROR_CODES = {
   unresolvedCharacterAsset: 'character-image-required',
@@ -67,7 +67,7 @@ export type AuthorAssetRecord = AssetDocument & {
   mime: PreviewMime;
 };
 
-export type RuntimeGameDocumentV9 = {
+export type RuntimeGameDocumentV10 = {
   format: typeof RUNTIME_FORMAT;
   runtimeVersion: typeof RUNTIME_VERSION;
   game: {
@@ -76,6 +76,7 @@ export type RuntimeGameDocumentV9 = {
     entrySceneId: string;
     startScreen: {
       title: string;
+      eyebrow: string;
       backgroundAssetId: string | null;
       musicAssetId: string | null;
     };
@@ -89,7 +90,7 @@ export type RuntimeGameDocumentV9 = {
 };
 
 export type CompiledAuthorProject = {
-  game: RuntimeGameDocumentV9;
+  game: RuntimeGameDocumentV10;
   sourceProject: AuthorProjectDocument;
   project: RuntimeProjectDocument;
   referencedAssets: AuthorAssetRecord[];
@@ -126,7 +127,7 @@ function exactFields(
     actual.length !== wanted.length ||
     actual.some((field, index) => field !== wanted[index])
   ) {
-    throw new Error(`${context} 字段不符合作者项目 v19`);
+    throw new Error(`${context} 字段不符合作者项目 v20`);
   }
 }
 
@@ -558,7 +559,7 @@ function parseSceneNode(
         repeatNodeId: idValue(value, 'repeatNodeId', context),
       };
     default:
-      throw new Error(`${context}.type 不受作者项目 v19 支持`);
+      throw new Error(`${context}.type 不受作者项目 v20 支持`);
   }
 }
 
@@ -605,7 +606,7 @@ function parseScene(
   });
 
   if (initialCharacterAssetIds.length > 0) {
-    throw new Error('runtime v9 不支持场景初始人物，请改用人物立绘时间线节点');
+    throw new Error('runtime v10 不支持场景初始人物，请改用人物立绘时间线节点');
   }
 
   const nodes = arrayValue(value, 'nodes', context).map((node, nodeIndex) =>
@@ -815,6 +816,7 @@ export function compileAuthorProjectV15(contents: string): CompiledAuthorProject
     root.fileVersion !== 16 &&
     root.fileVersion !== 17 &&
     root.fileVersion !== 18 &&
+    root.fileVersion !== 19 &&
     root.fileVersion !== AUTHOR_PROJECT_FILE_VERSION
   ) {
     throw new Error('document.fileVersion 版本或格式不受支持');
@@ -847,13 +849,21 @@ export function compileAuthorProjectV15(contents: string): CompiledAuthorProject
   const startScreenValue = objectValue(projectValue.startScreen, 'project.startScreen');
   exactFields(
     startScreenValue,
-    ['title', 'backgroundAssetId', 'musicAssetId'],
+    sourceFileVersion >= 20
+      ? ['title', 'eyebrow', 'backgroundAssetId', 'musicAssetId']
+      : ['title', 'backgroundAssetId', 'musicAssetId'],
     'project.startScreen',
   );
   const startScreen = {
     title: stringValue(startScreenValue, 'title', 'project.startScreen', {
       maximum: 4096,
     }),
+    eyebrow: sourceFileVersion >= 20
+      ? stringValue(startScreenValue, 'eyebrow', 'project.startScreen', {
+          allowEmpty: true,
+          maximum: 256,
+        })
+      : 'A VN ENGINE STORY',
     backgroundAssetId: nullableId(
       startScreenValue,
       'backgroundAssetId',
@@ -867,6 +877,16 @@ export function compileAuthorProjectV15(contents: string): CompiledAuthorProject
   };
   if (trimAsciiWhitespace(startScreen.title) !== startScreen.title) {
     throw new Error('project.startScreen.title 不能包含首尾空白');
+  }
+  if (
+    trimAsciiWhitespace(startScreen.eyebrow) !== startScreen.eyebrow ||
+    Buffer.byteLength(startScreen.eyebrow, 'utf8') > 256 ||
+    Buffer.from(startScreen.eyebrow, 'utf8').toString('utf8') !==
+      startScreen.eyebrow
+  ) {
+    throw new Error(
+      'project.startScreen.eyebrow 必须是无首尾空白的有效 UTF-8，且最多为 256 字节',
+    );
   }
   if (startScreen.backgroundAssetId !== null) {
     referencedAssetIds.add(startScreen.backgroundAssetId);

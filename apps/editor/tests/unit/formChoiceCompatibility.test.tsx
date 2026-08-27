@@ -20,6 +20,7 @@ const project: ProjectDocument = {
   entrySceneId: 'scene-entry',
   startScreen: {
     title: 'Story',
+    eyebrow: 'A VN ENGINE STORY',
     backgroundAssetId: null,
     musicAssetId: null,
   },

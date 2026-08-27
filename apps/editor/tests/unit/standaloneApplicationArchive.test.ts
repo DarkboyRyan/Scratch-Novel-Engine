@@ -88,6 +88,7 @@ const project = {
   entrySceneId: 'scene-1',
   startScreen: {
     title: 'Standalone Story',
+    eyebrow: 'A VN ENGINE STORY',
     backgroundAssetId: null,
     musicAssetId: null,
   },
@@ -107,7 +108,7 @@ const project = {
 
 const sourceManifestContents = JSON.stringify({
   format: 'vn-engine-project',
-  fileVersion: 18,
+  fileVersion: 20,
   project,
   assets: [],
 });
@@ -144,7 +145,7 @@ describe.runIf(process.platform === 'darwin')(
           platform: process.platform,
           arch: process.arch,
           playerVersion: '0.1.0',
-          runtimeCompatibility: '>=1 <10',
+          runtimeCompatibility: '>=1 <11',
           payloadRoot: 'payload',
           artifactEntry: 'VN Engine Player.app',
           gameResourceDirectory: 'Contents/Resources/game',

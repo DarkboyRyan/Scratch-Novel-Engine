@@ -232,7 +232,7 @@ afterEach(async () => {
 });
 
 describe('runtime bundle exporter', () => {
-  it('publishes a verified runtime v9 bundle with start-screen and CG assets', async () => {
+  it('publishes a verified runtime v10 bundle with start-screen and CG assets', async () => {
     const {
       projectRoot,
       outputParent,
@@ -272,18 +272,20 @@ describe('runtime bundle exporter', () => {
     ]);
     expect(Object.keys(game.game.startScreen)).toEqual([
       'title',
+      'eyebrow',
       'backgroundAssetId',
       'musicAssetId',
     ]);
     expect(game).toMatchObject({
       format: 'vn-engine-runtime',
-      runtimeVersion: 9,
+      runtimeVersion: 10,
       game: {
         id: 'project-1',
         title: 'Export Game',
         entrySceneId: 'scene-1',
         startScreen: {
           title: 'Custom Title',
+          eyebrow: 'A VN ENGINE STORY',
           backgroundAssetId: 'image-1',
           musicAssetId: 'title-music',
         },
@@ -311,8 +313,8 @@ describe('runtime bundle exporter', () => {
       'files',
     ]);
     expect(manifest).toMatchObject({
-      runtimeVersion: 9,
-      playerCompatibility: '>=9 <10',
+      runtimeVersion: 10,
+      playerCompatibility: '>=10 <11',
     });
     expect(manifest.files).toEqual([
       {
@@ -424,7 +426,7 @@ describe('runtime bundle exporter', () => {
     const manifest = JSON.parse(
       await readFile(path.join(targetPath, 'manifest.json'), 'utf8'),
     ) as { files: Array<{ assetId: string }> };
-    expect(game.runtimeVersion).toBe(9);
+    expect(game.runtimeVersion).toBe(10);
     expect(game.game.cgGallery).toEqual({
       pages: [{ imageAssetIds: Array(9).fill(null) }],
     });
@@ -494,6 +496,7 @@ describe('runtime bundle exporter', () => {
         entrySceneId: 'legacy-scene',
         startScreen: {
           title: 'Legacy v1',
+          eyebrow: 'A VN ENGINE STORY',
           backgroundAssetId: null,
           musicAssetId: null,
         },
@@ -526,9 +529,10 @@ describe('runtime bundle exporter', () => {
       game: { startScreen: unknown; cgGallery: unknown };
       scenes: Array<{ backgroundAssetId: string | null; nodes: unknown[] }>;
     };
-    expect(game.runtimeVersion).toBe(9);
+    expect(game.runtimeVersion).toBe(10);
     expect(game.game.startScreen).toEqual({
       title: 'Legacy v1',
+      eyebrow: 'A VN ENGINE STORY',
       backgroundAssetId: null,
       musicAssetId: null,
     });
@@ -552,7 +556,7 @@ describe('runtime bundle exporter', () => {
     const expected = currentSnapshot();
 
     const future = projectDocument() as { fileVersion: number };
-    future.fileVersion = 20;
+    future.fileVersion = 21;
     const futureContents = JSON.stringify(future);
     await writeFile(path.join(projectRoot, 'project.vn.json'), futureContents);
     await expect(exportRuntimeBundle({

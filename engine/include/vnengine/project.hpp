@@ -95,6 +95,7 @@ enum class UpdateStartScreenResult {
   changed,
   unchanged,
   title_required,
+  eyebrow_invalid,
   background_asset_not_found,
   background_asset_not_image,
   music_asset_not_found,
@@ -104,6 +105,7 @@ enum class UpdateStartScreenResult {
 UpdateStartScreenResult update_start_screen(
     ProjectAggregate& aggregate,
     std::string title,
+    std::string eyebrow,
     std::optional<std::string> background_asset_id,
     std::optional<std::string> music_asset_id);
 
@@ -126,6 +128,12 @@ UpdateCgGalleryResult update_cg_gallery(
 // Title-screen names follow the same whitespace rules as project names but
 // remain an independent value after project creation/migration.
 std::optional<std::string> normalize_start_screen_title(std::string title);
+
+// Empty eyebrow copy is valid (and hides the line), while non-empty copy uses
+// surrounding ASCII whitespace normalization. Every accepted value is valid
+// UTF-8, NUL-free, and bounded by kStartScreenEyebrowMaxBytes.
+std::optional<std::string> normalize_start_screen_eyebrow(
+    std::string eyebrow);
 
 // Background changes are aggregate operations because a Scene may only
 // reference an existing image Asset. Expected validation failures are

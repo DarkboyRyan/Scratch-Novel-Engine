@@ -62,6 +62,14 @@ type CgMediaState = {
   url: string | null;
 };
 
+type DialoguePointerGesture = {
+  pointerId: number;
+  clientX: number;
+  clientY: number;
+  scrollTop: number;
+  element: HTMLElement;
+};
+
 function isSpaceKey(event: KeyboardEvent): boolean {
   return event.code === 'Space' || event.key === ' ' || event.key === 'Spacebar';
 }
@@ -114,6 +122,7 @@ export function GameScreen({
     url: null,
   });
   const spacePressedRef = useRef(false);
+  const dialoguePointerGestureRef = useRef<DialoguePointerGesture | null>(null);
   const spaceHoldTimerRef = useRef<number | null>(null);
   const cgLeadInTimerRef = useRef<{
     key: string;
@@ -471,9 +480,42 @@ export function GameScreen({
       className="player-game"
       tabIndex={-1}
       aria-label={labels.screenAria}
+      onPointerDown={(event) => {
+        dialoguePointerGestureRef.current = null;
+        if (event.button !== 0 || !(event.target instanceof Element)) {
+          return;
+        }
+        const dialogue = event.target.closest<HTMLElement>('.dialogue-box');
+        if (
+          dialogue === null ||
+          dialogue.scrollHeight <= dialogue.clientHeight
+        ) {
+          return;
+        }
+        dialoguePointerGestureRef.current = {
+          pointerId: event.pointerId,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          scrollTop: dialogue.scrollTop,
+          element: dialogue,
+        };
+      }}
+      onPointerCancel={() => {
+        dialoguePointerGestureRef.current = null;
+      }}
       onPointerUp={(event) => {
+        const dialogueGesture = dialoguePointerGestureRef.current;
+        dialoguePointerGestureRef.current = null;
+        const scrolledDialogue = dialogueGesture !== null &&
+          dialogueGesture.pointerId === event.pointerId &&
+          (
+            dialogueGesture.element.scrollTop !== dialogueGesture.scrollTop ||
+            Math.abs(event.clientX - dialogueGesture.clientX) > 6 ||
+            Math.abs(event.clientY - dialogueGesture.clientY) > 6
+          );
         if (
           event.button === 0 &&
+          !scrolledDialogue &&
           !paused &&
           !interactionBlocked &&
           runtime.status === 'playing'
@@ -596,6 +638,7 @@ export function GameScreen({
               </button>
               <button
                 type="button"
+                className="secondary"
                 disabled={interactionBlocked}
                 onClick={onRestart}
               >

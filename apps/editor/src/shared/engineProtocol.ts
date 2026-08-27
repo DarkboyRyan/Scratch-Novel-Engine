@@ -112,6 +112,7 @@ export type UpdateBgmParams = {
 
 export type UpdateStartScreenParams = {
   title: string;
+  eyebrow: string;
   backgroundAssetId: string | null;
   musicAssetId: string | null;
 };

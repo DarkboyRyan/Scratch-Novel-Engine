@@ -36,6 +36,7 @@ describe('Player trusted IPC', () => {
       entrySceneId: 'scene',
       startScreen: {
         title: 'Story Title',
+        eyebrow: 'A VN ENGINE STORY',
         backgroundAssetId: null,
         musicAssetId: null,
       },

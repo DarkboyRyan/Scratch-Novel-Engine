@@ -1,5 +1,5 @@
 // 文件职责：严格读取、迁移并写出 VN Engine Author 项目 JSON。
-// 关键实现：v1–v19 迁移、exact-field 校验、节点/资源序列化和 v19 Writer。
+// 关键实现：v1–v20 迁移、exact-field 校验、节点/资源序列化和 v20 Writer。
 #include "serialization.hpp"
 
 #include <algorithm>
@@ -1134,6 +1134,7 @@ SceneVisualState scene_visuals_from_json(
 Json start_screen_to_json(const StartScreen& start_screen) {
   return {
       {"title", start_screen.title},
+      {"eyebrow", start_screen.eyebrow},
       {"backgroundAssetId",
        start_screen.background_asset_id.has_value()
            ? Json(*start_screen.background_asset_id)
@@ -1150,7 +1151,12 @@ StartScreen start_screen_from_json(
     const std::string_view context,
     const int file_version,
     const std::string& legacy_title) {
-  if (file_version >= 11) {
+  if (file_version >= 20) {
+    require_exact_fields(
+        value,
+        {"title", "eyebrow", "backgroundAssetId", "musicAssetId"},
+        context);
+  } else if (file_version >= 11) {
     require_exact_fields(
         value, {"title", "backgroundAssetId", "musicAssetId"}, context);
   } else {
@@ -1176,6 +1182,9 @@ StartScreen start_screen_from_json(
       .title = file_version >= 11
           ? require_string(value, "title", context)
           : legacy_title,
+      .eyebrow = file_version >= 20
+          ? require_string(value, "eyebrow", context)
+          : "A VN ENGINE STORY",
       .background_asset_id = nullable_asset_id("backgroundAssetId"),
       .music_asset_id = nullable_asset_id("musicAssetId"),
   };

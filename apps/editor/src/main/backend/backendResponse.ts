@@ -276,6 +276,7 @@ function isStartScreenDocument(value: unknown): boolean {
   return (
     isObject(value) &&
     typeof value.title === 'string' &&
+    typeof value.eyebrow === 'string' &&
     (value.backgroundAssetId === null ||
       typeof value.backgroundAssetId === 'string') &&
     (value.musicAssetId === null ||
@@ -561,6 +562,7 @@ function toPublicProjectDocument(
     entrySceneId: value.entrySceneId as string,
     startScreen: {
       title: (value.startScreen as Record<string, unknown>).title as string,
+      eyebrow: (value.startScreen as Record<string, unknown>).eyebrow as string,
       backgroundAssetId: (value.startScreen as Record<string, unknown>)
         .backgroundAssetId as string | null,
       musicAssetId: (value.startScreen as Record<string, unknown>)

@@ -67,7 +67,7 @@ test('stages an exact, hashed Web Player template payload', async () => {
   assert.equal(manifest.templateVersion, 1);
   assert.equal(manifest.payloadRoot, 'payload');
   assert.equal(manifest.entry, 'index.html');
-  assert.equal(manifest.runtimeCompatibility, '>=1 <10');
+  assert.equal(manifest.runtimeCompatibility, '>=1 <11');
   assert.match(manifest.playerVersion, /^\d+\.\d+\.\d+$/u);
   assert.deepEqual(
     manifest.files.map((file) => file.path),

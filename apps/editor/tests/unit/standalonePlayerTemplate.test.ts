@@ -29,7 +29,7 @@ describe('standalone Player template contract', () => {
       platform: process.platform,
       arch: process.arch,
       playerVersion: '0.1.0',
-      runtimeCompatibility: '>=1 <10',
+      runtimeCompatibility: '>=1 <11',
       payloadRoot: 'payload',
       artifactEntry: macos ? 'VN Engine Player.app' : 'player',
       gameResourceDirectory: macos

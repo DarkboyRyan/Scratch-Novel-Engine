@@ -1003,21 +1003,32 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
   let content: ReactNode;
   if (state.kind === 'loading' || !settingsSettled) {
     content = (
-      <main className="player-shell player-loading" aria-live="polite">
-        <span className="player-loading-mark" aria-hidden="true" />
-        <p>{labels.shell.loadingGame}</p>
+      <main
+        className="player-shell player-loading"
+        aria-busy="true"
+      >
+        <section className="player-loading-status" role="status">
+          <span className="player-loading-mark" aria-hidden="true" />
+          <p>{labels.shell.loadingGame}</p>
+        </section>
       </main>
     );
   } else if (state.kind === 'empty') {
     content = (
       <main className="player-shell player-empty-page">
-        <section className="player-shell-card">
+        <section
+          className="player-shell-card"
+          aria-busy={openingGame}
+          aria-labelledby="player-empty-title"
+          aria-describedby="player-empty-description"
+        >
           <p className="player-eyebrow">{labels.shell.emptyEyebrow}</p>
-          <h1>{labels.shell.emptyTitle}</h1>
-          <p>{labels.shell.emptyDescription}</p>
+          <h1 id="player-empty-title">{labels.shell.emptyTitle}</h1>
+          <p id="player-empty-description">{labels.shell.emptyDescription}</p>
           {canOpenGame ? <div className="player-shell-actions">
             <button
               type="button"
+              className="player-shell-primary"
               disabled={openingGame}
               onClick={() => void openGame()}
             >
@@ -1032,14 +1043,23 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
   } else if (state.kind === 'error') {
     content = (
       <main className="player-shell player-error-page">
-        <section className="player-shell-card" role="alert">
+        <section
+          className="player-shell-card"
+          role="alert"
+          aria-busy={openingGame}
+          aria-labelledby="player-error-title"
+          aria-describedby="player-error-description"
+        >
           <p className="player-eyebrow">{labels.shell.errorEyebrow}</p>
-          <h1>{labels.shell.errorTitle}</h1>
-          <p>{localizeMessage(state.message, labels)}</p>
+          <h1 id="player-error-title">{labels.shell.errorTitle}</h1>
+          <p id="player-error-description">
+            {localizeMessage(state.message, labels)}
+          </p>
           <div className="player-shell-actions">
             {canOpenGame ? (
               <button
                 type="button"
+                className="player-shell-primary"
                 disabled={openingGame}
                 onClick={() => void openGame()}
               >
@@ -1265,6 +1285,7 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
               saveToast.kind === 'error' ? ' is-error' : ''
             }`}
             role={saveToast.kind === 'error' ? 'alert' : 'status'}
+            aria-atomic="true"
           >
             {localizeMessage(saveToast.message, labels)}
           </p>

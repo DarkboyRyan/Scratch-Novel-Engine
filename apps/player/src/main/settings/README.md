@@ -2,6 +2,24 @@
 
 [返回 Player Main](../README.md)
 
+设置模块同时处理持久数据与桌面原生窗口状态。共享协议定义语言、主/通道音量、窗口模式和尺寸预设；Store 保证文档安全，Manager 串行应用变更并以 BrowserWindow 的真实状态为准。
+
+## 读取和应用流程
+
+`PlayerSettingsStore` 从 `userData/settings` 读取版本化 JSON，主文件失败时尝试备份，旧版设置迁移后补入默认语言。写入会规范化数值、限制大小、拒绝链接目录，并通过临时文件和 rename 更新主文件与备份。
+
+`PlayerSettingsManager` 只初始化一次，并将操作排入同一队列。新窗口先在隐藏状态应用尺寸预设，页面加载后再执行全屏转换，最后才允许显示；这样可避免恢复全屏设置时闪现窗口框。系统原生进入/退出全屏事件会反向同步为权威设置。`PlayerSettingsQuitCoordinator` 合并多个退出事件，等待队列刷盘完成后只调用一次真正退出。
+
+界面语言和音量由 Renderer 使用返回设置，窗口几何只能由 Main 修改。新增设置字段时必须同步协议版本、V1/V2 迁移、Store、Manager 或 Renderer 消费端及测试。
+
+```bash
+pnpm --dir apps/player exec vitest run \
+  tests/unit/playerSettingsProtocol.test.ts \
+  tests/unit/playerSettingsStore.test.ts \
+  tests/unit/playerSettingsManager.test.ts \
+  tests/unit/playerSettingsQuitCoordinator.test.ts
+```
+
 ## 文件
 
 | 文件 | 框架技术 | 主要作用 | 关键函数与实现 |

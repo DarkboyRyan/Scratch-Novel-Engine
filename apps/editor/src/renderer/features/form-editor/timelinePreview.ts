@@ -6,7 +6,7 @@
 import type { RuntimeCharacterState } from '@vnengine/runtime';
 
 import {
-  formVisibleSceneNodes,
+  semanticSceneNodes,
   type SceneDocument,
 } from '../../../shared/projectTypes';
 
@@ -16,6 +16,7 @@ export type TimelineCharacterState = RuntimeCharacterState;
 
 export type TimelinePreviewState = {
   backgroundAssetId: string | null;
+  cgAssetId: string | null;
   characters: TimelineCharacterState[];
   showDialogue: boolean;
   logicPreviewUncertain?: true;
@@ -28,15 +29,15 @@ export function deriveTimelinePreview(
   scene: SceneDocument,
   selectedNodeId: string | null,
 ): TimelinePreviewState {
-  const nodes = formVisibleSceneNodes(scene);
+  // Use the executable scene order here rather than the form-only projection.
+  // In particular, CG end markers are invisible in the timeline list but are
+  // still required to clear the static CG at the correct position.
+  const nodes = semanticSceneNodes(scene);
   const selectedIndex = selectedNodeId
     ? nodes.findIndex((node) => node.id === selectedNodeId)
     : -1;
   const firstControlIndex = nodes.findIndex(
-    (node) =>
-      node.type === 'logicIf' ||
-      node.type === 'logicRepeat' ||
-      node.type === 'cgDisplay',
+    (node) => node.type === 'logicIf' || node.type === 'logicRepeat',
   );
   const requestedPlayheadIndex =
     selectedIndex >= 0 ? selectedIndex : nodes.length - 1;
@@ -51,6 +52,8 @@ export function deriveTimelinePreview(
     : requestedPlayheadIndex;
 
   let backgroundAssetId = scene.backgroundAssetId;
+  let cgAssetId: string | null = null;
+  let cgDisplayNodeId: string | null = null;
   const charactersByLayer = new Map<number, TimelineCharacterState>();
   for (let index = 0; index <= playheadIndex; index += 1) {
     const node = nodes[index];
@@ -71,24 +74,31 @@ export function deriveTimelinePreview(
           effectSequence: 0,
         });
       }
+    } else if (node?.type === 'cgDisplay') {
+      cgAssetId = node.assetId;
+      cgDisplayNodeId = node.id;
+    } else if (
+      node?.type === 'cgEndDisplay' &&
+      node.cgDisplayNodeId === cgDisplayNodeId
+    ) {
+      cgAssetId = null;
+      cgDisplayNodeId = null;
     }
   }
 
-  const uncertainNode = previewIsUncertain
-    ? nodes[firstControlIndex]
-    : undefined;
   return {
     backgroundAssetId,
+    cgAssetId,
     characters: [...charactersByLayer.values()].sort(
       (left, right) => left.layer - right.layer,
     ),
     showDialogue:
       !previewIsUncertain &&
       (selectedIndex < 0 || nodes[selectedIndex]?.type === 'dialogue'),
-    ...(previewIsUncertain && uncertainNode?.type !== 'cgDisplay'
+    ...(previewIsUncertain
       ? { logicPreviewUncertain: true as const }
       : {}),
-    ...(previewIsUncertain && uncertainNode?.type === 'cgDisplay'
+    ...(!previewIsUncertain && cgAssetId !== null
       ? { cgPreviewUncertain: true as const }
       : {}),
   };

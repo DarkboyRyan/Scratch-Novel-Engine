@@ -1,6 +1,14 @@
 # VN Engine Editor
 
-基于 Electron、React、Blockly 与 C++20 后端的视觉小说编辑器。Renderer 只通过类型化 Preload API 访问主机能力，项目写入、媒体读取和导出均由 Main 进程负责。
+[返回应用目录](../README.md)
+
+VN Engine Editor 是基于 Electron、React、Blockly 与 C++20 后端的视觉小说创作工具。它同时提供表单与图形化编辑方式，并把资源管理、即时预览、项目持久化和多平台导出组织在同一工作流中。Renderer 只通过类型化 Preload API 访问主机能力，项目写入、媒体读取和导出均由 Main 进程负责。
+
+## 工作方式
+
+1. Renderer 从用户操作生成创作命令，通过 Preload 暴露的最小 API 送往 Main 进程。
+2. Main 验证 IPC 来源和参数，再协调每个窗口独占的 C++ 后端、项目存储、媒体预览与设置服务。
+3. 保存时后端快照被原子写入作者工程；导出时作者工程会编译为 Player 可读取的 Runtime 文档和资产包。
 
 ## 模块导航
 
@@ -35,3 +43,9 @@
 | `pnpm --dir apps/editor lint` | 检查 Editor 源码规范和依赖边界。 |
 | `pnpm --dir apps/editor test` | 运行 C++ 与 Vitest 测试。 |
 | `pnpm --dir apps/editor make` | 构建后端并生成平台安装包。 |
+
+## 开发提示
+
+- 修改跨进程能力时，应同步检查 [`src/shared/`](./src/shared/README.md)、Preload 和对应 Main IPC，避免让 Renderer 直接依赖 Node.js。
+- `.vite/`、`out/`、`dist/`、`node_modules/` 与 CMake 构建目录都是生成内容，不属于手写源码索引。
+- 日常提交至少运行 `pnpm --dir apps/editor typecheck`、`pnpm --dir apps/editor lint` 和与改动最相关的 Vitest；涉及真实后端或导出契约时再运行完整 `test`。

@@ -32,6 +32,7 @@ const session: GamePreviewSession = {
     entrySceneId: 'scene-entry',
     startScreen: {
       title: 'Choice input',
+      eyebrow: 'A VN ENGINE STORY',
       backgroundAssetId: null,
       musicAssetId: null,
     },
@@ -179,6 +180,7 @@ describe('GamePreview choices', () => {
         name: '完整主界面',
         startScreen: {
           title: '自定义预览标题',
+          eyebrow: '自定义预览标语',
           backgroundAssetId: 'title-background',
           musicAssetId: 'title-music',
         },
@@ -217,6 +219,9 @@ describe('GamePreview choices', () => {
       container.querySelector('[aria-label="完整主界面预览"]'),
     ).not.toBeNull();
     expect(container.querySelector('h1')?.textContent).toBe('自定义预览标题');
+    expect(container.querySelector('.player-eyebrow')?.textContent).toBe(
+      '自定义预览标语',
+    );
     expect(container.textContent).toContain('开始游戏');
     expect(container.textContent).toContain('CG画廊');
     expect(container.textContent).toContain('读取游戏');

@@ -48,6 +48,7 @@ describe('deriveTimelinePreview', () => {
   it('uses the initial scene background before the first background node', () => {
     expect(deriveTimelinePreview(scene, 'd1')).toEqual({
       backgroundAssetId: 'initial',
+      cgAssetId: null,
       characters: [],
       showDialogue: true,
     });
@@ -56,6 +57,7 @@ describe('deriveTimelinePreview', () => {
   it('keeps the latest background active until another background node', () => {
     expect(deriveTimelinePreview(scene, 'd2')).toEqual({
       backgroundAssetId: 'forest',
+      cgAssetId: null,
       characters: [],
       showDialogue: true,
     });
@@ -64,6 +66,7 @@ describe('deriveTimelinePreview', () => {
   it('keeps authoring-only story extensions invisible to preview semantics', () => {
     expect(deriveTimelinePreview(scene, 'd2')).toEqual({
       backgroundAssetId: 'forest',
+      cgAssetId: null,
       characters: [],
       showDialogue: true,
     });
@@ -87,6 +90,7 @@ describe('deriveTimelinePreview', () => {
 
     expect(deriveTimelinePreview(clearScene, 'd3')).toEqual({
       backgroundAssetId: null,
+      cgAssetId: null,
       characters: [],
       showDialogue: true,
     });
@@ -284,19 +288,21 @@ describe('deriveTimelinePreview', () => {
 
     expect(deriveTimelinePreview(logicScene, 'else-bg')).toEqual({
       backgroundAssetId: 'safe-background',
+      cgAssetId: null,
       characters: [],
       showDialogue: false,
       logicPreviewUncertain: true,
     });
     expect(deriveTimelinePreview(logicScene, 'after')).toEqual({
       backgroundAssetId: 'safe-background',
+      cgAssetId: null,
       characters: [],
       showDialogue: false,
       logicPreviewUncertain: true,
     });
   });
 
-  it('freezes before a CG segment and requests formal preview for timing', () => {
+  it('shows a CG statically through its body and clears it after the range', () => {
     const cgScene: SceneDocument = {
       ...scene,
       nodes: [
@@ -323,17 +329,77 @@ describe('deriveTimelinePreview', () => {
       ],
     };
 
-    expect(deriveTimelinePreview(cgScene, 'cg-line')).toEqual({
+    expect(deriveTimelinePreview(cgScene, 'cg-1')).toEqual({
       backgroundAssetId: 'safe-background',
+      cgAssetId: 'cg-image',
       characters: [],
       showDialogue: false,
       cgPreviewUncertain: true,
     });
-    expect(deriveTimelinePreview(cgScene, 'after-bg')).toEqual({
+    expect(deriveTimelinePreview(cgScene, 'cg-line')).toEqual({
       backgroundAssetId: 'safe-background',
+      cgAssetId: 'cg-image',
+      characters: [],
+      showDialogue: true,
+      cgPreviewUncertain: true,
+    });
+    expect(deriveTimelinePreview(cgScene, 'after-bg')).toEqual({
+      backgroundAssetId: 'after-background',
+      cgAssetId: null,
       characters: [],
       showDialogue: false,
-      cgPreviewUncertain: true,
+    });
+    expect(deriveTimelinePreview(cgScene, null)).toEqual({
+      backgroundAssetId: 'after-background',
+      cgAssetId: null,
+      characters: [],
+      showDialogue: true,
+    });
+  });
+
+  it('keeps a CG behind unresolved logic out of the static preview', () => {
+    const nestedCgScene: SceneDocument = {
+      ...scene,
+      nodes: [
+        { id: 'before', type: 'background', assetId: 'safe-background' },
+        {
+          id: 'if-1',
+          type: 'logicIf',
+          condition: {
+            left: { kind: 'variable', name: 'route' },
+            operator: 'eq',
+            right: { kind: 'literal', value: 'A' },
+          },
+        },
+        {
+          id: 'cg-1',
+          type: 'cgDisplay',
+          assetId: 'cg-image',
+          leadInMs: 500,
+        },
+        {
+          id: 'cg-line',
+          type: 'dialogue',
+          speaker: 'A',
+          text: 'Inside uncertain branch',
+          voiceAssetId: null,
+        },
+        {
+          id: 'cg-end',
+          type: 'cgEndDisplay',
+          cgDisplayNodeId: 'cg-1',
+        },
+        { id: 'else-1', type: 'logicElse', ifNodeId: 'if-1' },
+        { id: 'end-1', type: 'logicEndIf', ifNodeId: 'if-1' },
+      ],
+    };
+
+    expect(deriveTimelinePreview(nestedCgScene, 'cg-line')).toEqual({
+      backgroundAssetId: 'safe-background',
+      cgAssetId: null,
+      characters: [],
+      showDialogue: false,
+      logicPreviewUncertain: true,
     });
   });
 });

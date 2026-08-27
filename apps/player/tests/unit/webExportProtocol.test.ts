@@ -21,11 +21,11 @@ describe('Web export descriptor', () => {
     );
     expect(parseWebExportDescriptor(JSON.stringify({
       ...validDescriptor,
-      runtimeVersion: 9,
-      playerCompatibility: '>=9 <10',
+      runtimeVersion: 10,
+      playerCompatibility: '>=10 <11',
     }))).toMatchObject({
-      runtimeVersion: 9,
-      playerCompatibility: '>=9 <10',
+      runtimeVersion: 10,
+      playerCompatibility: '>=10 <11',
     });
   });
 
@@ -38,6 +38,11 @@ describe('Web export descriptor', () => {
       ...validDescriptor,
       playerCompatibility: '>=1',
     }))).toThrow('兼容范围无效');
+    expect(() => parseWebExportDescriptor(JSON.stringify({
+      ...validDescriptor,
+      runtimeVersion: 11,
+      playerCompatibility: '>=11 <12',
+    }))).toThrow('版本或格式不受支持');
     for (const gameRoot of [
       '/game/build',
       'game/../build',

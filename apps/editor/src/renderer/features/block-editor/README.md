@@ -1,6 +1,14 @@
 # Blockly 故事编辑器
 
-故事 Blockly 编辑器的工作区、事件同步和布局能力。
+[返回功能模块](../README.md)
+
+本目录实现故事的 Blockly 图形化编辑界面，包括工作区生命周期、工具箱分类、项目投影、拖放同步、积木组移动和场景布局保存。Blockly 是作者工程的可视化投影而非独立数据源；所有有效编辑最终都要转换为 Engine 命令。
+
+## 架构位置与工作方式
+
+1. `projectSceneToWorkspace.ts` 和 [`blocks/`](./blocks/README.md) 把当前场景投影成具有稳定 ID、字段和连接约束的积木树。
+2. `BlocklyWorkspace.tsx` 监听创建、删除、字段变更和移动事件，各 `*BlockEvents.ts` 将其解析为作者语义动作。
+3. Engine 成功后重新投影项目；布局模块单独保留坐标和视口，避免业务刷新打乱用户工作区。
 
 ## 子目录
 
@@ -34,3 +42,9 @@
 | [storyContinuationBlockEvents.ts](./storyContinuationBlockEvents.ts) | TypeScript + Blockly | 处理故事续页积木的顺序变化和页面重排命令 | `StoryContinuationSequenceResolution`、`buildStoryContinuationPageReorder`、`getStoryContinuationSequenceUpdate`、`collectStoryContinuationSequenceDraft` |
 | [toolbox.ts](./toolbox.ts) | TypeScript + Blockly | 按类别构建本地化 Blockly 工具箱配置 | `createBlockEditorToolbox` |
 | [zoomControlIcons.ts](./zoomControlIcons.ts) | TypeScript | 创建并安装 Blockly 缩放控件 SVG 图标 | `installInlineZoomControlIcons` |
+
+## 开发与验证
+
+- 积木 ID、连接检查器和后端节点 ID 具有持久语义；事件处理中要区分程序化投影与真实用户操作，防止回写循环。
+- 新积木需同步定义、工具箱分类、项目投影、事件转换、本地化和测试；逻辑容器还要验证嵌套结构。
+- 运行 `pnpm --dir apps/editor exec vitest run tests/unit/logicBlocks.test.ts tests/unit/logicBlockEvents.test.ts tests/unit/blockEditorLayout.test.ts`，涉及完整工作区时补充对应 `blocklyWorkspace*.test.tsx`。

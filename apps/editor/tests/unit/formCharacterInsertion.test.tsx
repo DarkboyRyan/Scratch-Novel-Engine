@@ -21,6 +21,7 @@ const project: ProjectDocument = {
   entrySceneId: 'scene-1',
   startScreen: {
     title: 'Portrait form project',
+    eyebrow: 'A VN ENGINE STORY',
     backgroundAssetId: null,
     musicAssetId: null,
   },

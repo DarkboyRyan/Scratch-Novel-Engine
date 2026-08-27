@@ -38,6 +38,7 @@ describe('engine IPC validation', () => {
         method: 'startScreen.update',
         params: {
           title: 'Custom title',
+          eyebrow: 'A CUSTOM STORY',
           backgroundAssetId: 'image-1',
           musicAssetId: null,
         },
@@ -48,6 +49,7 @@ describe('engine IPC validation', () => {
         method: 'startScreen.update',
         params: {
           title: 'Custom title',
+          eyebrow: '',
           backgroundAssetId: null,
           musicAssetId: 'audio-1',
         },
@@ -56,19 +58,56 @@ describe('engine IPC validation', () => {
 
     for (const params of [
       { backgroundAssetId: 'image-1' },
-      { title: 7, backgroundAssetId: null, musicAssetId: null },
       {
         title: 'Custom title',
+        backgroundAssetId: null,
+        musicAssetId: null,
+      },
+      {
+        title: 7,
+        eyebrow: 'A CUSTOM STORY',
+        backgroundAssetId: null,
+        musicAssetId: null,
+      },
+      {
+        title: 'Custom title',
+        eyebrow: 7,
+        backgroundAssetId: null,
+        musicAssetId: null,
+      },
+      {
+        title: 'Custom title',
+        eyebrow: 'a'.repeat(257),
+        backgroundAssetId: null,
+        musicAssetId: null,
+      },
+      {
+        title: 'Custom title',
+        eyebrow: 'BAD\0COPY',
+        backgroundAssetId: null,
+        musicAssetId: null,
+      },
+      {
+        title: 'Custom title',
+        eyebrow: '\ud800',
+        backgroundAssetId: null,
+        musicAssetId: null,
+      },
+      {
+        title: 'Custom title',
+        eyebrow: 'A CUSTOM STORY',
         backgroundAssetId: 7,
         musicAssetId: null,
       },
       {
         title: 'Custom title',
+        eyebrow: 'A CUSTOM STORY',
         backgroundAssetId: null,
         musicAssetId: false,
       },
       {
         title: 'Custom title',
+        eyebrow: 'A CUSTOM STORY',
         backgroundAssetId: null,
         musicAssetId: null,
         sceneId: 'scene-1',

@@ -18,7 +18,7 @@
 当前已经实现：
 
 - 场景、对白、背景切换、人物立绘、视频播放、选项分支和显式场景跳转；
-- 软件托管的主界面合成场景：表单与固定 Blockly 根积木共同编辑独立游戏标题、背景图片和背景音乐，
+- 软件托管的主界面合成场景：表单与固定 Blockly 根积木共同编辑标题上方文字、独立游戏标题、背景图片和背景音乐，
   新建、打开项目或启动 Editor 后默认进入该场景，并可预览完整标题页流程；
 - 软件托管的 CG 画廊合成场景：表单可手动新增/删除页面并编辑固定九槽，独立 Blockly
   工作区由作者从工具箱加入“每页一个大模块、每模块九个图片下拉框”，并可预览完整主界面与画廊；
@@ -32,10 +32,10 @@
 - 对白语音、时间线 BGM，以及正式预览中的双音轨播放；
 - 正式游戏顺序预览、阻塞式视频/选项、点击推进和跳转循环保护；
 - 平台无关的共享 Runtime/Player UI，以及只读独立 Electron Player MVP；
-- Editor 的 v19→runtime v9 `.vngame` 目录包导出，以及 Player 原生目录选择换包；
+- Editor 的 v20→runtime v10 `.vngame` 目录包导出，以及 Player 原生目录选择换包；
 - 跨平台 Web Player ZIP 导出：根目录可直接静态部署，浏览器通过 Fetch 加载内嵌
-  runtime v9，并用 IndexedDB 保存存档与设置；
-- Player 兼容 runtime v1–v9；runtime v9 标题页渲染独立标题、自定义背景、循环标题音乐和固定的
+  runtime v10，并用 IndexedDB 保存存档与设置；
+- Player 兼容 runtime v1–v10；runtime v10 标题页渲染可编辑标题上方文字、独立标题、自定义背景、循环标题音乐和固定的
   “开始游戏 / 读取游戏 / CG 画廊 / 选项 / 退出游戏”入口；正式 Player 还提供
   3 个手动存档槽、独立快速槽和游戏内底栏；标题页、底栏与暂停菜单共用持久化选项，
   支持主/BGM/语音/视频音量、窗口/全屏和三档窗口尺寸；三档尺寸同时使用
@@ -131,7 +131,7 @@ Main 负责：
 - 为每个窗口启动/关闭 C++ 后端；
 - 管理请求 ID、Promise、进程退出和错误；
 - 管理项目目录、临时工作区和原子发布；
-- 严格读取已保存 v19、编译 runtime v9，并以 staging/hash/rename 导出内容包；
+- 严格读取已保存 v20、编译 runtime v10，并以 staging/hash/rename 导出内容包；
 - 校验当前平台/架构 Player 模板，在 macOS 私有工作区注入 runtime bundle、更新
   `Info.plist` 并 ad-hoc 签名；用 `ditto` 生成 ZIP、私有解压复验签名后，只发布
   一个不覆盖既有目标的 `*-macOS.zip`；
@@ -164,15 +164,15 @@ Core 是唯一业务权威来源，且不依赖 Electron 或 JSON。它负责：
   使用带 owner ID 的隐藏 paired markers；
 - ID 生成、全局唯一性和引用完整性；
 - 场景、对白语音、背景、人物、人物 sidecar effect、BGM、视频、选项和跳转操作；
-- 项目级 `StartScreen` 独立标题、背景图片/音乐引用的校验、no-op 判断和原子更新；
+- 项目级 `StartScreen` 标题上方文字、独立标题、背景图片/音乐引用的校验、no-op 判断和原子更新；
 - 项目级 `CgGallery` 固定页面/槽位、跨页唯一图片引用的完整替换、资源类型校验、no-op 判断和原子更新；
 - 变量名/值、32 个项目变量、If/Else 配对、Repeat 次数与 16 层嵌套校验；
 - 混合时间线原子删除与重排，控制结构使用专用整棵删除和整体重排；
 - 入口场景和被跳转引用场景的保护规则；
 - no-op 判断和候选对象提交。
 
-当前导出先复用 Core 已有的 v19 保存与 revision 边界，再由 Main 的 TypeScript 编译器
-生成 runtime v9，没有新增 C++ export 命令。未来原生 Runtime、命令行工具或 WASM
+当前导出先复用 Core 已有的 v20 保存与 revision 边界，再由 Main 的 TypeScript 编译器
+生成 runtime v10，没有新增 C++ export 命令。未来原生 Runtime、命令行工具或 WASM
 仍可复用 Core，而无需依赖编辑器 UI。
 
 ## 5. 权威数据模型
@@ -206,12 +206,13 @@ struct ProjectAggregate {
 ```cpp
 struct StartScreen {
   std::string title;
+  std::string eyebrow;
   std::optional<std::string> background_asset_id;
   std::optional<std::string> music_asset_id;
 };
 ```
 
-它保存 Player 标题页所需的独立标题和两个资源引用，不是 `SceneNode`，也不会进入
+它保存 Player 标题页所需的标题上方文字、独立标题和两个资源引用，不是 `SceneNode`，也不会进入
 `Project.scenes` 或参与剧情跳转。
 
 同级的 `CgGallery` 保存作者明确创建的页面和固定图片槽位：
@@ -229,7 +230,7 @@ struct CgGallery {
 `pages` 至少包含一页，每页 `image_asset_ids` 精确九项；每项是图片 Asset ID 或空槽，
 所有非空 ID 跨页唯一且指向现有 image Asset。它同样不是 Scene，也不会参与剧情时间线。
 
-十七种作者节点共享 `Scene.nodes` 的唯一顺序；除延伸外都进入 runtime v9。人物特效是
+十七种作者节点共享 `Scene.nodes` 的唯一顺序；除延伸外都进入 runtime v10。人物特效是
 CharacterNode 的 sidecar value，不增加第十八种时间线节点：
 
 - `Dialogue`：玩家可见的对白停顿点，可选绑定一次性人物语音；
@@ -310,7 +311,7 @@ connection 嵌套在容器内部。Option 不是独立 SceneNode；新增、修�
 “延伸 1 / 延伸 2…”，输入目标序号会原子移动该延伸及其后直到下一延伸前的整段，
 随后按权威时间线重新编号；数字本身不单独持久化。没有延伸时，即使剧情很长也保持
 一条链。`SceneJumpNode` 仍会直接终止当前段。延伸从作者项目 v12 起成为可创建、可删除但
-不能单块拖动的稳定编辑实体，没有游戏行为；表单会过滤它，导出器也会在生成 runtime v9
+不能单块拖动的稳定编辑实体，没有游戏行为；表单会过滤它，导出器也会在生成 runtime v10
 时剥离它。
 
 ### 8.1 软件托管的主界面合成场景
@@ -323,18 +324,22 @@ synthetic scene（合成场景），使用保留 ID，仅作为编辑入口，�
 
 ```text
 主界面游戏名 [可填写]（根积木）
+标题上方文字 [可填写]
 └── 界面内容
     ├── 背景图片
     └── 背景音乐
 ```
 
 三个积木由软件管理，不能移动、删除、改写结构或打开上下文菜单。根积木提供白色
-游戏名输入框；背景与音乐子积木
+游戏名和标题上方文字输入框；背景与音乐子积木
 提供白色资源下拉框，第一项固定为“无”，也支持把对应类型的资源直接拖入；不再提供
-单独的“清除背景/清除音乐”按钮。表单模式使用独立游戏名输入框和两个同样以“无”为首项的白色选择框，
+单独的“清除背景/清除音乐”按钮。表单模式在右侧内容区提供标题上方文字、独立游戏名和
+两个同样以“无”为首项的白色选择框，
 并显示标题页设计预览。两种视图都经 `startScreen.update` IPC 请求 C++ 原子更新
 `project.startScreen`。主界面标题与项目名彼此独立；新建或迁移旧项目时以项目名初始化，
-此后项目重命名不会覆盖它。C++ 校验标题非空、背景只能引用图片、音乐只能引用音频，
+此后项目重命名不会覆盖它。标题上方文字默认是 `A VN ENGINE STORY`；空字符串隐藏该行。
+C++ 会 trim 首尾 ASCII 空白，拒绝 NUL 或超过 256 个 UTF-8 字节的值；同时校验标题非空、
+背景只能引用图片、音乐只能引用音频，
 失败不修改 Project，相同值不增加 revision。切换模式、场景、保存或预览前都会等待当前草稿更新完成。
 
 ### 8.2 软件托管的 CG 画廊合成场景
@@ -395,7 +400,7 @@ Main 掌握项目根和源媒体路径，Renderer 只知道 `hasStorage`、文�
 工作区。图片预览以及音频/视频播放使用 `vn-asset://` capability URL，而不是
 `file://`；音频和视频支持安全的单段 Range 响应。
 
-当前 Writer 写 `fileVersion: 19`，Reader 支持 v1–v19。v9 曾新增严格序列化的
+当前 Writer 写 `fileVersion: 20`，Reader 支持 v1–v20。v9 曾新增严格序列化的
 ChoiceNode/ChoiceOption；v10 新增 exact-fields 的 `project.startScreen` 背景和音乐，
 v11 为它新增独立 `title`。Reader 打开 v1–v9 时将两项媒体迁移为 `null`；打开
 v1–v10 时用 `project.name` 初始化标题。v12 新增只属于作者项目的手动延伸节点；
@@ -404,16 +409,17 @@ v13 为人物节点新增可空百分比 `position`；v14 首次以扁平
 v14 时按原顺序每九张分成一页并用 `null` 补满最后一页，打开 v1–v13 时生成一张全空页。
 v16 新增变量 Set/Change、条件 AST 和 If/Else/Repeat paired markers；v17 新增显示 CG
 的 paired range；v18 为 CharacterNode 新增严格可空 sidecar effect；v19 新增
-`mode:'show'|'clear'`。Writer 再保存时统一写 v19；旧 v1–v17 人物迁移为
+`mode:'show'|'clear'`；v20 为 `project.startScreen` 新增 `eyebrow`。Writer 再保存时统一写
+v20；v1–v19 的标题上方文字迁移为 `A VN ENGINE STORY`；旧 v1–v17 人物迁移为
 `effect:null`，旧 v1–v18 再按 assetId 推导 mode，旧版伪造字段会被拒绝。
 
 v19 的 `show + assetId:null` 是可持久化的待选图占位，Editor 预览将其过滤为 no-op；
-导出器以稳定错误拒绝未完成节点，绝不把它投影成 Runtime v9 的 clear。只有显式
+导出器以稳定错误拒绝未完成节点，绝不把它投影成 Runtime v10 的 clear。只有显式
 `mode:'clear'` 才清层，且其 assetId、position、effect 必须全为 null。
 
 旧项目未另存时也可以直接导出。v1–v13 的磁盘字节先由窗口独享的 C++ Reader 迁移并
 聚合校验，Main 再以保存时记录的 manifest SHA 绑定该 canonical 快照；Asset 路径仍取自
-原文件并经过 v19 Compiler 的 strict 校验。v14–v19 继续直接走严格 Compiler，未来版本
+原文件并经过 v20 Compiler 的 strict 校验。v14–v20 继续直接走严格 Compiler，未来版本
 和投影不一致均 fail closed，导出不会为兼容而改写作者项目。旧 scene-level 初始人物
 不在 Renderer 投影内，因此会明确要求作者改用 Character 时间线节点，而不会被静默删除。
 
@@ -449,7 +455,7 @@ revision 或磁盘，也不会改写正式游戏使用的 `entrySceneId`。选�
 
 Editor Renderer 点击“导出”后，先提交草稿、等待 Engine 队列并走既有 C++ 保存
 链。只有 `hasStorage=true`、`isDirty=false` 且 `savedRevision===revision` 时，Main
-才稳定读取已保存的 v19 清单，严格编译 runtime v9，只复制剧情、主界面及 CG 画廊非空槽引用媒体，并在目标
+才稳定读取已保存的 v20 清单，严格编译 runtime v10，只复制剧情、主界面及 CG 画廊非空槽引用媒体，并在目标
 父目录使用排他锁、staging、SHA-256、fsync 和原子 rename 发布 `.vngame` 目录。
 Renderer 不传入或接收本机路径。
 
@@ -481,15 +487,16 @@ packaged Player 是不内嵌 fixture 的通用空壳。`openGame()` 只请求 Ma
 禁用换包入口；坏 embedded 内容保持只读错误状态，不降级成通用选择器。开发模式仍
 自动加载受控 fixture。
 
-Player Reader 同时接受 runtime v1–v9：v1 缺少主界面配置，v2 只有背景/音乐，
+Player Reader 同时接受 runtime v1–v10：v1 缺少主界面配置，v2 只有背景/音乐，
 两者都以 `game.title` 补齐标题；v3 加入独立标题，v4 为人物节点加入可空百分比坐标，
 v5 以扁平列表加入 `cgGallery`，v6 改为至少一页、每页固定九槽，v7 加入变量和配对
-逻辑节点，v8 加入显示 CG paired range，v9 为人物节点加入严格可空 sidecar effect。
+逻辑节点，v8 加入显示 CG paired range，v9 为人物节点加入严格可空 sidecar effect，
+v10 为 `game.startScreen` 加入 `eyebrow`。
 runtime v5 会按顺序分块并补 `null`，runtime v1–v4 加载后得到一张全空页；runtime
-v1–v8 的人物特效迁移为 `null`。当前 v9 manifest 声明
-`playerCompatibility: ">=9 <10"`；模板声明 `runtimeCompatibility: ">=1 <10"`，因此同一
-模板可以运行九代内容包。标题页会渲染
-独立标题和配置背景，循环播放标题音乐，并固定显示“开始游戏 / 读取游戏 / CG 画廊 /
+v1–v8 的人物特效迁移为 `null`；runtime v1–v9 的标题上方文字迁移为
+`A VN ENGINE STORY`。当前 v10 manifest 声明 `playerCompatibility: ">=10 <11"`；模板
+声明 `runtimeCompatibility: ">=1 <11"`，因此同一模板可以运行十代内容包。标题页会渲染
+非空标题上方文字、独立标题和配置背景，循环播放标题音乐，并固定显示“开始游戏 / 读取游戏 / CG 画廊 /
 选项 / 退出游戏”；通用 Player
 的“打开其他游戏”位于“选项”内。标题音乐拥有独立的 `<audio>` 生命周期，开始剧情、
 切换内容包或卸载标题页时会停止并归零，不与剧情时间线 BGM 共享控制器。
@@ -516,8 +523,8 @@ rename 原子发布。窗口预设为 960×600、1280×800、1600×1000，放不
 音量不重建音轨或重置播放位置。选项、存档、CG 画廊和打开失败弹层使用同步 latch
 保持互斥，底层界面进入 `inert`，关闭后恢复触发按钮焦点。Editor 标题页预览只保存
 组件内存状态并禁用窗口控制。完整契约、安全边界与测试矩阵见
-[Player 选项系统](./player-options-implementation.md)。该功能不改变当前 author v19、
-runtime v9 或 `GameRuntimeSnapshot v4`。
+[Player 选项系统](./player-options-implementation.md)。选项功能本身不修改内容格式；当前
+内容契约为 author v20、runtime v10 和 `GameRuntimeSnapshot v4`。
 
 Windows/Linux 独立游戏和带正式图标的三平台产物不由 macOS Editor 后处理二进制，
 而由 `player-game-build.yml` 在对应 runner 用 Forge 重新构建。`player-release.yml`
@@ -565,7 +572,7 @@ apps/editor/src/
 │   ├── backend/
 │   ├── ipc/
 │   ├── project/             # Workflow、PathPolicy、Publisher、Session
-│   ├── export/              # v19→runtime v9 编译、staging、manifest 与原子目录发布
+│   ├── export/              # v20→runtime v10 编译、staging、manifest 与原子目录发布
 │   ├── media/
 │   ├── assets/
 │   └── window/

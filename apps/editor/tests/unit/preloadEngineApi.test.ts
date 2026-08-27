@@ -75,6 +75,7 @@ describe('preload background and timeline engine API', () => {
       'updateStartScreen',
       {
         title: 'Custom title',
+        eyebrow: 'A CUSTOM STORY',
         backgroundAssetId: 'background-1',
         musicAssetId: 'music-1',
       },

@@ -48,7 +48,7 @@ function gameDocument(assetId: string | null = null) {
 
 function manifestDocument(
   files: unknown[] = [],
-  runtimeVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 = 1,
+  runtimeVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 = 1,
 ): Record<string, unknown> {
   return {
     format: 'vn-engine-runtime-manifest',
@@ -57,23 +57,7 @@ function manifestDocument(
     projectId: 'project-1',
     sourceRevision: 3,
     runtimeVersion,
-    playerCompatibility: runtimeVersion === 1
-      ? '>=1 <2'
-      : runtimeVersion === 2
-        ? '>=2 <3'
-        : runtimeVersion === 3
-          ? '>=3 <4'
-          : runtimeVersion === 4
-            ? '>=4 <5'
-            : runtimeVersion === 5
-              ? '>=5 <6'
-              : runtimeVersion === 6
-                ? '>=6 <7'
-                : runtimeVersion === 7
-                  ? '>=7 <8'
-                  : runtimeVersion === 8
-                    ? '>=8 <9'
-                    : '>=9 <10',
+    playerCompatibility: `>=${runtimeVersion} <${runtimeVersion + 1}`,
     createdAt: '2026-08-18T00:00:00.000Z',
     files,
   };
@@ -132,6 +116,7 @@ describe('runtime bundle loader', () => {
       entrySceneId: 'scene-entry',
       startScreen: {
         title: '星光物语',
+        eyebrow: 'A VN ENGINE STORY',
         backgroundAssetId: null,
         musicAssetId: null,
       },
@@ -221,6 +206,7 @@ describe('runtime bundle loader', () => {
     );
     expect(legacy.game.project.startScreen).toEqual({
       title: 'Runtime test',
+      eyebrow: 'A VN ENGINE STORY',
       backgroundAssetId: null,
       musicAssetId: null,
     });
@@ -255,6 +241,7 @@ describe('runtime bundle loader', () => {
       ).game.project.startScreen,
     ).toEqual({
       title: 'Runtime test',
+      eyebrow: 'A VN ENGINE STORY',
       backgroundAssetId: 'title-background',
       musicAssetId: null,
     });
@@ -298,6 +285,87 @@ describe('runtime bundle loader', () => {
         JSON.stringify(manifestDocument([], 3)),
       ),
     ).toThrow('game.json.game.startScreen 字段不符合');
+  });
+
+  it('strictly reads runtime v10 eyebrows and rejects legacy or unsafe fields', () => {
+    const runtimeV10 = {
+      ...gameDocument(),
+      runtimeVersion: 10,
+      game: {
+        ...gameDocument().game,
+        startScreen: {
+          title: 'Custom title',
+          eyebrow: '',
+          backgroundAssetId: null,
+          musicAssetId: null,
+        },
+        cgGallery: {
+          pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+        },
+      },
+    };
+
+    const parsed = parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV10),
+      JSON.stringify(manifestDocument([], 10)),
+    );
+    expect(parsed.runtimeVersion).toBe(10);
+    expect(parsed.game.project.startScreen).toMatchObject({
+      title: 'Custom title',
+      eyebrow: '',
+    });
+
+    runtimeV10.game.startScreen.eyebrow = 'x'.repeat(256);
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV10),
+      JSON.stringify(manifestDocument([], 10)),
+    )).not.toThrow();
+    runtimeV10.game.startScreen.eyebrow = '界'.repeat(85);
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV10),
+      JSON.stringify(manifestDocument([], 10)),
+    )).not.toThrow();
+    runtimeV10.game.startScreen.eyebrow = '😀'.repeat(64);
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV10),
+      JSON.stringify(manifestDocument([], 10)),
+    )).not.toThrow();
+
+    for (const eyebrow of [
+      ' leading',
+      'trailing ',
+      '\ttab',
+      'newline\n',
+      'nul\0inside',
+      'x'.repeat(257),
+      '界'.repeat(86),
+      '😀'.repeat(65),
+      '\ud800',
+      '\udc00',
+    ]) {
+      runtimeV10.game.startScreen.eyebrow = eyebrow;
+      expect(() => parseRuntimeBundleDocuments(
+        JSON.stringify(runtimeV10),
+        JSON.stringify(manifestDocument([], 10)),
+      )).toThrow('game.json.game.startScreen.eyebrow 不是有效字符串');
+    }
+
+    const missingEyebrow = structuredClone(runtimeV10);
+    delete (missingEyebrow.game.startScreen as Partial<
+      typeof missingEyebrow.game.startScreen
+    >).eyebrow;
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(missingEyebrow),
+      JSON.stringify(manifestDocument([], 10)),
+    )).toThrow('game.json.game.startScreen 字段不符合');
+
+    const runtimeV9WithEyebrow = structuredClone(runtimeV10);
+    runtimeV9WithEyebrow.runtimeVersion = 9;
+    runtimeV9WithEyebrow.game.startScreen.eyebrow = 'Legacy must reject this';
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV9WithEyebrow),
+      JSON.stringify(manifestDocument([], 9)),
+    )).toThrow('game.json.game.startScreen 字段不符合');
   });
 
   it('reads runtime v4 portrait coordinates and keeps v3 portraits on presets', () => {
@@ -696,6 +764,7 @@ describe('runtime bundle loader', () => {
       JSON.stringify(manifestDocument([portraitAsset], 9)),
     );
     expect(parsed.runtimeVersion).toBe(9);
+    expect(parsed.game.project.startScreen.eyebrow).toBe('A VN ENGINE STORY');
     expect(parsed.game.project.scenes[0]?.nodes[0]).toMatchObject({
       type: 'character',
       effect: {

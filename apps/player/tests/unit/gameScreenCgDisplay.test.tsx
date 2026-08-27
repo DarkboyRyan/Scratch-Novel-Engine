@@ -31,7 +31,12 @@ const project: ProjectDocument = {
   id: 'cg-timer',
   name: 'CG timer',
   entrySceneId: 'entry',
-  startScreen: { title: '', backgroundAssetId: null, musicAssetId: null },
+  startScreen: {
+    title: '',
+    eyebrow: 'A VN ENGINE STORY',
+    backgroundAssetId: null,
+    musicAssetId: null,
+  },
   cgGallery: { pages: [{ imageAssetIds: Array(9).fill(null) }] },
   scenes: [{
     schemaVersion: 1,

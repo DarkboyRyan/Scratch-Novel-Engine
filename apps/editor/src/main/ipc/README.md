@@ -1,6 +1,16 @@
 # IPC 入口
 
-所有入口先验证调用 Frame 和精确参数，再调用当前窗口上下文；Renderer 不能向 Main 传入任意本机路径。
+[返回 Electron Main](../README.md)
+
+本目录是 Renderer 进入 Main 特权能力的唯一请求入口。所有入口先验证调用 Frame 和精确参数，再查找当前窗口上下文并调用业务服务；Renderer 不能向 Main 传入任意本机路径。
+
+## 架构位置与工作方式
+
+1. Preload 把 Shared 中定义的通道和方法包装成类型化 `invoke` 调用。
+2. `register*Ipc` 先验证可信 Frame，再用对应 `validate*Invocation` 拒绝多余键、非法枚举和越界数据。
+3. 通过验证的请求进入窗口级服务，最终以结构化成功或错误结果返回 Renderer。
+
+## 文件
 
 | 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
 | --- | --- | --- | --- |
@@ -13,3 +23,9 @@
 | [`validateEngineInvocation.ts`](./validateEngineInvocation.ts) | TypeScript Guard、Runtime 校验器 | 校验全部引擎方法参数。 | `isEngineInvocation` 按方法检查键集合、ID、数值、逻辑、CG 和人物特效。 |
 | [`validateExportInvocation.ts`](./validateExportInvocation.ts) | TypeScript Guard | 校验导出模式和应用元数据。 | `isStandaloneApplicationMetadata`、`isExportGameInvocation`。 |
 | [`validateProjectFileInvocation.ts`](./validateProjectFileInvocation.ts) | TypeScript Guard | 校验项目文件操作。 | `isProjectFileInvocation` 检查动作、可选名称和禁止路径参数。 |
+
+## 开发与验证
+
+- 新 IPC 必须同时具备 Shared 契约、Preload 暴露、来源校验、精确参数校验和测试，不能把 `ipcMain` 处理器当作隐式校验器。
+- 先运行对应的 `validate*.test.ts` 与 `register*.test.ts`，例如 `pnpm --dir apps/editor exec vitest run tests/unit/validateEngineInvocation.test.ts tests/unit/registerEngineIpc.test.ts`。
+- 涉及项目格式或真实后端命令时，再运行 `pnpm --dir apps/editor test:integration`。

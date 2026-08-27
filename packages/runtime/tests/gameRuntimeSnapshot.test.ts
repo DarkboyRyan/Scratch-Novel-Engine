@@ -20,7 +20,7 @@ const project: ProjectDocument = {
   name: 'Snapshot game',
   entrySceneId: 'entry',
   startScreen: {
-    title: 'Snapshot game',
+    title: 'Snapshot game', eyebrow: '',
     backgroundAssetId: null,
     musicAssetId: null,
   },

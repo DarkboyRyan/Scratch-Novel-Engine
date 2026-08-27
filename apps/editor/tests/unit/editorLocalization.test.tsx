@@ -119,12 +119,13 @@ describe('Editor localization', () => {
     workspace.dispose();
   });
 
-  it('keeps a pending title when localizing managed title-screen blocks', () => {
+  it('keeps pending author text when localizing managed title-screen blocks', () => {
     const project = {
       id: 'project-1',
       name: 'Project',
       startScreen: {
         title: 'Saved title',
+        eyebrow: 'Saved eyebrow',
         backgroundAssetId: null,
         musicAssetId: null,
       },
@@ -136,6 +137,10 @@ describe('Editor localization', () => {
     renderStartScreenBlocks(workspace, project.startScreen, []);
     const root = workspace.getBlockById(START_SCREEN_BLOCK_IDS.root);
     root?.setFieldValue('Pending author title', START_SCREEN_BLOCK_FIELDS.title);
+    root?.setFieldValue(
+      '作者自定义标语',
+      START_SCREEN_BLOCK_FIELDS.eyebrow,
+    );
     const clear = vi.spyOn(workspace, 'clear');
 
     applyStartScreenBlocksLocalization(
@@ -148,8 +153,14 @@ describe('Editor localization', () => {
     expect(root?.getFieldValue(START_SCREEN_BLOCK_FIELDS.title)).toBe(
       'Pending author title',
     );
+    expect(root?.getFieldValue(START_SCREEN_BLOCK_FIELDS.eyebrow)).toBe(
+      '作者自定义标语',
+    );
     expect(root?.getFieldValue('VN_LABEL_START_SCREEN_TITLE')).toBe(
       'Title-screen game name',
+    );
+    expect(root?.getFieldValue('VN_LABEL_START_SCREEN_EYEBROW')).toBe(
+      'Text above title',
     );
     expect(clear).not.toHaveBeenCalled();
     workspace.dispose();

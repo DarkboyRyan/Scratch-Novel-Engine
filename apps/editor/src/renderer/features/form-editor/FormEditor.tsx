@@ -15,6 +15,8 @@ type FormEditorProps = {
   assets: AssetDocument[];
   backgroundUrl: string | null;
   backgroundName: string | null;
+  cgUrl: string | null;
+  cgName: string | null;
   showDialogue: boolean;
   logicPreviewUncertain: boolean;
   cgPreviewUncertain: boolean;
@@ -30,6 +32,8 @@ export function FormEditor({
   assets,
   backgroundUrl,
   backgroundName,
+  cgUrl,
+  cgName,
   showDialogue,
   logicPreviewUncertain,
   cgPreviewUncertain,
@@ -69,6 +73,8 @@ export function FormEditor({
         text={editor.previewText}
         backgroundUrl={backgroundUrl}
         backgroundName={backgroundName}
+        cgUrl={cgUrl}
+        cgName={cgName}
         showDialogue={showDialogue}
         logicPreviewUncertain={logicPreviewUncertain}
         cgPreviewUncertain={cgPreviewUncertain}

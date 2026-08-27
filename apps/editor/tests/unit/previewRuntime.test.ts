@@ -21,6 +21,7 @@ const project: ProjectDocument = {
   entrySceneId: 'scene-entry',
   startScreen: {
     title: 'Story',
+    eyebrow: 'A VN ENGINE STORY',
     backgroundAssetId: null,
     musicAssetId: null,
   },
@@ -333,6 +334,7 @@ describe('game preview runtime', () => {
       entrySceneId: 'loop',
       startScreen: {
         title: 'Story',
+        eyebrow: 'A VN ENGINE STORY',
         backgroundAssetId: null,
         musicAssetId: null,
       },
@@ -414,6 +416,7 @@ describe('game preview runtime', () => {
       entrySceneId: 'a',
       startScreen: {
         title: 'Story',
+        eyebrow: 'A VN ENGINE STORY',
         backgroundAssetId: null,
         musicAssetId: null,
       },
@@ -485,6 +488,7 @@ describe('game preview runtime', () => {
       entrySceneId: 'entry',
       startScreen: {
         title: 'Story',
+        eyebrow: 'A VN ENGINE STORY',
         backgroundAssetId: null,
         musicAssetId: null,
       },
@@ -571,6 +575,7 @@ describe('game preview runtime', () => {
       entrySceneId: 'entry',
       startScreen: {
         title: 'Story',
+        eyebrow: 'A VN ENGINE STORY',
         backgroundAssetId: null,
         musicAssetId: null,
       },

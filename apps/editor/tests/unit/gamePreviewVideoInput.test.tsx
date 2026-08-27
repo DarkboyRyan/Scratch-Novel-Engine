@@ -26,6 +26,7 @@ const session: GamePreviewSession = {
     entrySceneId: 'scene-1',
     startScreen: {
       title: 'Story',
+      eyebrow: 'A VN ENGINE STORY',
       backgroundAssetId: null,
       musicAssetId: null,
     },

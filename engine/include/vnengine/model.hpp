@@ -341,11 +341,16 @@ struct Scene {
 };
 
 // The title screen is an engine-provided scene that precedes the authored
-// entry Scene. Authors configure its title and media; the built-in menu
+// entry Scene. Authors configure its title, eyebrow copy, and media; the built-in menu
 // controls remain Player-owned and are not persisted as editable project
 // entities.
+inline constexpr std::size_t kStartScreenEyebrowMaxBytes = 256;
+
 struct StartScreen {
   std::string title = "未命名项目";
+  // Short author-controlled copy rendered above the title. An empty value is
+  // intentional and tells the Player to hide the eyebrow line.
+  std::string eyebrow = "A VN ENGINE STORY";
   std::optional<std::string> background_asset_id;
   std::optional<std::string> music_asset_id;
 

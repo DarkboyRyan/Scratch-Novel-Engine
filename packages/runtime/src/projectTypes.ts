@@ -192,6 +192,7 @@ export type SceneDocument = {
 
 export type StartScreenDocument = {
   title: string;
+  eyebrow: string;
   backgroundAssetId: string | null;
   musicAssetId: string | null;
 };

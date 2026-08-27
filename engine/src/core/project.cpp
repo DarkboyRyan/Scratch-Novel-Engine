@@ -8,6 +8,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <iomanip>
 #include <initializer_list>
 #include <iterator>
@@ -22,6 +23,53 @@ namespace {
 
 using project_detail::is_valid_character_slot;
 using project_detail::trim_ascii_whitespace;
+
+bool is_valid_utf8(const std::string_view value) {
+  std::size_t index = 0;
+  while (index < value.size()) {
+    const auto lead = static_cast<unsigned char>(value[index]);
+    if (lead <= 0x7fU) {
+      ++index;
+      continue;
+    }
+
+    std::size_t continuation_count = 0;
+    std::uint32_t code_point = 0;
+    std::uint32_t minimum = 0;
+    if ((lead & 0xe0U) == 0xc0U) {
+      continuation_count = 1;
+      code_point = lead & 0x1fU;
+      minimum = 0x80U;
+    } else if ((lead & 0xf0U) == 0xe0U) {
+      continuation_count = 2;
+      code_point = lead & 0x0fU;
+      minimum = 0x800U;
+    } else if ((lead & 0xf8U) == 0xf0U) {
+      continuation_count = 3;
+      code_point = lead & 0x07U;
+      minimum = 0x10000U;
+    } else {
+      return false;
+    }
+    if (index + continuation_count >= value.size()) {
+      return false;
+    }
+    for (std::size_t offset = 1; offset <= continuation_count; ++offset) {
+      const auto continuation =
+          static_cast<unsigned char>(value[index + offset]);
+      if ((continuation & 0xc0U) != 0x80U) {
+        return false;
+      }
+      code_point = (code_point << 6U) | (continuation & 0x3fU);
+    }
+    if (code_point < minimum || code_point > 0x10ffffU ||
+        (code_point >= 0xd800U && code_point <= 0xdfffU)) {
+      return false;
+    }
+    index += continuation_count + 1U;
+  }
+  return true;
+}
 
 bool project_contains_entity_id(
     const Project& project,
@@ -348,12 +396,18 @@ ProjectAggregate create_empty_project_aggregate(
 UpdateStartScreenResult update_start_screen(
     ProjectAggregate& aggregate,
     std::string title,
+    std::string eyebrow,
     std::optional<std::string> background_asset_id,
     std::optional<std::string> music_asset_id) {
   const auto normalized_title =
       normalize_start_screen_title(std::move(title));
   if (!normalized_title.has_value()) {
     return UpdateStartScreenResult::title_required;
+  }
+  const auto normalized_eyebrow =
+      normalize_start_screen_eyebrow(std::move(eyebrow));
+  if (!normalized_eyebrow.has_value()) {
+    return UpdateStartScreenResult::eyebrow_invalid;
   }
 
   if (background_asset_id.has_value()) {
@@ -378,6 +432,7 @@ UpdateStartScreenResult update_start_screen(
 
   StartScreen candidate{
       .title = *normalized_title,
+      .eyebrow = *normalized_eyebrow,
       .background_asset_id = std::move(background_asset_id),
       .music_asset_id = std::move(music_asset_id),
   };
@@ -506,6 +561,16 @@ std::optional<std::string> normalize_start_screen_title(std::string title) {
     return std::nullopt;
   }
   return title;
+}
+
+std::optional<std::string> normalize_start_screen_eyebrow(
+    std::string eyebrow) {
+  eyebrow = trim_ascii_whitespace(std::move(eyebrow));
+  if (eyebrow.size() > kStartScreenEyebrowMaxBytes ||
+      eyebrow.find('\0') != std::string::npos || !is_valid_utf8(eyebrow)) {
+    return std::nullopt;
+  }
+  return eyebrow;
 }
 
 bool rename_project(Project& project, std::string name) {

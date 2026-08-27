@@ -5,9 +5,16 @@
  * 测试覆盖：`Editor formal preview CG lead-in`。
  */
 
-import { act } from 'react';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+
+import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { startGame, type ProjectDocument } from '@vnengine/runtime';
+import {
+  completeCgLeadIn,
+  startGame,
+  type ProjectDocument,
+} from '@vnengine/runtime';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GamePreview } from '../../src/renderer/features/game-preview/GamePreview';
@@ -27,7 +34,12 @@ const project: ProjectDocument = {
   id: 'preview-cg',
   name: 'Preview CG',
   entrySceneId: 'entry',
-  startScreen: { title: '', backgroundAssetId: null, musicAssetId: null },
+  startScreen: {
+    title: '',
+    eyebrow: 'A VN ENGINE STORY',
+    backgroundAssetId: null,
+    musicAssetId: null,
+  },
   cgGallery: { pages: [{ imageAssetIds: Array(9).fill(null) }] },
   scenes: [{
     schemaVersion: 1,
@@ -83,31 +95,39 @@ describe('Editor formal preview CG lead-in', () => {
   function render(
     resolveMediaUrl: (assetId: string) => Promise<string | null>,
     onCgLeadInComplete = vi.fn(),
+    onExit = vi.fn(),
   ) {
-    const session: GamePreviewSession = {
-      phase: 'story',
-      project,
-      runtime: startGame(project)!,
-    };
-    act(() => root.render(
-      <GamePreview
-        session={session}
-        assets={[{
-          id: 'cg-image',
-          type: 'image',
-          displayName: 'Preview CG',
-        }]}
-        previewUrls={{}}
-        resolveMediaUrl={resolveMediaUrl}
-        onAdvance={() => {}}
-        onCgLeadInComplete={onCgLeadInComplete}
-        onVideoComplete={() => {}}
-        onChoiceSelect={() => {}}
-        onEnterStory={() => {}}
-        onExit={() => {}}
-      />,
-    ));
-    return onCgLeadInComplete;
+    function Harness() {
+      const [runtime, setRuntime] = useState(() => startGame(project)!);
+      const session: GamePreviewSession = {
+        phase: 'story',
+        project,
+        runtime,
+      };
+      return (
+        <GamePreview
+          session={session}
+          assets={[{
+            id: 'cg-image',
+            type: 'image',
+            displayName: 'Preview CG',
+          }]}
+          previewUrls={{}}
+          resolveMediaUrl={resolveMediaUrl}
+          onAdvance={() => {}}
+          onCgLeadInComplete={() => {
+            onCgLeadInComplete();
+            setRuntime((current) => completeCgLeadIn(project, current));
+          }}
+          onVideoComplete={() => {}}
+          onChoiceSelect={() => {}}
+          onEnterStory={() => {}}
+          onExit={onExit}
+        />
+      );
+    }
+    act(() => root.render(<Harness />));
+    return { complete: onCgLeadInComplete, exit: onExit };
   }
 
   async function markImageReady() {
@@ -124,7 +144,13 @@ describe('Editor formal preview CG lead-in', () => {
 
   it('waits for deferred resolution and decode, then pauses while hidden', async () => {
     const pending = deferred<string | null>();
-    const complete = render(() => pending.promise);
+    const { complete, exit } = render(() => pending.promise);
+    const overlay = container.querySelector('.game-preview-overlay');
+    const stage = container.querySelector('.game-preview-stage');
+
+    expect(overlay).not.toBeNull();
+    expect(stage).not.toBeNull();
+    expect(container.querySelector('.dialogue-box')).toBeNull();
 
     act(() => vi.advanceTimersByTime(3000));
     expect(complete).not.toHaveBeenCalled();
@@ -144,10 +170,22 @@ describe('Editor formal preview CG lead-in', () => {
     expect(complete).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(1));
     expect(complete).toHaveBeenCalledOnce();
+    expect(container.querySelector('.dialogue-box')?.textContent)
+      .toContain('Line');
+    expect(container.querySelector('.game-preview-cg-layer img')).not.toBeNull();
+    expect(container.querySelector('.game-preview-overlay')).toBe(overlay);
+    expect(container.querySelector('.game-preview-stage')).toBe(stage);
+
+    const exitButton = container.querySelector<HTMLButtonElement>(
+      '.game-preview-exit',
+    );
+    expect(exitButton?.disabled).toBe(false);
+    act(() => exitButton?.click());
+    expect(exit).toHaveBeenCalledOnce();
   });
 
   it('stays blocked with a stable error when CG resolution fails', async () => {
-    const complete = render(async () => null);
+    const { complete } = render(async () => null);
     await act(async () => Promise.resolve());
 
     expect(container.querySelector('[role="alert"]')?.textContent)
@@ -156,5 +194,23 @@ describe('Editor formal preview CG lead-in', () => {
       ?.getAttribute('aria-busy')).toBe('false');
     act(() => vi.advanceTimersByTime(3000));
     expect(complete).not.toHaveBeenCalled();
+  });
+
+  it('keeps the stage controls above the non-interactive CG surface', async () => {
+    const css = await readFile(
+      resolve('src/renderer/styles/editor.css'),
+      'utf8',
+    );
+    const cgRule = css.match(/\.game-preview-cg-layer\s*\{([^}]*)\}/s)?.[1]
+      ?? '';
+    const dialogueRule = css.match(/\.dialogue-box\s*\{([^}]*)\}/s)?.[1]
+      ?? '';
+    const exitRule = css.match(/\.game-preview-exit\s*\{([^}]*)\}/s)?.[1]
+      ?? '';
+
+    expect(cgRule).toContain('z-index: 20');
+    expect(cgRule).toContain('pointer-events: none');
+    expect(dialogueRule).toContain('z-index: 30');
+    expect(exitRule).toContain('z-index: 1040');
   });
 });

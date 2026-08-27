@@ -32,6 +32,10 @@ import {
 } from './startScreenBlocks';
 import { getStartScreenFieldUpdate } from './startScreenBlockEvents';
 import {
+  normalizeStartScreenEyebrowInput,
+  trimStartScreenAsciiWhitespace,
+} from './startScreenScene';
+import {
   type EditorLabels,
   useEditorLabels,
 } from '../../i18n/editorLocalization';
@@ -45,6 +49,7 @@ type StartScreenBlocklyWorkspaceProps = {
   isBusy: boolean;
   onUpdateStartScreen: (
     title: string,
+    eyebrow: string,
     backgroundAssetId: string | null,
     musicAssetId: string | null,
   ) => Promise<boolean>;
@@ -61,17 +66,29 @@ function renderWorkspaceProjection(
   assets: AssetDocument[],
   editable: boolean,
   pendingTitle: string | null,
+  pendingEyebrow: string | null,
   labels: EditorLabels,
 ): void {
   renderStartScreenBlocks(workspace, startScreen, assets, editable, labels);
-  if (pendingTitle === null || pendingTitle === startScreen.title) {
+  if (
+    (pendingTitle === null || pendingTitle === startScreen.title) &&
+    (pendingEyebrow === null || pendingEyebrow === startScreen.eyebrow)
+  ) {
     return;
   }
 
   const root = workspace.getBlockById(START_SCREEN_BLOCK_IDS.root);
   Blockly.Events.disable();
   try {
-    root?.setFieldValue(pendingTitle, START_SCREEN_BLOCK_FIELDS.title);
+    if (pendingTitle !== null) {
+      root?.setFieldValue(pendingTitle, START_SCREEN_BLOCK_FIELDS.title);
+    }
+    if (pendingEyebrow !== null) {
+      root?.setFieldValue(
+        pendingEyebrow,
+        START_SCREEN_BLOCK_FIELDS.eyebrow,
+      );
+    }
   } finally {
     Blockly.Events.enable();
   }
@@ -124,6 +141,7 @@ export const StartScreenBlocklyWorkspace = forwardRef<
   const workspaceRef = useRef<Blockly.WorkspaceSvg | null>(null);
   const projectIdRef = useRef(projectId);
   const pendingTitleRef = useRef<string | null>(null);
+  const pendingEyebrowRef = useRef<string | null>(null);
   const startScreenRef = useRef(startScreen);
   const assetsRef = useRef(assets);
   const isBusyRef = useRef(isBusy);
@@ -133,6 +151,7 @@ export const StartScreenBlocklyWorkspace = forwardRef<
   const [isMutating, setIsMutating] = useState(false);
   const runMutationRef = useRef<(
     title: string,
+    eyebrow: string,
     backgroundAssetId: string | null,
     musicAssetId: string | null,
   ) => Promise<boolean>>(() => Promise.resolve(false));
@@ -145,6 +164,7 @@ export const StartScreenBlocklyWorkspace = forwardRef<
   if (projectIdRef.current !== projectId) {
     projectIdRef.current = projectId;
     pendingTitleRef.current = null;
+    pendingEyebrowRef.current = null;
   }
 
   useImperativeHandle(ref, () => ({
@@ -160,7 +180,13 @@ export const StartScreenBlocklyWorkspace = forwardRef<
       const title = String(
         root.getFieldValue(START_SCREEN_BLOCK_FIELDS.title) ?? '',
       );
-      if (title === startScreenRef.current.title) {
+      const eyebrow = String(
+        root.getFieldValue(START_SCREEN_BLOCK_FIELDS.eyebrow) ?? '',
+      );
+      if (
+        title === startScreenRef.current.title &&
+        eyebrow === startScreenRef.current.eyebrow
+      ) {
         return true;
       }
       Blockly.Events.disable();
@@ -170,8 +196,10 @@ export const StartScreenBlocklyWorkspace = forwardRef<
         Blockly.Events.enable();
       }
       pendingTitleRef.current = title;
+      pendingEyebrowRef.current = eyebrow;
       return runMutationRef.current(
         title,
+        eyebrow,
         startScreenRef.current.backgroundAssetId,
         startScreenRef.current.musicAssetId,
       );
@@ -210,6 +238,7 @@ export const StartScreenBlocklyWorkspace = forwardRef<
       assetsRef.current,
       !isBusyRef.current,
       pendingTitleRef.current,
+      pendingEyebrowRef.current,
       initialLabelsRef.current,
     );
 
@@ -222,28 +251,56 @@ export const StartScreenBlocklyWorkspace = forwardRef<
 
     const runMutation = (
       title: string,
+      eyebrow: string,
       backgroundAssetId: string | null,
       musicAssetId: string | null,
     ): Promise<boolean> => {
       const current = startScreenRef.current;
+      const normalizedTitle = trimStartScreenAsciiWhitespace(title);
+      const normalizedEyebrow = normalizeStartScreenEyebrowInput(eyebrow);
       if (
         isBusyRef.current ||
-        activeMutationRef.current ||
-        (title === current.title &&
-          backgroundAssetId === current.backgroundAssetId &&
-          musicAssetId === current.musicAssetId)
+        activeMutationRef.current
       ) {
         return activeMutationRef.current ?? Promise.resolve(true);
+      }
+      if (
+        normalizedTitle === current.title &&
+        normalizedEyebrow === current.eyebrow &&
+        backgroundAssetId === current.backgroundAssetId &&
+        musicAssetId === current.musicAssetId
+      ) {
+        const root = workspace.getBlockById(START_SCREEN_BLOCK_IDS.root);
+        Blockly.Events.disable();
+        try {
+          root?.setFieldValue(
+            normalizedTitle,
+            START_SCREEN_BLOCK_FIELDS.title,
+          );
+          root?.setFieldValue(
+            normalizedEyebrow,
+            START_SCREEN_BLOCK_FIELDS.eyebrow,
+          );
+        } finally {
+          Blockly.Events.enable();
+        }
+        pendingTitleRef.current = null;
+        pendingEyebrowRef.current = null;
+        draftDirtyChangeRef.current(false);
+        return Promise.resolve(true);
       }
 
       const mutation = (async () => {
         let updated = false;
         pendingTitleRef.current =
-          title === current.title ? null : title;
+          normalizedTitle === current.title ? null : normalizedTitle;
+        pendingEyebrowRef.current =
+          normalizedEyebrow === current.eyebrow ? null : normalizedEyebrow;
         setIsMutating(true);
         try {
           updated = await updateStartScreenRef.current(
-            title,
+            normalizedTitle,
+            normalizedEyebrow,
             backgroundAssetId,
             musicAssetId,
           );
@@ -257,6 +314,7 @@ export const StartScreenBlocklyWorkspace = forwardRef<
           }
           if (updated) {
             pendingTitleRef.current = null;
+            pendingEyebrowRef.current = null;
           }
           if (isActive && !updated) {
             renderWorkspaceProjection(
@@ -265,12 +323,14 @@ export const StartScreenBlocklyWorkspace = forwardRef<
               assetsRef.current,
               !isBusyRef.current,
               pendingTitleRef.current,
+              pendingEyebrowRef.current,
               labelsRef.current,
             );
           }
           if (isActive) {
             draftDirtyChangeRef.current(
-              pendingTitleRef.current !== null,
+              pendingTitleRef.current !== null ||
+                pendingEyebrowRef.current !== null,
             );
           }
         }
@@ -377,6 +437,10 @@ export const StartScreenBlocklyWorkspace = forwardRef<
         root?.getFieldValue(START_SCREEN_BLOCK_FIELDS.title) ??
           current.title,
       );
+      const eyebrow = String(
+        root?.getFieldValue(START_SCREEN_BLOCK_FIELDS.eyebrow) ??
+          current.eyebrow,
+      );
       const backgroundAssetId =
         target.kind === 'background'
           ? target.assetId
@@ -392,6 +456,7 @@ export const StartScreenBlocklyWorkspace = forwardRef<
 
       void runMutation(
         title,
+        eyebrow,
         backgroundAssetId,
         musicAssetId,
       );
@@ -408,9 +473,17 @@ export const StartScreenBlocklyWorkspace = forwardRef<
         const title = String(
           root?.getFieldValue(START_SCREEN_BLOCK_FIELDS.title) ?? '',
         );
+        const eyebrow = String(
+          root?.getFieldValue(START_SCREEN_BLOCK_FIELDS.eyebrow) ?? '',
+        );
         pendingTitleRef.current =
           title === startScreenRef.current.title ? null : title;
-        draftDirtyChangeRef.current(pendingTitleRef.current !== null);
+        pendingEyebrowRef.current =
+          eyebrow === startScreenRef.current.eyebrow ? null : eyebrow;
+        draftDirtyChangeRef.current(
+          pendingTitleRef.current !== null ||
+            pendingEyebrowRef.current !== null,
+        );
         return;
       }
       const update = getStartScreenFieldUpdate(event, workspace);
@@ -424,12 +497,14 @@ export const StartScreenBlocklyWorkspace = forwardRef<
           assetsRef.current,
           false,
           pendingTitleRef.current,
+          pendingEyebrowRef.current,
           labelsRef.current,
         );
         return;
       }
       void runMutation(
         update.title,
+        update.eyebrow,
         update.backgroundAssetId,
         update.musicAssetId,
       );
@@ -464,6 +539,7 @@ export const StartScreenBlocklyWorkspace = forwardRef<
       assets,
       !isBusy && !isMutating,
       pendingTitleRef.current,
+      pendingEyebrowRef.current,
       labelsRef.current,
     );
   }, [assets, isBusy, isMutating, projectId, startScreen]);

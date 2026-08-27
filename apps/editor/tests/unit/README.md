@@ -1,13 +1,21 @@
 # Editor 单元测试
 
-Editor 的 Vitest 单元与轻量集成测试，覆盖 Renderer、Main、Preload、导出和协议边界。
+[返回 Editor 测试](../README.md)
+
+本目录收录 Editor 的 Vitest 单元测试和基于 JSDOM 的轻量交互测试，覆盖 Renderer、Main、Preload、导出、Blockly 与 Shared 协议边界。用例尽量直接针对一个模块或一条用户交互，外部进程与真实跨应用链路留给 [`../integration/`](../integration/README.md)。
+
+## 架构位置与工作方式
+
+1. 纯 TypeScript 测试直接验证转换、校验器、状态机与文件服务，并为不可信输入覆盖拒绝路径。
+2. `*.test.tsx` 使用 Testing Library/JSDOM 渲染组件或工作区，检查用户可观察行为和回调。
+3. 导出与 Main 测试在临时目录或受控替身上执行，保证快速、可重复且不依赖用户环境。
 
 ## 文件
 
 | 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
 | --- | --- | --- | --- |
 | [assetPreviewService.test.ts](./assetPreviewService.test.ts) | Vitest + TypeScript | 验证 AssetPreviewService 的行为 | `AssetPreviewService` |
-| [authorProjectCompiler.test.ts](./authorProjectCompiler.test.ts) | Vitest + TypeScript | 验证 author project v19 compiler、人物模式迁移和 Runtime 投影 | `author project v19 compiler` |
+| [authorProjectCompiler.test.ts](./authorProjectCompiler.test.ts) | Vitest + TypeScript | 验证 author project v20 compiler、标题上方文字、人物模式迁移和 Runtime 投影 | `author project v20 compiler` |
 | [backendClientTimeout.test.ts](./backendClientTimeout.test.ts) | Vitest + TypeScript | 验证 backend request timeout 的行为 | `backend request timeout` |
 | [backendResponse.test.ts](./backendResponse.test.ts) | Vitest + TypeScript | 验证 backend response validation 的行为 | `backend response validation` |
 | [blockEditorLayout.test.ts](./blockEditorLayout.test.ts) | Vitest + TypeScript + Blockly | 验证 captureSceneWorkspaceLayout、restoreSceneWorkspaceViewport 的行为 | `captureSceneWorkspaceLayout`、`restoreSceneWorkspaceViewport` |
@@ -93,3 +101,9 @@ Editor 的 Vitest 单元与轻量集成测试，覆盖 Renderer、Main、Preload
 | [webPlayerExporter.test.ts](./webPlayerExporter.test.ts) | Vitest + TypeScript | 验证 Web Player ZIP exporter 的行为 | `Web Player ZIP exporter` |
 | [webPlayerTemplate.test.ts](./webPlayerTemplate.test.ts) | Vitest + TypeScript | 验证 Web Player template contract 的行为 | `Web Player template contract` |
 | [zoomControlIcons.test.ts](./zoomControlIcons.test.ts) | Vitest + TypeScript + JSDOM | 验证 inline Blockly zoom control icons 的行为 | `inline Blockly zoom control icons` |
+
+## 开发与验证
+
+- 测试文件尽量与被测模块同名，并断言公开行为；不要依赖用例顺序、固定用户目录或其他测试遗留状态。
+- 定向运行示例：`pnpm --dir apps/editor exec vitest run tests/unit/timelinePreview.test.ts`；React/Blockly 用例可在文件名后追加 `-t "用例名称"` 缩小范围。
+- 提交前结合改动范围运行全部 Vitest、`pnpm --dir apps/editor typecheck` 和 `pnpm --dir apps/editor lint`；真实后端链路使用上层 Integration 测试。

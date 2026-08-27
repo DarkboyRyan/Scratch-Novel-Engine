@@ -45,6 +45,15 @@ function isCgGalleryPages(value: unknown): boolean {
 const utf8ByteLength = (value: string): number =>
   new TextEncoder().encode(value).length;
 
+function isStartScreenEyebrow(value: unknown): value is string {
+  if (typeof value !== 'string' || value.includes('\0')) {
+    return false;
+  }
+  const encoded = new TextEncoder().encode(value);
+  return encoded.length <= 256 &&
+    new TextDecoder('utf-8', { fatal: true }).decode(encoded) === value;
+}
+
 function isLogicValue(value: unknown): boolean {
   return (
     typeof value === 'boolean' ||
@@ -140,8 +149,9 @@ export function isEngineInvocation(
       return hasString('name');
     case 'startScreen.update':
       return (
-        Object.keys(params).length === 3 &&
+        Object.keys(params).length === 4 &&
         hasString('title') &&
+        isStartScreenEyebrow(params.eyebrow) &&
         Object.hasOwn(params, 'backgroundAssetId') &&
         Object.hasOwn(params, 'musicAssetId') &&
         (params.backgroundAssetId === null ||

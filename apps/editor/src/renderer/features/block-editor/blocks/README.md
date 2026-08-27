@@ -1,6 +1,14 @@
 # Blockly 积木定义
 
-故事编辑器中各类 Blockly 积木的定义与字段读写。
+[返回 Blockly 故事编辑器](../README.md)
+
+本目录定义故事编辑器可使用的 Blockly 积木、字段名称、连接类型和项目节点读写辅助函数。这里描述积木的形状与局部语义；创建、删除、重排等持久化操作由上一层工作区事件模块处理。
+
+## 架构位置与工作方式
+
+1. 工作区启动时注册各类积木和自定义连接检查器，再根据当前语言应用标签与下拉选项。
+2. 项目投影调用 `set*Block*` 辅助函数把作者节点写入稳定字段，资源名字段只截断显示、不改变真实值。
+3. 用户编辑字段或连接后，上一层事件解析器读取这些常量和访问器并生成 Engine 命令。
 
 ## 文件
 
@@ -20,3 +28,9 @@
 | [storyContinuationBlock.ts](./storyContinuationBlock.ts) | TypeScript + Blockly | 注册故事续页积木并维护页码序号 | `STORY_CONTINUATION_BLOCK_TYPE`、`STORY_CONTINUATION_BLOCK_FIELDS`、`applyStoryContinuationBlockLocalization`、`getStoryContinuationBlockSequence`、`setStoryContinuationBlockSequence`、`registerStoryContinuationBlock` |
 | [variableBlock.ts](./variableBlock.ts) | TypeScript + Blockly | 注册变量赋值和增减积木并解析多类型逻辑值 | `VARIABLE_SET_BLOCK_TYPE`、`VARIABLE_CHANGE_BLOCK_TYPE`、`VARIABLE_BLOCK_FIELDS`、`LogicValueType`、`getLogicValueType`、`parseLogicValue` 等 12 项 |
 | [videoBlock.ts](./videoBlock.ts) | TypeScript + Blockly | 注册视频积木并读写视频资源和播放设置 | `VIDEO_BLOCK_TYPE`、`VIDEO_BLOCK_FIELDS`、`applyVideoBlockLocalization`、`setVideoBlockAsset`、`getVideoBlockAssetId`、`registerVideoBlock` |
+
+## 开发与验证
+
+- 积木类型、字段键和固定 ID 一旦进入保存布局就应保持稳定；资源为空必须有明确语义，不能依赖显示文本判断。
+- 连接检查器要限制人物特效和 C 形对白等专用插槽，同时允许投影阶段可靠恢复合法树。
+- 根据积木类型运行对应用例，例如 `pnpm --dir apps/editor exec vitest run tests/unit/characterEffectBlock.test.ts tests/unit/cgDisplayBlock.test.ts tests/unit/storyContinuationBlock.test.ts`。

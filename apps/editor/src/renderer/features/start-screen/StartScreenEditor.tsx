@@ -31,6 +31,7 @@ type StartScreenEditorProps = {
   onSceneChange: (sceneId: string) => Promise<void>;
   onUpdateStartScreen: (
     title: string,
+    eyebrow: string,
     backgroundAssetId: string | null,
     musicAssetId: string | null,
   ) => Promise<boolean>;

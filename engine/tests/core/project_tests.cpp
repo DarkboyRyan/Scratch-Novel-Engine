@@ -564,10 +564,12 @@ void updates_start_screen_atomically() {
   CHECK(vnengine::update_start_screen(
             aggregate,
             "  自定义游戏名  ",
+            "  CUSTOM STORY  ",
             "asset-background",
             "asset-music") ==
         Result::changed);
   CHECK(aggregate.project.start_screen.title == "自定义游戏名");
+  CHECK(aggregate.project.start_screen.eyebrow == "CUSTOM STORY");
   CHECK(aggregate.project.start_screen.background_asset_id ==
         "asset-background");
   CHECK(aggregate.project.start_screen.music_asset_id == "asset-music");
@@ -576,43 +578,67 @@ void updates_start_screen_atomically() {
   CHECK(vnengine::update_start_screen(
             aggregate,
             "自定义游戏名",
+            "CUSTOM STORY",
             "asset-background",
             "asset-music") ==
         Result::unchanged);
 
   const vnengine::ProjectAggregate before_failures = aggregate;
   CHECK(vnengine::update_start_screen(
-            aggregate, " ", "asset-background", "asset-music") ==
+            aggregate, " ", "CUSTOM STORY", "asset-background", "asset-music") ==
         Result::title_required);
   CHECK(aggregate == before_failures);
   CHECK(vnengine::update_start_screen(
             aggregate,
             "另一个游戏名",
+            std::string(vnengine::kStartScreenEyebrowMaxBytes + 1U, 'a'),
+            "asset-background",
+            "asset-music") == Result::eyebrow_invalid);
+  CHECK(aggregate == before_failures);
+  CHECK(vnengine::update_start_screen(
+            aggregate,
+            "另一个游戏名",
+            std::string{"bad\0copy", 8},
+            "asset-background",
+            "asset-music") == Result::eyebrow_invalid);
+  CHECK(aggregate == before_failures);
+  CHECK(vnengine::update_start_screen(
+            aggregate,
+            "另一个游戏名",
+            std::string{"\xc0\xaf", 2},
+            "asset-background",
+            "asset-music") == Result::eyebrow_invalid);
+  CHECK(aggregate == before_failures);
+  CHECK(vnengine::update_start_screen(
+            aggregate,
+            "另一个游戏名",
+            "CUSTOM STORY",
             "missing-background",
             "asset-music") ==
         Result::background_asset_not_found);
   CHECK(aggregate == before_failures);
   CHECK(vnengine::update_start_screen(
-            aggregate, "另一个游戏名", "asset-music", "asset-music") ==
+            aggregate, "另一个游戏名", "CUSTOM STORY", "asset-music", "asset-music") ==
         Result::background_asset_not_image);
   CHECK(aggregate == before_failures);
   CHECK(vnengine::update_start_screen(
-            aggregate, "另一个游戏名", "asset-alice", "missing-music") ==
+            aggregate, "另一个游戏名", "CUSTOM STORY", "asset-alice", "missing-music") ==
         Result::music_asset_not_found);
   CHECK(aggregate == before_failures);
   CHECK(vnengine::update_start_screen(
-            aggregate, "另一个游戏名", "asset-alice", "asset-bob") ==
+            aggregate, "另一个游戏名", "CUSTOM STORY", "asset-alice", "asset-bob") ==
         Result::music_asset_not_audio);
   CHECK(aggregate == before_failures);
 
   CHECK(vnengine::update_start_screen(
-            aggregate, "另一个游戏名", std::nullopt, std::nullopt) ==
+            aggregate, "另一个游戏名", "", std::nullopt, std::nullopt) ==
         Result::changed);
   CHECK(aggregate.project.start_screen.title == "另一个游戏名");
+  CHECK(aggregate.project.start_screen.eyebrow.empty());
   CHECK(!aggregate.project.start_screen.background_asset_id.has_value());
   CHECK(!aggregate.project.start_screen.music_asset_id.has_value());
   CHECK(vnengine::update_start_screen(
-            aggregate, "另一个游戏名", std::nullopt, std::nullopt) ==
+            aggregate, "另一个游戏名", "", std::nullopt, std::nullopt) ==
         Result::unchanged);
 }
 
@@ -620,6 +646,7 @@ void rejects_invalid_start_screen_references() {
   vnengine::ProjectAggregate valid = visual_aggregate();
   valid.project.start_screen = {
       .title = "视觉小说标题",
+      .eyebrow = "CUSTOM STORY",
       .background_asset_id = "asset-background",
       .music_asset_id = "asset-music",
   };
@@ -630,6 +657,19 @@ void rejects_invalid_start_screen_references() {
   CHECK(vnengine::validate_project_aggregate(invalid).has_value());
   invalid = valid;
   invalid.project.start_screen.title = " 标题 ";
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+  invalid = valid;
+  invalid.project.start_screen.eyebrow = " PADDED ";
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+  invalid = valid;
+  invalid.project.start_screen.eyebrow =
+      std::string(vnengine::kStartScreenEyebrowMaxBytes + 1U, 'a');
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+  invalid = valid;
+  invalid.project.start_screen.eyebrow = std::string{"bad\0copy", 8};
+  CHECK(vnengine::validate_project_aggregate(invalid).has_value());
+  invalid = valid;
+  invalid.project.start_screen.eyebrow = std::string{"\xc0\xaf", 2};
   CHECK(vnengine::validate_project_aggregate(invalid).has_value());
   invalid = valid;
   invalid.project.start_screen.background_asset_id = "";

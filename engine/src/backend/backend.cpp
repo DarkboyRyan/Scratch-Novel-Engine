@@ -864,10 +864,12 @@ Json Backend::handle(const Json& request) {
     changed = vnengine::rename_project(project, *name);
   } else if (method == "startScreen.update") {
     require_exact_params(
-        params, {"title", "backgroundAssetId", "musicAssetId"});
+        params,
+        {"title", "eyebrow", "backgroundAssetId", "musicAssetId"});
     switch (vnengine::update_start_screen(
         require_aggregate(),
         required_string(params, "title"),
+        required_string(params, "eyebrow"),
         required_nullable_string(params, "backgroundAssetId"),
         required_nullable_string(params, "musicAssetId"))) {
       case vnengine::UpdateStartScreenResult::changed:
@@ -880,6 +882,10 @@ Json Backend::handle(const Json& request) {
         throw ProtocolError(
             "start_screen_title_required",
             "start screen title must not be empty");
+      case vnengine::UpdateStartScreenResult::eyebrow_invalid:
+        throw ProtocolError(
+            "start_screen_eyebrow_invalid",
+            "start screen eyebrow must be valid UTF-8 up to 256 bytes and contain no NUL");
       case vnengine::UpdateStartScreenResult::background_asset_not_found:
       case vnengine::UpdateStartScreenResult::music_asset_not_found:
         throw ProtocolError("asset_not_found", "asset does not exist");

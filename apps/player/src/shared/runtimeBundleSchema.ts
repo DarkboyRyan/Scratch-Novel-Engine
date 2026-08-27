@@ -48,7 +48,10 @@ export type ParsedRuntimeBundle = {
   buildId: string;
 };
 
-type SupportedRuntimeVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+type SupportedRuntimeVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+
+const LEGACY_START_SCREEN_EYEBROW = 'A VN ENGINE STORY';
+const UTF8_ENCODER = new TextEncoder();
 
 type ParsedRuntimeGame = {
   project: ProjectDocument;
@@ -95,6 +98,56 @@ function stringValue(
     candidate.includes('\0')
   ) {
     throw new Error(`${context}.${field} 不是有效字符串`);
+  }
+  return candidate;
+}
+
+function isAsciiWhitespace(codeUnit: number): boolean {
+  return codeUnit === 0x20 || (codeUnit >= 0x09 && codeUnit <= 0x0d);
+}
+
+function hasOnlyPairedSurrogates(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index);
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      const nextCodeUnit = value.charCodeAt(index + 1);
+      if (
+        index + 1 >= value.length ||
+        nextCodeUnit < 0xdc00 ||
+        nextCodeUnit > 0xdfff
+      ) {
+        return false;
+      }
+      index += 1;
+      continue;
+    }
+    if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function startScreenEyebrowValue(
+  value: JsonObject,
+  context: string,
+): string {
+  const candidate = stringValue(value, 'eyebrow', context, {
+    empty: true,
+    maximum: 256,
+  });
+  if (
+    !hasOnlyPairedSurrogates(candidate) ||
+    UTF8_ENCODER.encode(candidate).length > 256 ||
+    (
+      candidate.length > 0 &&
+      (
+        isAsciiWhitespace(candidate.charCodeAt(0)) ||
+        isAsciiWhitespace(candidate.charCodeAt(candidate.length - 1))
+      )
+    )
+  ) {
+    throw new Error(`${context}.eyebrow 不是有效字符串`);
   }
   return candidate;
 }
@@ -155,6 +208,8 @@ function playerCompatibilityForRuntime(
       return '>=8 <9';
     case 9:
       return '>=9 <10';
+    case 10:
+      return '>=10 <11';
   }
 }
 
@@ -493,7 +548,8 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
     root.runtimeVersion !== 6 &&
     root.runtimeVersion !== 7 &&
     root.runtimeVersion !== 8 &&
-    root.runtimeVersion !== 9
+    root.runtimeVersion !== 9 &&
+    root.runtimeVersion !== 10
   ) {
     throw new Error('game.json.runtimeVersion 版本或格式不受支持');
   }
@@ -523,6 +579,7 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
   });
   let startScreen = {
     title: projectName,
+    eyebrow: LEGACY_START_SCREEN_EYEBROW,
     backgroundAssetId: null as string | null,
     musicAssetId: null as string | null,
   };
@@ -535,7 +592,9 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
       startScreenValue,
       runtimeVersion === 2
         ? ['backgroundAssetId', 'musicAssetId']
-        : ['title', 'backgroundAssetId', 'musicAssetId'],
+        : runtimeVersion < 10
+          ? ['title', 'backgroundAssetId', 'musicAssetId']
+          : ['title', 'eyebrow', 'backgroundAssetId', 'musicAssetId'],
       'game.json.game.startScreen',
     );
     startScreen = {
@@ -546,6 +605,12 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
             'title',
             'game.json.game.startScreen',
             { maximum: 4096 },
+          ),
+      eyebrow: runtimeVersion < 10
+        ? LEGACY_START_SCREEN_EYEBROW
+        : startScreenEyebrowValue(
+            startScreenValue,
+            'game.json.game.startScreen',
           ),
       backgroundAssetId: nullableId(
         startScreenValue,
