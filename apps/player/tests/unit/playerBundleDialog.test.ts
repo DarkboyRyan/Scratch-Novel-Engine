@@ -1,3 +1,7 @@
+/**
+ * 主要作用：验证原生游戏包目录选择参数、语言标签与取消流程。
+ * 关键函数与实现：测试套件“Player native bundle dialog”；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 import { describe, expect, it, vi } from 'vitest';
 
 import { selectPlayerBundleDirectory } from '../../src/main/content/selectPlayerBundleDirectory';

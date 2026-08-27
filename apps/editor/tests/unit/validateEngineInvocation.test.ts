@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 engine IPC validation 的行为。
+ * 测试覆盖：`engine IPC validation`。
+ */
+
 import { describe, expect, it } from 'vitest';
 
 import { isEngineInvocation } from '../../src/main/ipc/validateEngineInvocation';
@@ -285,6 +290,36 @@ describe('engine IPC validation', () => {
         method: 'character.add',
         params: { sceneId: 'scene-1', assetId: 'asset-1' },
       }),
+    ).toBe(true);
+    expect(
+      isEngineInvocation({
+        method: 'character.add',
+        params: { sceneId: 'scene-1', mode: 'show', assetId: null },
+      }),
+    ).toBe(true);
+    expect(
+      isEngineInvocation({
+        method: 'character.add',
+        params: { sceneId: 'scene-1', mode: 'clear', assetId: null },
+      }),
+    ).toBe(true);
+    expect(
+      isEngineInvocation({
+        method: 'character.add',
+        params: { sceneId: 'scene-1', mode: 'clear', assetId: 'asset-1' },
+      }),
+    ).toBe(false);
+    expect(
+      isEngineInvocation({
+        method: 'character.add',
+        params: { sceneId: 'scene-1', mode: 'placeholder' },
+      }),
+    ).toBe(false);
+    expect(
+      isEngineInvocation({
+        method: 'character.add',
+        params: { sceneId: 'scene-1', slot: 'left' },
+      }),
     ).toBe(false);
     expect(
       isEngineInvocation({
@@ -292,6 +327,7 @@ describe('engine IPC validation', () => {
         params: {
           sceneId: 'scene-1',
           nodeId: 'character-1',
+          mode: 'show',
           assetId: null,
           slot: 'center',
           layer: 10,
@@ -299,6 +335,34 @@ describe('engine IPC validation', () => {
         },
       }),
     ).toBe(true);
+    expect(
+      isEngineInvocation({
+        method: 'character.update',
+        params: {
+          sceneId: 'scene-1',
+          nodeId: 'character-1',
+          mode: 'clear',
+          assetId: null,
+          slot: 'center',
+          layer: 10,
+          position: null,
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isEngineInvocation({
+        method: 'character.update',
+        params: {
+          sceneId: 'scene-1',
+          nodeId: 'character-1',
+          mode: 'clear',
+          assetId: null,
+          slot: 'center',
+          layer: 10,
+          position: { x: 50, y: 90 },
+        },
+      }),
+    ).toBe(false);
 
     for (const invalid of [
       { assetId: null, slot: 'top', layer: 1, position: null },
@@ -318,6 +382,95 @@ describe('engine IPC validation', () => {
         }),
       ).toBe(false);
     }
+
+    expect(
+      isEngineInvocation({
+        method: 'character.update',
+        params: {
+          sceneId: 'scene-1',
+          nodeId: 'character-1',
+          assetId: 'image-1',
+          slot: 'left',
+          layer: 1,
+          position: null,
+          effect: null,
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it('validates strict character-effect update and move commands', () => {
+    const slideIn = {
+      type: 'slideIn',
+      durationMs: 500,
+      intensity: 'normal',
+      direction: 'right',
+    };
+    expect(isEngineInvocation({
+      method: 'characterEffect.update',
+      params: {
+        sceneId: 'scene-1',
+        nodeId: 'character-1',
+        effect: null,
+      },
+    })).toBe(true);
+    expect(isEngineInvocation({
+      method: 'characterEffect.update',
+      params: {
+        sceneId: 'scene-1',
+        nodeId: 'character-1',
+        effect: { type: 'shake', durationMs: 100, intensity: 'strong' },
+      },
+    })).toBe(true);
+    expect(isEngineInvocation({
+      method: 'characterEffect.move',
+      params: {
+        sceneId: 'scene-1',
+        fromNodeId: 'character-1',
+        toNodeId: 'character-2',
+        effect: slideIn,
+      },
+    })).toBe(true);
+
+    for (const effect of [
+      undefined,
+      { type: 'shake', durationMs: 99, intensity: 'normal' },
+      { type: 'shake', durationMs: 100.5, intensity: 'normal' },
+      { type: 'shake', durationMs: 100, intensity: 'loud' },
+      { type: 'fadeIn', durationMs: 500, intensity: 'normal' },
+      { type: 'slideIn', durationMs: 500, intensity: 'normal' },
+      { ...slideIn, direction: 'diagonal' },
+      { ...slideIn, unexpected: true },
+    ]) {
+      expect(isEngineInvocation({
+        method: 'characterEffect.update',
+        params: {
+          sceneId: 'scene-1',
+          nodeId: 'character-1',
+          effect,
+        },
+      })).toBe(false);
+    }
+
+    expect(isEngineInvocation({
+      method: 'characterEffect.move',
+      params: {
+        sceneId: 'scene-1',
+        fromNodeId: 'character-1',
+        toNodeId: 'character-2',
+        effect: null,
+      },
+    })).toBe(false);
+    expect(isEngineInvocation({
+      method: 'characterEffect.move',
+      params: {
+        sceneId: 'scene-1',
+        fromNodeId: 'character-1',
+        toNodeId: 'character-2',
+        effect: slideIn,
+        unexpected: true,
+      },
+    })).toBe(false);
   });
 
   it('validates scene jump creation and target updates', () => {
@@ -718,6 +871,92 @@ describe('engine IPC validation', () => {
       {
         method: 'logicControl.delete',
         params: { sceneId: 'scene-1', nodeId: 'if-1', evil: true },
+      },
+    ]) {
+      expect(isEngineInvocation(invocation)).toBe(false);
+    }
+  });
+
+  it('validates exact CG display commands and millisecond lead-ins', () => {
+    expect(isEngineInvocation({
+      method: 'cgDisplay.add',
+      params: {
+        sceneId: 'scene-1',
+        assetId: 'image-1',
+        leadInMs: 0,
+        beforeNodeId: 'dialogue-1',
+      },
+    })).toBe(true);
+    expect(isEngineInvocation({
+      method: 'cgDisplay.update',
+      params: {
+        sceneId: 'scene-1',
+        nodeId: 'cg-display-1',
+        assetId: 'image-2',
+        leadInMs: 60000,
+      },
+    })).toBe(true);
+    expect(isEngineInvocation({
+      method: 'cgDisplay.delete',
+      params: { sceneId: 'scene-1', nodeId: 'cg-display-1' },
+    })).toBe(true);
+    expect(isEngineInvocation({
+      method: 'cgDisplay.reorder',
+      params: {
+        sceneId: 'scene-1',
+        nodeId: 'cg-display-1',
+        beforeNodeId: null,
+      },
+    })).toBe(true);
+
+    for (const invocation of [
+      {
+        method: 'cgDisplay.add',
+        params: { sceneId: 'scene-1', assetId: 'image-1', leadInMs: -1 },
+      },
+      {
+        method: 'cgDisplay.add',
+        params: { sceneId: 'scene-1', assetId: 'image-1', leadInMs: 1.5 },
+      },
+      {
+        method: 'cgDisplay.add',
+        params: {
+          sceneId: 'scene-1',
+          assetId: 'image-1',
+          leadInMs: 60001,
+        },
+      },
+      {
+        method: 'cgDisplay.add',
+        params: { sceneId: 'scene-1', leadInMs: 0 },
+      },
+      {
+        method: 'cgDisplay.add',
+        params: { sceneId: 'scene-1', assetId: '', leadInMs: 0 },
+      },
+      {
+        method: 'cgDisplay.add',
+        params: {
+          sceneId: 'scene-1',
+          assetId: 'image-1',
+          leadInMs: 0,
+          afterNodeId: 'a',
+          beforeNodeId: 'b',
+        },
+      },
+      {
+        method: 'cgDisplay.update',
+        params: {
+          sceneId: 'scene-1',
+          nodeId: 'cg-display-1',
+          assetId: 'image-1',
+          leadInMs: 0,
+          unexpected: true,
+        },
+      },
+      {
+        method: 'cgDisplay.reorder',
+        params: { sceneId: 'scene-1', nodeId: 'cg-display-1' },
       },
     ]) {
       expect(isEngineInvocation(invocation)).toBe(false);

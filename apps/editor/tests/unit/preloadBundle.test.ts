@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 sandboxed preload bundle 的行为。
+ * 测试覆盖：`sandboxed preload bundle`。
+ */
+
 import { builtinModules } from 'node:module';
 import path from 'node:path';
 

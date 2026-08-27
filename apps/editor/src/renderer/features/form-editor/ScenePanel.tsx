@@ -1,9 +1,9 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-} from 'react';
+/**
+ * 文件主要作用：管理场景列表、时间线节点选择及新增删除操作。
+ * 包含实现：`ScenePanel`。
+ */
+
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 
 import type {
   AssetDocument,
@@ -17,6 +17,7 @@ import {
 } from '../start-screen/startScreenScene';
 import { useEditorLabels } from '../../i18n/editorLocalization';
 import { createFormLogicTree } from './formLogicTree';
+import { formatCharacterEffect } from '../block-editor/blocks/characterEffectBlock';
 
 type ScenePanelProps = {
   project: ProjectDocument;
@@ -31,10 +32,7 @@ type ScenePanelProps = {
   onSelectNode: (node: FormVisibleSceneNode) => Promise<void>;
   onInsertBackground: () => Promise<void>;
   onInsertSceneJump: () => Promise<void>;
-  onMoveNode: (
-    nodeId: string,
-    direction: -1 | 1,
-  ) => Promise<void>;
+  onMoveNode: (nodeId: string, direction: -1 | 1) => Promise<void>;
   onDeleteNode: (nodeId: string) => Promise<void>;
 };
 
@@ -67,8 +65,11 @@ export function ScenePanel({
   const nodeNumbers = new Map(
     storyNodes.map((node, index) => [node.id, index + 1]),
   );
-  const hasLogicControls = storyNodes.some(
-    (node) => node.type === 'logicIf' || node.type === 'logicRepeat',
+  const hasStructuredControls = storyNodes.some(
+    (node) =>
+      node.type === 'logicIf' ||
+      node.type === 'logicRepeat' ||
+      node.type === 'cgDisplay',
   );
   const currentSceneNumber =
     project.scenes.findIndex((projectScene) => projectScene.id === scene.id) +
@@ -76,18 +77,18 @@ export function ScenePanel({
   const assetName = (assetId: string | null) =>
     assetId === null
       ? labels.resource.noBackground
-      : imageAssets.find((asset) => asset.id === assetId)?.displayName ??
-        labels.common.missingImage;
+      : (imageAssets.find((asset) => asset.id === assetId)?.displayName ??
+        labels.common.missingImage);
   const audioName = (assetId: string | null) =>
     assetId === null
       ? labels.scenes.stopBackgroundMusic
-      : audioAssets.find((asset) => asset.id === assetId)?.displayName ??
-        labels.common.missingAudio;
+      : (audioAssets.find((asset) => asset.id === assetId)?.displayName ??
+        labels.common.missingAudio);
   const videoName = (assetId: string | null) =>
     assetId === null
       ? labels.scenes.noVideo
-      : videoAssets.find((asset) => asset.id === assetId)?.displayName ??
-        labels.common.missingVideo;
+      : (videoAssets.find((asset) => asset.id === assetId)?.displayName ??
+        labels.common.missingVideo);
 
   useEffect(() => {
     setIsSceneMenuOpen(false);
@@ -130,7 +131,9 @@ export function ScenePanel({
               }
             }}
           >
-            <span>{labels.common.scene} {currentSceneNumber}</span>
+            <span>
+              {labels.common.scene} {currentSceneNumber}
+            </span>
             <span aria-hidden="true" className="scene-menu-chevron">
               ▾
             </span>
@@ -182,7 +185,9 @@ export function ScenePanel({
                     void onSelectScene(projectScene.id);
                   }}
                 >
-                  <strong>{labels.common.scene} {index + 1}</strong>
+                  <strong>
+                    {labels.common.scene} {index + 1}
+                  </strong>
                   {projectScene.name !== `场景 ${index + 1}` ? (
                     <span>{projectScene.name}</span>
                   ) : null}
@@ -219,8 +224,12 @@ export function ScenePanel({
       </div>
 
       <div className="scene-status">
-        <span>{project.scenes.length} {labels.scenes.sceneUnit}</span>
-        <span>{storyNodes.length} {labels.scenes.storyNodeUnit}</span>
+        <span>
+          {project.scenes.length} {labels.scenes.sceneUnit}
+        </span>
+        <span>
+          {storyNodes.length} {labels.scenes.storyNodeUnit}
+        </span>
       </div>
 
       <div className="timeline-add-actions">
@@ -241,9 +250,11 @@ export function ScenePanel({
               <li
                 key={entry.id}
                 className="logic-branch-row"
-                style={{
-                  '--logic-depth': entry.depth,
-                } as CSSProperties}
+                style={
+                  {
+                    '--logic-depth': entry.depth,
+                  } as CSSProperties
+                }
               >
                 <span aria-hidden="true" className="logic-branch-line" />
                 <strong>
@@ -251,7 +262,9 @@ export function ScenePanel({
                     ? labels.blockly.logicThen
                     : entry.branch === 'else'
                       ? labels.blockly.logicElse
-                      : labels.blockly.logicRepeatBody}
+                      : entry.branch === 'cgBody'
+                        ? labels.blockly.cgDialogueBody
+                        : labels.blockly.logicRepeatBody}
                 </strong>
               </li>
             );
@@ -259,182 +272,201 @@ export function ScenePanel({
 
           const { node } = entry;
           const index = (nodeNumbers.get(node.id) ?? 1) - 1;
-          const isLogicControl =
-            node.type === 'logicIf' || node.type === 'logicRepeat';
+          const isStructuredControl =
+            node.type === 'logicIf' ||
+            node.type === 'logicRepeat' ||
+            node.type === 'cgDisplay';
           const logicStyle = {
             '--logic-depth': entry.depth,
           } as CSSProperties;
           return (
             <li
-            key={node.id}
-            style={logicStyle}
-            className={`${node.id === selectedNodeId ? 'selected' : ''}${
-              node.type === 'background'
-                ? ' is-background-node'
-                : node.type === 'character'
-                  ? ' is-character-node'
-                  : node.type === 'sceneJump'
-                    ? ' is-scene-jump-node'
-                    : node.type === 'bgm'
-                      ? ' is-bgm-node'
-                      : node.type === 'video'
-                        ? ' is-video-node'
-                        : node.type === 'choice'
-                          ? ' is-choice-node'
-                        : node.type === 'variableSet' ||
-                            node.type === 'variableChange'
-                          ? ' is-variable-node'
-                          : isLogicControl
-                            ? ' is-logic-node'
-                            : ''
-            }`}
-          >
-            <button
-              type="button"
-              className="dialogue-list-item"
-              onClick={() => void onSelectNode(node)}
+              key={node.id}
+              style={logicStyle}
+              className={`${node.id === selectedNodeId ? 'selected' : ''}${
+                node.type === 'background'
+                  ? ' is-background-node'
+                  : node.type === 'character'
+                    ? ' is-character-node'
+                    : node.type === 'sceneJump'
+                      ? ' is-scene-jump-node'
+                      : node.type === 'bgm'
+                        ? ' is-bgm-node'
+                        : node.type === 'video'
+                          ? ' is-video-node'
+                          : node.type === 'choice'
+                            ? ' is-choice-node'
+                            : node.type === 'variableSet' ||
+                                node.type === 'variableChange'
+                              ? ' is-variable-node'
+                              : node.type === 'cgDisplay'
+                                ? ' is-cg-display-node'
+                                : isStructuredControl
+                                  ? ' is-logic-node'
+                                  : ''
+              }`}
             >
-              <span className="dialogue-number">
-                {String(index + 1).padStart(2, '0')}
-              </span>
+              <button
+                type="button"
+                className="dialogue-list-item"
+                onClick={() => void onSelectNode(node)}
+              >
+                <span className="dialogue-number">
+                  {String(index + 1).padStart(2, '0')}
+                </span>
 
-              <div>
-                {node.type === 'dialogue' ? (
-                  <>
-                    <strong>{node.speaker || labels.scenes.narrator}</strong>
-                    <p>{node.text || labels.scenes.emptyDialogue}</p>
-                  </>
-                ) : node.type === 'background' ? (
-                  <>
-                    <strong>{labels.scenes.backgroundChange}</strong>
-                    <p>{assetName(node.assetId)}</p>
-                  </>
-                ) : node.type === 'character' ? (
-                  <>
-                    <strong>
-                      {labels.scenes.character} · {node.layer} {labels.scenes.layer}
-                    </strong>
-                    <p>
-                      {node.assetId === null
-                        ? labels.scenes.noPortrait
-                        : assetName(node.assetId)}
-                      {' · '}
-                      {node.slot === 'left'
-                        ? labels.scenes.left
-                        : node.slot === 'center'
-                          ? labels.scenes.center
-                          : labels.scenes.right}
-                    </p>
-                  </>
-                ) : node.type === 'sceneJump' ? (
-                  <>
-                    <strong>{labels.scenes.jumpScene}</strong>
-                    <p>
-                      {(() => {
-                        const targetIndex = project.scenes.findIndex(
-                          (projectScene) =>
-                            projectScene.id === node.targetSceneId,
-                        );
-                        return targetIndex >= 0
-                          ? `${labels.common.scene} ${targetIndex + 1}`
-                          : labels.scenes.missingTargetScene;
-                      })()}
-                    </p>
-                  </>
-                ) : node.type === 'bgm' ? (
-                  <>
-                    <strong>{labels.scenes.backgroundMusic}</strong>
-                    <p>{audioName(node.assetId)}</p>
-                  </>
-                ) : node.type === 'video' ? (
-                  <>
-                    <strong>{labels.scenes.playVideo}</strong>
-                    <p>{videoName(node.assetId)}</p>
-                  </>
-                ) : node.type === 'choice' ? (
-                  <>
-                    <strong>{labels.scenes.sceneOptions}</strong>
-                    <p>
-                      {node.options.length > 0
-                        ? `${node.options.length} ${labels.scenes.optionUnit}`
-                        : labels.scenes.noOptionsSkip}
-                    </p>
-                  </>
-                ) : node.type === 'variableSet' ? (
-                  <>
-                    <strong>{labels.blockly.setVariable}</strong>
-                    <p>
-                      {node.variableName} = {String(node.value)}
-                    </p>
-                  </>
-                ) : node.type === 'variableChange' ? (
-                  <>
-                    <strong>{labels.blockly.changeVariable}</strong>
-                    <p>
-                      {node.variableName} {node.amount >= 0 ? '+' : '−'}= {
-                        Math.abs(node.amount)
-                      }
-                    </p>
-                  </>
-                ) : node.type === 'logicIf' ? (
-                  <>
-                    <strong>{labels.blockly.logicIf}</strong>
-                    <p>{formatLogicCondition(node.condition)}</p>
-                  </>
-                ) : (
-                  <>
-                    <strong>{labels.blockly.logicRepeat}</strong>
-                    <p>{node.count} {labels.blockly.logicTimes}</p>
-                  </>
-                )}
+                <div>
+                  {node.type === 'dialogue' ? (
+                    <>
+                      <strong>{node.speaker || labels.scenes.narrator}</strong>
+                      <p>{node.text || labels.scenes.emptyDialogue}</p>
+                    </>
+                  ) : node.type === 'background' ? (
+                    <>
+                      <strong>{labels.scenes.backgroundChange}</strong>
+                      <p>{assetName(node.assetId)}</p>
+                    </>
+                  ) : node.type === 'character' ? (
+                    <>
+                      <strong>
+                        {labels.scenes.character} · {node.layer}{' '}
+                        {labels.scenes.layer}
+                      </strong>
+                      <p>
+                        {node.mode === 'clear'
+                          ? labels.scenes.noPortrait
+                          : node.assetId === null
+                            ? labels.common.none
+                            : assetName(node.assetId)}
+                        {' · '}
+                        {node.slot === 'left'
+                          ? labels.scenes.left
+                          : node.slot === 'center'
+                            ? labels.scenes.center
+                            : labels.scenes.right}
+                        {node.effect ? (
+                          <>
+                            <br />
+                            <span className="character-effect-summary">
+                              {labels.scenes.characterEffect} ·{' '}
+                              {formatCharacterEffect(node.effect, labels)}
+                            </span>
+                          </>
+                        ) : null}
+                      </p>
+                    </>
+                  ) : node.type === 'sceneJump' ? (
+                    <>
+                      <strong>{labels.scenes.jumpScene}</strong>
+                      <p>
+                        {(() => {
+                          const targetIndex = project.scenes.findIndex(
+                            (projectScene) =>
+                              projectScene.id === node.targetSceneId,
+                          );
+                          return targetIndex >= 0
+                            ? `${labels.common.scene} ${targetIndex + 1}`
+                            : labels.scenes.missingTargetScene;
+                        })()}
+                      </p>
+                    </>
+                  ) : node.type === 'bgm' ? (
+                    <>
+                      <strong>{labels.scenes.backgroundMusic}</strong>
+                      <p>{audioName(node.assetId)}</p>
+                    </>
+                  ) : node.type === 'video' ? (
+                    <>
+                      <strong>{labels.scenes.playVideo}</strong>
+                      <p>{videoName(node.assetId)}</p>
+                    </>
+                  ) : node.type === 'choice' ? (
+                    <>
+                      <strong>{labels.scenes.sceneOptions}</strong>
+                      <p>
+                        {node.options.length > 0
+                          ? `${node.options.length} ${labels.scenes.optionUnit}`
+                          : labels.scenes.noOptionsSkip}
+                      </p>
+                    </>
+                  ) : node.type === 'variableSet' ? (
+                    <>
+                      <strong>{labels.blockly.setVariable}</strong>
+                      <p>
+                        {node.variableName} = {String(node.value)}
+                      </p>
+                    </>
+                  ) : node.type === 'variableChange' ? (
+                    <>
+                      <strong>{labels.blockly.changeVariable}</strong>
+                      <p>
+                        {node.variableName} {node.amount >= 0 ? '+' : '−'}={' '}
+                        {Math.abs(node.amount)}
+                      </p>
+                    </>
+                  ) : node.type === 'logicIf' ? (
+                    <>
+                      <strong>{labels.blockly.logicIf}</strong>
+                      <p>{formatLogicCondition(node.condition)}</p>
+                    </>
+                  ) : node.type === 'logicRepeat' ? (
+                    <>
+                      <strong>{labels.blockly.logicRepeat}</strong>
+                      <p>
+                        {node.count} {labels.blockly.logicTimes}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <strong>{labels.blockly.displayCg}</strong>
+                      <p>
+                        {assetName(node.assetId)} · {node.leadInMs / 1000}{' '}
+                        {labels.blockly.seconds}
+                      </p>
+                    </>
+                  )}
+                </div>
+              </button>
+
+              <div className="dialogue-item-actions">
+                <button
+                  type="button"
+                  className="dialogue-move-button"
+                  disabled={isBusy || index === 0 || hasStructuredControls}
+                  aria-label={`${labels.scenes.moveUp}${labels.common.wordSeparator}${labels.scenes.nodeAriaPrefix}${index + 1}${labels.scenes.nodeAriaSuffix}`}
+                  title={labels.scenes.moveUp}
+                  onClick={() => void onMoveNode(node.id, -1)}
+                >
+                  ↑
+                </button>
+
+                <button
+                  type="button"
+                  className="dialogue-move-button"
+                  disabled={
+                    isBusy ||
+                    index === storyNodes.length - 1 ||
+                    hasStructuredControls
+                  }
+                  aria-label={`${labels.scenes.moveDown}${labels.common.wordSeparator}${labels.scenes.nodeAriaPrefix}${index + 1}${labels.scenes.nodeAriaSuffix}`}
+                  title={labels.scenes.moveDown}
+                  onClick={() => void onMoveNode(node.id, 1)}
+                >
+                  ↓
+                </button>
+
+                <button
+                  type="button"
+                  className="dialogue-delete-button"
+                  aria-label={`${labels.scenes.delete}${labels.common.wordSeparator}${labels.scenes.nodeAriaPrefix}${index + 1}${labels.scenes.nodeAriaSuffix}`}
+                  title={labels.scenes.deleteNode}
+                  disabled={isBusy || isStructuredControl}
+                  onClick={() => void onDeleteNode(node.id)}
+                >
+                  {labels.scenes.delete}
+                </button>
               </div>
-            </button>
-
-            <div className="dialogue-item-actions">
-              <button
-                type="button"
-                className="dialogue-move-button"
-                disabled={isBusy || index === 0 || hasLogicControls}
-                aria-label={`${labels.scenes.moveUp}${labels.common.wordSeparator}${labels.scenes.nodeAriaPrefix}${index + 1}${labels.scenes.nodeAriaSuffix}`}
-                title={labels.scenes.moveUp}
-                onClick={() =>
-                  void onMoveNode(node.id, -1)
-                }
-              >
-                ↑
-              </button>
-
-              <button
-                type="button"
-                className="dialogue-move-button"
-                disabled={
-                  isBusy ||
-                  index === storyNodes.length - 1 ||
-                  hasLogicControls
-                }
-                aria-label={`${labels.scenes.moveDown}${labels.common.wordSeparator}${labels.scenes.nodeAriaPrefix}${index + 1}${labels.scenes.nodeAriaSuffix}`}
-                title={labels.scenes.moveDown}
-                onClick={() =>
-                  void onMoveNode(node.id, 1)
-                }
-              >
-                ↓
-              </button>
-
-              <button
-                type="button"
-                className="dialogue-delete-button"
-                aria-label={`${labels.scenes.delete}${labels.common.wordSeparator}${labels.scenes.nodeAriaPrefix}${index + 1}${labels.scenes.nodeAriaSuffix}`}
-                title={labels.scenes.deleteNode}
-                disabled={isBusy || isLogicControl}
-                onClick={() =>
-                  void onDeleteNode(node.id)
-                }
-              >
-                {labels.scenes.delete}
-              </button>
-            </div>
-          </li>
+            </li>
           );
         })}
       </ol>
@@ -457,10 +489,7 @@ function formatLogicOperand(
 }
 
 function formatLogicCondition(
-  condition: Extract<
-    FormVisibleSceneNode,
-    { type: 'logicIf' }
-  >['condition'],
+  condition: Extract<FormVisibleSceneNode, { type: 'logicIf' }>['condition'],
 ): string {
   const symbols = {
     eq: '=',

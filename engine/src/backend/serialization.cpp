@@ -1,3 +1,5 @@
+// 文件职责：严格读取、迁移并写出 VN Engine Author 项目 JSON。
+// 关键实现：v1–v19 迁移、exact-field 校验、节点/资源序列化和 v19 Writer。
 #include "serialization.hpp"
 
 #include <algorithm>
@@ -150,6 +152,181 @@ CharacterSlot character_slot_from_json(
     const Json& value,
     const std::string& context);
 
+std::string character_node_mode_to_string(const CharacterNodeMode mode) {
+  switch (mode) {
+    case CharacterNodeMode::show:
+      return "show";
+    case CharacterNodeMode::clear:
+      return "clear";
+  }
+  invalid("character node mode is invalid");
+}
+
+CharacterNodeMode character_node_mode_from_json(
+    const Json& value,
+    const std::string& context) {
+  const std::string mode = require_string(value, "mode", context);
+  if (mode == "show") {
+    return CharacterNodeMode::show;
+  }
+  if (mode == "clear") {
+    return CharacterNodeMode::clear;
+  }
+  invalid(context + ".mode must be show or clear");
+}
+
+std::string character_effect_type_to_string(const CharacterEffectType type) {
+  switch (type) {
+    case CharacterEffectType::shake:
+      return "shake";
+    case CharacterEffectType::jump:
+      return "jump";
+    case CharacterEffectType::breathe:
+      return "breathe";
+    case CharacterEffectType::flash:
+      return "flash";
+    case CharacterEffectType::fade_in:
+      return "fadeIn";
+    case CharacterEffectType::fade_out:
+      return "fadeOut";
+    case CharacterEffectType::slide_in:
+      return "slideIn";
+  }
+  return {};
+}
+
+std::string character_effect_intensity_to_string(
+    const CharacterEffectIntensity intensity) {
+  switch (intensity) {
+    case CharacterEffectIntensity::subtle:
+      return "subtle";
+    case CharacterEffectIntensity::normal:
+      return "normal";
+    case CharacterEffectIntensity::strong:
+      return "strong";
+  }
+  return {};
+}
+
+std::string character_effect_direction_to_string(
+    const CharacterEffectDirection direction) {
+  switch (direction) {
+    case CharacterEffectDirection::left:
+      return "left";
+    case CharacterEffectDirection::right:
+      return "right";
+    case CharacterEffectDirection::up:
+      return "up";
+    case CharacterEffectDirection::down:
+      return "down";
+  }
+  return {};
+}
+
+Json character_effect_to_json(const CharacterEffect& effect) {
+  Json result{
+      {"type", character_effect_type_to_string(effect.type)},
+      {"durationMs", effect.duration_ms},
+  };
+  if (effect.intensity.has_value()) {
+    result["intensity"] =
+        character_effect_intensity_to_string(*effect.intensity);
+  }
+  if (effect.direction.has_value()) {
+    result["direction"] =
+        character_effect_direction_to_string(*effect.direction);
+  }
+  return result;
+}
+
+CharacterEffectIntensity character_effect_intensity_from_json(
+    const Json& value,
+    const std::string& context) {
+  if (!value.is_string()) {
+    invalid(context + " must be a string");
+  }
+  const std::string intensity = value.get<std::string>();
+  if (intensity == "subtle") {
+    return CharacterEffectIntensity::subtle;
+  }
+  if (intensity == "normal") {
+    return CharacterEffectIntensity::normal;
+  }
+  if (intensity == "strong") {
+    return CharacterEffectIntensity::strong;
+  }
+  invalid(context + " is not supported");
+}
+
+CharacterEffectDirection character_effect_direction_from_json(
+    const Json& value,
+    const std::string& context) {
+  if (!value.is_string()) {
+    invalid(context + " must be a string");
+  }
+  const std::string direction = value.get<std::string>();
+  if (direction == "left") {
+    return CharacterEffectDirection::left;
+  }
+  if (direction == "right") {
+    return CharacterEffectDirection::right;
+  }
+  if (direction == "up") {
+    return CharacterEffectDirection::up;
+  }
+  if (direction == "down") {
+    return CharacterEffectDirection::down;
+  }
+  invalid(context + " is not supported");
+}
+
+CharacterEffect character_effect_from_json(
+    const Json& value,
+    const std::string& context) {
+  if (!value.is_object() || !value.contains("type") ||
+      !value.at("type").is_string()) {
+    invalid(context + ".type must be a string");
+  }
+  const std::string type = value.at("type").get<std::string>();
+  CharacterEffect result;
+  if (type == "shake" || type == "jump" || type == "breathe" ||
+      type == "flash") {
+    require_exact_fields(
+        value, {"type", "durationMs", "intensity"}, context);
+    result.type = type == "shake"
+        ? CharacterEffectType::shake
+        : type == "jump"
+            ? CharacterEffectType::jump
+            : type == "breathe"
+                ? CharacterEffectType::breathe
+                : CharacterEffectType::flash;
+    result.intensity = character_effect_intensity_from_json(
+        value.at("intensity"), context + ".intensity");
+  } else if (type == "fadeIn" || type == "fadeOut") {
+    require_exact_fields(value, {"type", "durationMs"}, context);
+    result.type = type == "fadeIn"
+        ? CharacterEffectType::fade_in
+        : CharacterEffectType::fade_out;
+  } else if (type == "slideIn") {
+    require_exact_fields(
+        value,
+        {"type", "durationMs", "intensity", "direction"},
+        context);
+    result.type = CharacterEffectType::slide_in;
+    result.intensity = character_effect_intensity_from_json(
+        value.at("intensity"), context + ".intensity");
+    result.direction = character_effect_direction_from_json(
+        value.at("direction"), context + ".direction");
+  } else {
+    invalid(context + ".type is not supported");
+  }
+  result.duration_ms = require_integer(value, "durationMs", context);
+  if (result.duration_ms < 100 || result.duration_ms > 10000) {
+    invalid(context + ".durationMs must be between 100 and 10000");
+  }
+  return result;
+}
+
 Json background_node_to_json(const BackgroundNode& background) {
   return {
       {"id", background.id},
@@ -165,15 +342,21 @@ Json character_node_to_json(const CharacterNode& character) {
   if (character.position.has_value()) {
     position = {{"x", character.position->x}, {"y", character.position->y}};
   }
+  Json effect = nullptr;
+  if (character.effect.has_value()) {
+    effect = character_effect_to_json(*character.effect);
+  }
   return {
       {"id", character.id},
       {"type", "character"},
+      {"mode", character_node_mode_to_string(character.mode)},
       {"assetId",
        character.asset_id.has_value() ? Json(*character.asset_id)
                                       : Json(nullptr)},
       {"slot", character_slot_to_string(character.slot)},
       {"layer", character.layer},
       {"position", std::move(position)},
+      {"effect", std::move(effect)},
   };
 }
 
@@ -200,6 +383,23 @@ Json video_node_to_json(const VideoNode& video) {
       {"type", "video"},
       {"assetId",
        video.asset_id.has_value() ? Json(*video.asset_id) : Json(nullptr)},
+  };
+}
+
+Json cg_display_node_to_json(const CgDisplayNode& display) {
+  return {
+      {"id", display.id},
+      {"type", "cgDisplay"},
+      {"assetId", display.asset_id},
+      {"leadInMs", display.lead_in_ms},
+  };
+}
+
+Json cg_end_display_node_to_json(const CgEndDisplayNode& marker) {
+  return {
+      {"id", marker.id},
+      {"type", "cgEndDisplay"},
+      {"cgDisplayNodeId", marker.cg_display_node_id},
   };
 }
 
@@ -445,6 +645,10 @@ Json scene_node_to_json(const SceneNode& node) {
           return bgm_node_to_json(value);
         } else if constexpr (std::is_same_v<Value, VideoNode>) {
           return video_node_to_json(value);
+        } else if constexpr (std::is_same_v<Value, CgDisplayNode>) {
+          return cg_display_node_to_json(value);
+        } else if constexpr (std::is_same_v<Value, CgEndDisplayNode>) {
+          return cg_end_display_node_to_json(value);
         } else if constexpr (std::is_same_v<Value, ChoiceNode>) {
           return choice_node_to_json(value);
         } else if constexpr (std::is_same_v<Value, StoryExtensionNode>) {
@@ -514,7 +718,18 @@ SceneNode scene_node_from_json(
     if (file_version < 5) {
       unsupported(context + ".type is not supported before file version 5");
     }
-    if (file_version >= 13) {
+    if (file_version >= 19) {
+      require_exact_fields(
+          value,
+          {"id", "type", "mode", "assetId", "slot", "layer", "position",
+           "effect"},
+          context);
+    } else if (file_version >= 18) {
+      require_exact_fields(
+          value,
+          {"id", "type", "assetId", "slot", "layer", "position", "effect"},
+          context);
+    } else if (file_version >= 13) {
       require_exact_fields(
           value,
           {"id", "type", "assetId", "slot", "layer", "position"},
@@ -553,12 +768,38 @@ SceneNode scene_node_from_json(
       }
       position = CharacterPosition{.x = x, .y = y};
     }
+    std::optional<CharacterEffect> effect;
+    if (file_version >= 18 && !value.at("effect").is_null()) {
+      effect = character_effect_from_json(
+          value.at("effect"), context + ".effect");
+    }
+    const CharacterNodeMode mode = file_version >= 19
+        ? character_node_mode_from_json(value, context)
+        : asset_id.has_value() ? CharacterNodeMode::show
+                               : CharacterNodeMode::clear;
+    if (!asset_id.has_value() && effect.has_value()) {
+      invalid(context + ".effect must be null when assetId is null");
+    }
+    if (mode == CharacterNodeMode::clear && asset_id.has_value()) {
+      invalid(context + ".assetId must be null when mode is clear");
+    }
+    if (mode == CharacterNodeMode::clear && position.has_value()) {
+      if (file_version >= 19) {
+        invalid(context + ".position must be null when mode is clear");
+      }
+      // Before v19, assetId=null was the only clear signal and position was
+      // still independently legal. Canonicalize that obsolete presentation
+      // metadata so every migrated clear node satisfies the v19 invariant.
+      position.reset();
+    }
     return CharacterNode{
         .id = require_string(value, "id", context),
         .asset_id = std::move(asset_id),
+        .mode = mode,
         .slot = character_slot_from_json(value, context),
         .layer = layer,
         .position = std::move(position),
+        .effect = std::move(effect),
     };
   }
   if (type == "sceneJump") {
@@ -608,6 +849,34 @@ SceneNode scene_node_from_json(
     return VideoNode{
         .id = require_string(value, "id", context),
         .asset_id = std::move(asset_id),
+    };
+  }
+  if (type == "cgDisplay") {
+    if (file_version < 17) {
+      unsupported(context + ".type is not supported before file version 17");
+    }
+    require_exact_fields(
+        value, {"id", "type", "assetId", "leadInMs"}, context);
+    const int lead_in_ms = require_integer(value, "leadInMs", context);
+    if (lead_in_ms < 0 || lead_in_ms > kMaximumCgLeadInMs) {
+      invalid(context + ".leadInMs is outside the supported range");
+    }
+    return CgDisplayNode{
+        .id = require_string(value, "id", context),
+        .asset_id = require_string(value, "assetId", context),
+        .lead_in_ms = lead_in_ms,
+    };
+  }
+  if (type == "cgEndDisplay") {
+    if (file_version < 17) {
+      unsupported(context + ".type is not supported before file version 17");
+    }
+    require_exact_fields(
+        value, {"id", "type", "cgDisplayNodeId"}, context);
+    return CgEndDisplayNode{
+        .id = require_string(value, "id", context),
+        .cg_display_node_id =
+            require_string(value, "cgDisplayNodeId", context),
     };
   }
   if (type == "choice") {

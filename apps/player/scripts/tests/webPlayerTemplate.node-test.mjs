@@ -1,3 +1,7 @@
+/**
+ * 主要作用：验证 Web Player 模板暂存、哈希、目录所有权与失败回滚。
+ * 关键函数与实现：测试套件“stages an exact, hashed Web Player template payload”、`temporaryDirectories`、`testDirectory`、`stageScript`；使用 node:test、临时目录与真实文件制品覆盖发布工具。
+ */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -63,7 +67,7 @@ test('stages an exact, hashed Web Player template payload', async () => {
   assert.equal(manifest.templateVersion, 1);
   assert.equal(manifest.payloadRoot, 'payload');
   assert.equal(manifest.entry, 'index.html');
-  assert.equal(manifest.runtimeCompatibility, '>=1 <8');
+  assert.equal(manifest.runtimeCompatibility, '>=1 <10');
   assert.match(manifest.playerVersion, /^\d+\.\d+\.\d+$/u);
   assert.deepEqual(
     manifest.files.map((file) => file.path),

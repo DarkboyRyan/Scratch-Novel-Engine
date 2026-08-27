@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 Editor settings IPC 的行为。
+ * 测试覆盖：`Editor settings IPC`。
+ */
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {

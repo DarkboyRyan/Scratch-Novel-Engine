@@ -1,3 +1,5 @@
+// 主要作用：创建受控的 Electron 编辑器窗口并解析 Renderer 入口地址。
+// 关键实现：createEditorWindow 配置安全选项、窗口级导航信任和级联位置。
 import { BrowserWindow, screen } from 'electron';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';

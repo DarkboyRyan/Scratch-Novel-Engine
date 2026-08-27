@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：提供标题、背景图和背景音乐的表单配置界面。
+ * 包含实现：`StartScreenFormEditor`。
+ */
+
 import {
   forwardRef,
   useEffect,

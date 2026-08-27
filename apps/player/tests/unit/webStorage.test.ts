@@ -1,3 +1,7 @@
+/**
+ * 主要作用：验证 Web 存储隔离、槽位、游戏指纹与设置持久化。
+ * 关键函数与实现：测试套件“Web Player storage”、`MemoryDocuments`、`project`、`active`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 import {
   createGameRuntimeSnapshot,
   startGame,

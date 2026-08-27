@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：把标题界面积木字段变化转换为项目补丁。
+ * 包含实现：`getStartScreenFieldUpdate`。
+ */
+
 import * as Blockly from 'blockly';
 
 import type { ProjectDocument } from '../../../shared/projectTypes';

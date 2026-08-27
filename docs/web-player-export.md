@@ -1,7 +1,9 @@
+<!-- 文件职责：记录 Web Player ZIP 导出；关键内容：浏览器模板、Gateway、IndexedDB、ZIP 安全和部署。 -->
+
 # Web Player ZIP 导出实现
 
 > 实现目标：Editor 的导出面板新增“Web 游戏 ZIP（HTML5）”，把当前已保存的作者项目
-> 编译为可部署到静态网站的浏览器版游戏。它沿用 Runtime v7、共享 React Player UI 和
+> 编译为可部署到静态网站的浏览器版游戏。它沿用 Runtime v9、共享 React Player UI 和
 > 现有媒体资源，不携带 Electron、C++ Backend 或作者编辑能力。
 
 ## 1. 名称和功能边界
@@ -17,7 +19,8 @@
 
 第一版 Web Player 支持：
 
-- 与桌面 Player 一致的标题页、剧情、选择、场景跳转、背景、立绘、BGM、语音和视频；
+- 与桌面 Player 一致的标题页、剧情、选择、场景跳转、背景、立绘及七类立绘特效、BGM、
+  语音和视频；
 - 变量 Set/Change、If/Else 和固定次数 Repeat；
 - CG 画廊、九宫格分页与大图查看；
 - 浏览器本地的 3 个手动存档槽和 1 个快速槽；
@@ -51,9 +54,9 @@
 
 ```mermaid
 flowchart LR
-  AUTHOR["作者项目 v16<br/>project.vn.json + assets"]
+  AUTHOR["作者项目 v19<br/>project.vn.json + assets"]
   EDITOR["Electron Editor Main<br/>冻结 revision 与严格编译"]
-  RUNTIME["Runtime Bundle v7<br/>game.json + manifest + assets"]
+  RUNTIME["Runtime Bundle v9<br/>game.json + manifest + assets"]
   TEMPLATE["预构建 Web Player 模板<br/>index.html + player-assets"]
   ZIP["Web ZIP<br/>web-export.json + game/&lt;buildId&gt;"]
   HOST["HTTP/HTTPS 静态站点"]
@@ -71,7 +74,7 @@ flowchart LR
 - Editor Renderer 只表达 `output: 'web-player'` 的导出意图，不传入模板路径、输出目录或
   任意文件系统路径；
 - Electron Main 冻结当前保存版本并负责文件事务、模板验证和 ZIP 生成；
-- Runtime Compiler 继续把 author v16 编译为 runtime v7，不为 Web 复制另一套剧情语义；
+- Runtime Compiler 继续把 author v19 编译为 runtime v9，不为 Web 复制另一套剧情语义；
 - `@vnengine/runtime` 继续提供纯 TypeScript 状态机；
 - `@vnengine/player-ui` 继续提供标题页、舞台、CG、存档和选项组件；
 - WebGateway 只替换桌面 Player 的 Electron Preload/Main 传输与本地存储端口。
@@ -115,8 +118,8 @@ ZIP 解压后的根目录是一个可直接部署的静态站点：
 {
   "format": "vn-engine-web-export",
   "webExportVersion": 1,
-  "runtimeVersion": 7,
-  "playerCompatibility": ">=7 <8",
+  "runtimeVersion": 9,
+  "playerCompatibility": ">=9 <10",
   "gameRoot": "game/018f-example-build-id"
 }
 ```
@@ -161,7 +164,7 @@ Vite 配置的关键约束是：
   "templateVersion": 1,
   "payloadRoot": "payload",
   "entry": "index.html",
-  "runtimeCompatibility": ">=1 <8",
+  "runtimeCompatibility": ">=1 <10",
   "playerVersion": "<模板构建版本>",
   "files": [
     {
@@ -175,8 +178,8 @@ Vite 配置的关键约束是：
 
 `files` 精确列出 payload 的每个普通文件及其大小、SHA-256；加载模板时既要验证每个条目，
 也要确认实际文件集合没有缺失或额外内容。Editor 只消费经过验证的模板，不接受 Renderer
-指定的模板路径。模板可以读取 runtime v1–v7；当前新导出固定生成 runtime v7，且
-`web-export.json` 声明 `playerCompatibility: ">=7 <8"`。
+指定的模板路径。模板可以读取 runtime v1–v9；当前新导出固定生成 runtime v9，且
+`web-export.json` 声明 `playerCompatibility: ">=9 <10"`。
 
 ## 6. WebGateway 和浏览器运行链
 
@@ -226,8 +229,11 @@ projectId + runtimeVersion + contentFingerprint
 
 其中 `contentFingerprint` 由当前 `game.json` 的稳定内容计算。相同内容重新部署后可以继续
 读取原存档；内容变化后进入新的命名空间，避免把旧游标错误应用到新剧情。存档内容仍是
-`GameRuntimeSnapshot v2`，包含变量和 Repeat 栈；读取时继续由 `@vnengine/runtime`
-严格恢复并重建派生画面。旧 v1 只兼容没有经过逻辑节点的历史进度。
+`GameRuntimeSnapshot v4`，包含变量、Repeat 栈、CG 展示状态、全局单调
+`characterEffectSequence` 以及各人物的最终 opacity/effectSequence；读取时继续由
+`@vnengine/runtime` 严格恢复并重建派生画面。恢复会把瞬时 effect 清为 `null`，不会重播
+已经完成的动画；旧 v1–v3 只按各自能力受限兼容。历史 snapshot v3 首次保存变量、
+Repeat 与显示 CG 状态，v4 再加入人物特效的最终视觉状态。
 
 设置与存档共用 IndexedDB 的 `documents` object store。当前写入独立的 `settings-v2`
 key；若它不存在，Reader 会回退读取并严格迁移旧 `settings-v1`：
@@ -237,6 +243,11 @@ key；若它不存在，Reader 会回退读取并严格迁移旧 `settings-v1`�
 - 全屏状态服从浏览器权限和用户手势，不承诺刷新后自动进入全屏；
 - 窗口尺寸预设保留协议兼容值，但 Web UI 中禁用，不改变浏览器窗口；
 - IndexedDB 不可用、被隐私模式限制或配额不足时，界面返回稳定错误，不伪报保存成功。
+
+Web 与桌面版复用同一个 `VisualStage`。人物图片完成 load/decode 后才启动一次性特效；暂停
+菜单、阻塞弹层、媒体阻塞或 `document.hidden` 会暂停 CSS animation 并在恢复后续播。
+`prefers-reduced-motion: reduce` 会禁用位移动画，但 Runtime 仍提交相同的最终 opacity，
+因此无障碍设置不会改变剧情或存档结果。
 
 浏览器存储以 origin 为边界。同一游戏换域名、协议或端口后，浏览器会把它视为不同站点，
 原存档不会自动出现。清除站点数据也会删除 Web 存档和选项。
@@ -318,11 +329,11 @@ Node 依赖：
 | 导出 UI | React 19、TypeScript 5.9 | 新增 `web-player` 选项，隐藏桌面应用 metadata，显示产物结果 |
 | 导出边界 | Electron 43 Main / Preload / IPC | exact invocation、可信 frame、Main-owned 保存对话框和稳定错误 |
 | 作者模型 | C++20 Backend、JSONL | 提供当前窗口的权威 Project/Asset 快照和 revision，不进入 Web 产物 |
-| Runtime 编译 | TypeScript、现有 Runtime Bundle Exporter | author v16 → runtime v7，逻辑结构、资源闭包、hash、媒体魔数和源稳定性验证 |
+| Runtime 编译 | TypeScript、现有 Runtime Bundle Exporter | author v19 → runtime v9，逻辑结构、资源闭包、人物 effect/mode、hash、媒体魔数和源稳定性验证 |
 | ZIP | Node.js streams、`yazl`、`yauzl` | 跨平台流式压缩、重新读取、ZIP Slip/重复 entry/大小与结构验证 |
 | Web 构建 | Vite 5、`@vitejs/plugin-react` | `base: './'`、hash 资源、独立 Web payload 和模板 staging |
 | Web UI | React 19、`@vnengine/player-ui` | 复用标题页、剧情舞台、CG、存档和选项，不携带编辑器界面 |
-| 剧情状态机 | `@vnengine/runtime` | 复用 runtime v7 逻辑语义与 `GameRuntimeSnapshot v2` |
+| 剧情状态机 | `@vnengine/runtime` | 复用 runtime v9 逻辑/立绘特效语义与 `GameRuntimeSnapshot v4` |
 | 浏览器端口 | Fetch、URL、Web Crypto、IndexedDB、Fullscreen API | 同源 bundle 加载、资源 URL、内容身份、本地存储和全屏 |
 | 验证 | Vitest、Node Test、jsdom、真实浏览器 smoke | 协议、导出回滚、ZIP 契约、Gateway、存储、UI 与部署行为 |
 
@@ -349,7 +360,7 @@ Electron runtime，因此体积和权限面都明显小于独立桌面应用 ZIP
 
 ### 13.3 WebGateway 与存储
 
-- 正常 HTTP 响应可加载 runtime v7、逻辑节点和全部 Asset ID；
+- 正常 HTTP 响应可加载 runtime v9、逻辑节点、人物 effect 和全部 Asset ID；
 - 404、HTML fallback、畸形 JSON、未知字段、不兼容版本和危险路径被拒绝；
 - 资源 URL 保持同源且不能越出 `gameRoot`；
 - 三个手动槽、quick 槽、内容身份隔离和 snapshot 严格恢复；
@@ -393,9 +404,11 @@ Electron runtime，因此体积和权限面都明显小于独立桌面应用 ZIP
 - [独立游戏 Player 与导出流程](./game-export-player.md)：Runtime Bundle、桌面 Player、
   独立应用模板和发布门禁；
 - [当前架构](./architecture.md)：Editor、Main、C++ Backend、Runtime 和 Player UI 的职责；
-- [Player 保存与读取](./save-load-implementation.md)：`GameRuntimeSnapshot v2` 和桌面
+- [Player 保存与读取](./save-load-implementation.md)：`GameRuntimeSnapshot v4` 和桌面
   Main-owned 存档安全模型；
 - [逻辑 Blockly 实现](./logic-blockly-implementation.md)：变量、控制结构、自动步骤预算和
   v2 快照；
 - [Player 选项系统](./player-options-implementation.md)：四路音量、显示设置和媒体生命周期；
 - [CG 画廊实现](./cg-gallery-implementation.md)：CG 数据模型、九槽页面和 Runtime 资源闭包。
+- [人物立绘特效实现](./character-portrait-effects.md)：严格联合、运行时动画、暂停、
+  `prefers-reduced-motion` 与存档恢复语义。

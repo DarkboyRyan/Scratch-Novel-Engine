@@ -1,3 +1,7 @@
+/**
+ * 主要作用：渲染运行场景并协调对白、选项、CG、媒体、快进和操作栏。
+ * 关键函数与实现：`GameScreen`；基于 React 组件、Hooks、可访问交互与受控状态实现。
+ */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   GameActionBar,
@@ -34,6 +38,7 @@ type GameScreenProps = {
   openingGame: boolean;
   resolveMediaUrl: MediaUrlResolver;
   onAdvance(): void;
+  onCompleteCgLeadIn(): void;
   onCompleteVideo(): void;
   onSelectChoice(optionId: string): void;
   onPause(): void;
@@ -50,6 +55,12 @@ type GameScreenProps = {
 
 const FAST_FORWARD_HOLD_DELAY_MS = 300;
 const FAST_FORWARD_STEP_MS = 120;
+
+type CgMediaState = {
+  key: string;
+  status: 'resolving' | 'loading' | 'ready' | 'error';
+  url: string | null;
+};
 
 function isSpaceKey(event: KeyboardEvent): boolean {
   return event.code === 'Space' || event.key === ' ' || event.key === 'Spacebar';
@@ -77,6 +88,7 @@ export function GameScreen({
   openingGame,
   resolveMediaUrl,
   onAdvance,
+  onCompleteCgLeadIn,
   onCompleteVideo,
   onSelectChoice,
   onPause,
@@ -95,8 +107,18 @@ export function GameScreen({
   const rootRef = useRef<HTMLDivElement>(null);
   const [fastForwardLatched, setFastForwardLatched] = useState(false);
   const [spaceHoldActive, setSpaceHoldActive] = useState(false);
+  const [pageHidden, setPageHidden] = useState(() => document.hidden);
+  const [cgMedia, setCgMedia] = useState<CgMediaState>({
+    key: '',
+    status: 'resolving',
+    url: null,
+  });
   const spacePressedRef = useRef(false);
   const spaceHoldTimerRef = useRef<number | null>(null);
+  const cgLeadInTimerRef = useRef<{
+    key: string;
+    remainingMs: number;
+  } | null>(null);
   const inputStateRef = useRef({
     interactionBlocked,
     paused,
@@ -110,6 +132,9 @@ export function GameScreen({
   };
   onAdvanceRef.current = onAdvance;
   const fastForwardActive = fastForwardLatched || spaceHoldActive;
+  const cgMediaKey = runtime.cgAssetId === null
+    ? ''
+    : `${runtime.cgAssetId}:${runtime.cgSequence}`;
 
   const clearSpaceHoldTimer = useCallback(() => {
     if (spaceHoldTimerRef.current !== null) {
@@ -141,6 +166,9 @@ export function GameScreen({
   const backgroundAsset = runtime.backgroundAssetId
     ? assetById.get(runtime.backgroundAssetId) ?? null
     : null;
+  const cgAsset = runtime.cgAssetId
+    ? assetById.get(runtime.cgAssetId) ?? null
+    : null;
   const characters: PreviewCharacter[] = runtime.characters.map(
     (character) => ({
       id: character.nodeId,
@@ -150,6 +178,9 @@ export function GameScreen({
       slot: character.slot,
       layer: character.layer,
       position: character.position,
+      opacity: character.opacity,
+      effect: character.effect,
+      effectSequence: character.effectSequence,
     }),
   );
   const choices = getChoices(project, runtime);
@@ -162,6 +193,114 @@ export function GameScreen({
   useEffect(() => {
     rootRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => setPageHidden(document.hidden);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener(
+      'visibilitychange',
+      handleVisibilityChange,
+    );
+  }, []);
+
+  useEffect(() => {
+    const assetId = runtime.cgAssetId;
+    const key = cgMediaKey;
+    if (assetId === null) {
+      setCgMedia({ key: '', status: 'resolving', url: null });
+      return;
+    }
+    let cancelled = false;
+    setCgMedia({ key, status: 'resolving', url: null });
+    void resolveMediaUrl(assetId).then((url) => {
+      if (cancelled) {
+        return;
+      }
+      setCgMedia(url === null
+        ? { key, status: 'error', url: null }
+        : { key, status: 'loading', url });
+    }).catch(() => {
+      if (!cancelled) {
+        setCgMedia({ key, status: 'error', url: null });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [cgMediaKey, resolveMediaUrl, runtime.cgAssetId]);
+
+  const completeCgImageLoad = useCallback((image: HTMLImageElement) => {
+    const key = cgMediaKey;
+    const markReady = () => setCgMedia((current) =>
+      current.key === key && current.status === 'loading'
+        ? { ...current, status: 'ready' }
+        : current);
+    if (typeof image.decode !== 'function') {
+      markReady();
+      return;
+    }
+    void image.decode().then(markReady).catch(() => {
+      setCgMedia((current) => current.key === key
+        ? { key, status: 'error', url: null }
+        : current);
+    });
+  }, [cgMediaKey]);
+
+  useEffect(() => {
+    if (runtime.status !== 'waitingCgLeadIn') {
+      cgLeadInTimerRef.current = null;
+      return;
+    }
+    const key = `${runtime.sceneId}:${runtime.cgSequence}`;
+    if (cgLeadInTimerRef.current?.key !== key) {
+      cgLeadInTimerRef.current = {
+        key,
+        remainingMs: runtime.cgLeadInMs,
+      };
+    }
+    if (
+      paused ||
+      mediaPaused ||
+      interactionBlocked ||
+      pageHidden ||
+      cgMedia.key !== cgMediaKey ||
+      cgMedia.status !== 'ready'
+    ) {
+      return;
+    }
+
+    const timerState = cgLeadInTimerRef.current;
+    const startedAt = performance.now();
+    const timeout = window.setTimeout(() => {
+      if (cgLeadInTimerRef.current?.key === key) {
+        cgLeadInTimerRef.current.remainingMs = 0;
+      }
+      onCompleteCgLeadIn();
+    }, timerState.remainingMs);
+    return () => {
+      window.clearTimeout(timeout);
+      if (cgLeadInTimerRef.current?.key === key) {
+        const elapsed = Math.max(0, performance.now() - startedAt);
+        cgLeadInTimerRef.current.remainingMs = Math.max(
+          0,
+          timerState.remainingMs - elapsed,
+        );
+      }
+    };
+  }, [
+    interactionBlocked,
+    cgMedia.key,
+    cgMedia.status,
+    cgMediaKey,
+    mediaPaused,
+    onCompleteCgLeadIn,
+    pageHidden,
+    paused,
+    runtime.cgLeadInMs,
+    runtime.cgSequence,
+    runtime.sceneId,
+    runtime.status,
+  ]);
 
   useEffect(() => {
     if (
@@ -357,8 +496,51 @@ export function GameScreen({
           !paused && runtime.status === 'playing' && runtime.dialogue !== null
         }
         characters={characters}
+        animateCharacters
+        animationsPaused={
+          paused || mediaPaused || interactionBlocked || pageHidden
+        }
         placeholder={labels.noBackground}
       >
+        {runtime.cgAssetId ? (
+          <div
+            className="player-cg-display-layer"
+            aria-label={labels.cgAria}
+            aria-busy={
+              cgMedia.status === 'resolving' || cgMedia.status === 'loading'
+            }
+          >
+            {cgMedia.url ? (
+              <img
+                src={cgMedia.url}
+                alt={cgAsset?.displayName ?? 'CG'}
+                onLoad={(event) => completeCgImageLoad(event.currentTarget)}
+                onError={() => setCgMedia((current) =>
+                  current.key === cgMediaKey
+                    ? { key: cgMediaKey, status: 'error', url: null }
+                    : current)}
+              />
+            ) : null}
+            {cgMedia.status === 'resolving' || cgMedia.status === 'loading' ? (
+              <p className="player-cg-display-message" role="status">
+                {labels.cgLoading}
+              </p>
+            ) : null}
+            {cgMedia.status === 'error' ? (
+              <div
+                className="player-cg-display-error"
+                role="alert"
+                onPointerUp={(event) => event.stopPropagation()}
+              >
+                <p>{labels.cgLoadFailed}</p>
+                <button type="button" onClick={onReturnToTitle}>
+                  {allLabels.common.returnToTitle}
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         {runtime.status === 'playingVideo' && runtime.videoAssetId ? (
           <PreviewVideo
             assetId={runtime.videoAssetId}

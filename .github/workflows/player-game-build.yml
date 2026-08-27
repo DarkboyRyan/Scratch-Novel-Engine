@@ -1,3 +1,5 @@
+# 文件职责：提供可复用的已签名 embedded 游戏应用构建工作流。
+# 关键实现：严格输入、内容包验证、平台签名、公证和 artifact 发布。
 name: Reusable signed embedded game build
 
 on:

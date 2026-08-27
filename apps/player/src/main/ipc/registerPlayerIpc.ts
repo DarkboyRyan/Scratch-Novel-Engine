@@ -1,3 +1,7 @@
+/**
+ * 主要作用：注册可信 Player IPC，校验调用并分派内容、存档和设置操作。
+ * 关键函数与实现：`registerPlayerIpc`；基于 Electron Main 与 Node.js 安全文件/协议边界实现。
+ */
 import type { IpcMain } from 'electron';
 import { isGameRuntimeSnapshot } from '@vnengine/runtime';
 

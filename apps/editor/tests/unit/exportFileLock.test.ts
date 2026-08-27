@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 export file lock 的行为。
+ * 测试覆盖：`export file lock`。
+ */
+
 import {
   access,
   mkdtemp,

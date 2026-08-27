@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：注册并投影标题界面根积木、背景和音乐积木。
+ * 包含实现：`START_SCREEN_ROOT_BLOCK_TYPE`、`START_SCREEN_BACKGROUND_BLOCK_TYPE`、`START_SCREEN_MUSIC_BLOCK_TYPE`、`START_SCREEN_BLOCK_IDS`、`START_SCREEN_BLOCK_FIELDS`、`StartScreenAssetLabels` 等 13 项。
+ */
+
 import * as Blockly from 'blockly';
 
 import type {
@@ -9,6 +14,7 @@ import {
   getEditorLabels,
   type EditorLabels,
 } from '../../i18n/editorLocalization';
+import { limitAssetFieldDisplay } from '../block-editor/blocks/assetNameField';
 
 export const START_SCREEN_ROOT_BLOCK_TYPE = 'vn_start_screen';
 export const START_SCREEN_BACKGROUND_BLOCK_TYPE =
@@ -169,10 +175,14 @@ function registerBackgroundBlock(): void {
 
   Blockly.Blocks[START_SCREEN_BACKGROUND_BLOCK_TYPE] = {
     init(): void {
+      const assetField = new Blockly.FieldDropdown([
+        [currentLabels.common.none, ''],
+      ]);
+      limitAssetFieldDisplay(assetField);
       this.appendDummyInput()
         .appendField(currentLabels.blockly.startScreenBackground, START_SCREEN_LABEL_FIELDS.background)
         .appendField(
-          new Blockly.FieldDropdown([[currentLabels.common.none, '']]),
+          assetField,
           START_SCREEN_BLOCK_FIELDS.backgroundAssetId,
         );
       this.setPreviousStatement(true);

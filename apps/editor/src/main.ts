@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：启动 Electron Editor 并组装窗口级 Main 服务。
+ * 包含实现：应用生命周期、IPC 注册、C++ Backend、项目会话、菜单和安全协议初始化。
+ */
+
 import { app, BrowserWindow, protocol } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';

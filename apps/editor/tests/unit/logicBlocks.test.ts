@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 logic and variable Blockly definitions 的行为。
+ * 测试覆盖：`logic and variable Blockly definitions`。
+ */
+
 import * as Blockly from 'blockly';
 import { afterEach, describe, expect, it } from 'vitest';
 

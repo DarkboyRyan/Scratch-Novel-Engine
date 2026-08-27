@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：按类别构建本地化 Blockly 工具箱配置。
+ * 包含实现：`createBlockEditorToolbox`。
+ */
+
 import type * as Blockly from 'blockly';
 
 import { DIALOGUE_BLOCK_TYPE } from './blocks/dialogueBlock';
@@ -22,6 +27,8 @@ import {
   VARIABLE_CHANGE_BLOCK_TYPE,
   VARIABLE_SET_BLOCK_TYPE,
 } from './blocks/variableBlock';
+import { CG_DISPLAY_BLOCK_TYPE } from './blocks/cgDisplayBlock';
+import { CHARACTER_EFFECT_BLOCK_TYPES } from './blocks/characterEffectBlock';
 import {
   DEFAULT_EDITOR_LANGUAGE,
   getEditorLabels,
@@ -81,8 +88,18 @@ export function createBlockEditorToolbox(
           { kind: 'block', type: BACKGROUND_BLOCK_TYPE },
           { kind: 'block', type: CHARACTER_BLOCK_TYPE },
           { kind: 'block', type: CLEAR_CHARACTER_BLOCK_TYPE },
+          { kind: 'block', type: CG_DISPLAY_BLOCK_TYPE },
           { kind: 'block', type: VIDEO_BLOCK_TYPE },
         ],
+      },
+      {
+        kind: 'category',
+        name: labels.blockly.categories.effects,
+        colour: '20',
+        contents: Object.values(CHARACTER_EFFECT_BLOCK_TYPES).map((type) => ({
+          kind: 'block' as const,
+          type,
+        })),
       },
     ],
   };

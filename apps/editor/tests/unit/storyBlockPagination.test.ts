@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 story Blockly pagination 的行为。
+ * 测试覆盖：`story Blockly pagination`。
+ */
+
 import type * as Blockly from 'blockly';
 import { describe, expect, it } from 'vitest';
 
@@ -136,6 +141,40 @@ describe('story Blockly pagination', () => {
     );
     expect(paginateStoryNodes(afterDelete)).toEqual([
       { nodes: afterDelete, continuation: null },
+    ]);
+  });
+
+  it('keeps a CG root and its dialogue body together while hiding the end marker', () => {
+    const nodes: SceneNode[] = [
+      dialogue(1),
+      {
+        id: 'cg-1',
+        type: 'cgDisplay',
+        assetId: 'cg-image',
+        leadInMs: 500,
+      },
+      {
+        ...dialogue(2),
+        id: 'cg-line',
+      },
+      {
+        id: 'cg-end-1',
+        type: 'cgEndDisplay',
+        cgDisplayNodeId: 'cg-1',
+      },
+      extension(1),
+      dialogue(3),
+    ];
+
+    expect(paginateStoryNodes(nodes)).toEqual([
+      {
+        nodes: [nodes[0], nodes[1], nodes[2]],
+        continuation: null,
+      },
+      {
+        nodes: [nodes[5]],
+        continuation: { node: nodes[4], sequence: 1 },
+      },
     ]);
   });
 

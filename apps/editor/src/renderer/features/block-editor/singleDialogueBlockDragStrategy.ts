@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：限制单个对白积木拖动并维护故事序列连接。
+ * 包含实现：`SingleDialogueBlockDragStrategy`。
+ */
+
 import * as Blockly from 'blockly';
 
 // Blockly 默认拖动 statement 时会带走它下面的整串积木。

@@ -1,3 +1,5 @@
+// 主要作用：管理 Editor 到 C++ JSONL 后端的单窗口请求会话。
+// 关键实现：BackendClient 启停子进程、关联请求响应并处理超时和崩溃。
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import path from 'node:path';
 import { createInterface, type Interface } from 'node:readline';

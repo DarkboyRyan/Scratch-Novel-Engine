@@ -1,3 +1,7 @@
+/**
+ * 主要作用：协调设置持久化、音量语言及窗口大小/全屏应用。
+ * 关键函数与实现：`FULLSCREEN_TRANSITION_TIMEOUT_MS`、`PLAYER_WINDOW_SIZE_PRESETS`、`PlayerSettingsController`、`PlayerSettingsManager`；基于 Electron Main 与 Node.js 安全文件/协议边界实现。
+ */
 import type { BrowserWindow, Rectangle } from 'electron';
 
 import {

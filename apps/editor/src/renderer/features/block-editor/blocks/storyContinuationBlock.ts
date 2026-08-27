@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：注册故事续页积木并维护页码序号。
+ * 包含实现：`STORY_CONTINUATION_BLOCK_TYPE`、`STORY_CONTINUATION_BLOCK_FIELDS`、`applyStoryContinuationBlockLocalization`、`getStoryContinuationBlockSequence`、`setStoryContinuationBlockSequence`、`registerStoryContinuationBlock`。
+ */
+
 import * as Blockly from 'blockly';
 import { DEFAULT_EDITOR_LANGUAGE, getEditorLabels, type EditorLabels } from '../../../i18n/editorLocalization';
 

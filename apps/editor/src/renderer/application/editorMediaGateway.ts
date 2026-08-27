@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：为 Renderer 提供受平台网关约束的媒体 URL 解析能力。
+ * 包含实现：`resolveEditorMediaUrl`、`resolveEditorAssetPreviewUrl`。
+ */
+
 import { getEditorPlatformGateway } from './editorPlatformGateway';
 import type {
   AssetPreviewUrlResolver,

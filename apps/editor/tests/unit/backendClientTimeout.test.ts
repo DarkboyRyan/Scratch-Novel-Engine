@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 backend request timeout 的行为。
+ * 测试覆盖：`backend request timeout`。
+ */
+
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -83,6 +88,165 @@ describe('backend request timeout', () => {
         new Error('C++ 后端响应格式不正确（请求 7）'),
       );
       expect(internals.pendingRequests.has(7)).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      consoleError.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects a matching malformed CG response immediately', () => {
+    vi.useFakeTimers();
+    const client = new BackendClient();
+    const resolve = vi.fn();
+    const reject = vi.fn();
+    const timeout = setTimeout(vi.fn(), 10_000);
+    const internals = client as unknown as {
+      pendingRequests: Map<
+        number,
+        {
+          resolve: typeof resolve;
+          reject: typeof reject;
+          timeout: typeof timeout;
+        }
+      >;
+      handleLine(line: string): void;
+    };
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+
+    try {
+      internals.pendingRequests.set(9, { resolve, reject, timeout });
+      internals.handleLine(JSON.stringify({
+        id: 9,
+        ok: true,
+        result: {
+          project: {
+            schemaVersion: 1,
+            id: 'project-1',
+            name: 'Story',
+            entrySceneId: 'scene-1',
+            startScreen: {
+              title: 'Story',
+              backgroundAssetId: null,
+              musicAssetId: null,
+            },
+            cgGallery: {
+              pages: [{ imageAssetIds: Array(9).fill(null) }],
+            },
+            scenes: [{
+              schemaVersion: 1,
+              id: 'scene-1',
+              name: 'Scene 1',
+              backgroundAssetId: null,
+              nodes: [
+                {
+                  id: 'cg-1',
+                  type: 'cgDisplay',
+                  assetId: 'image-1',
+                  leadInMs: 0,
+                },
+                {
+                  id: 'background-inside',
+                  type: 'background',
+                  assetId: null,
+                },
+                {
+                  id: 'cg-end-1',
+                  type: 'cgEndDisplay',
+                  cgDisplayNodeId: 'cg-1',
+                },
+              ],
+            }],
+          },
+          assets: [{ id: 'image-1', type: 'image', displayName: 'CG' }],
+          session: { revision: 1, savedRevision: null, isDirty: true },
+        },
+      }));
+
+      expect(resolve).not.toHaveBeenCalled();
+      expect(reject).toHaveBeenCalledWith(
+        new Error('C++ 后端响应格式不正确（请求 9）'),
+      );
+      expect(internals.pendingRequests.has(9)).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      consoleError.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects a matching malformed portrait-effect response immediately', () => {
+    vi.useFakeTimers();
+    const client = new BackendClient();
+    const resolve = vi.fn();
+    const reject = vi.fn();
+    const timeout = setTimeout(vi.fn(), 10_000);
+    const internals = client as unknown as {
+      pendingRequests: Map<
+        number,
+        {
+          resolve: typeof resolve;
+          reject: typeof reject;
+          timeout: typeof timeout;
+        }
+      >;
+      handleLine(line: string): void;
+    };
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+
+    try {
+      internals.pendingRequests.set(10, { resolve, reject, timeout });
+      internals.handleLine(JSON.stringify({
+        id: 10,
+        ok: true,
+        result: {
+          project: {
+            schemaVersion: 1,
+            id: 'project-1',
+            name: 'Story',
+            entrySceneId: 'scene-1',
+            startScreen: {
+              title: 'Story',
+              backgroundAssetId: null,
+              musicAssetId: null,
+            },
+            cgGallery: {
+              pages: [{ imageAssetIds: Array(9).fill(null) }],
+            },
+            scenes: [{
+              schemaVersion: 1,
+              id: 'scene-1',
+              name: 'Scene 1',
+              backgroundAssetId: null,
+              nodes: [{
+                id: 'character-1',
+                type: 'character',
+                assetId: 'image-1',
+                slot: 'center',
+                layer: 1,
+                position: null,
+                effect: {
+                  type: 'fadeIn',
+                  durationMs: 500,
+                  intensity: 'normal',
+                },
+              }],
+            }],
+          },
+          assets: [{ id: 'image-1', type: 'image', displayName: 'Portrait' }],
+          session: { revision: 1, savedRevision: null, isDirty: true },
+        },
+      }));
+
+      expect(resolve).not.toHaveBeenCalled();
+      expect(reject).toHaveBeenCalledWith(
+        new Error('C++ 后端响应格式不正确（请求 10）'),
+      );
+      expect(internals.pendingRequests.has(10)).toBe(false);
       expect(vi.getTimerCount()).toBe(0);
     } finally {
       consoleError.mockRestore();

@@ -1,3 +1,5 @@
+// 文件职责：定义 VN Engine 的权威项目、资源、场景与时间线数据模型。
+// 关键实现：Project/Scene/SceneNode、逻辑控制、CG 展示及 CharacterEffect 判别结构。
 #pragma once
 
 #include <array>
@@ -35,6 +37,14 @@ enum class CharacterSlot {
   right,
 };
 
+// Authoring needs to distinguish an unresolved portrait block from an
+// explicit runtime clear command. A show node may temporarily have no Asset
+// while the user is still editing it; a clear node always has no Asset.
+enum class CharacterNodeMode {
+  show,
+  clear,
+};
+
 // Optional author-controlled portrait anchor in visual-stage percentages.
 // (0, 0) is the top-left corner and (100, 100) is the bottom-right corner.
 struct CharacterPosition {
@@ -42,6 +52,42 @@ struct CharacterPosition {
   double y = 100.0;
 
   bool operator==(const CharacterPosition&) const = default;
+};
+
+enum class CharacterEffectType {
+  shake,
+  jump,
+  breathe,
+  flash,
+  fade_in,
+  fade_out,
+  slide_in,
+};
+
+enum class CharacterEffectIntensity {
+  subtle,
+  normal,
+  strong,
+};
+
+enum class CharacterEffectDirection {
+  left,
+  right,
+  up,
+  down,
+};
+
+// Portrait effects are attached to one CharacterNode rather than inserted as
+// timeline nodes. The optional fields form a strict tagged union: shake,
+// jump, breathe and flash require intensity; fadeIn/fadeOut require neither;
+// slideIn requires both intensity and direction.
+struct CharacterEffect {
+  CharacterEffectType type;
+  int duration_ms;
+  std::optional<CharacterEffectIntensity> intensity;
+  std::optional<CharacterEffectDirection> direction;
+
+  bool operator==(const CharacterEffect&) const = default;
 };
 
 // A BackgroundNode is a timeline command rather than Asset metadata. When
@@ -57,14 +103,16 @@ struct BackgroundNode {
 };
 
 // A CharacterNode changes one persistent portrait layer on the timeline.
-// nullopt clears that layer; otherwise the referenced image remains visible
-// until another CharacterNode targets the same layer.
+// show + nullopt is an authoring placeholder, show + an image displays it,
+// and clear + nullopt explicitly clears the targeted layer.
 struct CharacterNode {
   std::string id;
   std::optional<std::string> asset_id;
+  CharacterNodeMode mode = CharacterNodeMode::show;
   CharacterSlot slot = CharacterSlot::center;
   int layer = 1;
   std::optional<CharacterPosition> position;
+  std::optional<CharacterEffect> effect;
 
   bool operator==(const CharacterNode&) const = default;
 };
@@ -97,6 +145,25 @@ struct VideoNode {
   std::optional<std::string> asset_id;
 
   bool operator==(const VideoNode&) const = default;
+};
+
+// A CG display is a paired authoring/runtime control. The selected image is
+// shown immediately, then playback waits lead_in_ms before exposing the first
+// dialogue in its body. The image remains active until the matching end
+// marker. Only Dialogue nodes may appear between the pair.
+struct CgDisplayNode {
+  std::string id;
+  std::string asset_id;
+  int lead_in_ms = 0;
+
+  bool operator==(const CgDisplayNode&) const = default;
+};
+
+struct CgEndDisplayNode {
+  std::string id;
+  std::string cg_display_node_id;
+
+  bool operator==(const CgEndDisplayNode&) const = default;
 };
 
 // One ChoiceNode is a blocking branch point in the playback timeline. An
@@ -227,6 +294,8 @@ using SceneNode =
         SceneJumpNode,
         BgmNode,
         VideoNode,
+        CgDisplayNode,
+        CgEndDisplayNode,
         ChoiceNode,
         StoryExtensionNode,
         VariableSetNode,

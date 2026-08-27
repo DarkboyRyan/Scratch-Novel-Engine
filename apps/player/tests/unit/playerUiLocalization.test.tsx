@@ -1,4 +1,8 @@
 /** @vitest-environment jsdom */
+/**
+ * 主要作用：验证中英文组件文本、ARIA、错误消息和交互切换。
+ * 关键函数与实现：测试套件“Player UI localization”、`setSelectValue`、`referencedIds`、`referencedText`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 
 import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';

@@ -1,5 +1,9 @@
+// 主要作用：定义 C++、Main、Preload 与 Renderer 共用的引擎命令协议。
+// 关键实现：以方法到参数映射生成严格 Invocation、Response 和 VnEngineApi 类型。
 import type {
   AssetDocument,
+  CharacterEffect,
+  CharacterMode,
   CharacterPosition,
   CharacterSlot,
   LogicCondition,
@@ -46,6 +50,8 @@ export type UpdateBackgroundParams = {
 
 export type AddCharacterParams = {
   sceneId: string;
+  mode?: CharacterMode;
+  assetId?: string | null;
   afterNodeId?: string | null;
   beforeNodeId?: string | null;
 };
@@ -53,10 +59,24 @@ export type AddCharacterParams = {
 export type UpdateCharacterParams = {
   sceneId: string;
   nodeId: string;
+  mode?: CharacterMode;
   assetId: string | null;
   slot: CharacterSlot;
   layer: number;
   position: CharacterPosition | null;
+};
+
+export type UpdateCharacterEffectParams = {
+  sceneId: string;
+  nodeId: string;
+  effect: CharacterEffect | null;
+};
+
+export type MoveCharacterEffectParams = {
+  sceneId: string;
+  fromNodeId: string;
+  toNodeId: string;
+  effect: CharacterEffect;
 };
 
 export type AddSceneJumpParams = {
@@ -110,6 +130,32 @@ export type UpdateVideoParams = {
   sceneId: string;
   nodeId: string;
   assetId: string | null;
+};
+
+export type AddCgDisplayParams = {
+  sceneId: string;
+  assetId: string;
+  leadInMs: number;
+  afterNodeId?: string | null;
+  beforeNodeId?: string | null;
+};
+
+export type UpdateCgDisplayParams = {
+  sceneId: string;
+  nodeId: string;
+  assetId: string;
+  leadInMs: number;
+};
+
+export type DeleteCgDisplayParams = {
+  sceneId: string;
+  nodeId: string;
+};
+
+export type ReorderCgDisplayParams = {
+  sceneId: string;
+  nodeId: string;
+  beforeNodeId: string | null;
 };
 
 export type AddChoiceParams = {
@@ -295,12 +341,18 @@ export const ENGINE_METHODS = [
   'background.reorder',
   'character.add',
   'character.update',
+  'characterEffect.update',
+  'characterEffect.move',
   'sceneJump.add',
   'sceneJump.update',
   'bgm.add',
   'bgm.update',
   'video.add',
   'video.update',
+  'cgDisplay.add',
+  'cgDisplay.update',
+  'cgDisplay.delete',
+  'cgDisplay.reorder',
   'choice.add',
   'choice.option.add',
   'choice.option.update',
@@ -375,12 +427,18 @@ export type EngineParamsByMethod = {
   'background.reorder': ReorderBackgroundParams;
   'character.add': AddCharacterParams;
   'character.update': UpdateCharacterParams;
+  'characterEffect.update': UpdateCharacterEffectParams;
+  'characterEffect.move': MoveCharacterEffectParams;
   'sceneJump.add': AddSceneJumpParams;
   'sceneJump.update': UpdateSceneJumpParams;
   'bgm.add': AddBgmParams;
   'bgm.update': UpdateBgmParams;
   'video.add': AddVideoParams;
   'video.update': UpdateVideoParams;
+  'cgDisplay.add': AddCgDisplayParams;
+  'cgDisplay.update': UpdateCgDisplayParams;
+  'cgDisplay.delete': DeleteCgDisplayParams;
+  'cgDisplay.reorder': ReorderCgDisplayParams;
   'choice.add': AddChoiceParams;
   'choice.option.add': AddChoiceOptionParams;
   'choice.option.update': UpdateChoiceOptionParams;
@@ -532,6 +590,12 @@ export type VnEngineApi = {
   updateCharacter(
     params: UpdateCharacterParams,
   ): Promise<EngineMutationResult>;
+  updateCharacterEffect(
+    params: UpdateCharacterEffectParams,
+  ): Promise<EngineMutationResult>;
+  moveCharacterEffect(
+    params: MoveCharacterEffectParams,
+  ): Promise<EngineMutationResult>;
   addSceneJump(
     params: AddSceneJumpParams,
   ): Promise<EngineMutationResult>;
@@ -549,6 +613,18 @@ export type VnEngineApi = {
   ): Promise<EngineMutationResult>;
   updateVideo(
     params: UpdateVideoParams,
+  ): Promise<EngineMutationResult>;
+  addCgDisplay(
+    params: AddCgDisplayParams,
+  ): Promise<EngineMutationResult>;
+  updateCgDisplay(
+    params: UpdateCgDisplayParams,
+  ): Promise<EngineMutationResult>;
+  deleteCgDisplay(
+    params: DeleteCgDisplayParams,
+  ): Promise<EngineMutationResult>;
+  reorderCgDisplay(
+    params: ReorderCgDisplayParams,
   ): Promise<EngineMutationResult>;
   addChoice(
     params: AddChoiceParams,

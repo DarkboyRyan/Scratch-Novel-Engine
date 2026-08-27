@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 preload background and timeline engine API 的行为。
+ * 测试覆盖：`preload background and timeline engine API`。
+ */
+
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { VnEngineApi } from '../../src/shared/engineProtocol';
@@ -126,6 +131,25 @@ describe('preload background and timeline engine API', () => {
       'character.update',
     ],
     [
+      'updateCharacterEffect',
+      {
+        sceneId: 'scene-1',
+        nodeId: 'character-1',
+        effect: { type: 'fadeIn', durationMs: 500 },
+      },
+      'characterEffect.update',
+    ],
+    [
+      'moveCharacterEffect',
+      {
+        sceneId: 'scene-1',
+        fromNodeId: 'character-1',
+        toNodeId: 'character-2',
+        effect: { type: 'shake', durationMs: 500, intensity: 'normal' },
+      },
+      'characterEffect.move',
+    ],
+    [
       'addSceneJump',
       {
         sceneId: 'scene-1',
@@ -185,6 +209,40 @@ describe('preload background and timeline engine API', () => {
         assetId: 'video-1',
       },
       'video.update',
+    ],
+    [
+      'addCgDisplay',
+      {
+        sceneId: 'scene-1',
+        assetId: 'cg-1',
+        leadInMs: 1500,
+        beforeNodeId: 'dialogue-2',
+      },
+      'cgDisplay.add',
+    ],
+    [
+      'updateCgDisplay',
+      {
+        sceneId: 'scene-1',
+        nodeId: 'cg-display-1',
+        assetId: 'cg-2',
+        leadInMs: 250,
+      },
+      'cgDisplay.update',
+    ],
+    [
+      'deleteCgDisplay',
+      { sceneId: 'scene-1', nodeId: 'cg-display-1' },
+      'cgDisplay.delete',
+    ],
+    [
+      'reorderCgDisplay',
+      {
+        sceneId: 'scene-1',
+        nodeId: 'cg-display-1',
+        beforeNodeId: null,
+      },
+      'cgDisplay.reorder',
     ],
     [
       'addChoice',

@@ -1,3 +1,7 @@
+/**
+ * 主要作用：解析并验证 Player 单游戏构建环境及嵌入资源位置。
+ * 关键函数与实现：`PLAYER_BUILD_ENV`、`PlayerBuildConfig`、`resolvePlayerBuildConfig`、`resolveCopiedEmbeddedGameRoot`；基于 Electron Main 与 Node.js 安全文件/协议边界实现。
+ */
 import filenamify from 'filenamify';
 import { lstatSync, realpathSync } from 'node:fs';
 import path from 'node:path';

@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：注册变量赋值和增减积木并解析多类型逻辑值。
+ * 包含实现：`VARIABLE_SET_BLOCK_TYPE`、`VARIABLE_CHANGE_BLOCK_TYPE`、`VARIABLE_BLOCK_FIELDS`、`LogicValueType`、`getLogicValueType`、`parseLogicValue` 等 12 项。
+ */
+
 import * as Blockly from 'blockly';
 import {
   isLogicValue,

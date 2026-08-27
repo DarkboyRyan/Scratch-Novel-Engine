@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+/**
+ * 主要作用：验证 Player 构建目录、架构、元数据和签名状态。
+ * 关键函数与实现：`main`；基于 Node.js ESM、文件系统和受限子进程完成确定性 CLI 流程。
+ */
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';

@@ -1,3 +1,7 @@
+/**
+ * 主要作用：渲染保存、读取、快存、快读、快进、选项和返回标题操作栏。
+ * 关键函数与实现：`GameActionBarProps`、`GameActionBar`；基于 React 组件、Hooks、可访问交互与受控状态实现。
+ */
 import type { PointerEvent } from 'react';
 
 import type { PlayerUiLocalizationProps } from './localization';

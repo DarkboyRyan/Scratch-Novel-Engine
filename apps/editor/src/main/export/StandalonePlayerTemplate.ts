@@ -1,3 +1,5 @@
+// 主要作用：发现并严格验证当前平台的独立 Player 模板。
+// 关键实现：resolveStandalonePlayerTemplateRoot 解析路径，load 校验清单和入口。
 import { constants } from 'node:fs';
 import { lstat, open, realpath } from 'node:fs/promises';
 import path from 'node:path';
@@ -19,7 +21,7 @@ export type StandalonePlayerTemplateManifest = {
   platform: SupportedPlatform;
   arch: SupportedArchitecture;
   playerVersion: string;
-  runtimeCompatibility: '>=1 <8';
+  runtimeCompatibility: '>=1 <10';
   payloadRoot: string;
   artifactEntry: string;
   gameResourceDirectory: string;
@@ -110,7 +112,7 @@ function parseTemplateManifest(
     !/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(
       parsed.playerVersion,
     ) ||
-    parsed.runtimeCompatibility !== '>=1 <8' ||
+    parsed.runtimeCompatibility !== '>=1 <10' ||
     !isSafeRelativePath(parsed.payloadRoot) ||
     !isSafeRelativePath(parsed.artifactEntry) ||
     !isSafeRelativePath(parsed.gameResourceDirectory) ||

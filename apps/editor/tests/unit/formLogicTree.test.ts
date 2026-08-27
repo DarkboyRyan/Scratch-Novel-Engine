@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 form logic tree 的行为。
+ * 测试覆盖：`form logic tree`。
+ */
+
 import { describe, expect, it } from 'vitest';
 
 import type { SceneDocument } from '../../src/shared/projectTypes';
@@ -30,11 +35,22 @@ describe('form logic tree', () => {
         { id: 'else-1', type: 'logicElse', ifNodeId: 'if-1' },
         { id: 'repeat-1', type: 'logicRepeat', count: 2 },
         {
+          id: 'cg-1',
+          type: 'cgDisplay',
+          assetId: 'cg-image',
+          leadInMs: 750,
+        },
+        {
           id: 'else-line',
           type: 'dialogue',
           speaker: 'B',
           text: 'Else',
           voiceAssetId: null,
+        },
+        {
+          id: 'cg-end-1',
+          type: 'cgEndDisplay',
+          cgDisplayNodeId: 'cg-1',
         },
         {
           id: 'repeat-end',
@@ -56,11 +72,14 @@ describe('form logic tree', () => {
       'else@1',
       'repeat-1@1',
       'body@2',
-      'else-line@2',
+      'cg-1@2',
+      'cgBody@3',
+      'else-line@3',
     ]);
     expect(JSON.stringify(entries)).not.toContain('logicElse');
     expect(JSON.stringify(entries)).not.toContain('logicEndIf');
     expect(JSON.stringify(entries)).not.toContain('logicEndRepeat');
+    expect(JSON.stringify(entries)).not.toContain('cgEndDisplay');
     expect(JSON.stringify(entries)).not.toContain('storyExtension');
   });
 });

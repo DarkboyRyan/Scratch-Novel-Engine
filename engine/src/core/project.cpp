@@ -1,3 +1,5 @@
+// 文件职责：实现项目、场景及全部时间线节点的无 JSON 业务规则。
+// 关键实现：原子增删改、逻辑与 CG 配对结构、批量重排、人物特效和变量预算。
 #include "vnengine/project.hpp"
 
 #include "project_internal.hpp"
@@ -248,6 +250,37 @@ std::optional<LogicControlRange> find_logic_control_range(
     };
   }
   return std::nullopt;
+}
+
+std::optional<LogicControlRange> find_cg_display_range(
+    const Scene& scene,
+    const std::string_view root_id) {
+  const auto root = std::find_if(
+      scene.nodes.begin(),
+      scene.nodes.end(),
+      [root_id](const SceneNode& node) {
+        return scene_node_id(node) == root_id;
+      });
+  if (root == scene.nodes.end() ||
+      !std::holds_alternative<CgDisplayNode>(*root)) {
+    return std::nullopt;
+  }
+  const auto end = std::find_if(
+      std::next(root),
+      scene.nodes.end(),
+      [root_id](const SceneNode& node) {
+        const auto* marker = std::get_if<CgEndDisplayNode>(&node);
+        return marker != nullptr && marker->cg_display_node_id == root_id;
+      });
+  if (end == scene.nodes.end()) {
+    return std::nullopt;
+  }
+  return LogicControlRange{
+      .begin = static_cast<std::size_t>(
+          std::distance(scene.nodes.begin(), root)),
+      .end = static_cast<std::size_t>(
+          std::distance(scene.nodes.begin(), end)) + 1,
+  };
 }
 
 }  // namespace
@@ -597,7 +630,19 @@ AddBackgroundNodeResult add_background_node(
       .asset_id = std::nullopt,
   };
   std::string created_id = background.id;
-  scene->nodes.insert(insertion_iterator, std::move(background));
+  const std::size_t insertion_index = static_cast<std::size_t>(
+      std::distance(scene->nodes.begin(), insertion_iterator));
+  Scene candidate = *scene;
+  candidate.nodes.insert(
+      candidate.nodes.begin() + static_cast<std::ptrdiff_t>(insertion_index),
+      std::move(background));
+  if (validate_scene_logic_structure(candidate).has_value()) {
+    return {
+        AddBackgroundNodeStatus::control_boundary_conflict,
+        std::nullopt,
+    };
+  }
+  scene->nodes.swap(candidate.nodes);
   return {AddBackgroundNodeStatus::added, std::move(created_id)};
 }
 
@@ -652,10 +697,14 @@ AddCharacterNodeResult add_character_node(
     IdGenerator& ids,
     const std::string_view scene_id,
     std::optional<std::string> after_node_id,
-    std::optional<std::string> before_node_id) {
+    std::optional<std::string> before_node_id,
+    const CharacterNodeMode mode) {
   Scene* scene = find_scene(aggregate.project, scene_id);
   if (scene == nullptr) {
     return {AddCharacterNodeStatus::scene_not_found, std::nullopt};
+  }
+  if (mode != CharacterNodeMode::show && mode != CharacterNodeMode::clear) {
+    return {AddCharacterNodeStatus::invalid_mode, std::nullopt};
   }
   if (after_node_id.has_value() && before_node_id.has_value()) {
     return {AddCharacterNodeStatus::placement_conflict, std::nullopt};
@@ -688,12 +737,26 @@ AddCharacterNodeResult add_character_node(
   CharacterNode character{
       .id = ids.next(),
       .asset_id = std::nullopt,
+      .mode = mode,
       .slot = CharacterSlot::center,
       .layer = 1,
       .position = std::nullopt,
+      .effect = std::nullopt,
   };
   std::string created_id = character.id;
-  scene->nodes.insert(insertion_iterator, std::move(character));
+  const std::size_t insertion_index = static_cast<std::size_t>(
+      std::distance(scene->nodes.begin(), insertion_iterator));
+  Scene candidate = *scene;
+  candidate.nodes.insert(
+      candidate.nodes.begin() + static_cast<std::ptrdiff_t>(insertion_index),
+      std::move(character));
+  if (validate_scene_logic_structure(candidate).has_value()) {
+    return {
+        AddCharacterNodeStatus::control_boundary_conflict,
+        std::nullopt,
+    };
+  }
+  scene->nodes.swap(candidate.nodes);
   return {AddCharacterNodeStatus::added, std::move(created_id)};
 }
 
@@ -704,7 +767,8 @@ UpdateCharacterNodeResult update_character_node(
     std::optional<std::string> asset_id,
     const CharacterSlot slot,
     const int layer,
-    std::optional<CharacterPosition> position) {
+    std::optional<CharacterPosition> position,
+    const std::optional<CharacterNodeMode> mode) {
   Scene* scene = find_scene(aggregate.project, scene_id);
   if (scene == nullptr) {
     return UpdateCharacterNodeResult::scene_not_found;
@@ -725,6 +789,13 @@ UpdateCharacterNodeResult update_character_node(
        position->y < 0.0 || position->y > 100.0)) {
     return UpdateCharacterNodeResult::invalid_position;
   }
+  const CharacterNodeMode effective_mode = mode.value_or(character->mode);
+  if ((effective_mode != CharacterNodeMode::show &&
+       effective_mode != CharacterNodeMode::clear) ||
+      (effective_mode == CharacterNodeMode::clear &&
+       (asset_id.has_value() || position.has_value()))) {
+    return UpdateCharacterNodeResult::invalid_mode;
+  }
   if (asset_id.has_value()) {
     const Asset* asset = find_asset(aggregate, *asset_id);
     if (asset == nullptr) {
@@ -734,16 +805,89 @@ UpdateCharacterNodeResult update_character_node(
       return UpdateCharacterNodeResult::asset_not_image;
     }
   }
-  if (character->asset_id == asset_id && character->slot == slot &&
-      character->layer == layer && character->position == position) {
+  std::optional<CharacterEffect> effect = character->effect;
+  if (effective_mode == CharacterNodeMode::clear || !asset_id.has_value()) {
+    effect.reset();
+  }
+  if (character->asset_id == asset_id && character->mode == effective_mode &&
+      character->slot == slot &&
+      character->layer == layer && character->position == position &&
+      character->effect == effect) {
     return UpdateCharacterNodeResult::unchanged;
   }
 
   character->asset_id = std::move(asset_id);
+  character->mode = effective_mode;
   character->slot = slot;
   character->layer = layer;
   character->position = std::move(position);
+  character->effect = std::move(effect);
   return UpdateCharacterNodeResult::changed;
+}
+
+UpdateCharacterEffectResult update_character_effect(
+    ProjectAggregate& aggregate,
+    const std::string_view scene_id,
+    const std::string_view node_id,
+    std::optional<CharacterEffect> effect) {
+  Scene* scene = find_scene(aggregate.project, scene_id);
+  if (scene == nullptr) {
+    return UpdateCharacterEffectResult::scene_not_found;
+  }
+  CharacterNode* character = find_character_node(*scene, node_id);
+  if (character == nullptr) {
+    return UpdateCharacterEffectResult::node_not_found;
+  }
+  if (effect.has_value() &&
+      !project_detail::is_valid_character_effect(*effect)) {
+    return UpdateCharacterEffectResult::invalid_effect;
+  }
+  if (effect.has_value() && !character->asset_id.has_value()) {
+    return UpdateCharacterEffectResult::character_cleared;
+  }
+  if (character->effect == effect) {
+    return UpdateCharacterEffectResult::unchanged;
+  }
+  character->effect = std::move(effect);
+  return UpdateCharacterEffectResult::changed;
+}
+
+MoveCharacterEffectResult move_character_effect(
+    ProjectAggregate& aggregate,
+    const std::string_view scene_id,
+    const std::string_view from_node_id,
+    const std::string_view to_node_id,
+    CharacterEffect effect) {
+  Scene* scene = find_scene(aggregate.project, scene_id);
+  if (scene == nullptr) {
+    return MoveCharacterEffectResult::scene_not_found;
+  }
+  if (from_node_id == to_node_id) {
+    return MoveCharacterEffectResult::same_node;
+  }
+  CharacterNode* source = find_character_node(*scene, from_node_id);
+  if (source == nullptr) {
+    return MoveCharacterEffectResult::source_node_not_found;
+  }
+  CharacterNode* target = find_character_node(*scene, to_node_id);
+  if (target == nullptr) {
+    return MoveCharacterEffectResult::target_node_not_found;
+  }
+  if (!project_detail::is_valid_character_effect(effect)) {
+    return MoveCharacterEffectResult::invalid_effect;
+  }
+  if (!source->effect.has_value()) {
+    return MoveCharacterEffectResult::source_effect_missing;
+  }
+  if (*source->effect != effect) {
+    return MoveCharacterEffectResult::source_effect_mismatch;
+  }
+  if (!target->asset_id.has_value()) {
+    return MoveCharacterEffectResult::target_character_cleared;
+  }
+  source->effect.reset();
+  target->effect = std::move(effect);
+  return MoveCharacterEffectResult::changed;
 }
 
 AddBgmNodeResult add_bgm_node(
@@ -789,7 +933,16 @@ AddBgmNodeResult add_bgm_node(
       .asset_id = std::nullopt,
   };
   std::string created_id = bgm.id;
-  scene->nodes.insert(insertion_iterator, std::move(bgm));
+  const std::size_t insertion_index = static_cast<std::size_t>(
+      std::distance(scene->nodes.begin(), insertion_iterator));
+  Scene candidate = *scene;
+  candidate.nodes.insert(
+      candidate.nodes.begin() + static_cast<std::ptrdiff_t>(insertion_index),
+      std::move(bgm));
+  if (validate_scene_logic_structure(candidate).has_value()) {
+    return {AddBgmNodeStatus::control_boundary_conflict, std::nullopt};
+  }
+  scene->nodes.swap(candidate.nodes);
   return {AddBgmNodeStatus::added, std::move(created_id)};
 }
 
@@ -866,7 +1019,16 @@ AddVideoNodeResult add_video_node(
       .asset_id = std::nullopt,
   };
   std::string created_id = video.id;
-  scene->nodes.insert(insertion_iterator, std::move(video));
+  const std::size_t insertion_index = static_cast<std::size_t>(
+      std::distance(scene->nodes.begin(), insertion_iterator));
+  Scene candidate = *scene;
+  candidate.nodes.insert(
+      candidate.nodes.begin() + static_cast<std::ptrdiff_t>(insertion_index),
+      std::move(video));
+  if (validate_scene_logic_structure(candidate).has_value()) {
+    return {AddVideoNodeStatus::control_boundary_conflict, std::nullopt};
+  }
+  scene->nodes.swap(candidate.nodes);
   return {AddVideoNodeStatus::added, std::move(created_id)};
 }
 
@@ -943,7 +1105,16 @@ AddChoiceNodeResult add_choice_node(
       .options = {},
   };
   std::string created_id = choice.id;
-  scene->nodes.insert(insertion_iterator, std::move(choice));
+  const std::size_t insertion_index = static_cast<std::size_t>(
+      std::distance(scene->nodes.begin(), insertion_iterator));
+  Scene candidate = *scene;
+  candidate.nodes.insert(
+      candidate.nodes.begin() + static_cast<std::ptrdiff_t>(insertion_index),
+      std::move(choice));
+  if (validate_scene_logic_structure(candidate).has_value()) {
+    return {AddChoiceNodeStatus::control_boundary_conflict, std::nullopt};
+  }
+  scene->nodes.swap(candidate.nodes);
   return {AddChoiceNodeStatus::added, std::move(created_id)};
 }
 
@@ -1192,7 +1363,19 @@ AddSceneJumpNodeResult add_scene_jump_node(
       .target_scene_id = std::move(target_scene_id),
   };
   std::string created_id = jump.id;
-  scene->nodes.insert(insertion_iterator, std::move(jump));
+  const std::size_t insertion_index = static_cast<std::size_t>(
+      std::distance(scene->nodes.begin(), insertion_iterator));
+  Scene candidate = *scene;
+  candidate.nodes.insert(
+      candidate.nodes.begin() + static_cast<std::ptrdiff_t>(insertion_index),
+      std::move(jump));
+  if (validate_scene_logic_structure(candidate).has_value()) {
+    return {
+        AddSceneJumpNodeStatus::control_boundary_conflict,
+        std::nullopt,
+    };
+  }
+  scene->nodes.swap(candidate.nodes);
   return {AddSceneJumpNodeStatus::added, std::move(created_id)};
 }
 
@@ -1547,12 +1730,231 @@ UpdateLogicNodeResult update_logic_repeat_node(
   return UpdateLogicNodeResult::changed;
 }
 
+AddCgDisplayResult add_cg_display_node(
+    ProjectAggregate& aggregate,
+    IdGenerator& ids,
+    const std::string_view scene_id,
+    std::string asset_id,
+    const int lead_in_ms,
+    std::optional<std::string> after_node_id,
+    std::optional<std::string> before_node_id) {
+  Scene* scene = find_scene(aggregate.project, scene_id);
+  if (scene == nullptr) {
+    return {AddCgDisplayStatus::scene_not_found, std::nullopt};
+  }
+  if (after_node_id.has_value() && before_node_id.has_value()) {
+    return {AddCgDisplayStatus::placement_conflict, std::nullopt};
+  }
+  if (lead_in_ms < 0 || lead_in_ms > kMaximumCgLeadInMs) {
+    return {AddCgDisplayStatus::invalid_lead_in, std::nullopt};
+  }
+  const Asset* asset = find_asset(aggregate, asset_id);
+  if (asset == nullptr) {
+    return {AddCgDisplayStatus::asset_not_found, std::nullopt};
+  }
+  if (asset->type != AssetType::image) {
+    return {AddCgDisplayStatus::asset_not_image, std::nullopt};
+  }
+
+  auto insertion = scene->nodes.end();
+  if (before_node_id.has_value()) {
+    insertion = std::find_if(
+        scene->nodes.begin(),
+        scene->nodes.end(),
+        [&before_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *before_node_id;
+        });
+    if (insertion == scene->nodes.end()) {
+      return {AddCgDisplayStatus::anchor_not_found, std::nullopt};
+    }
+  } else if (after_node_id.has_value()) {
+    const auto anchor = std::find_if(
+        scene->nodes.begin(),
+        scene->nodes.end(),
+        [&after_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *after_node_id;
+        });
+    if (anchor == scene->nodes.end()) {
+      return {AddCgDisplayStatus::anchor_not_found, std::nullopt};
+    }
+    insertion = std::next(anchor);
+  }
+
+  const std::string root_id = ids.next();
+  std::vector<SceneNode> pair;
+  pair.reserve(2);
+  pair.emplace_back(CgDisplayNode{
+      .id = root_id,
+      .asset_id = std::move(asset_id),
+      .lead_in_ms = lead_in_ms,
+  });
+  pair.emplace_back(CgEndDisplayNode{
+      .id = ids.next(),
+      .cg_display_node_id = root_id,
+  });
+
+  Scene candidate = *scene;
+  const std::size_t insertion_index = static_cast<std::size_t>(
+      std::distance(scene->nodes.begin(), insertion));
+  candidate.nodes.insert(
+      candidate.nodes.begin() + static_cast<std::ptrdiff_t>(insertion_index),
+      std::make_move_iterator(pair.begin()),
+      std::make_move_iterator(pair.end()));
+  if (validate_scene_logic_structure(candidate).has_value()) {
+    return {AddCgDisplayStatus::boundary_conflict, std::nullopt};
+  }
+  scene->nodes.swap(candidate.nodes);
+  return {AddCgDisplayStatus::added, root_id};
+}
+
+UpdateCgDisplayResult update_cg_display_node(
+    ProjectAggregate& aggregate,
+    const std::string_view scene_id,
+    const std::string_view node_id,
+    std::string asset_id,
+    const int lead_in_ms) {
+  Scene* scene = find_scene(aggregate.project, scene_id);
+  if (scene == nullptr) {
+    return UpdateCgDisplayResult::scene_not_found;
+  }
+  SceneNode* candidate_node = find_scene_node(*scene, node_id);
+  auto* display = candidate_node == nullptr
+      ? nullptr
+      : std::get_if<CgDisplayNode>(candidate_node);
+  if (display == nullptr) {
+    return UpdateCgDisplayResult::node_not_found;
+  }
+  if (lead_in_ms < 0 || lead_in_ms > kMaximumCgLeadInMs) {
+    return UpdateCgDisplayResult::invalid_lead_in;
+  }
+  const Asset* asset = find_asset(aggregate, asset_id);
+  if (asset == nullptr) {
+    return UpdateCgDisplayResult::asset_not_found;
+  }
+  if (asset->type != AssetType::image) {
+    return UpdateCgDisplayResult::asset_not_image;
+  }
+  if (display->asset_id == asset_id && display->lead_in_ms == lead_in_ms) {
+    return UpdateCgDisplayResult::unchanged;
+  }
+  display->asset_id = std::move(asset_id);
+  display->lead_in_ms = lead_in_ms;
+  return UpdateCgDisplayResult::changed;
+}
+
+CgDisplayMutationResult delete_cg_display(
+    Project& project,
+    const std::string_view scene_id,
+    const std::string_view node_id) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return CgDisplayMutationResult::scene_not_found;
+  }
+  if (find_scene_node(*scene, node_id) == nullptr) {
+    return CgDisplayMutationResult::node_not_found;
+  }
+  const auto range = find_cg_display_range(*scene, node_id);
+  if (!range.has_value()) {
+    return CgDisplayMutationResult::not_display_root;
+  }
+  scene->nodes.erase(
+      scene->nodes.begin() + static_cast<std::ptrdiff_t>(range->begin),
+      scene->nodes.begin() + static_cast<std::ptrdiff_t>(range->end));
+  return CgDisplayMutationResult::changed;
+}
+
+CgDisplayMutationResult reorder_cg_display(
+    Project& project,
+    const std::string_view scene_id,
+    const std::string_view node_id,
+    std::optional<std::string> before_node_id) {
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr) {
+    return CgDisplayMutationResult::scene_not_found;
+  }
+  if (find_scene_node(*scene, node_id) == nullptr) {
+    return CgDisplayMutationResult::node_not_found;
+  }
+  const auto range = find_cg_display_range(*scene, node_id);
+  if (!range.has_value()) {
+    return CgDisplayMutationResult::not_display_root;
+  }
+  if (before_node_id.has_value()) {
+    const auto anchor = std::find_if(
+        scene->nodes.begin(),
+        scene->nodes.end(),
+        [&before_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *before_node_id;
+        });
+    if (anchor == scene->nodes.end()) {
+      return CgDisplayMutationResult::anchor_not_found;
+    }
+    const std::size_t anchor_index = static_cast<std::size_t>(
+        std::distance(scene->nodes.begin(), anchor));
+    if (anchor_index >= range->begin && anchor_index < range->end) {
+      return CgDisplayMutationResult::anchor_inside_display;
+    }
+  }
+
+  std::vector<SceneNode> moving(
+      scene->nodes.begin() + static_cast<std::ptrdiff_t>(range->begin),
+      scene->nodes.begin() + static_cast<std::ptrdiff_t>(range->end));
+  std::vector<SceneNode> remaining;
+  remaining.reserve(scene->nodes.size() - moving.size());
+  remaining.insert(
+      remaining.end(),
+      scene->nodes.begin(),
+      scene->nodes.begin() + static_cast<std::ptrdiff_t>(range->begin));
+  remaining.insert(
+      remaining.end(),
+      scene->nodes.begin() + static_cast<std::ptrdiff_t>(range->end),
+      scene->nodes.end());
+
+  auto insertion = remaining.end();
+  if (before_node_id.has_value()) {
+    insertion = std::find_if(
+        remaining.begin(),
+        remaining.end(),
+        [&before_node_id](const SceneNode& node) {
+          return scene_node_id(node) == *before_node_id;
+        });
+  }
+  std::vector<SceneNode> reordered;
+  reordered.reserve(scene->nodes.size());
+  reordered.insert(reordered.end(), remaining.begin(), insertion);
+  reordered.insert(reordered.end(), moving.begin(), moving.end());
+  reordered.insert(reordered.end(), insertion, remaining.end());
+
+  const bool changed = !std::equal(
+      scene->nodes.begin(),
+      scene->nodes.end(),
+      reordered.begin(),
+      [](const SceneNode& current, const SceneNode& next) {
+        return scene_node_id(current) == scene_node_id(next);
+      });
+  if (!changed) {
+    return CgDisplayMutationResult::unchanged;
+  }
+  Scene candidate = *scene;
+  candidate.nodes = reordered;
+  if (validate_scene_logic_structure(candidate).has_value()) {
+    return CgDisplayMutationResult::boundary_conflict;
+  }
+  scene->nodes.swap(reordered);
+  return CgDisplayMutationResult::changed;
+}
+
 bool is_logic_control_marker(const SceneNode& node) {
   return std::holds_alternative<LogicIfNode>(node) ||
       std::holds_alternative<LogicElseNode>(node) ||
       std::holds_alternative<LogicEndIfNode>(node) ||
       std::holds_alternative<LogicRepeatNode>(node) ||
       std::holds_alternative<LogicEndRepeatNode>(node);
+}
+
+bool is_cg_display_control_marker(const SceneNode& node) {
+  return std::holds_alternative<CgDisplayNode>(node) ||
+      std::holds_alternative<CgEndDisplayNode>(node);
 }
 
 bool scene_node_selection_respects_logic_boundaries(
@@ -1585,7 +1987,7 @@ bool scene_node_selection_respects_logic_boundaries(
     return false;
   }
 
-  enum class ControlKind { if_control, repeat };
+  enum class ControlKind { if_control, repeat, cg_display };
   struct OpenControl {
     ControlKind kind;
     std::string_view id;
@@ -1628,6 +2030,15 @@ bool scene_node_selection_respects_logic_boundaries(
       });
       continue;
     }
+    if (const auto* control = std::get_if<CgDisplayNode>(&node)) {
+      stack.push_back(OpenControl{
+          .kind = ControlKind::cg_display,
+          .id = control->id,
+          .begin = index,
+          .own_marker_selected = selected_by_index[index],
+      });
+      continue;
+    }
     if (const auto* marker = std::get_if<LogicElseNode>(&node)) {
       if (stack.empty() ||
           stack.back().kind != ControlKind::if_control ||
@@ -1653,6 +2064,17 @@ bool scene_node_selection_respects_logic_boundaries(
       if (stack.empty() ||
           stack.back().kind != ControlKind::repeat ||
           stack.back().id != marker->repeat_node_id ||
+          !closes_complete_range(
+              stack.back(), index + 1, selected_by_index[index])) {
+        return false;
+      }
+      stack.pop_back();
+      continue;
+    }
+    if (const auto* marker = std::get_if<CgEndDisplayNode>(&node)) {
+      if (stack.empty() ||
+          stack.back().kind != ControlKind::cg_display ||
+          stack.back().id != marker->cg_display_node_id ||
           !closes_complete_range(
               stack.back(), index + 1, selected_by_index[index])) {
         return false;
@@ -1790,7 +2212,8 @@ bool delete_scene_nodes(
   for (const std::string& node_id : node_ids) {
     const SceneNode* node = find_scene_node(*scene, node_id);
     if (!requested_ids.insert(node_id).second || node == nullptr ||
-        is_logic_control_marker(*node)) {
+        (is_logic_control_marker(*node) ||
+         is_cg_display_control_marker(*node))) {
       return false;
     }
   }

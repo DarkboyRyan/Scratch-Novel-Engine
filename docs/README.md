@@ -1,6 +1,32 @@
+<!-- 文件职责：集中索引内部技术文档；关键内容：按架构、编辑功能、运行时与发布主题导航。 -->
+
 # VN Engine 文档索引
 
 本文只负责按主题导航，文档仍保留在当前路径，没有因为分类而移动文件。
+
+## 文件目录
+
+| 文件 | 文档类型 / 技术范围 | 主要作用 | 关键内容 |
+| --- | --- | --- | --- |
+| [`architecture.md`](./architecture.md) | 架构 | 描述当前端到端系统边界。 | Renderer、Preload、Main、C++、Runtime、存储。 |
+| [`code-organization-and-decoupling.md`](./code-organization-and-decoupling.md) | 代码组织 | 说明模块拆分和依赖方向。 | Shared packages、application ports、Main 服务。 |
+| [`project-folder-storage.md`](./project-folder-storage.md) | 存储 | 说明项目目录和媒体资产契约。 | 原子保存、安全导入、capability URL。 |
+| [`game-export-player.md`](./game-export-player.md) | 桌面发布 | 说明 Runtime bundle 与独立 Player 导出。 | 模板、签名、公证、版本兼容。 |
+| [`web-player-export.md`](./web-player-export.md) | Web 发布 | 说明 HTML5 Player ZIP 导出。 | Vite 模板、WebGateway、IndexedDB、ZIP 安全。 |
+| [`save-load-implementation.md`](./save-load-implementation.md) | Player 数据 | 说明手动槽和快速槽。 | Snapshot v4、身份隔离、原子存储。 |
+| [`player-options-implementation.md`](./player-options-implementation.md) | Player 设置 | 说明语言、音量和显示设置。 | Settings V2、Main 持久化、媒体同步。 |
+| [`editor-localization-implementation.md`](./editor-localization-implementation.md) | Editor 设置 | 说明 Editor 中英文切换。 | Typed catalog、多窗口同步、Blockly 标签。 |
+| [`game-preview-runtime.md`](./game-preview-runtime.md) | Editor 预览 | 说明正式游戏预览状态机。 | 输入、媒体、选择与跳转。 |
+| [`logic-blockly-implementation.md`](./logic-blockly-implementation.md) | Blockly / Runtime | 说明变量与控制逻辑积木。 | If/Else、Repeat、paired markers、快照。 |
+| [`cg-display-blockly-implementation.md`](./cg-display-blockly-implementation.md) | Blockly / Runtime | 说明 C 形显示 CG 积木。 | 图片就绪、lead-in、暂停和读档。 |
+| [`cg-gallery-implementation.md`](./cg-gallery-implementation.md) | Editor / Player | 说明 CG 九宫格画廊。 | 固定九槽、分页、大图与迁移。 |
+| [`character-portrait-implementation.md`](./character-portrait-implementation.md) | Editor / Runtime | 说明人物立绘节点。 | show/clear、待选图占位、资源、层级、Blockly 和预览。 |
+| [`character-portrait-effects.md`](./character-portrait-effects.md) | Blockly / Runtime | 说明七类人物立绘特效。 | Sidecar 连接、动画、暂停和 Snapshot v4。 |
+| [`choice-branch-implementation.md`](./choice-branch-implementation.md) | Blockly / Runtime | 说明视觉小说选项分支。 | Choice、Option、场景跳转与 UI。 |
+| [`scene-jump-implementation.md`](./scene-jump-implementation.md) | Blockly / Runtime | 说明显式场景跳转。 | Author、IPC、投影和执行状态机。 |
+| [`audio-implementation.md`](./audio-implementation.md) | 媒体 | 说明语音与 BGM 链路。 | 导入、节点、预览和 Player 播放。 |
+| [`video-playback-block.md`](./video-playback-block.md) | 媒体 | 说明阻塞式视频积木。 | Range、跳过、预览与 Player。 |
+| [`technical-stack-interview-guide.md`](./technical-stack-interview-guide.md) | 工程指南 | 汇总技术栈和讲解话术。 | 调用链、设计取舍和常见问答。 |
 
 ## 按主题查找
 
@@ -18,7 +44,7 @@
 - [项目文件夹与媒体资源](./project-folder-storage.md)：项目目录格式、安全保存、资源导入、
   capability URL 与媒体读取。
 - [独立游戏 Player 与导出流程](./game-export-player.md)：记录已完成的共享 Runtime 与
-  Player、v16→runtime v7 内容包、runtime v1–v7 兼容读取、macOS `*-macOS.zip`
+  Player、v19→runtime v9 内容包、runtime v1–v9 兼容读取、macOS `*-macOS.zip`
   独立应用导出（ZIP 内含唯一
   已签名 `.app`）、embedded 模式和多平台
   workflow；也列出 `player-release`/`game-release` protected Environments、不可变 tag/
@@ -27,7 +53,7 @@
   ZIP 契约、预构建 Vite 模板、WebGateway、IndexedDB 存档/设置、跨平台 ZIP 事务、
   部署限制、技术栈与浏览器验收矩阵。
 - [Player 保存与读取](./save-load-implementation.md)：3 个手动槽和独立快速槽、
-  `GameRuntimeSnapshot v2`（受限兼容无逻辑旧 v1 存档）、Main-owned 游戏身份、原子本地存储、标题页读取入口与
+  `GameRuntimeSnapshot v4`（受限兼容旧 v1–v3 存档）、Main-owned 游戏身份、原子本地存储、标题页读取入口与
   游戏内底栏，以及完整实现流程和技术栈。
 - [Player 选项系统](./player-options-implementation.md)：`PlayerSettingsV2`、中英界面切换、
   四通道音量、窗口/全屏与三档尺寸、v1 严格迁移、userData 原子设置文件、
@@ -50,12 +76,17 @@
   Player 九宫格/大图交互、版本迁移和导出资源闭包。
 
 - [人物立绘](./character-portrait-implementation.md)：人物资源、时间线节点、layer 和预览状态。
+- [人物立绘特效](./character-portrait-effects.md)：七类右侧 value 特效积木、Author v19、
+  原子 IPC 移动、Runtime v9、Snapshot v4、暂停与 reduced-motion 语义。
 - [场景跳转](./scene-jump-implementation.md)：SceneJumpNode 如何贯穿 C++、IPC、React、
   Blockly 和正式预览。
 - [选项分支](./choice-branch-implementation.md)：ChoiceNode、嵌套 ChoiceOption、Blockly
   容器和 Galgame 选择界面。
 - [逻辑 Blockly](./logic-blockly-implementation.md)：变量 Set/Change、If/Else、固定次数
-  Repeat、隐藏 paired markers、表单只读树、Runtime 执行与 v2 存档。
+  Repeat、隐藏 paired markers、表单只读树、Runtime 执行与当前 v4 存档。
+- [显示 CG Blockly](./cg-display-blockly-implementation.md)：图片下拉、对白专用 C 形 body、
+  图片就绪后计时、暂停/读档语义、paired marker，以及 Author v17 / Runtime v8 /
+  Snapshot v3 历史里程碑。
 
 ### 运行时与媒体
 
@@ -87,14 +118,18 @@
 10. [选项分支](./choice-branch-implementation.md)：ChoiceNode 数据模型、Blockly 嵌套选项和正式预览分支。
 11. [逻辑 Blockly](./logic-blockly-implementation.md)：理解扁平权威数据如何投影为嵌套
     C 形积木，以及变量、循环和存档如何贯穿全栈。
-12. [独立游戏 Player 与导出流程](./game-export-player.md)：最后理解编辑器预览、共享
+12. [显示 CG Blockly](./cg-display-blockly-implementation.md)：理解 paired range、
+    图片就绪后计时、暂停/读档与 Desktop/Web 共用画面的完整链路。
+13. [人物立绘特效](./character-portrait-effects.md)：理解 sidecar value、原子移动、
+    一次性 Runtime effect event、暂停和读档不重播。
+14. [独立游戏 Player 与导出流程](./game-export-player.md)：最后理解编辑器预览、共享
     Runtime、独立 Player、内容包、Player 模板、平台桌面应用及正式发布门禁之间的
     关系。
-13. [Player 保存与读取](./save-load-implementation.md)：理解为什么只传版本化小快照、
+15. [Player 保存与读取](./save-load-implementation.md)：理解为什么只传版本化小快照、
     如何按游戏身份隔离存档，以及 React、Preload、Main 和原子文件事务的完整调用链。
-14. [Player 选项系统](./player-options-implementation.md)：理解为什么 Renderer 只发送
+16. [Player 选项系统](./player-options-implementation.md)：理解为什么 Renderer 只发送
     exact patch、Main 如何同步原生全屏与 workArea，以及音量调整如何不重置播放位置。
-15. [Editor 中英文切换](./editor-localization-implementation.md)：理解全局偏好如何跨窗口同步，
+17. [Editor 中英文切换](./editor-localization-implementation.md)：理解全局偏好如何跨窗口同步，
     以及 Blockly 如何只替换界面标签而不重建作者工作区。
 
 ## 当前真实技术栈
@@ -102,7 +137,7 @@
 Electron 43、React 19、TypeScript 5.9、Blockly 13、Vite 5、Electron Forge 7、
 C++20、CMake、nlohmann/json、Vitest、Node Test、CTest 和 GitHub Actions。
 
-当前项目 Writer 固定写 `fileVersion: 16`，Reader 支持 v1–v16。v10 新增项目级
+当前项目 Writer 固定写 `fileVersion: 19`，Reader 支持 v1–v19。v10 新增项目级
 `project.startScreen` 背景/音乐配置，v11 新增与项目名彼此独立的主界面显示标题；
 它不是 Scene。v12 新增作者可从 Toolbox 主动插入的“延伸”节点，用于在 Blockly
 中建立向下连接的新分页；白色数字字段会原子调整整页先后。v13 为人物节点新增可空
@@ -110,7 +145,12 @@ C++20、CMake、nlohmann/json、Vitest、Node Test、CTest 和 GitHub Actions。
 至少一项的 `pages`，每页精确保存九个 `string | null` 槽位，所有非空图片 ID 跨页唯一；
 旧 v14 会按顺序每九张分块并补 `null`，v1–v13 迁移为一张全空页面。表单会隐藏延伸节点，
 Compiler 会在生成 Runtime 前剥离它。v16 新增变量 Set/Change、If/Else 和固定次数 Repeat，
-控制结构用隐藏 paired markers 严格配对；当前 Runtime v7 执行这些逻辑节点。
+控制结构用隐藏 paired markers 严格配对。v17 新增带对白专用 body 与整数毫秒 lead-in 的
+“显示 CG”控制块，是 Runtime v8 / Snapshot v3 的历史里程碑；v18 为 CharacterNode
+新增严格可空 sidecar effect；v19 再新增 `mode: "show" | "clear"`，让未选图的
+`show + assetId:null` 保持为编辑占位（预览 no-op、导出拒绝），只有字段均为 `null` 的
+`clear` 才清除人物层。当前 Runtime v9 执行七类人物特效，Snapshot v4 保存全局
+单调序号、分层序号和最终透明度，但不保存瞬时 effect。
 `ChoiceOption` 仍是 ChoiceNode 内部的子实体。
 
 `archive/` 中的历史文档可能出现 PixiJS、Zod、Zustand 或 Playwright 等

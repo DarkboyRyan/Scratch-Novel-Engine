@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：组合场景预览舞台、播放器状态与预览控制提示。
+ * 包含实现：`PreviewPanel`。
+ */
+
 import {
   VisualStage,
   type PreviewCharacter,
@@ -11,6 +16,7 @@ type PreviewPanelProps = {
   backgroundName: string | null;
   showDialogue?: boolean;
   logicPreviewUncertain?: boolean;
+  cgPreviewUncertain?: boolean;
   characters?: PreviewCharacter[];
   isStartDisabled?: boolean;
   onStartPreview?: () => void;
@@ -25,6 +31,7 @@ export function PreviewPanel({
   backgroundName,
   showDialogue = true,
   logicPreviewUncertain = false,
+  cgPreviewUncertain = false,
   characters = [],
   isStartDisabled = false,
   onStartPreview,
@@ -50,6 +57,11 @@ export function PreviewPanel({
       {logicPreviewUncertain ? (
         <p className="preview-logic-notice" role="note">
           {labels.preview.logicPreviewUncertain}
+        </p>
+      ) : null}
+      {cgPreviewUncertain ? (
+        <p className="preview-logic-notice" role="note">
+          {labels.preview.cgPreviewUncertain}
         </p>
       ) : null}
 

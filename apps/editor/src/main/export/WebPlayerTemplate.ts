@@ -1,3 +1,5 @@
+// 主要作用：发现并验证 Web Player 模板清单、入口和文件完整性。
+// 关键实现：resolveWebPlayerTemplateRoot 解析路径，load 对模板树做哈希快照。
 import { createHash } from 'node:crypto';
 import { constants, type Stats } from 'node:fs';
 import { lstat, open, readdir, realpath } from 'node:fs/promises';
@@ -14,7 +16,7 @@ export type WebPlayerTemplateManifest = {
   templateVersion: typeof WEB_PLAYER_TEMPLATE_VERSION;
   payloadRoot: 'payload';
   entry: 'index.html';
-  runtimeCompatibility: '>=1 <8';
+  runtimeCompatibility: '>=1 <10';
   playerVersion: string;
   files: WebPlayerTemplateFile[];
 };
@@ -111,7 +113,7 @@ function parseTemplateManifest(source: string): WebPlayerTemplateManifest {
     parsed.templateVersion !== WEB_PLAYER_TEMPLATE_VERSION ||
     parsed.payloadRoot !== 'payload' ||
     parsed.entry !== 'index.html' ||
-    parsed.runtimeCompatibility !== '>=1 <8' ||
+    parsed.runtimeCompatibility !== '>=1 <10' ||
     typeof parsed.playerVersion !== 'string' ||
     !/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(
       parsed.playerVersion,

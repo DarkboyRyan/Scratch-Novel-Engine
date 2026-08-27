@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 Web Player template contract 的行为。
+ * 测试覆盖：`Web Player template contract`。
+ */
+
 import { createHash } from 'node:crypto';
 import {
   mkdtemp,
@@ -42,7 +47,7 @@ describe('Web Player template contract', () => {
       templateVersion: WEB_PLAYER_TEMPLATE_VERSION,
       payloadRoot: 'payload',
       entry: 'index.html',
-      runtimeCompatibility: '>=1 <8',
+      runtimeCompatibility: '>=1 <10',
       playerVersion: '1.0.0',
       files: [
         fileRecord('index.html', index),
@@ -70,7 +75,7 @@ describe('Web Player template contract', () => {
       manifest: {
         format: WEB_PLAYER_TEMPLATE_FORMAT,
         templateVersion: WEB_PLAYER_TEMPLATE_VERSION,
-        runtimeCompatibility: '>=1 <8',
+        runtimeCompatibility: '>=1 <10',
         playerVersion: '1.0.0',
       },
     });

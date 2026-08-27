@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 asset IPC invocation validation 的行为。
+ * 测试覆盖：`asset IPC invocation validation`。
+ */
+
 import { describe, expect, it } from 'vitest';
 
 import { isAssetInvocation } from '../../src/main/ipc/validateAssetInvocation';

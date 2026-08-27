@@ -1,3 +1,7 @@
+/**
+ * 主要作用：实现标题页、加载状态、存读档、选项和游戏界面的顶层状态机。
+ * 关键函数与实现：`AppProps`、`App`；基于 React 组件、Hooks、可访问交互与受控状态实现。
+ */
 import {
   useCallback,
   useEffect,
@@ -8,6 +12,7 @@ import {
 } from 'react';
 import {
   advanceGame,
+  completeCgLeadIn,
   createGameRuntimeSnapshot,
   selectChoice,
   startGame,
@@ -1125,6 +1130,21 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
             ? {
                 ...current,
                 runtime: advanceGame(current.game.project, current.runtime),
+              }
+            : current);
+        }}
+        onCompleteCgLeadIn={() => {
+          if (gameplayInteractionBlockedRef.current) {
+            return;
+          }
+          setState((current) => current.kind === 'game' && !current.paused &&
+              current.runtime.status === 'waitingCgLeadIn'
+            ? {
+                ...current,
+                runtime: completeCgLeadIn(
+                  current.game.project,
+                  current.runtime,
+                ),
               }
             : current);
         }}

@@ -1,5 +1,10 @@
 /** @vitest-environment jsdom */
 
+/**
+ * 文件主要作用：验证 start screen Editor projection 的行为。
+ * 测试覆盖：`start screen Editor projection`。
+ */
+
 import * as Blockly from 'blockly';
 import { act, createRef } from 'react';
 import { createRoot } from 'react-dom/client';

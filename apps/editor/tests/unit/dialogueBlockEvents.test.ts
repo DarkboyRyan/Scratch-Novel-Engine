@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 timeline anchors after top-level logic controls、getDroppedNewDialogueBlock、getNewStoryExtensionDropResolution 等行为。
+ * 测试覆盖：`timeline anchors after top-level logic controls`、`getDroppedNewDialogueBlock`、`getNewStoryExtensionDropResolution`、`getDialogueFieldUpdate`、`collectDialogueFieldDrafts`、`getReorderedDialogueBlock` 等 7 项。
+ */
+
 import * as Blockly from 'blockly';
 import { describe, expect, it } from 'vitest';
 
@@ -15,6 +20,7 @@ import {
   LOGIC_IF_BLOCK_TYPE,
   LOGIC_REPEAT_BLOCK_TYPE,
 } from '../../src/renderer/features/block-editor/blocks/logicControlBlock';
+import { CG_DISPLAY_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/cgDisplayBlock';
 import {
   collectDialogueFieldDrafts,
   getDialogueFieldUpdate,
@@ -212,6 +218,56 @@ describe('timeline anchors after top-level logic controls', () => {
       ],
       expected: 'after-repeat',
     },
+    {
+      name: 'empty CG',
+      rootId: 'cg-empty',
+      nodes: [
+        {
+          id: 'cg-empty',
+          type: 'cgDisplay' as const,
+          assetId: 'cg-image',
+          leadInMs: 0,
+        },
+        {
+          id: 'endcg-empty',
+          type: 'cgEndDisplay' as const,
+          cgDisplayNodeId: 'cg-empty',
+        },
+      ],
+      expected: null,
+    },
+    {
+      name: 'populated CG',
+      rootId: 'cg-full',
+      nodes: [
+        {
+          id: 'cg-full',
+          type: 'cgDisplay' as const,
+          assetId: 'cg-image',
+          leadInMs: 500,
+        },
+        {
+          id: 'cg-line',
+          type: 'dialogue' as const,
+          speaker: 'A',
+          text: 'CG',
+          voiceAssetId: null,
+        },
+        {
+          id: 'endcg-full',
+          type: 'cgEndDisplay' as const,
+          cgDisplayNodeId: 'cg-full',
+        },
+        {
+          id: 'after-cg',
+          type: 'dialogue' as const,
+          speaker: 'B',
+          text: 'After',
+          voiceAssetId: null,
+        },
+      ],
+      expected: 'after-cg',
+    },
   ])('skips the complete paired-marker range for $name', ({
     rootId,
     nodes,
@@ -234,6 +290,7 @@ describe('timeline anchors after top-level logic controls', () => {
     ['variable', VARIABLE_SET_BLOCK_TYPE],
     ['If control', LOGIC_IF_BLOCK_TYPE],
     ['Repeat control', LOGIC_REPEAT_BLOCK_TYPE],
+    ['CG control', CG_DISPLAY_BLOCK_TYPE],
   ])('uses the same post-control anchor for a new %s block', (_label, type) => {
     const logicScene: SceneDocument = {
       ...scene,
@@ -705,10 +762,12 @@ describe('getReorderedDialogueBlock', () => {
         {
           id: 'character-1',
           type: 'character',
+          mode: 'show',
           assetId: 'image-1',
           slot: 'left',
           layer: 2,
           position: null,
+          effect: null,
         },
         scene.nodes[1],
       ],

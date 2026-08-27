@@ -1,3 +1,5 @@
+// 文件职责：声明持有 Author 会话状态并处理单条 JSONL 请求的 Backend。
+// 关键实现：Backend::handle、测试故障点和会话 revision 管理入口。
 #pragma once
 
 #include <cstdint>

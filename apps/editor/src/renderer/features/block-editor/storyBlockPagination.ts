@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：计算长故事积木分页、续页边界和页面导航状态。
+ * 包含实现：`StoryBlockPage`、`paginateStoryNodes`、`isStoryPaginationProjectionConsistent`。
+ */
+
 import type * as Blockly from 'blockly';
 
 import type {
@@ -17,6 +22,10 @@ import {
   parseLogicStructure,
   type LogicStructureItem,
 } from './logicStructure';
+import {
+  CG_DISPLAY_BLOCK_TYPE,
+  CG_DISPLAY_INPUTS,
+} from './blocks/cgDisplayBlock';
 
 type StoryExtensionNode = Extract<
   SceneNode,
@@ -24,7 +33,13 @@ type StoryExtensionNode = Extract<
 >;
 type HiddenLogicMarker = Extract<
   SceneNode,
-  { type: 'logicElse' | 'logicEndIf' | 'logicEndRepeat' }
+  {
+    type:
+      | 'logicElse'
+      | 'logicEndIf'
+      | 'logicEndRepeat'
+      | 'cgEndDisplay';
+  }
 >;
 type PlayableSceneNode = Exclude<
   SceneNode,
@@ -149,6 +164,15 @@ function isItemChainConsistent(
       if (
         block.type !== LOGIC_REPEAT_BLOCK_TYPE ||
         (block.getInputTargetBlock(LOGIC_CONTROL_INPUTS.body)?.id ?? null) !==
+          (item.bodyItems[0]?.node.id ?? null) ||
+        !isItemChainConsistent(item.bodyItems, workspace, block.id)
+      ) {
+        return false;
+      }
+    } else if (item.kind === 'cg') {
+      if (
+        block.type !== CG_DISPLAY_BLOCK_TYPE ||
+        (block.getInputTargetBlock(CG_DISPLAY_INPUTS.body)?.id ?? null) !==
           (item.bodyItems[0]?.node.id ?? null) ||
         !isItemChainConsistent(item.bodyItems, workspace, block.id)
       ) {

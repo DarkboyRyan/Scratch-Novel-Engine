@@ -1,3 +1,7 @@
+/**
+ * 主要作用：验证通用/嵌入游戏会话切换、错误映射和媒体激活。
+ * 关键函数与实现：测试套件“Player bundle session”、`temporaryDirectories`、`makeBundle`、`makeMediaService`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -184,7 +188,7 @@ describe('Player bundle session', () => {
   it('rejects bad hashes and newer runtimes without disturbing the old game', async () => {
     const valid = await makeBundle('valid');
     const badHash = await makeBundle('bad-hash', { badHash: true });
-    const tooNew = await makeBundle('too-new', { runtimeVersion: 8 });
+    const tooNew = await makeBundle('too-new', { runtimeVersion: 10 });
     const selections = [valid, badHash, tooNew];
     const reportError = vi.fn();
     const { service, request } = makeMediaService();

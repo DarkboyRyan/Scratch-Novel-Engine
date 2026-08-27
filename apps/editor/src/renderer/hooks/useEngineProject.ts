@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：管理引擎项目加载、刷新、修订、错误和保存状态。
+ * 包含实现：`OpenProjectStatus`、`ImportAssetStatus`、`ImportImageStatus`、`ExportGameStatus`、`useEngineProject`、`EngineProjectState`。
+ */
+
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ImportAssetResult } from '../../shared/assetProtocol';
@@ -82,19 +87,97 @@ function withRendererProjectDefaults(
           return true;
         }),
     );
-  if (hasValidPages) {
+  let normalizedLegacyCharacter = false;
+  const scenes = project.scenes.map((scene) => ({
+    ...scene,
+    nodes: scene.nodes.map((node) => {
+      if (node.type === 'character') {
+        const legacyNode = node as typeof node & {
+          mode?: unknown;
+          effect?: unknown;
+        };
+        const mode = legacyNode.mode === 'show' || legacyNode.mode === 'clear'
+          ? legacyNode.mode
+          : node.assetId === null
+            ? 'clear'
+            : 'show';
+        const needsDefaults =
+          legacyNode.mode !== mode ||
+          !Object.hasOwn(legacyNode, 'effect');
+        if (needsDefaults) {
+          normalizedLegacyCharacter = true;
+          return mode === 'clear'
+            ? {
+                ...node,
+                mode,
+                assetId: null,
+                position: null,
+                effect: null,
+              }
+            : node.assetId === null
+              ? {
+                  ...node,
+                  mode,
+                  assetId: null,
+                  effect: null,
+                }
+              : {
+                ...node,
+                mode,
+                effect: Object.hasOwn(legacyNode, 'effect')
+                  ? node.effect
+                  : null,
+                };
+        }
+      }
+      return node;
+    }),
+  }));
+  if (hasValidPages && !normalizedLegacyCharacter) {
     return project;
   }
 
   return {
     ...project,
-    cgGallery: {
-      pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
-    },
+    cgGallery: hasValidPages
+      ? project.cgGallery
+      : {
+          pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+        },
+    scenes,
   };
 }
 
 function readableError(error: unknown, labels: EditorLabels): string {
+  if (
+    error instanceof Error &&
+    error.message.includes('[character-mode-module]')
+  ) {
+    return labels.messages.characterModeModuleUnavailable;
+  }
+
+  if (
+    error instanceof Error &&
+    (error.message.includes('[character-effect-module]') ||
+      error.message.includes('updateCharacterEffect is not a function') ||
+      error.message.includes('moveCharacterEffect is not a function') ||
+      error.message.includes('unknown method: characterEffect.'))
+  ) {
+    return labels.messages.effectModuleUnavailable;
+  }
+
+  if (
+    error instanceof Error &&
+    (error.message.includes('[cg-display-module]') ||
+      error.message.includes('addCgDisplay is not a function') ||
+      error.message.includes('updateCgDisplay is not a function') ||
+      error.message.includes('deleteCgDisplay is not a function') ||
+      error.message.includes('reorderCgDisplay is not a function') ||
+      error.message.includes('unknown method: cgDisplay.'))
+  ) {
+    return labels.messages.cgDisplayModuleUnavailable;
+  }
+
   if (
     error instanceof Error &&
     (error.message.includes('[logic-module]') ||
@@ -357,6 +440,12 @@ export function useEngineProject(
     },
     onLogicModuleUnavailable: () => {
       setEngineMessage(labelsRef.current.messages.logicModuleUnavailable);
+    },
+    onCgDisplayModuleUnavailable: () => {
+      setEngineMessage(labelsRef.current.messages.cgDisplayModuleUnavailable);
+    },
+    onCharacterEffectModuleUnavailable: () => {
+      setEngineMessage(labelsRef.current.messages.effectModuleUnavailable);
     },
   });
 

@@ -1,3 +1,5 @@
+# 文件职责：从 player-v* tag 构建并发布正式 Player 安装包。
+# 关键实现：受保护环境、跨平台签名、公证与不可变 GitHub Release。
 name: Player formal release
 
 on:

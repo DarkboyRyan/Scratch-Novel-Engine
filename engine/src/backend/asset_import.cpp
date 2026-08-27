@@ -1,3 +1,5 @@
+// 文件职责：实现媒体源校验、稳定快照和项目资源的无覆盖发布。
+// 关键实现：扩展名/magic-byte 对账、路径隔离、POSIX/Win32 no-follow 与 no-clobber。
 #include "asset_import.hpp"
 #include "media_sniffer.hpp"
 

@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+/**
+ * 主要作用：以指定 Player 模板启动 Editor 的端到端导出验证。
+ * 关键函数与实现：`runChecked`、`main`；基于 Node.js ESM、文件系统和受限子进程完成确定性 CLI 流程。
+ */
 
 import { spawnSync } from 'node:child_process';
 import {

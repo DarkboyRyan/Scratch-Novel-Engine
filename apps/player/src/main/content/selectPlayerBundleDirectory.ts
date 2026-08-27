@@ -1,3 +1,7 @@
+/**
+ * 主要作用：以本地化原生对话框选择唯一的游戏包目录。
+ * 关键函数与实现：`selectPlayerBundleDirectory`；基于 Electron Main 与 Node.js 安全文件/协议边界实现。
+ */
 import type {
   BrowserWindow,
   OpenDialogOptions,

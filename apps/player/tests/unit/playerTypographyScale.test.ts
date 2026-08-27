@@ -1,3 +1,7 @@
+/**
+ * 主要作用：验证窗口尺寸预设同步缩放整套 Player 字体。
+ * 关键函数与实现：测试套件“Player typography scale contract”、`ruleBody`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 

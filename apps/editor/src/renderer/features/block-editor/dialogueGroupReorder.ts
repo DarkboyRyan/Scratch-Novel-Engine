@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：计算对白组在时间线中的批量重排参数。
+ * 包含实现：`TimelineDropTarget`、`TimelineDropSlot`、`DIALOGUE_GROUP_SNAP_RADIUS_PX`、`getTimelineDropSlotForPoint`、`reorderNodeIds`、`buildGroupReorderParams`。
+ */
+
 import type { TimelineReorderManyParams } from '../../../shared/engineProtocol';
 import type { SceneDocument } from '../../../shared/projectTypes';
 

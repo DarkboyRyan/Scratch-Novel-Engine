@@ -1,5 +1,11 @@
+/**
+ * 文件主要作用：注册背景积木并读写背景资源和本地化标签。
+ * 包含实现：`BACKGROUND_BLOCK_TYPE`、`BACKGROUND_BLOCK_FIELDS`、`applyBackgroundBlockLocalization`、`setBackgroundBlockAsset`、`getBackgroundBlockAssetId`、`registerBackgroundBlock`。
+ */
+
 import * as Blockly from 'blockly';
 import { DEFAULT_EDITOR_LANGUAGE, getEditorLabels, type EditorLabels } from '../../../i18n/editorLocalization';
+import { AssetNameField } from './assetNameField';
 
 export const BACKGROUND_BLOCK_TYPE = 'vn_background';
 
@@ -48,18 +54,11 @@ export function registerBackgroundBlock(labels: EditorLabels = currentLabels): v
 
   Blockly.Blocks[BACKGROUND_BLOCK_TYPE] = {
     init(): void {
-      const assetField = new Blockly.FieldTextInput(
-        EMPTY_BACKGROUND_FIELD_VALUE,
-        undefined,
-        { spellcheck: false },
-      );
+      const assetField = new AssetNameField(EMPTY_BACKGROUND_FIELD_VALUE);
 
       this.appendDummyInput()
         .appendField(currentLabels.blockly.background, LABEL_FIELD)
         .appendField(assetField, BACKGROUND_BLOCK_FIELDS.assetName);
-      // Retain the familiar white text-field shape without allowing users to
-      // type a display name that is not backed by an imported Asset ID.
-      assetField.setEnabled(false);
       this.setPreviousStatement(true);
       this.setNextStatement(true);
       this.setColour(210);

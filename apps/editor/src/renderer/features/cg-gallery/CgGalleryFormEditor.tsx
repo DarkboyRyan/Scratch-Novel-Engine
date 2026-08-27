@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：提供每页九图的 CG 画廊表单编辑与翻页操作。
+ * 包含实现：`CgGalleryFormEditor`。
+ */
+
 import {
   forwardRef,
   useEffect,

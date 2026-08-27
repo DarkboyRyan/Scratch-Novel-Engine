@@ -1,5 +1,10 @@
+/**
+ * 主要作用：集中导出 Runtime 的公共执行函数、快照契约和项目类型。
+ * 关键函数与实现：Runtime 公共 API 转发；采用纯 TypeScript 状态转换与严格类型守卫，保持平台无关。
+ */
 export {
   advanceGame,
+  completeCgLeadIn,
   compileSceneControlFlow,
   getChoices,
   getLocalizedRuntimeErrorMessage,
@@ -23,7 +28,11 @@ export {
   restoreGameRuntimeSnapshot,
   type GameRuntimeSnapshot,
   type CurrentGameRuntimeSnapshot,
+  type CgGameRuntimeSnapshot,
   type LegacyGameRuntimeSnapshot,
+  type LegacyRuntimeCharacterSnapshot,
+  type LogicGameRuntimeSnapshot,
+  type RuntimeCharacterSnapshot,
   type SaveableGameRuntime,
 } from './gameRuntimeSnapshot';
 
@@ -44,12 +53,19 @@ export {
   validateProjectLogicVariableBudget,
 } from './logicValidation';
 
+export { MAX_CG_LEAD_IN_MS } from './gameRuntime';
+
 export type {
   BackgroundNode,
   BgmNode,
+  CgDisplayNode,
+  CgEndDisplayNode,
   CgGalleryDocument,
   CgGalleryPageDocument,
   CharacterNode,
+  CharacterEffect,
+  CharacterEffectDirection,
+  CharacterEffectIntensity,
   CharacterPosition,
   CharacterSlot,
   ChoiceNode,
@@ -73,3 +89,9 @@ export type {
   VariableSetNode,
   VideoNode,
 } from './projectTypes';
+
+export {
+  isCharacterEffect,
+  MAX_CHARACTER_EFFECT_DURATION_MS,
+  MIN_CHARACTER_EFFECT_DURATION_MS,
+} from './characterEffect';

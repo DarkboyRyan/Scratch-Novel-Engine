@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：注册不可删除的场景起点积木。
+ * 包含实现：`SCENE_START_BLOCK_TYPE`、`applySceneStartBlockLocalization`、`getSceneStartBlockId`、`registerSceneStartBlock`。
+ */
+
 import * as Blockly from 'blockly';
 import { DEFAULT_EDITOR_LANGUAGE, getEditorLabels, type EditorLabels } from '../../../i18n/editorLocalization';
 

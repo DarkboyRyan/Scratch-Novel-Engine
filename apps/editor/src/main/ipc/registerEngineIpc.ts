@@ -1,3 +1,5 @@
+// 主要作用：把可信 Renderer 的引擎命令转交给对应窗口的 C++ 会话。
+// 关键实现：registerEngineIpc 校验参数、调用 BackendClient 并同步文档状态。
 import { ipcMain } from 'electron';
 
 import { ENGINE_IPC_CHANNEL } from '../../shared/engineProtocol';

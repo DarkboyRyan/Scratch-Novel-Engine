@@ -1,3 +1,5 @@
+// 主要作用：验证运行包、Web 包和独立应用导出请求的 IPC 结构。
+// 关键实现：isExportGameInvocation 检查精确键，复用应用元数据规则。
 import type {
   ExportGameInvocation,
   StandaloneApplicationMetadata,

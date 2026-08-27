@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 standalone Application Archive 的关键行为与回归边界。
+ * 测试覆盖：关键成功、失败与边界场景。
+ */
+
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
@@ -102,7 +107,7 @@ const project = {
 
 const sourceManifestContents = JSON.stringify({
   format: 'vn-engine-project',
-  fileVersion: 16,
+  fileVersion: 18,
   project,
   assets: [],
 });
@@ -139,7 +144,7 @@ describe.runIf(process.platform === 'darwin')(
           platform: process.platform,
           arch: process.arch,
           playerVersion: '0.1.0',
-          runtimeCompatibility: '>=1 <8',
+          runtimeCompatibility: '>=1 <10',
           payloadRoot: 'payload',
           artifactEntry: 'VN Engine Player.app',
           gameResourceDirectory: 'Contents/Resources/game',

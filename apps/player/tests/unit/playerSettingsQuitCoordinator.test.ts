@@ -1,3 +1,7 @@
+/**
+ * 主要作用：验证并发退出期间设置只刷盘一次并正确续退。
+ * 关键函数与实现：测试套件“Player settings quit coordinator”、`deferred`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 import { describe, expect, it, vi } from 'vitest';
 
 import { PlayerSettingsQuitCoordinator } from '../../src/main/settings/PlayerSettingsQuitCoordinator';

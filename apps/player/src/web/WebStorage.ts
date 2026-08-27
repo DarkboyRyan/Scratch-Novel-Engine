@@ -1,3 +1,7 @@
+/**
+ * 主要作用：使用 IndexedDB 持久化 Web Player 的设置与版本化存档。
+ * 关键函数与实现：`WebDocumentStore`、`IndexedDbDocumentStore`、`WebStorageGame`、`WebPlayerStoragePort`；基于浏览器 Fetch、IndexedDB、Fullscreen 与 React 边界实现。
+ */
 import {
   areGameRuntimeSnapshotsEqual,
   createGameRuntimeSnapshot,
@@ -189,6 +193,8 @@ function hasExactFields(
 function sameSnapshot(left: GameRuntimeSnapshot, right: unknown): boolean {
   return isObject(right) && (
     right.snapshotVersion === 1 ||
+    right.snapshotVersion === 2 ||
+    right.snapshotVersion === 3 ||
     areGameRuntimeSnapshotsEqual(left, right)
   );
 }
@@ -225,6 +231,7 @@ function validateRuntimeAssets(game: PlayerGameView, runtime: GameRuntime): void
   requireType(runtime.backgroundAssetId, 'image');
   requireType(runtime.bgmAssetId, 'audio');
   requireType(runtime.videoAssetId, 'video');
+  requireType(runtime.cgAssetId, 'image');
   requireType(runtime.dialogue?.voiceAssetId ?? null, 'audio');
   for (const character of runtime.characters) {
     requireType(character.assetId, 'image');

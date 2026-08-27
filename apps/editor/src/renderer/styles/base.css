@@ -1,3 +1,8 @@
+/*
+ * 文件主要作用：定义编辑器全局色彩、排版、滚动条和基础元素样式。
+ * 包含实现：`:root`、`*`、`body`、`select`、`select:focus-visible`、`select:disabled`。
+ */
+
 :root {
   color-scheme: light;
   font-family:

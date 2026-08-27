@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 editor frame trust 的行为。
+ * 测试覆盖：`editor frame trust`。
+ */
+
 import { describe, expect, it } from 'vitest';
 
 import { isSameEditorLocation } from '../../src/main/security/editorFrameTrust';

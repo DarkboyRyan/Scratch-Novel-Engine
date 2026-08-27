@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：把场景文档投影为带嵌套结构和资源状态的 Blockly 积木。
+ * 包含实现：`projectSceneToWorkspace`。
+ */
+
 import * as Blockly from 'blockly';
 
 import type {
@@ -20,7 +25,13 @@ import {
   CLEAR_CHARACTER_BLOCK_TYPE,
   setCharacterBlockAsset,
   setCharacterBlockPosition,
+  CHARACTER_BLOCK_INPUTS,
 } from './blocks/characterBlock';
+import {
+  characterEffectBlockType,
+  setCharacterEffectBlock,
+  setCharacterEffectOwner,
+} from './blocks/characterEffectBlock';
 import {
   SCENE_JUMP_BLOCK_FIELDS,
   SCENE_JUMP_BLOCK_TYPE,
@@ -30,14 +41,8 @@ import {
   DIALOGUE_BLOCK_TYPE,
   setDialogueBlockVoice,
 } from './blocks/dialogueBlock';
-import {
-  BGM_BLOCK_TYPE,
-  setBgmBlockAsset,
-} from './blocks/bgmBlock';
-import {
-  VIDEO_BLOCK_TYPE,
-  setVideoBlockAsset,
-} from './blocks/videoBlock';
+import { BGM_BLOCK_TYPE, setBgmBlockAsset } from './blocks/bgmBlock';
+import { VIDEO_BLOCK_TYPE, setVideoBlockAsset } from './blocks/videoBlock';
 import {
   CHOICE_BLOCK_INPUTS,
   CHOICE_BLOCK_TYPE,
@@ -65,12 +70,15 @@ import {
   VARIABLE_CHANGE_BLOCK_TYPE,
   VARIABLE_SET_BLOCK_TYPE,
 } from './blocks/variableBlock';
+import {
+  CG_DISPLAY_BLOCK_TYPE,
+  CG_DISPLAY_INPUTS,
+  setCgDisplayBlockNode,
+  setCgDisplayMarkers,
+} from './blocks/cgDisplayBlock';
 import type { WorkspacePoint } from './blockEditorLayout';
 import { SingleDialogueBlockDragStrategy } from './singleDialogueBlockDragStrategy';
-import {
-  parseLogicStructure,
-  type LogicStructureItem,
-} from './logicStructure';
+import { parseLogicStructure, type LogicStructureItem } from './logicStructure';
 
 const FIRST_BLOCK_X = 48;
 const FIRST_BLOCK_Y = 48;
@@ -79,12 +87,10 @@ const STORY_PAGE_COLUMN_GAP = 72;
 
 type LogicStoryPage = {
   items: LogicStructureItem[];
-  continuation:
-    | {
-        node: Extract<SceneNode, { type: 'storyExtension' }>;
-        sequence: number;
-      }
-    | null;
+  continuation: {
+    node: Extract<SceneNode, { type: 'storyExtension' }>;
+    sequence: number;
+  } | null;
 };
 
 function paginateLogicItems(items: LogicStructureItem[]): LogicStoryPage[] {
@@ -134,9 +140,7 @@ function connectBlocks(
     throw new Error('剧情积木缺少上下连接点');
   }
   if (!nextConnection.connect(previousConnection)) {
-    throw new Error(
-      `无法连接剧情节点：${currentBlock.id} -> ${nextBlock.id}`,
-    );
+    throw new Error(`无法连接剧情节点：${currentBlock.id} -> ${nextBlock.id}`);
   }
   Blockly.renderManagement.triggerQueuedRenders(workspace);
 }
@@ -157,7 +161,7 @@ function blockTypeForNode(node: SceneNode): string {
     case 'background':
       return BACKGROUND_BLOCK_TYPE;
     case 'character':
-      return node.assetId === null
+      return node.mode === 'clear'
         ? CLEAR_CHARACTER_BLOCK_TYPE
         : CHARACTER_BLOCK_TYPE;
     case 'sceneJump':
@@ -178,9 +182,12 @@ function blockTypeForNode(node: SceneNode): string {
       return LOGIC_IF_BLOCK_TYPE;
     case 'logicRepeat':
       return LOGIC_REPEAT_BLOCK_TYPE;
+    case 'cgDisplay':
+      return CG_DISPLAY_BLOCK_TYPE;
     case 'logicElse':
     case 'logicEndIf':
     case 'logicEndRepeat':
+    case 'cgEndDisplay':
       throw new Error(`内部逻辑标记不应显示为积木：${node.id}`);
   }
 }
@@ -210,10 +217,7 @@ function createChoiceOptions(
       new SingleDialogueBlockDragStrategy(optionBlock),
     );
     optionBlock.initSvg();
-    optionBlock.setFieldValue(
-      option.text,
-      CHOICE_OPTION_BLOCK_FIELDS.text,
-    );
+    optionBlock.setFieldValue(option.text, CHOICE_OPTION_BLOCK_FIELDS.text);
     optionBlock.setFieldValue(
       option.targetSceneId,
       CHOICE_OPTION_BLOCK_FIELDS.targetScene,
@@ -240,6 +244,39 @@ function createChoiceOptions(
   Blockly.renderManagement.triggerQueuedRenders(context.workspace);
 }
 
+function createCharacterEffect(
+  block: Blockly.BlockSvg,
+  node: Extract<SceneNode, { type: 'character' }>,
+  context: ProjectionContext,
+): void {
+  if (node.effect === null || node.assetId === null) {
+    return;
+  }
+  const effectBlock = context.workspace.newBlock(
+    characterEffectBlockType(node.effect),
+    `${node.id}:effect`,
+  );
+  effectBlock.setMovable(true);
+  effectBlock.setDeletable(false);
+  effectBlock.setEditable(true);
+  effectBlock.contextMenu = false;
+  effectBlock.initSvg();
+  setCharacterEffectBlock(effectBlock, node.effect);
+  setCharacterEffectOwner(effectBlock, node.id);
+  effectBlock.render();
+
+  const inputConnection = block.getInput(
+    CHARACTER_BLOCK_INPUTS.effect,
+  )?.connection;
+  if (!inputConnection || !effectBlock.outputConnection) {
+    throw new Error(`人物立绘特效缺少右侧连接点：${node.id}`);
+  }
+  if (!inputConnection.connect(effectBlock.outputConnection)) {
+    throw new Error(`无法连接人物立绘特效：${node.id}`);
+  }
+  Blockly.renderManagement.triggerQueuedRenders(context.workspace);
+}
+
 function createNodeBlock(
   node: SceneNode,
   context: ProjectionContext,
@@ -255,21 +292,26 @@ function createNodeBlock(
   if (node.type === 'dialogue') {
     block.setFieldValue(node.speaker, DIALOGUE_BLOCK_FIELDS.speaker);
     block.setFieldValue(node.text, DIALOGUE_BLOCK_FIELDS.text);
-    const voiceName = node.voiceAssetId === null
-      ? ''
-      : context.assets.find((asset) => asset.id === node.voiceAssetId)
-          ?.displayName ?? context.labels.common.missingAudio;
+    const voiceName =
+      node.voiceAssetId === null
+        ? ''
+        : (context.assets.find((asset) => asset.id === node.voiceAssetId)
+            ?.displayName ?? context.labels.common.missingAudio);
     setDialogueBlockVoice(block, node.voiceAssetId, voiceName);
   } else if (node.type === 'background') {
-    const name = node.assetId === null
-      ? ''
-      : context.assets.find((asset) => asset.id === node.assetId)
-          ?.displayName ?? context.labels.common.missingImage;
+    const name =
+      node.assetId === null
+        ? ''
+        : (context.assets.find((asset) => asset.id === node.assetId)
+            ?.displayName ?? context.labels.common.missingImage);
     setBackgroundBlockAsset(block, node.assetId, name);
   } else if (node.type === 'character') {
-    if (node.assetId !== null) {
-      const name = context.assets.find((asset) => asset.id === node.assetId)
-        ?.displayName ?? context.labels.common.missingImage;
+    if (node.mode === 'show') {
+      const name =
+        node.assetId === null
+          ? context.labels.common.none
+          : (context.assets.find((asset) => asset.id === node.assetId)
+              ?.displayName ?? context.labels.common.missingImage);
       setCharacterBlockAsset(block, node.assetId, name);
       setCharacterBlockPosition(block, node.slot, node.position);
     }
@@ -280,16 +322,18 @@ function createNodeBlock(
       SCENE_JUMP_BLOCK_FIELDS.targetScene,
     );
   } else if (node.type === 'bgm') {
-    const name = node.assetId === null
-      ? ''
-      : context.assets.find((asset) => asset.id === node.assetId)
-          ?.displayName ?? context.labels.common.missingAudio;
+    const name =
+      node.assetId === null
+        ? ''
+        : (context.assets.find((asset) => asset.id === node.assetId)
+            ?.displayName ?? context.labels.common.missingAudio);
     setBgmBlockAsset(block, node.assetId, name);
   } else if (node.type === 'video') {
-    const name = node.assetId === null
-      ? ''
-      : context.assets.find((asset) => asset.id === node.assetId)
-          ?.displayName ?? context.labels.common.missingVideo;
+    const name =
+      node.assetId === null
+        ? ''
+        : (context.assets.find((asset) => asset.id === node.assetId)
+            ?.displayName ?? context.labels.common.missingVideo);
     setVideoBlockAsset(block, node.assetId, name);
   } else if (node.type === 'storyExtension') {
     const sequence = context.continuationSequences.get(node.id);
@@ -307,9 +351,14 @@ function createNodeBlock(
     setLogicIfBlockCondition(block, node.condition);
   } else if (node.type === 'logicRepeat') {
     block.setFieldValue(String(node.count), LOGIC_CONTROL_FIELDS.count);
+  } else if (node.type === 'cgDisplay') {
+    setCgDisplayBlockNode(block, node);
   }
 
   block.render();
+  if (node.type === 'character') {
+    createCharacterEffect(block, node, context);
+  }
   if (node.type === 'choice') {
     createChoiceOptions(block, node, context);
   }
@@ -364,7 +413,7 @@ function projectItem(
       item.elseItems.map((child) => projectItem(child, context)),
       context.workspace,
     );
-  } else {
+  } else if (item.kind === 'repeat') {
     setLogicControlMarkers(block, {
       kind: 'repeat',
       endNodeId: item.endNode.id,
@@ -372,6 +421,16 @@ function projectItem(
     connectStatementInput(
       block,
       LOGIC_CONTROL_INPUTS.body,
+      item.bodyItems.map((child) => projectItem(child, context)),
+      context.workspace,
+    );
+  } else {
+    setCgDisplayMarkers(block, {
+      endNodeId: item.endNode.id,
+    });
+    connectStatementInput(
+      block,
+      CG_DISPLAY_INPUTS.body,
       item.bodyItems.map((child) => projectItem(child, context)),
       context.workspace,
     );
@@ -424,9 +483,7 @@ export function projectSceneToWorkspace(
 
     const pageRoots: Blockly.BlockSvg[] = [startBlock];
     pages.forEach((page, pageIndex) => {
-      const pageBlocks = page.items.map((item) =>
-        projectItem(item, context),
-      );
+      const pageBlocks = page.items.map((item) => projectItem(item, context));
       if (page.continuation) {
         pageBlocks.unshift(createNodeBlock(page.continuation.node, context));
       } else if (pageIndex === 0) {

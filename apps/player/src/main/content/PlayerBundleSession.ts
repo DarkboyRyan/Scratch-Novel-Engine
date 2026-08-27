@@ -1,3 +1,7 @@
+/**
+ * 主要作用：管理当前游戏包会话、用户选包与嵌入游戏打开流程。
+ * 关键函数与实现：`PLAYER_BUNDLE_SUFFIX`、`PLAYER_BUNDLE_LOAD_ERROR`、`PLAYER_BUNDLE_SELECTION_ERROR`、`PLAYER_EMBEDDED_OPEN_ERROR`；基于 Electron Main 与 Node.js 安全文件/协议边界实现。
+ */
 import path from 'node:path';
 
 import type {

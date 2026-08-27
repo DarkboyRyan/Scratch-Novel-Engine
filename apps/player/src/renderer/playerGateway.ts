@@ -1,3 +1,7 @@
+/**
+ * 主要作用：定义 UI 与宿主能力之间的 PlayerGateway 边界及 Preload 实现。
+ * 关键函数与实现：`PlayerAssetView`、`PlayerGameView`、`PlayerLoadViewResult`、`PlayerOpenViewResult`；以 TypeScript 类型边界和可组合函数实现。
+ */
 import type {
   GameRuntimeSnapshot,
   ProjectDocument,

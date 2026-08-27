@@ -1,3 +1,5 @@
+// 主要作用：编排原生对话框驱动的项目新建、打开、保存流程。
+// 关键实现：runProjectFileWorkflow 串联路径策略、后端、发布与窗口会话。
 import { dialog, type BrowserWindow } from 'electron';
 import path from 'node:path';
 

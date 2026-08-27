@@ -1,3 +1,5 @@
+// 文件职责：声明 Author 项目文件与 Renderer 投影 JSON 的序列化边界。
+// 关键实现：ProjectFileError、project_file_from_json/to_json 和 assets_to_renderer_json。
 #pragma once
 
 #include <stdexcept>
@@ -12,7 +14,7 @@
 namespace vnengine::backend {
 
 inline constexpr std::string_view kProjectFileFormat = "vn-engine-project";
-inline constexpr int kProjectFileVersion = 16;
+inline constexpr int kProjectFileVersion = 19;
 
 // The persistence envelope serializes the same aggregate that Core validates.
 // Keep the legacy name as an adapter while callers migrate to ProjectAggregate.

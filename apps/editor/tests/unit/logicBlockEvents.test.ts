@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 logic Blockly backend-first events 的行为。
+ * 测试覆盖：`logic Blockly backend-first events`。
+ */
+
 import * as Blockly from 'blockly';
 import { afterEach, describe, expect, it } from 'vitest';
 

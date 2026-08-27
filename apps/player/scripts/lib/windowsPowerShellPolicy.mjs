@@ -1,3 +1,7 @@
+/**
+ * 主要作用：生成固定参数的 Windows 签名验证、归档和元数据检查命令。
+ * 关键函数与实现：`windowsSignatureVerificationInvocation`、`windowsArchiveInvocation`、`windowsMetadataVerificationInvocation`；基于 Node.js ESM、文件系统和受限子进程完成确定性 CLI 流程。
+ */
 const VERIFY_SIGNATURES_SCRIPT = [
   "$ErrorActionPreference = 'Stop'",
   '$root = $env:VN_PLAYER_WINDOWS_VERIFY_ROOT',

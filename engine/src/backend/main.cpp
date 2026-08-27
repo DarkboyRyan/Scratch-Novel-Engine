@@ -1,3 +1,5 @@
+// 文件职责：提供 VN Engine C++ JSONL Backend 的进程入口。
+// 关键实现：逐行读取 stdin、调用 Backend::handle，并将稳定 JSON 响应写到 stdout。
 #include <iostream>
 #include <string>
 

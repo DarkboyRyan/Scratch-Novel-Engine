@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：把 Engine API 封装成带错误处理和项目刷新的创作动作。
+ * 包含实现：`AuthoringActions`、`createAuthoringActions`。
+ */
+
 import type { VnEngineApi } from '../../shared/engineProtocol';
 import type {
   AddBackgroundAction,
@@ -5,6 +10,7 @@ import type {
   AddCharacterAction,
   AddChoiceAction,
   AddChoiceOptionAction,
+  AddCgDisplayAction,
   AddDialogueAction,
   AddLogicIfAction,
   AddLogicRepeatAction,
@@ -15,12 +21,15 @@ import type {
   AddVideoAction,
   DeleteBackgroundAction,
   DeleteChoiceOptionAction,
+  DeleteCgDisplayAction,
   DeleteDialoguesAction,
   DeleteTimelineNodesAction,
   DeleteLogicControlAction,
   EngineMutationRunner,
+  MoveCharacterEffectAction,
   ReorderBackgroundAction,
   ReorderChoiceOptionAction,
+  ReorderCgDisplayAction,
   ReorderDialogueAction,
   ReorderDialoguesAction,
   ReorderTimelineNodeAction,
@@ -30,7 +39,9 @@ import type {
   UpdateBackgroundAction,
   UpdateBgmAction,
   UpdateCharacterAction,
+  UpdateCharacterEffectAction,
   UpdateChoiceOptionAction,
+  UpdateCgDisplayAction,
   UpdateDialogueAction,
   UpdateLogicIfAction,
   UpdateLogicRepeatAction,
@@ -53,6 +64,8 @@ export type AuthoringActions = {
   reorderBackground: ReorderBackgroundAction;
   addCharacter: AddCharacterAction;
   updateCharacter: UpdateCharacterAction;
+  updateCharacterEffect: UpdateCharacterEffectAction;
+  moveCharacterEffect: MoveCharacterEffectAction;
   addSceneJump: AddSceneJumpAction;
   addStoryExtension: AddStoryExtensionAction;
   addVariableSet: AddVariableSetAction;
@@ -65,6 +78,10 @@ export type AuthoringActions = {
   updateLogicRepeat: UpdateLogicRepeatAction;
   deleteLogicControl: DeleteLogicControlAction;
   reorderLogicControl: ReorderLogicControlAction;
+  addCgDisplay: AddCgDisplayAction;
+  updateCgDisplay: UpdateCgDisplayAction;
+  deleteCgDisplay: DeleteCgDisplayAction;
+  reorderCgDisplay: ReorderCgDisplayAction;
   updateSceneJump: UpdateSceneJumpAction;
   addBgm: AddBgmAction;
   updateBgm: UpdateBgmAction;
@@ -86,6 +103,8 @@ type CreateAuthoringActionsOptions = {
   onSceneJumpUnavailable(): void;
   onStoryExtensionUnavailable(): void;
   onLogicModuleUnavailable(): void;
+  onCgDisplayModuleUnavailable?(): void;
+  onCharacterEffectModuleUnavailable?(): void;
 };
 
 // Maps feature-facing boolean actions onto the result-returning engine port.
@@ -97,10 +116,39 @@ export function createAuthoringActions({
   onSceneJumpUnavailable,
   onStoryExtensionUnavailable,
   onLogicModuleUnavailable,
+  onCgDisplayModuleUnavailable,
+  onCharacterEffectModuleUnavailable,
 }: CreateAuthoringActionsOptions): AuthoringActions {
   const succeeds = async (
     action: Parameters<EngineMutationRunner>[0],
   ): Promise<boolean> => (await run(action)) !== null;
+  const succeedsWithCharacterModeCommand = (
+    action: Parameters<EngineMutationRunner>[0],
+  ): Promise<boolean> =>
+    succeeds(async () => {
+      try {
+        return await action();
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        const normalizedMessage = message.toLowerCase();
+        const isStaleModule =
+          normalizedMessage.includes('invalid engine invocation') ||
+          normalizedMessage.includes('invalid engine request') ||
+          normalizedMessage.includes('unknown params') ||
+          normalizedMessage.includes('unknown parameter') ||
+          normalizedMessage.includes('unknown field') ||
+          normalizedMessage.includes('unknown property') ||
+          normalizedMessage.includes('unexpected field') ||
+          normalizedMessage.includes('unexpected property') ||
+          message.includes('无效的引擎请求');
+        if (isStaleModule) {
+          throw new Error(`[character-mode-module] ${message}`, {
+            cause: error,
+          });
+        }
+        throw error;
+      }
+    });
   const succeedsWithLogicCommand = (
     command: unknown,
     method: string,
@@ -123,6 +171,62 @@ export function createAuthoringActions({
           message.includes('无效的引擎请求');
         if (isStaleModule) {
           throw new Error(`[logic-module] ${message}`, { cause: error });
+        }
+        throw error;
+      }
+    });
+  };
+  const succeedsWithCgDisplayCommand = (
+    command: unknown,
+    method: string,
+    action: Parameters<EngineMutationRunner>[0],
+  ): Promise<boolean> => {
+    if (typeof command !== 'function') {
+      onCgDisplayModuleUnavailable?.();
+      return Promise.resolve(false);
+    }
+    return succeeds(async () => {
+      try {
+        return await action();
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        const isStaleModule =
+          message.includes('No handler registered') ||
+          message.includes(`unknown method: ${method}`) ||
+          message.includes('invalid engine invocation') ||
+          message.includes('invalid engine request') ||
+          message.includes('无效的引擎请求');
+        if (isStaleModule) {
+          throw new Error(`[cg-display-module] ${message}`, { cause: error });
+        }
+        throw error;
+      }
+    });
+  };
+  const succeedsWithCharacterEffectCommand = (
+    command: unknown,
+    method: string,
+    action: Parameters<EngineMutationRunner>[0],
+  ): Promise<boolean> => {
+    if (typeof command !== 'function') {
+      onCharacterEffectModuleUnavailable?.();
+      return Promise.resolve(false);
+    }
+    return succeeds(async () => {
+      try {
+        return await action();
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        const isStaleModule =
+          message.includes('No handler registered') ||
+          message.includes(`unknown method: ${method}`) ||
+          message.includes('invalid engine invocation') ||
+          message.includes('invalid engine request') ||
+          message.includes('无效的引擎请求');
+        if (isStaleModule) {
+          throw new Error(`[character-effect-module] ${message}`, {
+            cause: error,
+          });
         }
         throw error;
       }
@@ -153,9 +257,22 @@ export function createAuthoringActions({
     reorderBackground: (params) =>
       succeeds(() => commands.reorderBackground(params)),
     addCharacter: (params) =>
-      succeeds(() => commands.addCharacter(params)),
+      succeedsWithCharacterModeCommand(() => commands.addCharacter(params)),
     updateCharacter: (params) =>
-      succeeds(() => commands.updateCharacter(params)),
+      succeedsWithCharacterModeCommand(() =>
+        commands.updateCharacter(params)),
+    updateCharacterEffect: (params) =>
+      succeedsWithCharacterEffectCommand(
+        commands.updateCharacterEffect,
+        'characterEffect.update',
+        () => commands.updateCharacterEffect(params),
+      ),
+    moveCharacterEffect: (params) =>
+      succeedsWithCharacterEffectCommand(
+        commands.moveCharacterEffect,
+        'characterEffect.move',
+        () => commands.moveCharacterEffect(params),
+      ),
     addSceneJump: (params) => {
       if (typeof commands.addSceneJump !== 'function') {
         onSceneJumpUnavailable();
@@ -200,6 +317,18 @@ export function createAuthoringActions({
     reorderLogicControl: (params) =>
       succeedsWithLogicCommand(commands.reorderLogicControl, 'logicControl.reorder', () =>
         commands.reorderLogicControl(params)),
+    addCgDisplay: (params) =>
+      succeedsWithCgDisplayCommand(commands.addCgDisplay, 'cgDisplay.add', () =>
+        commands.addCgDisplay(params)),
+    updateCgDisplay: (params) =>
+      succeedsWithCgDisplayCommand(commands.updateCgDisplay, 'cgDisplay.update', () =>
+        commands.updateCgDisplay(params)),
+    deleteCgDisplay: (params) =>
+      succeedsWithCgDisplayCommand(commands.deleteCgDisplay, 'cgDisplay.delete', () =>
+        commands.deleteCgDisplay(params)),
+    reorderCgDisplay: (params) =>
+      succeedsWithCgDisplayCommand(commands.reorderCgDisplay, 'cgDisplay.reorder', () =>
+        commands.reorderCgDisplay(params)),
     updateSceneJump: (params) => {
       if (typeof commands.updateSceneJump !== 'function') {
         onSceneJumpUnavailable();

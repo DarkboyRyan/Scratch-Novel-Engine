@@ -1,3 +1,5 @@
+// 主要作用：根据项目会话更新窗口标题、脏状态和原生文档标识。
+// 关键实现：updateWindowDocumentPresentation 组合本地化标题并同步 edited 标记。
 import type { BrowserWindow } from 'electron';
 
 import type { ProjectFileSessionSnapshot } from '../../shared/projectFileProtocol';

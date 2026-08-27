@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：在表单与积木模式间切换标题界面编辑器。
+ * 包含实现：`StartScreenEditorHandle`、`StartScreenEditor`。
+ */
+
 import {
   forwardRef,
   useImperativeHandle,

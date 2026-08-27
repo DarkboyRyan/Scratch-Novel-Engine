@@ -1,5 +1,10 @@
 /** @vitest-environment jsdom */
 
+/**
+ * 文件主要作用：验证 logic-aware block group selection 的行为。
+ * 测试覆盖：`logic-aware block group selection`。
+ */
+
 import type * as Blockly from 'blockly';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -14,6 +19,7 @@ import {
   LOGIC_REPEAT_BLOCK_TYPE,
 } from '../../src/renderer/features/block-editor/blocks/logicControlBlock';
 import { STORY_CONTINUATION_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/storyContinuationBlock';
+import { CG_DISPLAY_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/cgDisplayBlock';
 import type { SceneDocument } from '../../src/shared/projectTypes';
 
 const logicScene: SceneDocument = {
@@ -67,6 +73,24 @@ const logicScene: SceneDocument = {
       repeatNodeId: 'repeat-1',
     },
     { id: 'endif-1', type: 'logicEndIf', ifNodeId: 'if-1' },
+    {
+      id: 'cg-1',
+      type: 'cgDisplay',
+      assetId: 'cg-image',
+      leadInMs: 500,
+    },
+    {
+      id: 'cg-line',
+      type: 'dialogue',
+      speaker: 'D',
+      text: 'CG',
+      voiceAssetId: null,
+    },
+    {
+      id: 'cg-end-1',
+      type: 'cgEndDisplay',
+      cgDisplayNodeId: 'cg-1',
+    },
     { id: 'extension-1', type: 'storyExtension' },
     {
       id: 'tail-line',
@@ -85,6 +109,8 @@ const visibleNodeIds = [
   'then-line',
   'repeat-1',
   'repeat-line',
+  'cg-1',
+  'cg-line',
   'extension-1',
   'tail-line',
 ];
@@ -97,6 +123,8 @@ function workspaceWithProjectedBlocks(): Blockly.WorkspaceSvg {
     ['then-line', DIALOGUE_BLOCK_TYPE],
     ['repeat-1', LOGIC_REPEAT_BLOCK_TYPE],
     ['repeat-line', DIALOGUE_BLOCK_TYPE],
+    ['cg-1', CG_DISPLAY_BLOCK_TYPE],
+    ['cg-line', DIALOGUE_BLOCK_TYPE],
     ['extension-1', STORY_CONTINUATION_BLOCK_TYPE],
     ['tail-line', DIALOGUE_BLOCK_TYPE],
   ]);
@@ -213,6 +241,9 @@ describe('logic-aware block group selection', () => {
     expect(
       getBlockGroupSelectionMode(logicScene, workspace, ['top-1', 'top-2']),
     ).toBe('reorder-timeline');
+    expect(
+      getBlockGroupSelectionMode(logicScene, workspace, ['cg-1', 'cg-line']),
+    ).toBe('reject-structured-selection');
     expect(
       getBlockGroupSelectionMode(logicScene, workspace, [
         'extension-1',

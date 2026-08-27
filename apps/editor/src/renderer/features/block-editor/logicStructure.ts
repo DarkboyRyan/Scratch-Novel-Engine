@@ -1,4 +1,12 @@
+/**
+ * 文件主要作用：校验和分析可嵌套逻辑积木的结构、范围与时间线位置。
+ * 包含实现：`VisibleLeafNode`、`LogicStructureItem`、`parseLogicStructure`、`flattenLogicStructure`、`findLogicControlItem`、`findCgDisplayItem` 等 8 项。
+ */
+
 import type {
+  CgDisplayNode,
+  CgEndDisplayNode,
+  DialogueNode,
   LogicElseNode,
   LogicEndIfNode,
   LogicEndRepeatNode,
@@ -11,11 +19,12 @@ import type {
 type HiddenLogicMarker =
   | LogicElseNode
   | LogicEndIfNode
-  | LogicEndRepeatNode;
+  | LogicEndRepeatNode
+  | CgEndDisplayNode;
 
 export type VisibleLeafNode = Exclude<
   SceneNode,
-  HiddenLogicMarker | LogicIfNode | LogicRepeatNode
+  HiddenLogicMarker | LogicIfNode | LogicRepeatNode | CgDisplayNode
 >;
 
 export type LogicStructureItem =
@@ -36,6 +45,15 @@ export type LogicStructureItem =
       node: LogicRepeatNode;
       endNode: LogicEndRepeatNode;
       bodyItems: LogicStructureItem[];
+    }
+  | {
+      kind: 'cg';
+      node: CgDisplayNode;
+      endNode: CgEndDisplayNode;
+      bodyItems: Array<{
+        kind: 'node';
+        node: DialogueNode;
+      }>;
     };
 
 type ParseStop =
@@ -85,7 +103,8 @@ function parseItems(
     if (
       node.type === 'logicElse' ||
       node.type === 'logicEndIf' ||
-      node.type === 'logicEndRepeat'
+      node.type === 'logicEndRepeat' ||
+      node.type === 'cgEndDisplay'
     ) {
       throw new Error(`逻辑控制标记不匹配：${node.id}`);
     }
@@ -160,6 +179,39 @@ function parseItems(
       continue;
     }
 
+    if (node.type === 'cgDisplay') {
+      const bodyItems: Array<{
+        kind: 'node';
+        node: DialogueNode;
+      }> = [];
+      let bodyIndex = index + 1;
+      while (bodyIndex < nodes.length) {
+        const bodyNode = nodes[bodyIndex];
+        if (
+          bodyNode.type === 'cgEndDisplay' &&
+          bodyNode.cgDisplayNodeId === node.id
+        ) {
+          break;
+        }
+        if (bodyNode.type !== 'dialogue') {
+          throw new Error(`CG 显示积木中只能放置对白：${bodyNode.id}`);
+        }
+        bodyItems.push({ kind: 'node', node: bodyNode });
+        bodyIndex += 1;
+      }
+      const endNode = nodes[bodyIndex];
+      if (
+        !endNode ||
+        endNode.type !== 'cgEndDisplay' ||
+        endNode.cgDisplayNodeId !== node.id
+      ) {
+        throw new Error(`CG 显示积木缺少结束标记：${node.id}`);
+      }
+      items.push({ kind: 'cg', node, endNode, bodyItems });
+      index = bodyIndex + 1;
+      continue;
+    }
+
     items.push({ kind: 'node', node });
     index += 1;
   }
@@ -192,6 +244,13 @@ export function flattenLogicStructure(
         item.endNode,
       ];
     }
+    if (item.kind === 'repeat') {
+      return [
+        item.node,
+        ...flattenLogicStructure(item.bodyItems),
+        item.endNode,
+      ];
+    }
     return [
       item.node,
       ...flattenLogicStructure(item.bodyItems),
@@ -205,7 +264,7 @@ export function findLogicControlItem(
   nodeId: string,
 ): Extract<LogicStructureItem, { kind: 'if' | 'repeat' }> | null {
   for (const item of items) {
-    if (item.kind === 'node') {
+    if (item.kind === 'node' || item.kind === 'cg') {
       continue;
     }
     if (item.node.id === nodeId) {
@@ -222,6 +281,41 @@ export function findLogicControlItem(
     }
   }
   return null;
+}
+
+export function findCgDisplayItem(
+  items: LogicStructureItem[],
+  nodeId: string,
+): Extract<LogicStructureItem, { kind: 'cg' }> | null {
+  for (const item of items) {
+    if (item.kind === 'node') {
+      continue;
+    }
+    if (item.kind === 'cg') {
+      if (item.node.id === nodeId) {
+        return item;
+      }
+      continue;
+    }
+    const nested = findCgDisplayItem(
+      item.kind === 'if'
+        ? [...item.thenItems, ...item.elseItems]
+        : item.bodyItems,
+      nodeId,
+    );
+    if (nested) {
+      return nested;
+    }
+  }
+  return null;
+}
+
+export function getCgDisplayNodeIds(
+  scene: Pick<SceneDocument, 'nodes'>,
+  nodeId: string,
+): string[] {
+  const item = findCgDisplayItem(parseLogicStructure(scene), nodeId);
+  return item ? flattenLogicStructure([item]).map((node) => node.id) : [];
 }
 
 export function getLogicControlNodeIds(

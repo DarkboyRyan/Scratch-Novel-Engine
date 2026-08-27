@@ -1,3 +1,7 @@
+/**
+ * 主要作用：校验逻辑值、变量名、嵌套深度和运行时资源预算。
+ * 关键函数与实现：`MAX_LOGIC_NESTING_DEPTH`、`MAX_REPEAT_COUNT`、`MAX_AUTOMATIC_STEPS_PER_ADVANCE`、`MAX_VARIABLE_NAME_BYTES`；采用纯 TypeScript 状态转换与严格类型守卫，保持平台无关。
+ */
 import type {
   LogicCondition,
   LogicOperand,

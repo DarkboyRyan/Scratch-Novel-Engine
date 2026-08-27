@@ -1,5 +1,10 @@
 /** @vitest-environment jsdom */
 
+/**
+ * 文件主要作用：验证 BlocklyWorkspace logic action integration 的行为。
+ * 测试覆盖：`BlocklyWorkspace logic action integration`。
+ */
+
 import * as Blockly from 'blockly';
 import { act, createRef } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -120,6 +125,8 @@ describe('BlocklyWorkspace logic action integration', () => {
             onBackgroundUpdate={action}
             onCharacterAdd={action}
             onCharacterUpdate={action}
+            onCharacterEffectUpdate={action}
+            onCharacterEffectMove={action}
             onSceneJumpAdd={action}
             onSceneJumpUpdate={action}
             onBgmAdd={action}
@@ -139,6 +146,10 @@ describe('BlocklyWorkspace logic action integration', () => {
             onLogicRepeatUpdate={action}
             onLogicControlDelete={deleteLogicControl}
             onLogicControlReorder={action}
+            onCgDisplayAdd={action}
+            onCgDisplayUpdate={action}
+            onCgDisplayDelete={action}
+            onCgDisplayReorder={action}
             onChoiceOptionUpdate={action}
             onChoiceOptionDelete={action}
             onChoiceOptionReorder={action}

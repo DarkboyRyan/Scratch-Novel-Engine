@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+/**
+ * 主要作用：在发布前检查工具链与平台签名密钥是否齐备。
+ * 关键函数与实现：`REQUIRED_SECRETS`、`main`；基于 Node.js ESM、文件系统和受限子进程完成确定性 CLI 流程。
+ */
 
 import { appendFile, readFile } from 'node:fs/promises';
 import path from 'node:path';

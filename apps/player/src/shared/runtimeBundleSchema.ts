@@ -1,4 +1,9 @@
+/**
+ * 主要作用：严格解析多版本运行包并验证场景、资源及逻辑引用。
+ * 关键函数与实现：parseRuntimeBundleDocuments；以 TypeScript 类型边界和可组合函数实现。
+ */
 import type {
+  CharacterEffect,
   ChoiceOption,
   LogicCondition,
   LogicOperand,
@@ -9,7 +14,9 @@ import type {
 } from '@vnengine/runtime';
 import {
   isLogicValue,
+  isCharacterEffect,
   isLogicVariableName,
+  MAX_CG_LEAD_IN_MS,
   MAX_REPEAT_COUNT,
   validateProjectLogicVariableBudget,
   validateSceneControlFlow,
@@ -41,7 +48,7 @@ export type ParsedRuntimeBundle = {
   buildId: string;
 };
 
-type SupportedRuntimeVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+type SupportedRuntimeVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
 type ParsedRuntimeGame = {
   project: ProjectDocument;
@@ -144,6 +151,10 @@ function playerCompatibilityForRuntime(
       return '>=6 <7';
     case 7:
       return '>=7 <8';
+    case 8:
+      return '>=8 <9';
+    case 9:
+      return '>=9 <10';
   }
 }
 
@@ -254,9 +265,11 @@ function parseSceneNode(
     case 'character': {
       exactFields(
         value,
-        runtimeVersion >= 4
-          ? ['id', 'type', 'assetId', 'slot', 'layer', 'position']
-          : ['id', 'type', 'assetId', 'slot', 'layer'],
+        runtimeVersion >= 9
+          ? ['id', 'type', 'assetId', 'slot', 'layer', 'position', 'effect']
+          : runtimeVersion >= 4
+            ? ['id', 'type', 'assetId', 'slot', 'layer', 'position']
+            : ['id', 'type', 'assetId', 'slot', 'layer'],
         context,
       );
       const slot = value.slot;
@@ -286,13 +299,25 @@ function parseSceneNode(
         }
         position = { x, y };
       }
+      const assetId = nullableId(value, 'assetId', context);
+      let effect: CharacterEffect | null = null;
+      if (runtimeVersion >= 9 && value.effect !== null) {
+        if (!isCharacterEffect(value.effect)) {
+          throw new Error(`${context}.effect 不是有效的人物特效`);
+        }
+        effect = value.effect;
+      }
+      if (assetId === null && effect !== null) {
+        throw new Error(`${context}.effect 不能用于清除立绘节点`);
+      }
       return {
         id,
         type,
-        assetId: nullableId(value, 'assetId', context),
+        assetId,
         slot,
         layer: layer as number,
         position,
+        effect,
       };
     }
     case 'sceneJump':
@@ -308,6 +333,36 @@ function parseSceneNode(
     case 'video':
       exactFields(value, ['id', 'type', 'assetId'], context);
       return { id, type, assetId: nullableId(value, 'assetId', context) };
+    case 'cgDisplay':
+      if (runtimeVersion < 8) {
+        throw new Error(`${context}.type 不受 runtime v${runtimeVersion} 支持`);
+      }
+      exactFields(value, ['id', 'type', 'assetId', 'leadInMs'], context);
+      if (
+        !Number.isSafeInteger(value.leadInMs) ||
+        (value.leadInMs as number) < 0 ||
+        (value.leadInMs as number) > MAX_CG_LEAD_IN_MS
+      ) {
+        throw new Error(
+          `${context}.leadInMs 必须是 0 到 ${MAX_CG_LEAD_IN_MS} 的整数`,
+        );
+      }
+      return {
+        id,
+        type,
+        assetId: idValue(value, 'assetId', context),
+        leadInMs: value.leadInMs as number,
+      };
+    case 'cgEndDisplay':
+      if (runtimeVersion < 8) {
+        throw new Error(`${context}.type 不受 runtime v${runtimeVersion} 支持`);
+      }
+      exactFields(value, ['id', 'type', 'cgDisplayNodeId'], context);
+      return {
+        id,
+        type,
+        cgDisplayNodeId: idValue(value, 'cgDisplayNodeId', context),
+      };
     case 'choice':
       exactFields(value, ['id', 'type', 'options'], context);
       return {
@@ -436,7 +491,9 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
     root.runtimeVersion !== 4 &&
     root.runtimeVersion !== 5 &&
     root.runtimeVersion !== 6 &&
-    root.runtimeVersion !== 7
+    root.runtimeVersion !== 7 &&
+    root.runtimeVersion !== 8 &&
+    root.runtimeVersion !== 9
   ) {
     throw new Error('game.json.runtimeVersion 版本或格式不受支持');
   }
@@ -814,6 +871,9 @@ function validateProjectReferences(
           break;
         case 'video':
           requireAssetType(assets, node.assetId, 'video', `视频 ${node.id}`);
+          break;
+        case 'cgDisplay':
+          requireAssetType(assets, node.assetId, 'image', `显示 CG ${node.id}`);
           break;
         case 'sceneJump':
           if (node.targetSceneId === scene.id || !scenes.has(node.targetSceneId)) {

@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：组织编辑器主界面的项目会话、编辑模式、预览与全局对话框状态。
+ * 包含实现：`App`。
+ */
+
 import { useEffect, useReducer, useRef, useState } from 'react';
 
 import {
@@ -501,6 +506,9 @@ function EditorApplication({
       slot: character.slot,
       layer: character.layer,
       position: character.position,
+      opacity: character.opacity,
+      effect: null,
+      effectSequence: character.effectSequence,
     };
   });
 
@@ -632,6 +640,9 @@ function EditorApplication({
           logicPreviewUncertain={
             timelinePreview.logicPreviewUncertain === true
           }
+          cgPreviewUncertain={
+            timelinePreview.cgPreviewUncertain === true
+          }
           characters={previewCharacters}
           isStartPreviewDisabled={engine.isBusy}
           onStartPreview={() => void handleStartPreview()}
@@ -663,6 +674,8 @@ function EditorApplication({
           onBackgroundUpdate={engine.updateBackground}
           onCharacterAdd={engine.addCharacter}
           onCharacterUpdate={engine.updateCharacter}
+          onCharacterEffectUpdate={engine.updateCharacterEffect}
+          onCharacterEffectMove={engine.moveCharacterEffect}
           onSceneJumpAdd={engine.addSceneJump}
           onSceneJumpUpdate={engine.updateSceneJump}
           onBgmAdd={engine.addBgm}
@@ -682,6 +695,10 @@ function EditorApplication({
           onLogicRepeatUpdate={engine.updateLogicRepeat}
           onLogicControlDelete={engine.deleteLogicControl}
           onLogicControlReorder={engine.reorderLogicControl}
+          onCgDisplayAdd={engine.addCgDisplay}
+          onCgDisplayUpdate={engine.updateCgDisplay}
+          onCgDisplayDelete={engine.deleteCgDisplay}
+          onCgDisplayReorder={engine.reorderCgDisplay}
           onChoiceOptionUpdate={engine.updateChoiceOption}
           onChoiceOptionDelete={engine.deleteChoiceOption}
           onChoiceOptionReorder={engine.reorderChoiceOption}
@@ -716,6 +733,7 @@ function EditorApplication({
           previewUrls={assetPreviewUrls}
           resolveMediaUrl={resolveEditorMediaUrl}
           onAdvance={gamePreview.advance}
+          onCgLeadInComplete={gamePreview.completeCgLeadIn}
           onVideoComplete={gamePreview.completeVideo}
           onChoiceSelect={gamePreview.selectChoice}
           onEnterStory={gamePreview.enterStory}

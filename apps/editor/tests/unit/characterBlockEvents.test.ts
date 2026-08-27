@@ -1,7 +1,19 @@
+/**
+ * 文件主要作用：验证 getCharacterFieldUpdate 的行为。
+ * 测试覆盖：`getCharacterFieldUpdate`。
+ */
+
 import * as Blockly from 'blockly';
 import { describe, expect, it } from 'vitest';
 
-import { getCharacterFieldUpdate } from '../../src/renderer/features/block-editor/characterBlockEvents';
+import {
+  getCharacterFieldUpdate,
+  resolveNewCharacterPlacement,
+} from '../../src/renderer/features/block-editor/characterBlockEvents';
+import {
+  ASSET_NAME_MAX_DISPLAY_LENGTH,
+  AssetNameField,
+} from '../../src/renderer/features/block-editor/blocks/assetNameField';
 import {
   CHARACTER_BLOCK_FIELDS,
   CHARACTER_BLOCK_TYPE,
@@ -21,15 +33,52 @@ const scene: SceneDocument = {
     {
       id: 'character-1',
       type: 'character',
+      mode: 'show',
       assetId: 'asset-1',
       slot: 'left',
       layer: 2,
       position: null,
+      effect: null,
     },
   ],
 };
 
 describe('getCharacterFieldUpdate', () => {
+  it('keeps portrait and clear-layer toolbox drops distinct', () => {
+    expect(resolveNewCharacterPlacement(CHARACTER_BLOCK_TYPE)).toEqual({
+      mode: 'show',
+      assetId: null,
+    });
+    expect(resolveNewCharacterPlacement(CLEAR_CHARACTER_BLOCK_TYPE)).toEqual({
+      mode: 'clear',
+      assetId: null,
+    });
+    expect(resolveNewCharacterPlacement('vn_dialogue')).toBeUndefined();
+  });
+
+  it('shortens only the rendered portrait name and retains the full value', () => {
+    registerCharacterBlock();
+    const workspace = new Blockly.Workspace();
+    const block = workspace.newBlock(CHARACTER_BLOCK_TYPE);
+    const fullName = 'avery-very-long-character-portrait-filename.png';
+    const field = block.getField(CHARACTER_BLOCK_FIELDS.assetName);
+
+    expect(field).toBeInstanceOf(AssetNameField);
+    expect(field?.getText()).toBe('无');
+    setCharacterBlockAsset(block, 'asset-1', fullName);
+    expect(field?.maxDisplayLength).toBe(ASSET_NAME_MAX_DISPLAY_LENGTH);
+    expect(field?.getText()).toBe(fullName);
+    expect(
+      (
+        field as Blockly.Field & {
+          getDisplayText_(): string;
+        }
+      ).getDisplayText_(),
+    ).toContain('…');
+
+    workspace.dispose();
+  });
+
   it('registers a clear-portrait block with a selectable layer', () => {
     registerCharacterBlock();
     const workspace = new Blockly.Workspace();
@@ -37,9 +86,9 @@ describe('getCharacterFieldUpdate', () => {
 
     expect(block.previousConnection).not.toBeNull();
     expect(block.nextConnection).not.toBeNull();
-    expect(
-      block.getField(CHARACTER_BLOCK_FIELDS.layer),
-    ).toBeInstanceOf(Blockly.FieldDropdown);
+    expect(block.getField(CHARACTER_BLOCK_FIELDS.layer)).toBeInstanceOf(
+      Blockly.FieldDropdown,
+    );
     expect(block.getFieldValue(CHARACTER_BLOCK_FIELDS.layer)).toBe('1');
 
     workspace.dispose();
@@ -75,6 +124,7 @@ describe('getCharacterFieldUpdate', () => {
       ),
     ).toEqual({
       nodeId: 'character-1',
+      mode: 'show',
       assetId: 'asset-1',
       slot: 'right',
       layer: 4,
@@ -93,7 +143,10 @@ describe('getCharacterFieldUpdate', () => {
       CHARACTER_BLOCK_FIELDS.slot,
     ) as Blockly.FieldDropdown;
     expect(block.getFieldValue(CHARACTER_BLOCK_FIELDS.slot)).toBe('custom');
-    expect(positionField.getOptions(false)).toContainEqual(['自定义', 'custom']);
+    expect(positionField.getOptions(false)).toContainEqual([
+      '自定义',
+      'custom',
+    ]);
     expect(block.toString()).not.toContain('28');
     expect(block.toString()).not.toContain('86');
 
@@ -103,10 +156,12 @@ describe('getCharacterFieldUpdate', () => {
         {
           id: 'character-1',
           type: 'character',
+          mode: 'show',
           assetId: 'asset-1',
           slot: 'left',
           layer: 2,
           position: { x: 28, y: 86 },
+          effect: null,
         },
       ],
     };
@@ -156,10 +211,12 @@ describe('getCharacterFieldUpdate', () => {
         {
           id: 'clear-1',
           type: 'character',
+          mode: 'clear',
           assetId: null,
           slot: 'center',
           layer: 2,
           position: null,
+          effect: null,
         },
       ],
     };
@@ -187,6 +244,7 @@ describe('getCharacterFieldUpdate', () => {
       ),
     ).toEqual({
       nodeId: 'clear-1',
+      mode: 'clear',
       assetId: null,
       slot: 'center',
       layer: 6,

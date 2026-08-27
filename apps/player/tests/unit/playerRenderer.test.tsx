@@ -1,4 +1,8 @@
 /** @vitest-environment jsdom */
+/**
+ * 主要作用：覆盖标题页、游戏、存读档、选项、快进和返回标题主流程。
+ * 关键函数与实现：测试套件“Player Renderer”、`project`、`game`、`button`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -46,6 +50,7 @@ const project: ProjectDocument = {
           slot: 'center',
           layer: 2,
           position: { x: 37, y: 89 },
+          effect: null,
         },
         { id: 'bgm', type: 'bgm', assetId: 'bgm-1' },
         {
@@ -1347,7 +1352,7 @@ describe('Player Renderer', () => {
     expect(saveGame).toHaveBeenCalledOnce();
     expect(saveGame.mock.calls[0]?.[0]).toBe(1);
     expect(saveGame.mock.calls[0]?.[1]).toMatchObject({
-      snapshotVersion: 2,
+      snapshotVersion: 4,
       sceneId: 'entry',
       status: 'playing',
     });

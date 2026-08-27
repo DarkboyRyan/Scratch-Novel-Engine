@@ -1,3 +1,7 @@
+/**
+ * 主要作用：验证 Player 构建环境、路径、标识符与嵌入资源约束。
+ * 关键函数与实现：测试套件“Player build configuration”、`temporaryDirectories`、`temporaryRoot`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 import {
   cp,
   mkdir,

@@ -1,3 +1,7 @@
+/**
+ * 主要作用：校验 macOS 通用 Player 模板的包结构、架构和签名元数据。
+ * 关键函数与实现：`GENERIC_PLAYER_ARTIFACT_ENTRY`、`GENERIC_PLAYER_BUNDLE_ID`、`GENERIC_PLAYER_NAME`、`GAME_RESOURCE_DIRECTORY`；基于 Node.js ESM、文件系统和受限子进程完成确定性 CLI 流程。
+ */
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { lstat } from 'node:fs/promises';

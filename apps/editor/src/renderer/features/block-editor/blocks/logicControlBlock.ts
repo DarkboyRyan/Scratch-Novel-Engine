@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：注册条件和循环控制积木及嵌套语句插槽。
+ * 包含实现：`LOGIC_IF_BLOCK_TYPE`、`LOGIC_REPEAT_BLOCK_TYPE`、`LOGIC_CONTROL_INPUTS`、`LOGIC_CONTROL_FIELDS`、`LogicControlMarkers`、`readLogicIfBlock` 等 12 项。
+ */
+
 import * as Blockly from 'blockly';
 import { isLogicVariableName } from '@vnengine/runtime';
 

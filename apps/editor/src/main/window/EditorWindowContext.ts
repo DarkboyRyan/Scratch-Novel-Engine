@@ -1,3 +1,5 @@
+// 主要作用：定义每个 Editor 窗口独占的后端、预览和文件会话上下文。
+// 关键实现：EditorWindowContext 聚合窗口服务，EditorWindowContexts 按窗口 ID 索引。
 import type { BrowserWindow } from 'electron';
 
 import type { AssetPreviewService } from '../assets/AssetPreviewService';

@@ -1,3 +1,5 @@
+// 文件职责：声明同目录临时文件到目标文件的耐久原子替换能力。
+// 关键实现：atomic_write_file 及可测试的发布前故障钩子。
 #pragma once
 
 #include <filesystem>

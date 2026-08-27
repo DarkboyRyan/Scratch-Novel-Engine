@@ -1,14 +1,17 @@
 /** @vitest-environment jsdom */
 
+/**
+ * 文件主要作用：验证 form character insertion 的行为。
+ * 测试覆盖：`form character insertion`。
+ */
+
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { FormEditorCommands } from '../../src/renderer/application/authoringPorts';
 import { useFormEditor } from '../../src/renderer/features/form-editor/useFormEditor';
-import type {
-  EngineMutationResult,
-} from '../../src/shared/engineProtocol';
+import type { EngineMutationResult } from '../../src/shared/engineProtocol';
 import type { ProjectDocument } from '../../src/shared/projectTypes';
 
 const project: ProjectDocument = {
@@ -34,10 +37,12 @@ const project: ProjectDocument = {
         {
           id: 'character-existing',
           type: 'character',
+          mode: 'show',
           assetId: 'portrait-existing',
           slot: 'left',
           layer: 1,
           position: null,
+          effect: null,
         },
         {
           id: 'dialogue-current',
@@ -61,10 +66,12 @@ const project: ProjectDocument = {
 const createdCharacter = {
   id: 'character-new',
   type: 'character' as const,
+  mode: 'show' as const,
   assetId: null,
   slot: 'center' as const,
   layer: 1,
   position: null,
+  effect: null,
 };
 
 const addCharacterResult: EngineMutationResult = {
@@ -167,6 +174,8 @@ describe('form character insertion', () => {
 
     expect(addCharacter).toHaveBeenCalledWith({
       sceneId: 'scene-1',
+      mode: 'show',
+      assetId: null,
       beforeNodeId: 'dialogue-current',
     });
   });
@@ -182,6 +191,8 @@ describe('form character insertion', () => {
 
     expect(addCharacter).toHaveBeenCalledWith({
       sceneId: 'scene-1',
+      mode: 'show',
+      assetId: null,
       beforeNodeId: 'dialogue-current',
     });
   });
@@ -200,6 +211,8 @@ describe('form character insertion', () => {
     });
     expect(addCharacter).toHaveBeenCalledWith({
       sceneId: 'scene-1',
+      mode: 'show',
+      assetId: null,
       beforeNodeId: 'dialogue-created',
     });
   });
@@ -233,10 +246,12 @@ describe('form character insertion', () => {
       {
         id: 'then-character',
         type: 'character',
+        mode: 'show',
         assetId: 'then-portrait',
         slot: 'left',
         layer: 1,
         position: null,
+        effect: null,
       },
       { id: 'else-1', type: 'logicElse', ifNodeId: 'if-1' },
       {
@@ -258,6 +273,8 @@ describe('form character insertion', () => {
 
     expect(addCharacter).toHaveBeenCalledWith({
       sceneId: 'scene-1',
+      mode: 'show',
+      assetId: null,
       afterNodeId: 'then-character',
     });
   });
@@ -277,10 +294,12 @@ describe('form character insertion', () => {
       {
         id: 'else-character',
         type: 'character',
+        mode: 'show',
         assetId: 'else-portrait',
         slot: 'right',
         layer: 1,
         position: null,
+        effect: null,
       },
       { id: 'endif-1', type: 'logicEndIf', ifNodeId: 'if-1' },
       {
@@ -301,6 +320,8 @@ describe('form character insertion', () => {
 
     expect(addCharacter).toHaveBeenCalledWith({
       sceneId: 'scene-1',
+      mode: 'show',
+      assetId: null,
       afterNodeId: 'else-character',
     });
   });
@@ -311,10 +332,12 @@ describe('form character insertion', () => {
       {
         id: 'body-character',
         type: 'character',
+        mode: 'show',
         assetId: 'body-portrait',
         slot: 'center',
         layer: 1,
         position: null,
+        effect: null,
       },
       {
         id: 'endrepeat-1',
@@ -339,7 +362,38 @@ describe('form character insertion', () => {
 
     expect(addCharacter).toHaveBeenCalledWith({
       sceneId: 'scene-1',
+      mode: 'show',
+      assetId: null,
       afterNodeId: 'body-character',
     });
+  });
+
+  it('creates an unresolved show portrait when no image has been imported', async () => {
+    const setEngineMessage = vi.fn();
+    function UnresolvedCharacterHarness() {
+      current = useFormEditor({
+        project: activeProject,
+        isBusy: false,
+        engineMessage: '',
+        setEngineMessage,
+        runEngineAction: async (action) => action(),
+        authoringCommands: {
+          addCharacter,
+          addDialogue,
+        } as unknown as FormEditorCommands,
+      });
+      return null;
+    }
+    await act(async () => root.render(<UnresolvedCharacterHarness />));
+
+    await act(async () => current?.insertCharacter());
+
+    expect(addCharacter).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      mode: 'show',
+      assetId: null,
+      afterNodeId: null,
+    });
+    expect(setEngineMessage).not.toHaveBeenCalled();
   });
 });

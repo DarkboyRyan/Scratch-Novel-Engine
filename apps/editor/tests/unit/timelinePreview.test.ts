@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 deriveTimelinePreview 的行为。
+ * 测试覆盖：`deriveTimelinePreview`。
+ */
+
 import { describe, expect, it } from 'vitest';
 
 import { deriveTimelinePreview } from '../../src/renderer/features/form-editor/timelinePreview';
@@ -28,10 +33,12 @@ const scene: SceneDocument = {
     {
       id: 'c1',
       type: 'character',
+      mode: 'show',
       assetId: 'alice',
       slot: 'left',
       layer: 2,
       position: null,
+      effect: null,
     },
     { id: 'b2', type: 'background', assetId: 'room' },
   ],
@@ -85,41 +92,49 @@ describe('deriveTimelinePreview', () => {
     });
   });
 
-  it('keeps one portrait per layer and lets a null event clear it', () => {
+  it('keeps one portrait per layer and lets an explicit clear event remove it', () => {
     const portraitScene: SceneDocument = {
       ...scene,
       nodes: [
         {
           id: 'alice',
           type: 'character',
+          mode: 'show',
           assetId: 'alice-image',
           slot: 'left',
           layer: 1,
           position: null,
+          effect: null,
         },
         {
           id: 'bob',
           type: 'character',
+          mode: 'show',
           assetId: 'bob-image',
           slot: 'right',
           layer: 3,
           position: { x: 75, y: 90 },
+          effect: null,
         },
         {
           id: 'replace',
           type: 'character',
+          mode: 'show',
           assetId: 'carol-image',
           slot: 'center',
           layer: 1,
           position: null,
+          effect: null,
         },
         {
           id: 'clear',
           type: 'character',
+          mode: 'clear',
           assetId: null,
           slot: 'right',
           layer: 3,
           position: null,
+          effect: null,
         },
       ],
     };
@@ -131,6 +146,9 @@ describe('deriveTimelinePreview', () => {
         slot: 'center',
         layer: 1,
         position: null,
+        opacity: 1,
+        effect: null,
+        effectSequence: 0,
       },
       {
         nodeId: 'bob',
@@ -138,6 +156,9 @@ describe('deriveTimelinePreview', () => {
         slot: 'right',
         layer: 3,
         position: { x: 75, y: 90 },
+        opacity: 1,
+        effect: null,
+        effectSequence: 0,
       },
     ]);
     expect(deriveTimelinePreview(portraitScene, 'clear').characters).toEqual([
@@ -147,14 +168,89 @@ describe('deriveTimelinePreview', () => {
         slot: 'center',
         layer: 1,
         position: null,
+        opacity: 1,
+        effect: null,
+        effectSequence: 0,
+      },
+    ]);
+  });
+
+  it('treats an unresolved show portrait as a preview no-op', () => {
+    const placeholderScene: SceneDocument = {
+      ...scene,
+      nodes: [
+        {
+          id: 'visible',
+          type: 'character',
+          mode: 'show',
+          assetId: 'alice-image',
+          slot: 'left',
+          layer: 2,
+          position: null,
+          effect: null,
+        },
+        {
+          id: 'placeholder',
+          type: 'character',
+          mode: 'show',
+          assetId: null,
+          slot: 'right',
+          layer: 2,
+          position: null,
+          effect: null,
+        },
+      ],
+    };
+
+    expect(
+      deriveTimelinePreview(placeholderScene, 'placeholder').characters,
+    ).toEqual([
+      {
+        nodeId: 'visible',
+        assetId: 'alice-image',
+        slot: 'left',
+        layer: 2,
+        position: null,
+        opacity: 1,
+        effect: null,
+        effectSequence: 0,
+      },
+    ]);
+  });
+
+  it('uses an effect final opacity without animating the form preview', () => {
+    const effectScene: SceneDocument = {
+      ...scene,
+      nodes: [
+        {
+          id: 'fade-out',
+          type: 'character',
+          mode: 'show',
+          assetId: 'alice-image',
+          slot: 'center',
+          layer: 1,
+          position: null,
+          effect: { type: 'fadeOut', durationMs: 500 },
+        },
+      ],
+    };
+
+    expect(deriveTimelinePreview(effectScene, 'fade-out').characters).toEqual([
+      {
+        nodeId: 'fade-out',
+        assetId: 'alice-image',
+        slot: 'center',
+        layer: 1,
+        position: null,
+        opacity: 0,
+        effect: null,
+        effectSequence: 0,
       },
     ]);
   });
 
   it('previews the end when no node is selected and hides dialogue on an event', () => {
-    expect(deriveTimelinePreview(scene, null).backgroundAssetId).toBe(
-      'room',
-    );
+    expect(deriveTimelinePreview(scene, null).backgroundAssetId).toBe('room');
     expect(deriveTimelinePreview(scene, 'b1').showDialogue).toBe(false);
   });
 
@@ -197,6 +293,47 @@ describe('deriveTimelinePreview', () => {
       characters: [],
       showDialogue: false,
       logicPreviewUncertain: true,
+    });
+  });
+
+  it('freezes before a CG segment and requests formal preview for timing', () => {
+    const cgScene: SceneDocument = {
+      ...scene,
+      nodes: [
+        { id: 'before', type: 'background', assetId: 'safe-background' },
+        {
+          id: 'cg-1',
+          type: 'cgDisplay',
+          assetId: 'cg-image',
+          leadInMs: 1250,
+        },
+        {
+          id: 'cg-line',
+          type: 'dialogue',
+          speaker: 'A',
+          text: 'Inside CG',
+          voiceAssetId: null,
+        },
+        {
+          id: 'cg-end',
+          type: 'cgEndDisplay',
+          cgDisplayNodeId: 'cg-1',
+        },
+        { id: 'after-bg', type: 'background', assetId: 'after-background' },
+      ],
+    };
+
+    expect(deriveTimelinePreview(cgScene, 'cg-line')).toEqual({
+      backgroundAssetId: 'safe-background',
+      characters: [],
+      showDialogue: false,
+      cgPreviewUncertain: true,
+    });
+    expect(deriveTimelinePreview(cgScene, 'after-bg')).toEqual({
+      backgroundAssetId: 'safe-background',
+      characters: [],
+      showDialogue: false,
+      cgPreviewUncertain: true,
     });
   });
 });

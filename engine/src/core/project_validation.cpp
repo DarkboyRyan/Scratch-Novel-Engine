@@ -1,3 +1,5 @@
+// 文件职责：验证 Author 项目结构、资源引用、控制配对和安全路径。
+// 关键实现：validate_scene_logic_structure、validate_project 与 validate_project_aggregate。
 #include "vnengine/project.hpp"
 
 #include <cmath>
@@ -85,8 +87,38 @@ std::optional<std::string> validate_scene_logic_structure(
     bool saw_else = false;
   };
   std::vector<Frame> stack;
+  std::optional<std::string> open_cg_display_id;
 
   for (const SceneNode& node : scene.nodes) {
+    if (open_cg_display_id.has_value()) {
+      if (std::holds_alternative<Dialogue>(node)) {
+        continue;
+      }
+      if (const auto* marker = std::get_if<CgEndDisplayNode>(&node);
+          marker != nullptr) {
+        if (marker->cg_display_node_id != *open_cg_display_id) {
+          return "CG end-display marker is orphaned or mismatched";
+        }
+        open_cg_display_id.reset();
+        continue;
+      }
+      return "CG display body may contain only dialogue nodes";
+    }
+    if (const auto* display = std::get_if<CgDisplayNode>(&node);
+        display != nullptr) {
+      if (display->asset_id.empty()) {
+        return "CG display Asset ID must not be empty";
+      }
+      if (display->lead_in_ms < 0 ||
+          display->lead_in_ms > kMaximumCgLeadInMs) {
+        return "CG display lead-in is outside the supported range";
+      }
+      open_cg_display_id = display->id;
+      continue;
+    }
+    if (std::holds_alternative<CgEndDisplayNode>(node)) {
+      return "CG end-display marker is orphaned or mismatched";
+    }
     if (const auto* variable_set = std::get_if<VariableSetNode>(&node);
         variable_set != nullptr) {
       const std::string normalized = project_detail::trim_ascii_whitespace(
@@ -187,6 +219,9 @@ std::optional<std::string> validate_scene_logic_structure(
 
   if (!stack.empty()) {
     return "logic control is missing a paired end marker";
+  }
+  if (open_cg_display_id.has_value()) {
+    return "CG display is missing a paired end marker";
   }
   return std::nullopt;
 }
@@ -312,6 +347,18 @@ std::optional<std::string> validate_project(const Project& project) {
         if (!project_detail::is_valid_character_slot(character->slot)) {
           return "character node slot is invalid";
         }
+        if (character->mode != CharacterNodeMode::show &&
+            character->mode != CharacterNodeMode::clear) {
+          return "character node mode is invalid";
+        }
+        if (character->mode == CharacterNodeMode::clear &&
+            character->asset_id.has_value()) {
+          return "clear character node must not reference an Asset";
+        }
+        if (character->mode == CharacterNodeMode::clear &&
+            character->position.has_value()) {
+          return "clear character node must not have a position";
+        }
         if (character->layer < 1 || character->layer > 10) {
           return "character node layer must be between 1 and 10";
         }
@@ -323,6 +370,15 @@ std::optional<std::string> validate_project(const Project& project) {
              character->position->y < 0.0 ||
              character->position->y > 100.0)) {
           return "character node position must be between 0 and 100";
+        }
+        if (character->effect.has_value() &&
+            !project_detail::is_valid_character_effect(*character->effect)) {
+          return "character node effect is invalid";
+        }
+        if ((!character->asset_id.has_value() ||
+             character->mode == CharacterNodeMode::clear) &&
+            character->effect.has_value()) {
+          return "character node without an Asset must not have an effect";
         }
       }
       if (const auto* jump = std::get_if<SceneJumpNode>(&node);
@@ -338,6 +394,16 @@ std::optional<std::string> validate_project(const Project& project) {
           video != nullptr && video->asset_id.has_value() &&
           video->asset_id->empty()) {
         return "video node Asset ID must not be empty";
+      }
+      if (const auto* display = std::get_if<CgDisplayNode>(&node);
+          display != nullptr) {
+        if (display->asset_id.empty()) {
+          return "CG display Asset ID must not be empty";
+        }
+        if (display->lead_in_ms < 0 ||
+            display->lead_in_ms > kMaximumCgLeadInMs) {
+          return "CG display lead-in is outside the supported range";
+        }
       }
       if (const auto* choice = std::get_if<ChoiceNode>(&node);
           choice != nullptr) {
@@ -596,6 +662,16 @@ std::optional<std::string> validate_project_aggregate(
         }
         if (asset->type != AssetType::video) {
           return "video node Asset must be video";
+        }
+      }
+      if (const auto* display = std::get_if<CgDisplayNode>(&node);
+          display != nullptr) {
+        const Asset* asset = find_asset(aggregate, display->asset_id);
+        if (asset == nullptr) {
+          return "CG display must reference an existing Asset";
+        }
+        if (asset->type != AssetType::image) {
+          return "CG display Asset must be an image";
         }
       }
       if (const auto* choice = std::get_if<ChoiceNode>(&node);

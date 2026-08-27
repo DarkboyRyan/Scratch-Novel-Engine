@@ -1,4 +1,9 @@
+/**
+ * 主要作用：执行视觉小说场景、选择、逻辑、循环、CG 与人物状态。
+ * 关键函数与实现：startGame、advanceGame、chooseOption、completeCgLeadIn、compileSceneControlFlow；采用纯 TypeScript 状态转换与严格类型守卫，保持平台无关。
+ */
 import type {
+  CharacterEffect,
   CharacterPosition,
   CharacterSlot,
   ChoiceNode,
@@ -10,6 +15,7 @@ import type {
   ProjectDocument,
   SceneNode,
 } from './projectTypes';
+import { isCharacterEffect } from './characterEffect';
 import {
   isLogicCondition,
   isLogicValue,
@@ -26,12 +32,20 @@ export {
   MAX_REPEAT_COUNT,
 } from './logicValidation';
 
+export const MAX_CG_LEAD_IN_MS = 60_000;
+
 export type RuntimeCharacterState = {
   nodeId: string;
   assetId: string;
   slot: CharacterSlot;
   layer: number;
   position: CharacterPosition | null;
+  /** Final opacity retained after the current effect finishes. */
+  opacity: 0 | 1;
+  /** Transient effect event for the presentation reached by this advance. */
+  effect: CharacterEffect | null;
+  /** Changes on every non-null character action, including loop replays. */
+  effectSequence: number;
 };
 
 export type RuntimeVariables = Record<string, LogicValue>;
@@ -50,12 +64,14 @@ export type RuntimeErrorCode =
   | 'logicVariableOverflow'
   | 'logicStepLimit'
   | 'logicLoopState'
-  | 'logicVariableBudget';
+  | 'logicVariableBudget'
+  | 'characterEffectInvalid';
 
 export type GameRuntime = {
   status:
     | 'playing'
     | 'playingVideo'
+    | 'waitingCgLeadIn'
     | 'choosing'
     | 'finished'
     | 'runtimeError';
@@ -65,8 +81,13 @@ export type GameRuntime = {
   bgmAssetId: string | null;
   bgmSequence: number;
   dialogueSequence: number;
+  /** Monotonic event id shared by every non-null character action. */
+  characterEffectSequence: number;
   videoAssetId: string | null;
   videoSequence: number;
+  cgAssetId: string | null;
+  cgLeadInMs: number;
+  cgSequence: number;
   characters: RuntimeCharacterState[];
   dialogue: DialogueNode | null;
   choices: ChoiceOption[];
@@ -87,11 +108,18 @@ type RepeatControl = {
   endIndex: number;
 };
 
+type CgControl = {
+  displayIndex: number;
+  endIndex: number;
+};
+
 export type SceneControlFlow = {
   ifByStart: ReadonlyMap<number, IfControl>;
   endByElse: ReadonlyMap<number, number>;
   repeatByStart: ReadonlyMap<number, RepeatControl>;
   repeatByEnd: ReadonlyMap<number, RepeatControl>;
+  cgByStart: ReadonlyMap<number, CgControl>;
+  cgByEnd: ReadonlyMap<number, CgControl>;
 };
 
 type OpenIf = {
@@ -107,7 +135,13 @@ type OpenRepeat = {
   index: number;
 };
 
-type OpenControl = OpenIf | OpenRepeat;
+type OpenCg = {
+  kind: 'cg';
+  id: string;
+  index: number;
+};
+
+type OpenControl = OpenIf | OpenRepeat | OpenCg;
 
 const controlFlowCache = new WeakMap<readonly SceneNode[], SceneControlFlow | string>();
 const variableBudgetCache = new WeakMap<ProjectDocument, {
@@ -122,10 +156,20 @@ export function compileSceneControlFlow(
   const endByElse = new Map<number, number>();
   const repeatByStart = new Map<number, RepeatControl>();
   const repeatByEnd = new Map<number, RepeatControl>();
+  const cgByStart = new Map<number, CgControl>();
+  const cgByEnd = new Map<number, CgControl>();
   const stack: OpenControl[] = [];
 
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index]!;
+    const open = stack.at(-1);
+    if (
+      open?.kind === 'cg' &&
+      node.type !== 'dialogue' &&
+      node.type !== 'cgEndDisplay'
+    ) {
+      return `CG 显示节点 ${open.id} 内只能放置对白节点`;
+    }
     if (node.type === 'variableSet') {
       if (!isLogicVariableName(node.variableName) || !isLogicValue(node.value)) {
         return `变量赋值节点 ${node.id} 无效`;
@@ -202,13 +246,49 @@ export function compileSceneControlFlow(
       const control = { repeatIndex: open.index, endIndex: index };
       repeatByStart.set(open.index, control);
       repeatByEnd.set(index, control);
+      continue;
+    }
+    if (node.type === 'cgDisplay') {
+      if (
+        typeof node.assetId !== 'string' ||
+        node.assetId.length === 0 ||
+        node.assetId.length > 256 ||
+        node.assetId.includes('\0') ||
+        !Number.isSafeInteger(node.leadInMs) ||
+        node.leadInMs < 0 ||
+        node.leadInMs > MAX_CG_LEAD_IN_MS
+      ) {
+        return `CG 显示节点 ${node.id} 无效`;
+      }
+      stack.push({ kind: 'cg', id: node.id, index });
+      continue;
+    }
+    if (node.type === 'cgEndDisplay') {
+      const openCg = stack.at(-1);
+      if (openCg?.kind !== 'cg' || openCg.id !== node.cgDisplayNodeId) {
+        return `CG 结束节点 ${node.id} 没有匹配的 CG 显示节点`;
+      }
+      stack.pop();
+      const control = { displayIndex: openCg.index, endIndex: index };
+      cgByStart.set(openCg.index, control);
+      cgByEnd.set(index, control);
     }
   }
 
   if (stack.length > 0) {
-    return `逻辑节点 ${stack.at(-1)!.id} 缺少结束节点`;
+    const dangling = stack.at(-1)!;
+    return dangling.kind === 'cg'
+      ? `CG 显示节点 ${dangling.id} 缺少结束节点`
+      : `逻辑节点 ${dangling.id} 缺少结束节点`;
   }
-  return { ifByStart, endByElse, repeatByStart, repeatByEnd };
+  return {
+    ifByStart,
+    endByElse,
+    repeatByStart,
+    repeatByEnd,
+    cgByStart,
+    cgByEnd,
+  };
 }
 
 export function validateSceneControlFlow(
@@ -282,13 +362,14 @@ function runtimeError(
 }
 
 const ENGLISH_LOGIC_ERRORS: Readonly<Record<RuntimeErrorCode, string>> = {
-  logicInvalidStructure: 'The logic block structure is invalid.',
+  logicInvalidStructure: 'The story control block structure is invalid.',
   logicComparisonType: 'Ordering comparisons can only be used with numbers.',
   logicVariableType: 'This variable is not numeric and cannot be changed.',
   logicVariableOverflow: 'A variable calculation exceeded the supported range.',
   logicStepLimit: 'Automatic execution was stopped to prevent the game from freezing.',
   logicLoopState: 'The saved loop state does not match the current story.',
   logicVariableBudget: 'This project uses too many story variables.',
+  characterEffectInvalid: 'The character effect configuration is invalid.',
 };
 
 export function getLocalizedRuntimeErrorMessage(
@@ -423,6 +504,7 @@ export function advanceGame(
 ): GameRuntime {
   if (
     current.status === 'choosing' ||
+    current.status === 'waitingCgLeadIn' ||
     current.status === 'finished' ||
     current.status === 'runtimeError'
   ) {
@@ -438,7 +520,11 @@ export function advanceGame(
       bgmAssetId: current.bgmAssetId,
       bgmSequence: current.bgmSequence,
       dialogueSequence: current.dialogueSequence,
+      characterEffectSequence: current.characterEffectSequence,
       videoSequence: current.videoSequence,
+      cgAssetId: current.cgAssetId,
+      cgLeadInMs: current.cgLeadInMs,
+      cgSequence: current.cgSequence,
       characters: current.characters,
       variables: current.variables ?? {},
       loopStack: current.loopStack ?? [],
@@ -446,13 +532,20 @@ export function advanceGame(
   }
 
   const charactersByLayer = new Map(
-    current.characters.map((character) => [character.layer, character]),
+    current.characters.map((character) => [
+      character.layer,
+      character.effect === null ? character : { ...character, effect: null },
+    ]),
   );
   let backgroundAssetId = current.backgroundAssetId;
   let bgmAssetId = current.bgmAssetId;
   let bgmSequence = current.bgmSequence;
   const dialogueSequence = current.dialogueSequence;
+  let characterEffectSequence = current.characterEffectSequence;
   let videoSequence = current.videoSequence;
+  let cgAssetId = current.cgAssetId;
+  let cgLeadInMs = current.cgLeadInMs;
+  let cgSequence = current.cgSequence;
   let sceneId = current.sceneId;
   let index = current.nextNodeIndex;
   let variables: RuntimeVariables = { ...(current.variables ?? {}) };
@@ -476,7 +569,11 @@ export function advanceGame(
     bgmAssetId,
     bgmSequence,
     dialogueSequence,
+    characterEffectSequence,
     videoSequence,
+    cgAssetId,
+    cgLeadInMs,
+    cgSequence,
     characters: orderedCharacters(charactersByLayer),
     variables,
     loopStack,
@@ -511,8 +608,12 @@ export function advanceGame(
         bgmAssetId,
         bgmSequence,
         dialogueSequence,
+        characterEffectSequence,
         videoAssetId: null,
         videoSequence,
+        cgAssetId: null,
+        cgLeadInMs: 0,
+        cgSequence,
         characters: orderedCharacters(charactersByLayer),
         dialogue: null,
         choices: [],
@@ -542,14 +643,36 @@ export function advanceGame(
     }
     if (node.type === 'character') {
       if (node.assetId === null) {
+        if (node.effect !== null) {
+          return error(
+            `清除立绘节点 ${node.id} 不能包含人物特效`,
+            'characterEffectInvalid',
+          );
+        }
         charactersByLayer.delete(node.layer);
       } else {
+        if (node.effect !== null && !isCharacterEffect(node.effect)) {
+          return error(
+            `立绘节点 ${node.id} 的人物特效无效`,
+            'characterEffectInvalid',
+          );
+        }
+        if (characterEffectSequence >= Number.MAX_SAFE_INTEGER) {
+          return error(
+            '人物特效事件序号超出支持范围，已停止以避免动画状态冲突',
+            'characterEffectInvalid',
+          );
+        }
+        characterEffectSequence += 1;
         charactersByLayer.set(node.layer, {
           nodeId: node.id,
           assetId: node.assetId,
           slot: node.slot,
           layer: node.layer,
           position: node.position,
+          opacity: node.effect?.type === 'fadeOut' ? 0 : 1,
+          effect: node.effect,
+          effectSequence: characterEffectSequence,
         });
       }
       continue;
@@ -646,6 +769,48 @@ export function advanceGame(
       }
       continue;
     }
+    if (node.type === 'cgDisplay') {
+      if (!controlFlow.cgByStart.has(nodeIndex)) {
+        return error(
+          `CG 显示节点 ${node.id} 缺少结束节点`,
+          'logicInvalidStructure',
+        );
+      }
+      cgAssetId = node.assetId;
+      cgLeadInMs = node.leadInMs;
+      cgSequence += 1;
+      return {
+        status: 'waitingCgLeadIn',
+        sceneId,
+        nextNodeIndex: index,
+        backgroundAssetId,
+        bgmAssetId,
+        bgmSequence,
+        dialogueSequence,
+        characterEffectSequence,
+        videoAssetId: null,
+        videoSequence,
+        cgAssetId,
+        cgLeadInMs,
+        cgSequence,
+        characters: orderedCharacters(charactersByLayer),
+        dialogue: null,
+        choices: [],
+        variables,
+        loopStack,
+      };
+    }
+    if (node.type === 'cgEndDisplay') {
+      if (!controlFlow.cgByEnd.has(nodeIndex)) {
+        return error(
+          `CG 结束节点 ${node.id} 没有匹配的 CG 显示节点`,
+          'logicInvalidStructure',
+        );
+      }
+      cgAssetId = null;
+      cgLeadInMs = 0;
+      continue;
+    }
     if (node.type === 'video') {
       if (node.assetId === null) {
         continue;
@@ -659,8 +824,12 @@ export function advanceGame(
         bgmAssetId,
         bgmSequence,
         dialogueSequence,
+        characterEffectSequence,
         videoAssetId: node.assetId,
         videoSequence,
+        cgAssetId,
+        cgLeadInMs,
+        cgSequence,
         characters: orderedCharacters(charactersByLayer),
         dialogue: null,
         choices: [],
@@ -680,8 +849,12 @@ export function advanceGame(
         bgmAssetId,
         bgmSequence,
         dialogueSequence,
+        characterEffectSequence,
         videoAssetId: null,
         videoSequence,
+        cgAssetId,
+        cgLeadInMs,
+        cgSequence,
         characters: orderedCharacters(charactersByLayer),
         dialogue: null,
         choices: node.options,
@@ -701,6 +874,8 @@ export function advanceGame(
       backgroundAssetId = target.backgroundAssetId;
       charactersByLayer.clear();
       loopStack = [];
+      cgAssetId = null;
+      cgLeadInMs = 0;
       continue;
     }
 
@@ -712,8 +887,12 @@ export function advanceGame(
       bgmAssetId,
       bgmSequence,
       dialogueSequence: dialogueSequence + 1,
+      characterEffectSequence,
       videoAssetId: null,
       videoSequence,
+      cgAssetId,
+      cgLeadInMs,
+      cgSequence,
       characters: orderedCharacters(charactersByLayer),
       dialogue: node,
       choices: [],
@@ -721,6 +900,55 @@ export function advanceGame(
       loopStack,
     };
   }
+}
+
+export function completeCgLeadIn(
+  project: ProjectDocument,
+  current: GameRuntime,
+): GameRuntime {
+  if (current.status !== 'waitingCgLeadIn') {
+    return current;
+  }
+  const scene = project.scenes.find(
+    (candidate) => candidate.id === current.sceneId,
+  );
+  const displayIndex = current.nextNodeIndex - 1;
+  const node = scene?.nodes[displayIndex];
+  const controlFlow = scene === undefined
+    ? null
+    : cachedSceneControlFlow(scene.nodes);
+  if (
+    node?.type !== 'cgDisplay' ||
+    typeof controlFlow === 'string' ||
+    controlFlow === null ||
+    !controlFlow.cgByStart.has(displayIndex) ||
+    current.cgAssetId !== node.assetId ||
+    current.cgLeadInMs !== node.leadInMs ||
+    !Number.isSafeInteger(current.cgSequence) ||
+    current.cgSequence < 1
+  ) {
+    return runtimeError({
+      sceneId: current.sceneId,
+      nextNodeIndex: current.nextNodeIndex,
+      backgroundAssetId: current.backgroundAssetId,
+      bgmAssetId: current.bgmAssetId,
+      bgmSequence: current.bgmSequence,
+      dialogueSequence: current.dialogueSequence,
+      characterEffectSequence: current.characterEffectSequence,
+      videoSequence: current.videoSequence,
+      cgAssetId: current.cgAssetId,
+      cgLeadInMs: current.cgLeadInMs,
+      cgSequence: current.cgSequence,
+      characters: current.characters,
+      variables: current.variables,
+      loopStack: current.loopStack,
+    }, 'CG 显示等待状态与当前场景不一致', 'logicInvalidStructure');
+  }
+  return advanceGame(project, {
+    ...current,
+    status: 'playing',
+    cgLeadInMs: 0,
+  });
 }
 
 export function selectChoice(
@@ -755,8 +983,12 @@ export function selectChoice(
     bgmAssetId: current.bgmAssetId,
     bgmSequence: current.bgmSequence,
     dialogueSequence: current.dialogueSequence,
+    characterEffectSequence: current.characterEffectSequence,
     videoAssetId: null,
     videoSequence: current.videoSequence,
+    cgAssetId: null,
+    cgLeadInMs: 0,
+    cgSequence: current.cgSequence,
     characters: [],
     dialogue: null,
     choices: [],
@@ -784,8 +1016,12 @@ export function startGameAtScene(
     bgmAssetId: null,
     bgmSequence: 0,
     dialogueSequence: 0,
+    characterEffectSequence: 0,
     videoAssetId: null,
     videoSequence: 0,
+    cgAssetId: null,
+    cgLeadInMs: 0,
+    cgSequence: 0,
     characters: [],
     dialogue: null,
     choices: [],

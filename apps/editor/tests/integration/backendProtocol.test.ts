@@ -1,3 +1,5 @@
+// 主要作用：通过真实 C++ JSONL 子进程验证 Editor 与引擎协议兼容性。
+// 关键实现：覆盖项目、时间线、选择、逻辑与 CG 命令的完整往返。
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -751,10 +753,12 @@ describe('C++ JSONL backend', () => {
       ).toEqual({
         id: characterId,
         type: 'character',
+        mode: 'show',
         assetId: null,
         slot: 'center',
         layer: 1,
         position: null,
+        effect: null,
       });
 
       const filledCharacter = await request('character.update', {
@@ -767,6 +771,67 @@ describe('C++ JSONL backend', () => {
       });
       expect(filledCharacter.ok).toBe(true);
 
+      const effect = {
+        type: 'shake' as const,
+        durationMs: 600,
+        intensity: 'normal' as const,
+      };
+      const effectUpdated = await request('characterEffect.update', {
+        sceneId,
+        nodeId: characterId,
+        effect,
+      });
+      expect(effectUpdated.ok).toBe(true);
+
+      const targetCharacter = await request('character.add', {
+        sceneId,
+        afterNodeId: characterId,
+      });
+      if (!targetCharacter.ok || !targetCharacter.result.nodeId) {
+        throw new Error('C++ did not return the target character node ID');
+      }
+      const targetCharacterId = targetCharacter.result.nodeId;
+      const targetFilled = await request('character.update', {
+        sceneId,
+        nodeId: targetCharacterId,
+        assetId: imageAssetId,
+        slot: 'right',
+        layer: 3,
+        position: null,
+      });
+      expect(targetFilled.ok).toBe(true);
+
+      const effectMoved = await request('characterEffect.move', {
+        sceneId,
+        fromNodeId: characterId,
+        toNodeId: targetCharacterId,
+        effect,
+      });
+      if (!effectMoved.ok) {
+        throw new Error(effectMoved.error.message);
+      }
+      const movedCharacters = effectMoved.result.project.scenes[0].nodes
+        .filter((node) => node.type === 'character');
+      expect(movedCharacters.find((node) => node.id === characterId))
+        .toMatchObject({ effect: null });
+      expect(movedCharacters.find((node) => node.id === targetCharacterId))
+        .toMatchObject({ effect });
+
+      const ordinaryUpdate = await request('character.update', {
+        sceneId,
+        nodeId: targetCharacterId,
+        assetId: imageAssetId,
+        slot: 'center',
+        layer: 4,
+        position: { x: 50, y: 90 },
+      });
+      if (!ordinaryUpdate.ok) {
+        throw new Error(ordinaryUpdate.error.message);
+      }
+      expect(ordinaryUpdate.result.project.scenes[0].nodes.find(
+        (node) => node.id === targetCharacterId,
+      )).toMatchObject({ effect });
+
       const dialogue = await request('dialogue.add', {
         sceneId,
         speaker: 'A',
@@ -778,14 +843,24 @@ describe('C++ JSONL backend', () => {
 
       const moved = await request('timeline.reorderMany', {
         sceneId,
-        nodeIds: [dialogue.result.nodeId, backgroundId, characterId],
+        nodeIds: [
+          dialogue.result.nodeId,
+          backgroundId,
+          characterId,
+          targetCharacterId,
+        ],
         beforeNodeId: null,
       });
       expect(moved.ok).toBe(true);
 
       const deleted = await request('timeline.deleteMany', {
         sceneId,
-        nodeIds: [backgroundId, characterId, dialogue.result.nodeId],
+        nodeIds: [
+          backgroundId,
+          characterId,
+          targetCharacterId,
+          dialogue.result.nodeId,
+        ],
       });
       expect(deleted.ok).toBe(true);
     } finally {
@@ -965,5 +1040,97 @@ describe('C++ JSONL backend', () => {
         },
       ],
     });
+  });
+
+  it('round-trips paired CG display commands without timing out', async () => {
+    const manifestContents = JSON.stringify({
+      format: 'vn-engine-project',
+      fileVersion: 17,
+      project: {
+        schemaVersion: 1,
+        id: 'cg-display-project',
+        name: 'CG display protocol',
+        entrySceneId: 'scene-1',
+        startScreen: {
+          title: 'CG display protocol',
+          backgroundAssetId: null,
+          musicAssetId: null,
+        },
+        cgGallery: {
+          pages: [{ imageAssetIds: Array(9).fill(null) }],
+        },
+        scenes: [{
+          schemaVersion: 1,
+          id: 'scene-1',
+          name: 'Scene 1',
+          visuals: { backgroundAssetId: null, characters: [] },
+          nodes: [],
+        }],
+      },
+      assets: [{
+        id: 'cg-image-1',
+        type: 'image',
+        relativePath: 'assets/images/cg-image-1.png',
+        displayName: 'CG 1',
+      }],
+    });
+    const opened = await requestBackendOnly('project.open', {
+      contents: manifestContents,
+    });
+    if (!opened.ok) {
+      throw new Error(opened.error.message);
+    }
+
+    const display = await request('cgDisplay.add', {
+      sceneId: 'scene-1',
+      assetId: 'cg-image-1',
+      leadInMs: 1200,
+    });
+    if (!display.ok || !display.result.nodeId) {
+      throw new Error('C++ did not create a CG display');
+    }
+    const displayId = display.result.nodeId;
+    const endDisplay = display.result.project.scenes[0].nodes.find(
+      (node) => node.type === 'cgEndDisplay',
+    );
+    if (!endDisplay || endDisplay.type !== 'cgEndDisplay') {
+      throw new Error('C++ did not create a CG end marker');
+    }
+    expect(endDisplay.cgDisplayNodeId).toBe(displayId);
+
+    const dialogue = await request('dialogue.add', {
+      sceneId: 'scene-1',
+      speaker: 'Narrator',
+      text: 'The CG remains visible.',
+      beforeNodeId: endDisplay.id,
+    });
+    expect(dialogue.ok).toBe(true);
+
+    const updated = await request('cgDisplay.update', {
+      sceneId: 'scene-1',
+      nodeId: displayId,
+      assetId: 'cg-image-1',
+      leadInMs: 60000,
+    });
+    if (!updated.ok) {
+      throw new Error(updated.error.message);
+    }
+    expect(updated.result.project.scenes[0].nodes.find(
+      (node) => node.id === displayId,
+    )).toEqual({
+      id: displayId,
+      type: 'cgDisplay',
+      assetId: 'cg-image-1',
+      leadInMs: 60000,
+    });
+
+    const deleted = await request('cgDisplay.delete', {
+      sceneId: 'scene-1',
+      nodeId: displayId,
+    });
+    if (!deleted.ok) {
+      throw new Error(deleted.error.message);
+    }
+    expect(deleted.result.project.scenes[0].nodes).toEqual([]);
   });
 });

@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 ProjectStorageSession 的行为。
+ * 测试覆盖：`ProjectStorageSession`。
+ */
+
 import {
   access,
   mkdtemp,

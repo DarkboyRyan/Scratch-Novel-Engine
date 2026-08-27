@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 story continuation sequence commands 的行为。
+ * 测试覆盖：`story continuation sequence commands`。
+ */
+
 import type * as Blockly from 'blockly';
 import { describe, expect, it, vi } from 'vitest';
 

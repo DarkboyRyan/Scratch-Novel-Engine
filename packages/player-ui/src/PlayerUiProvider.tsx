@@ -1,3 +1,7 @@
+/**
+ * 主要作用：通过 React Context 统一提供 Player 本地化标签与语言。
+ * 关键函数与实现：`PlayerUiLocalization`、`PlayerUiProviderProps`、`PlayerUiProvider`、`usePlayerUiLocalization`；基于 React 组件、Hooks、可访问交互与受控状态实现。
+ */
 import {
   createContext,
   useContext,

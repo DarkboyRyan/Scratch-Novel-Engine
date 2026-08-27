@@ -1,13 +1,21 @@
+/**
+ * 主要作用：创建、校验、比较并恢复版本化游戏运行快照。
+ * 关键函数与实现：createGameRuntimeSnapshot、restoreGameRuntimeSnapshot、isGameRuntimeSnapshot；采用纯 TypeScript 状态转换与严格类型守卫，保持平台无关。
+ */
 import type {
   CharacterNode,
+  CharacterPosition,
+  CharacterSlot,
   ChoiceOption,
   DialogueNode,
   ProjectDocument,
   SceneDocument,
 } from './projectTypes';
+import { isCharacterEffect } from './characterEffect';
 import {
   compileSceneControlFlow,
   type GameRuntime,
+  MAX_CG_LEAD_IN_MS,
   type RuntimeCharacterState,
   type RuntimeLoopFrame,
   type RuntimeVariables,
@@ -21,7 +29,7 @@ import {
   utf8ByteLength,
 } from './logicValidation';
 
-export const GAME_RUNTIME_SNAPSHOT_VERSION = 2 as const;
+export const GAME_RUNTIME_SNAPSHOT_VERSION = 4 as const;
 
 export type LegacyGameRuntimeSnapshot = {
   snapshotVersion: 1;
@@ -39,8 +47,21 @@ export type RuntimeLoopSnapshot = {
   remainingIterations: number;
 };
 
-export type CurrentGameRuntimeSnapshot = {
-  snapshotVersion: typeof GAME_RUNTIME_SNAPSHOT_VERSION;
+export type LegacyRuntimeCharacterSnapshot = {
+  nodeId: string;
+  assetId: string;
+  slot: CharacterSlot;
+  layer: number;
+  position: CharacterPosition | null;
+};
+
+export type RuntimeCharacterSnapshot = LegacyRuntimeCharacterSnapshot & {
+  opacity: 0 | 1;
+  effectSequence: number;
+};
+
+export type LogicGameRuntimeSnapshot = {
+  snapshotVersion: 2;
   status: 'playing' | 'playingVideo' | 'choosing' | 'finished';
   sceneId: string;
   nextNodeIndex: number;
@@ -49,13 +70,37 @@ export type CurrentGameRuntimeSnapshot = {
   bgmSequence: number;
   dialogueSequence: number;
   videoSequence: number;
-  characters: RuntimeCharacterState[];
+  characters: LegacyRuntimeCharacterSnapshot[];
   variables: RuntimeVariables;
   loopStack: RuntimeLoopSnapshot[];
 };
 
+export type CgGameRuntimeSnapshot = Omit<
+  LogicGameRuntimeSnapshot,
+  'snapshotVersion' | 'status'
+> & {
+  snapshotVersion: 3;
+  status:
+    | LogicGameRuntimeSnapshot['status']
+    | 'waitingCgLeadIn';
+  cgAssetId: string | null;
+  cgLeadInMs: number;
+  cgSequence: number;
+};
+
+export type CurrentGameRuntimeSnapshot = Omit<
+  CgGameRuntimeSnapshot,
+  'snapshotVersion' | 'characters'
+> & {
+  snapshotVersion: typeof GAME_RUNTIME_SNAPSHOT_VERSION;
+  characterEffectSequence: number;
+  characters: RuntimeCharacterSnapshot[];
+};
+
 export type GameRuntimeSnapshot =
   | LegacyGameRuntimeSnapshot
+  | LogicGameRuntimeSnapshot
+  | CgGameRuntimeSnapshot
   | CurrentGameRuntimeSnapshot;
 
 export type SaveableGameRuntime = GameRuntime & {
@@ -123,7 +168,9 @@ function isPosition(value: unknown): boolean {
   );
 }
 
-function isRuntimeCharacter(value: unknown): value is RuntimeCharacterState {
+function isLegacyRuntimeCharacter(
+  value: unknown,
+): value is LegacyRuntimeCharacterSnapshot {
   return isObject(value) &&
     hasExactFields(value, ['nodeId', 'assetId', 'slot', 'layer', 'position']) &&
     isId(value.nodeId) &&
@@ -133,6 +180,56 @@ function isRuntimeCharacter(value: unknown): value is RuntimeCharacterState {
     (value.layer as number) >= 1 &&
     (value.layer as number) <= 10 &&
     isPosition(value.position);
+}
+
+function isRuntimeCharacter(value: unknown): value is RuntimeCharacterState {
+  return isObject(value) &&
+    hasExactFields(value, [
+      'nodeId',
+      'assetId',
+      'slot',
+      'layer',
+      'position',
+      'opacity',
+      'effect',
+      'effectSequence',
+    ]) &&
+    isId(value.nodeId) &&
+    isId(value.assetId) &&
+    (value.slot === 'left' || value.slot === 'center' || value.slot === 'right') &&
+    Number.isInteger(value.layer) &&
+    (value.layer as number) >= 1 &&
+    (value.layer as number) <= 10 &&
+    isPosition(value.position) &&
+    (value.opacity === 0 || value.opacity === 1) &&
+    (value.effect === null || isCharacterEffect(value.effect)) &&
+    isSequence(value.effectSequence) &&
+    (value.effectSequence as number) >= 1;
+}
+
+function isRuntimeCharacterSnapshot(
+  value: unknown,
+): value is RuntimeCharacterSnapshot {
+  return isObject(value) &&
+    hasExactFields(value, [
+      'nodeId',
+      'assetId',
+      'slot',
+      'layer',
+      'position',
+      'opacity',
+      'effectSequence',
+    ]) &&
+    isId(value.nodeId) &&
+    isId(value.assetId) &&
+    (value.slot === 'left' || value.slot === 'center' || value.slot === 'right') &&
+    Number.isInteger(value.layer) &&
+    (value.layer as number) >= 1 &&
+    (value.layer as number) <= 10 &&
+    isPosition(value.position) &&
+    (value.opacity === 0 || value.opacity === 1) &&
+    isSequence(value.effectSequence) &&
+    (value.effectSequence as number) >= 1;
 }
 
 function isDialogue(value: unknown): value is DialogueNode | null {
@@ -187,7 +284,9 @@ function isRuntimeLoopSnapshot(value: unknown): value is RuntimeLoopSnapshot {
     (value.remainingIterations as number) <= 1_000;
 }
 
-function sortedCharacters(value: RuntimeCharacterState[]): boolean {
+function sortedCharacters(
+  value: readonly { layer: number }[],
+): boolean {
   return value.every(
     (character, index) => index === 0 ||
       value[index - 1]!.layer < character.layer,
@@ -205,8 +304,12 @@ export function isSaveableGameRuntime(
     'bgmAssetId',
     'bgmSequence',
     'dialogueSequence',
+    'characterEffectSequence',
     'videoAssetId',
     'videoSequence',
+    'cgAssetId',
+    'cgLeadInMs',
+    'cgSequence',
     'characters',
     'dialogue',
     'choices',
@@ -218,6 +321,7 @@ export function isSaveableGameRuntime(
   if (
     (value.status !== 'playing' &&
       value.status !== 'playingVideo' &&
+      value.status !== 'waitingCgLeadIn' &&
       value.status !== 'choosing' &&
       value.status !== 'finished') ||
     !isId(value.sceneId) ||
@@ -226,11 +330,23 @@ export function isSaveableGameRuntime(
     !isNullableId(value.bgmAssetId) ||
     !isSequence(value.bgmSequence) ||
     !isSequence(value.dialogueSequence) ||
+    !isSequence(value.characterEffectSequence) ||
     !isNullableId(value.videoAssetId) ||
     !isSequence(value.videoSequence) ||
+    !isNullableId(value.cgAssetId) ||
+    !isSequence(value.cgLeadInMs) ||
+    (value.cgLeadInMs as number) > MAX_CG_LEAD_IN_MS ||
+    !isSequence(value.cgSequence) ||
     !Array.isArray(value.characters) ||
     value.characters.length > 10 ||
     !value.characters.every(isRuntimeCharacter) ||
+    (value.characters as RuntimeCharacterState[]).some((character) =>
+      character.effectSequence > (value.characterEffectSequence as number)) ||
+    !(value.characters as RuntimeCharacterState[]).every((character) =>
+      character.effect === null || (
+        character.effectSequence >= 1 &&
+        character.opacity === (character.effect.type === 'fadeOut' ? 0 : 1)
+      )) ||
     new Set(value.characters.map((character) =>
       (character as RuntimeCharacterState).layer)).size !== value.characters.length ||
     !sortedCharacters(value.characters as RuntimeCharacterState[]) ||
@@ -245,7 +361,15 @@ export function isSaveableGameRuntime(
   ) {
     return false;
   }
-  return true;
+  if (value.status === 'waitingCgLeadIn') {
+    return value.cgAssetId !== null &&
+      value.cgSequence >= 1 &&
+      value.videoAssetId === null &&
+      value.dialogue === null &&
+      value.choices.length === 0;
+  }
+  return value.cgLeadInMs === 0 &&
+    (value.cgAssetId === null || value.status === 'playing');
 }
 
 function parseLegacySnapshot(value: JsonObject): LegacyGameRuntimeSnapshot | null {
@@ -279,7 +403,7 @@ function parseLegacySnapshot(value: JsonObject): LegacyGameRuntimeSnapshot | nul
   return value as LegacyGameRuntimeSnapshot;
 }
 
-function parseCurrentSnapshot(value: JsonObject): CurrentGameRuntimeSnapshot | null {
+function parseLogicSnapshot(value: JsonObject): LogicGameRuntimeSnapshot | null {
   if (!hasExactFields(value, [
     'snapshotVersion',
     'status',
@@ -297,7 +421,7 @@ function parseCurrentSnapshot(value: JsonObject): CurrentGameRuntimeSnapshot | n
     return null;
   }
   if (
-    value.snapshotVersion !== GAME_RUNTIME_SNAPSHOT_VERSION ||
+    value.snapshotVersion !== 2 ||
     (value.status !== 'playing' &&
       value.status !== 'playingVideo' &&
       value.status !== 'choosing' &&
@@ -311,7 +435,7 @@ function parseCurrentSnapshot(value: JsonObject): CurrentGameRuntimeSnapshot | n
     !isSequence(value.videoSequence) ||
     !Array.isArray(value.characters) ||
     value.characters.length > 10 ||
-    !value.characters.every(isRuntimeCharacter) ||
+    !value.characters.every(isLegacyRuntimeCharacter) ||
     !sortedCharacters(value.characters) ||
     !isVariables(value.variables) ||
     !Array.isArray(value.loopStack) ||
@@ -320,16 +444,99 @@ function parseCurrentSnapshot(value: JsonObject): CurrentGameRuntimeSnapshot | n
   ) {
     return null;
   }
-  return value as CurrentGameRuntimeSnapshot;
+  return value as LogicGameRuntimeSnapshot;
+}
+
+function parseCgSnapshot(
+  value: JsonObject,
+): CgGameRuntimeSnapshot | CurrentGameRuntimeSnapshot | null {
+  const isCurrent = value.snapshotVersion === GAME_RUNTIME_SNAPSHOT_VERSION;
+  if (!hasExactFields(value, [
+    'snapshotVersion',
+    'status',
+    'sceneId',
+    'nextNodeIndex',
+    'backgroundAssetId',
+    'bgmAssetId',
+    'bgmSequence',
+    'dialogueSequence',
+    ...(isCurrent ? ['characterEffectSequence'] : []),
+    'videoSequence',
+    'cgAssetId',
+    'cgLeadInMs',
+    'cgSequence',
+    'characters',
+    'variables',
+    'loopStack',
+  ])) {
+    return null;
+  }
+  if (
+    (value.snapshotVersion !== 3 && !isCurrent) ||
+    (value.status !== 'playing' &&
+      value.status !== 'playingVideo' &&
+      value.status !== 'waitingCgLeadIn' &&
+      value.status !== 'choosing' &&
+      value.status !== 'finished') ||
+    !isId(value.sceneId) ||
+    !isSequence(value.nextNodeIndex) ||
+    !isNullableId(value.backgroundAssetId) ||
+    !isNullableId(value.bgmAssetId) ||
+    !isSequence(value.bgmSequence) ||
+    !isSequence(value.dialogueSequence) ||
+    (isCurrent && !isSequence(value.characterEffectSequence)) ||
+    !isSequence(value.videoSequence) ||
+    !isNullableId(value.cgAssetId) ||
+    !isSequence(value.cgLeadInMs) ||
+    (value.cgLeadInMs as number) > MAX_CG_LEAD_IN_MS ||
+    !isSequence(value.cgSequence) ||
+    !Array.isArray(value.characters) ||
+    value.characters.length > 10 ||
+    !value.characters.every(
+      isCurrent
+        ? isRuntimeCharacterSnapshot
+        : isLegacyRuntimeCharacter,
+    ) ||
+    (isCurrent && (value.characters as RuntimeCharacterSnapshot[]).some(
+      (character) => character.effectSequence >
+        (value.characterEffectSequence as number),
+    )) ||
+    !sortedCharacters(value.characters) ||
+    !isVariables(value.variables) ||
+    !Array.isArray(value.loopStack) ||
+    value.loopStack.length > 16 ||
+    !value.loopStack.every(isRuntimeLoopSnapshot)
+  ) {
+    return null;
+  }
+  if (
+    (
+      value.status === 'waitingCgLeadIn' &&
+      (value.cgAssetId === null || (value.cgSequence as number) < 1)
+    ) ||
+    (value.status !== 'waitingCgLeadIn' && value.cgLeadInMs !== 0) ||
+    (
+      value.cgAssetId !== null &&
+      value.status !== 'playing' &&
+      value.status !== 'waitingCgLeadIn'
+    )
+  ) {
+    return null;
+  }
+  return value as CgGameRuntimeSnapshot | CurrentGameRuntimeSnapshot;
 }
 
 function parseSnapshot(value: unknown): GameRuntimeSnapshot | null {
   if (!isObject(value)) {
     return null;
   }
-  return value.snapshotVersion === 1
-    ? parseLegacySnapshot(value)
-    : parseCurrentSnapshot(value);
+  if (value.snapshotVersion === 1) {
+    return parseLegacySnapshot(value);
+  }
+  if (value.snapshotVersion === 2) {
+    return parseLogicSnapshot(value);
+  }
+  return parseCgSnapshot(value);
 }
 
 export function isGameRuntimeSnapshot(
@@ -361,7 +568,7 @@ export function areGameRuntimeSnapshotsEqual(
   if (left.snapshotVersion === 1 || right.snapshotVersion === 1) {
     return left.snapshotVersion === 1 && right.snapshotVersion === 1;
   }
-  return left.backgroundAssetId === right.backgroundAssetId &&
+  const structuredEqual = left.backgroundAssetId === right.backgroundAssetId &&
     sameCharacters(left.characters, right.characters) &&
     sameVariables(left.variables, right.variables) &&
     left.loopStack.length === right.loopStack.length &&
@@ -371,6 +578,27 @@ export function areGameRuntimeSnapshotsEqual(
         frame.repeatNodeId === candidate.repeatNodeId &&
         frame.remainingIterations === candidate.remainingIterations;
     });
+  if (!structuredEqual) {
+    return false;
+  }
+  if (left.snapshotVersion === 2 || right.snapshotVersion === 2) {
+    return left.snapshotVersion === 2 && right.snapshotVersion === 2;
+  }
+  const cgEqual = left.cgAssetId === right.cgAssetId &&
+    left.cgLeadInMs === right.cgLeadInMs &&
+    left.cgSequence === right.cgSequence;
+  if (!cgEqual) {
+    return false;
+  }
+  if (
+    left.snapshotVersion === GAME_RUNTIME_SNAPSHOT_VERSION ||
+    right.snapshotVersion === GAME_RUNTIME_SNAPSHOT_VERSION
+  ) {
+    return left.snapshotVersion === GAME_RUNTIME_SNAPSHOT_VERSION &&
+      right.snapshotVersion === GAME_RUNTIME_SNAPSHOT_VERSION &&
+      left.characterEffectSequence === right.characterEffectSequence;
+  }
+  return true;
 }
 
 function sameDialogue(
@@ -400,9 +628,14 @@ function sameChoices(
   });
 }
 
+type ComparableCharacter =
+  | LegacyRuntimeCharacterSnapshot
+  | RuntimeCharacterSnapshot
+  | RuntimeCharacterState;
+
 function sameCharacters(
-  left: readonly RuntimeCharacterState[],
-  right: readonly RuntimeCharacterState[],
+  left: readonly ComparableCharacter[],
+  right: readonly ComparableCharacter[],
 ): boolean {
   return left.length === right.length && left.every((character, index) => {
     const candidate = right[index];
@@ -411,6 +644,13 @@ function sameCharacters(
       character.assetId === candidate.assetId &&
       character.slot === candidate.slot &&
       character.layer === candidate.layer &&
+      (
+        !('opacity' in character) && !('opacity' in candidate) ||
+        'opacity' in character &&
+        'opacity' in candidate &&
+        character.opacity === candidate.opacity &&
+        character.effectSequence === candidate.effectSequence
+      ) &&
       (character.position === candidate.position || (
         character.position !== null &&
         candidate.position !== null &&
@@ -445,6 +685,15 @@ function sameLoopStack(
   });
 }
 
+function maxCharacterEffectSequence(
+  characters: readonly Pick<RuntimeCharacterState, 'effectSequence'>[],
+): number {
+  return characters.reduce(
+    (maximum, character) => Math.max(maximum, character.effectSequence),
+    0,
+  );
+}
+
 function applyCharacter(
   characters: Map<number, RuntimeCharacterState>,
   node: CharacterNode,
@@ -453,12 +702,16 @@ function applyCharacter(
     characters.delete(node.layer);
     return;
   }
+  const previousSequence = characters.get(node.layer)?.effectSequence ?? 0;
   characters.set(node.layer, {
     nodeId: node.id,
     assetId: node.assetId,
     slot: node.slot,
     layer: node.layer,
     position: node.position,
+    opacity: 1,
+    effect: null,
+    effectSequence: previousSequence + 1,
   });
 }
 
@@ -470,7 +723,7 @@ function knownBgm(project: ProjectDocument, assetId: string | null): boolean {
 
 function restoreBlockingPresentation(
   scene: SceneDocument,
-  status: CurrentGameRuntimeSnapshot['status'],
+  status: GameRuntimeSnapshot['status'],
   nextNodeIndex: number,
 ): {
   dialogue: DialogueNode | null;
@@ -486,6 +739,11 @@ function restoreBlockingPresentation(
     return null;
   }
   const node = scene.nodes[nextNodeIndex - 1];
+  if (status === 'waitingCgLeadIn') {
+    return node?.type === 'cgDisplay'
+      ? { dialogue: null, videoAssetId: null, choices: [] }
+      : null;
+  }
   if (status === 'playing') {
     return node?.type === 'dialogue'
       ? { dialogue: node, videoAssetId: null, choices: [] }
@@ -536,7 +794,10 @@ function restoreLegacyGameRuntimeSnapshot(
       node.type === 'logicElse' ||
       node.type === 'logicEndIf' ||
       node.type === 'logicRepeat' ||
-      node.type === 'logicEndRepeat'
+      node.type === 'logicEndRepeat' ||
+      node.type === 'cgDisplay' ||
+      node.type === 'cgEndDisplay' ||
+      (node.type === 'character' && node.effect !== null)
     ) {
       return null;
     }
@@ -583,8 +844,12 @@ function restoreLegacyGameRuntimeSnapshot(
     bgmAssetId: snapshot.bgmAssetId,
     bgmSequence: snapshot.bgmSequence,
     dialogueSequence: snapshot.dialogueSequence,
+    characterEffectSequence: maxCharacterEffectSequence([...characters.values()]),
     videoAssetId: blocking.videoAssetId,
     videoSequence: snapshot.videoSequence,
+    cgAssetId: null,
+    cgLeadInMs: 0,
+    cgSequence: 0,
     characters: [...characters.values()].sort((left, right) => left.layer - right.layer),
     dialogue: blocking.dialogue,
     choices: blocking.choices,
@@ -595,7 +860,7 @@ function restoreLegacyGameRuntimeSnapshot(
 
 function characterMatchesProject(
   scene: SceneDocument,
-  character: RuntimeCharacterState,
+  character: ComparableCharacter,
 ): boolean {
   return scene.nodes.some((node) => node.type === 'character' &&
     node.id === character.nodeId &&
@@ -607,13 +872,20 @@ function characterMatchesProject(
       character.position !== null &&
       node.position.x === character.position.x &&
       node.position.y === character.position.y
-    )),
+    )) &&
+    (
+      !('opacity' in character) ||
+      character.opacity === (node.effect?.type === 'fadeOut' ? 0 : 1)
+    ),
   );
 }
 
 function restoreCurrentGameRuntimeSnapshot(
   project: ProjectDocument,
-  snapshot: CurrentGameRuntimeSnapshot,
+  snapshot:
+    | LogicGameRuntimeSnapshot
+    | CgGameRuntimeSnapshot
+    | CurrentGameRuntimeSnapshot,
 ): GameRuntime | null {
   const declaredVariableNames = projectLogicVariableNames(project);
   if (Object.keys(snapshot.variables).some(
@@ -630,6 +902,19 @@ function restoreCurrentGameRuntimeSnapshot(
   if (typeof controlFlow === 'string') {
     return null;
   }
+  if (
+    snapshot.snapshotVersion === 2 &&
+    scene.nodes.some((node) =>
+      node.type === 'cgDisplay' || node.type === 'cgEndDisplay')
+  ) {
+    return null;
+  }
+  if (
+    snapshot.snapshotVersion < GAME_RUNTIME_SNAPSHOT_VERSION &&
+    scene.nodes.some((node) => node.type === 'character' && node.effect !== null)
+  ) {
+    return null;
+  }
   const blocking = restoreBlockingPresentation(
     scene,
     snapshot.status,
@@ -643,6 +928,52 @@ function restoreCurrentGameRuntimeSnapshot(
   }
 
   const blockingIndex = snapshot.nextNodeIndex - 1;
+  let cgAssetId: string | null = null;
+  let cgLeadInMs = 0;
+  let cgSequence = 0;
+  if (
+    snapshot.snapshotVersion === 3 ||
+    snapshot.snapshotVersion === GAME_RUNTIME_SNAPSHOT_VERSION
+  ) {
+    cgSequence = snapshot.cgSequence;
+    if (snapshot.status === 'waitingCgLeadIn') {
+      const display = scene.nodes[blockingIndex];
+      if (
+        display?.type !== 'cgDisplay' ||
+        !controlFlow.cgByStart.has(blockingIndex) ||
+        snapshot.cgAssetId !== display.assetId ||
+        snapshot.cgLeadInMs !== display.leadInMs ||
+        snapshot.cgSequence < 1
+      ) {
+        return null;
+      }
+      cgAssetId = display.assetId;
+      cgLeadInMs = display.leadInMs;
+    } else {
+      const activeCgs = [...controlFlow.cgByStart.values()].filter(
+        (control) =>
+          control.displayIndex < blockingIndex &&
+          blockingIndex < control.endIndex,
+      );
+      if (activeCgs.length > 1) {
+        return null;
+      }
+      const display = activeCgs.length === 1
+        ? scene.nodes[activeCgs[0]!.displayIndex]
+        : null;
+      const expectedCgAssetId = display?.type === 'cgDisplay'
+        ? display.assetId
+        : null;
+      if (
+        snapshot.cgAssetId !== expectedCgAssetId ||
+        snapshot.cgLeadInMs !== 0 ||
+        (expectedCgAssetId !== null && snapshot.cgSequence < 1)
+      ) {
+        return null;
+      }
+      cgAssetId = expectedCgAssetId;
+    }
+  }
   const activeRepeats = [...controlFlow.repeatByStart.values()]
     .filter((control) =>
       control.repeatIndex < blockingIndex && blockingIndex < control.endIndex)
@@ -684,6 +1015,20 @@ function restoreCurrentGameRuntimeSnapshot(
     return null;
   }
 
+  const characters = snapshot.characters.map((character) => ({
+    ...character,
+    position: character.position === null ? null : { ...character.position },
+    opacity: 'opacity' in character ? character.opacity : 1,
+    effect: null,
+    effectSequence: 'effectSequence' in character
+      ? character.effectSequence
+      : 1,
+  }));
+  const characterEffectSequence = snapshot.snapshotVersion ===
+    GAME_RUNTIME_SNAPSHOT_VERSION
+    ? snapshot.characterEffectSequence
+    : maxCharacterEffectSequence(characters);
+
   return {
     status: snapshot.status,
     sceneId: snapshot.sceneId,
@@ -692,12 +1037,13 @@ function restoreCurrentGameRuntimeSnapshot(
     bgmAssetId: snapshot.bgmAssetId,
     bgmSequence: snapshot.bgmSequence,
     dialogueSequence: snapshot.dialogueSequence,
+    characterEffectSequence,
     videoAssetId: blocking.videoAssetId,
     videoSequence: snapshot.videoSequence,
-    characters: snapshot.characters.map((character) => ({
-      ...character,
-      position: character.position === null ? null : { ...character.position },
-    })),
+    cgAssetId,
+    cgLeadInMs,
+    cgSequence,
+    characters,
     dialogue: blocking.dialogue,
     choices: blocking.choices,
     variables: { ...snapshot.variables },
@@ -740,10 +1086,19 @@ export function createGameRuntimeSnapshot(
     bgmAssetId: current.bgmAssetId,
     bgmSequence: current.bgmSequence,
     dialogueSequence: current.dialogueSequence,
+    characterEffectSequence: current.characterEffectSequence,
     videoSequence: current.videoSequence,
+    cgAssetId: current.cgAssetId,
+    cgLeadInMs: current.cgLeadInMs,
+    cgSequence: current.cgSequence,
     characters: current.characters.map((character) => ({
-      ...character,
+      nodeId: character.nodeId,
+      assetId: character.assetId,
+      slot: character.slot,
+      layer: character.layer,
       position: character.position === null ? null : { ...character.position },
+      opacity: character.opacity,
+      effectSequence: character.effectSequence,
     })),
     variables: canonicalVariables(current.variables),
     loopStack: current.loopStack.map((frame) => ({
@@ -761,8 +1116,12 @@ export function createGameRuntimeSnapshot(
     restored.bgmAssetId !== current.bgmAssetId ||
     restored.bgmSequence !== current.bgmSequence ||
     restored.dialogueSequence !== current.dialogueSequence ||
+    restored.characterEffectSequence !== current.characterEffectSequence ||
     restored.videoAssetId !== current.videoAssetId ||
     restored.videoSequence !== current.videoSequence ||
+    restored.cgAssetId !== current.cgAssetId ||
+    restored.cgLeadInMs !== current.cgLeadInMs ||
+    restored.cgSequence !== current.cgSequence ||
     !sameCharacters(restored.characters, current.characters) ||
     !sameDialogue(restored.dialogue, current.dialogue) ||
     !sameChoices(restored.choices, current.choices) ||

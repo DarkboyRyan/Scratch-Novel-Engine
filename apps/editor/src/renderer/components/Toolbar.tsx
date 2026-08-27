@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：提供项目、编辑模式、导出和编辑器设置等顶部操作。
+ * 包含实现：`Toolbar`。
+ */
+
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 

@@ -1,3 +1,7 @@
+/**
+ * 主要作用：安全持久化、列举和恢复手动及快速存档快照。
+ * 关键函数与实现：`PlayerSaveStore`；基于 Electron Main 与 Node.js 安全文件/协议边界实现。
+ */
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import {
@@ -169,6 +173,8 @@ async function syncDirectory(directoryPath: string): Promise<void> {
 function sameSnapshot(left: GameRuntimeSnapshot, right: unknown): boolean {
   return isObject(right) && (
     right.snapshotVersion === 1 ||
+    right.snapshotVersion === 2 ||
+    right.snapshotVersion === 3 ||
     areGameRuntimeSnapshotsEqual(left, right)
   );
 }
@@ -241,6 +247,7 @@ function validateRuntimeAssets(game: PlayerGameData, runtime: GameRuntime): void
   requireType(runtime.backgroundAssetId, 'image');
   requireType(runtime.bgmAssetId, 'audio');
   requireType(runtime.videoAssetId, 'video');
+  requireType(runtime.cgAssetId, 'image');
   requireType(runtime.dialogue?.voiceAssetId ?? null, 'audio');
   for (const character of runtime.characters) {
     requireType(character.assetId, 'image');

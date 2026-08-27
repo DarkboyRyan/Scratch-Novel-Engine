@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：创建并安装 Blockly 缩放控件 SVG 图标。
+ * 包含实现：`installInlineZoomControlIcons`。
+ */
+
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
 type ZoomControlDefinition = {

@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：呈现编辑器语言设置并提交或恢复设置草稿。
+ * 包含实现：`EditorSettingsDialog`。
+ */
+
 import { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 

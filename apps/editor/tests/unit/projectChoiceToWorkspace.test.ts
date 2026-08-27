@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 choice scene projection 的行为。
+ * 测试覆盖：`choice scene projection`。
+ */
+
 import * as Blockly from 'blockly';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -14,6 +19,7 @@ import {
 } from '../../src/renderer/features/block-editor/blocks/storyContinuationBlock';
 import {
   CHARACTER_BLOCK_FIELDS,
+  CHARACTER_BLOCK_TYPE,
   CLEAR_CHARACTER_BLOCK_TYPE,
 } from '../../src/renderer/features/block-editor/blocks/characterBlock';
 import {
@@ -33,6 +39,12 @@ import {
   VARIABLE_CHANGE_BLOCK_TYPE,
   VARIABLE_SET_BLOCK_TYPE,
 } from '../../src/renderer/features/block-editor/blocks/variableBlock';
+import {
+  CG_DISPLAY_BLOCK_TYPE,
+  CG_DISPLAY_FIELDS,
+  CG_DISPLAY_INPUTS,
+  getCgDisplayMarkers,
+} from '../../src/renderer/features/block-editor/blocks/cgDisplayBlock';
 
 class FakeConnection {
   target: FakeConnection | null = null;
@@ -76,6 +88,10 @@ class FakeBlock {
       });
     } else if (type === LOGIC_REPEAT_BLOCK_TYPE) {
       this.inputs.set(LOGIC_CONTROL_INPUTS.body, {
+        connection: new FakeConnection(this),
+      });
+    } else if (type === CG_DISPLAY_BLOCK_TYPE) {
+      this.inputs.set(CG_DISPLAY_INPUTS.body, {
         connection: new FakeConnection(this),
       });
     }
@@ -181,6 +197,89 @@ describe('choice scene projection', () => {
     });
   });
 
+  it('projects a character with an image as a portrait block', () => {
+    vi.spyOn(
+      Blockly.renderManagement,
+      'triggerQueuedRenders',
+    ).mockImplementation(() => {});
+    const scene: SceneDocument = {
+      schemaVersion: 1,
+      id: 'scene-character',
+      name: '人物立绘',
+      backgroundAssetId: null,
+      nodes: [
+        {
+          id: 'character-1',
+          type: 'character',
+          mode: 'show',
+          assetId: 'portrait-1',
+          slot: 'center',
+          layer: 1,
+          position: null,
+          effect: null,
+        },
+      ],
+    };
+    const workspace = new FakeWorkspace();
+
+    projectSceneToWorkspace(
+      scene,
+      workspace as unknown as Blockly.WorkspaceSvg,
+      { x: 120, y: 80 },
+      [{ id: 'portrait-1', type: 'image', displayName: 'Alice' }],
+    );
+
+    expect(
+      workspace.blocks.find((block) => block.id === 'character-1')?.type,
+    ).toBe(CHARACTER_BLOCK_TYPE);
+  });
+
+  it('keeps an unresolved show portrait in the story chain as a portrait block', () => {
+    vi.spyOn(
+      Blockly.renderManagement,
+      'triggerQueuedRenders',
+    ).mockImplementation(() => {});
+    const scene: SceneDocument = {
+      schemaVersion: 1,
+      id: 'scene-unresolved-character',
+      name: '未选图片的人物立绘',
+      backgroundAssetId: null,
+      nodes: [
+        {
+          id: 'character-placeholder',
+          type: 'character',
+          mode: 'show',
+          assetId: null,
+          slot: 'center',
+          layer: 1,
+          position: null,
+          effect: null,
+        },
+        {
+          id: 'dialogue-after-character',
+          type: 'dialogue',
+          speaker: 'A',
+          text: 'Hello',
+          voiceAssetId: null,
+        },
+      ],
+    };
+    const workspace = new FakeWorkspace();
+
+    projectSceneToWorkspace(
+      scene,
+      workspace as unknown as Blockly.WorkspaceSvg,
+      { x: 120, y: 80 },
+    );
+
+    const portrait = workspace.blocks.find(
+      (block) => block.id === 'character-placeholder',
+    );
+    expect(portrait?.type).toBe(CHARACTER_BLOCK_TYPE);
+    expect(portrait?.fields.get(CHARACTER_BLOCK_FIELDS.assetName)).toBe('无');
+    expect(portrait?.getNextBlock()?.id).toBe('dialogue-after-character');
+  });
+
   it('projects an empty character layer as the dedicated clear-portrait block', () => {
     vi.spyOn(
       Blockly.renderManagement,
@@ -195,10 +294,12 @@ describe('choice scene projection', () => {
         {
           id: 'clear-character-1',
           type: 'character',
+          mode: 'clear',
           assetId: null,
           slot: 'center',
           layer: 4,
           position: null,
+          effect: null,
         },
       ],
     };
@@ -215,9 +316,7 @@ describe('choice scene projection', () => {
       (block) => block.type === CLEAR_CHARACTER_BLOCK_TYPE,
     );
     expect(clearBlock).toBeDefined();
-    expect(
-      clearBlock?.fields.get(CHARACTER_BLOCK_FIELDS.layer),
-    ).toBe('4');
+    expect(clearBlock?.fields.get(CHARACTER_BLOCK_FIELDS.layer)).toBe('4');
   });
 
   it('rebuilds persisted options inside their container in snapshot order', () => {
@@ -268,16 +367,14 @@ describe('choice scene projection', () => {
     ]);
     const [start, choice, first, second] = workspace.blocks;
     expect(
-      choice.inputs.get(CHOICE_BLOCK_INPUTS.options)?.connection.target
-        ?.owner.id,
+      choice.inputs.get(CHOICE_BLOCK_INPUTS.options)?.connection.target?.owner
+        .id,
     ).toBe(first.id);
     expect(first.nextConnection.target?.owner.id).toBe(second.id);
-    expect(
-      first.fields.get(CHOICE_OPTION_BLOCK_FIELDS.text),
-    ).toBe('留下');
-    expect(
-      second.fields.get(CHOICE_OPTION_BLOCK_FIELDS.targetScene),
-    ).toBe('scene-2');
+    expect(first.fields.get(CHOICE_OPTION_BLOCK_FIELDS.text)).toBe('留下');
+    expect(second.fields.get(CHOICE_OPTION_BLOCK_FIELDS.targetScene)).toBe(
+      'scene-2',
+    );
     expect(start.getNextBlock()).toBe(choice);
     expect(start.movedTo).toEqual({ x: 120, y: 80 });
     expect(choice.movedTo).toBeNull();
@@ -340,9 +437,7 @@ describe('choice scene projection', () => {
     );
     expect(continuation).toBeDefined();
     expect(
-      continuation?.fields.get(
-        STORY_CONTINUATION_BLOCK_FIELDS.sequence,
-      ),
+      continuation?.fields.get(STORY_CONTINUATION_BLOCK_FIELDS.sequence),
     ).toBe('1');
     expect(continuation?.id).toBe('extension-stable-id');
     expect(continuation).toMatchObject({
@@ -419,8 +514,9 @@ describe('choice scene projection', () => {
     expect(blocks[3]?.getNextBlock()).toBeNull();
     expect(start?.movedTo).toEqual({ x: 120, y: 80 });
     expect(blocks[0]?.movedTo).toBeNull();
-    expect(blocks.slice(1).every((block) => block?.movedTo === null))
-      .toBe(true);
+    expect(blocks.slice(1).every((block) => block?.movedTo === null)).toBe(
+      true,
+    );
   });
 
   it('keeps a long timeline in one column without a user extension', () => {
@@ -456,8 +552,9 @@ describe('choice scene projection', () => {
       ),
     ).toHaveLength(0);
     expect(workspace.blocks[0].movedTo).toEqual({ x: 120, y: 80 });
-    expect(workspace.blocks.slice(1).every((block) => block.movedTo === null))
-      .toBe(true);
+    expect(
+      workspace.blocks.slice(1).every((block) => block.movedTo === null),
+    ).toBe(true);
   });
 
   it('starts a separate page after an explicit jump without a continuation', () => {
@@ -588,15 +685,15 @@ describe('choice scene projection', () => {
     const repeat = workspace.blocks.find((block) => block.id === 'repeat-1');
     const change = workspace.blocks.find((block) => block.id === 'change-1');
     const elseLine = workspace.blocks.find((block) => block.id === 'else-line');
-    const afterLine = workspace.blocks.find((block) => block.id === 'after-line');
+    const afterLine = workspace.blocks.find(
+      (block) => block.id === 'after-line',
+    );
 
     expect(set?.type).toBe(VARIABLE_SET_BLOCK_TYPE);
     expect(set?.fields.get(VARIABLE_BLOCK_FIELDS.name)).toBe('score');
     expect(set?.getNextBlock()).toBe(ifBlock);
     expect(ifBlock?.type).toBe(LOGIC_IF_BLOCK_TYPE);
-    expect(
-      ifBlock?.fields.get(LOGIC_CONTROL_FIELDS.operator),
-    ).toBe('gte');
+    expect(ifBlock?.fields.get(LOGIC_CONTROL_FIELDS.operator)).toBe('gte');
     expect(ifBlock?.getInputTargetBlock(LOGIC_CONTROL_INPUTS.then)).toBe(
       repeat,
     );
@@ -604,24 +701,92 @@ describe('choice scene projection', () => {
       elseLine,
     );
     expect(repeat?.type).toBe(LOGIC_REPEAT_BLOCK_TYPE);
-    expect(repeat?.getInputTargetBlock(LOGIC_CONTROL_INPUTS.body)).toBe(
-      change,
-    );
+    expect(repeat?.getInputTargetBlock(LOGIC_CONTROL_INPUTS.body)).toBe(change);
     expect(ifBlock?.getNextBlock()).toBe(afterLine);
-    expect(
-      getLogicControlMarkers(
-        ifBlock as unknown as Blockly.Block,
-      ),
-    ).toEqual({
-      kind: 'if',
-      elseNodeId: 'else-1',
-      endNodeId: 'if-end',
+    expect(getLogicControlMarkers(ifBlock as unknown as Blockly.Block)).toEqual(
+      {
+        kind: 'if',
+        elseNodeId: 'else-1',
+        endNodeId: 'if-end',
+      },
+    );
+    expect(getLogicControlMarkers(repeat as unknown as Blockly.Block)).toEqual({
+      kind: 'repeat',
+      endNodeId: 'repeat-end',
     });
-    expect(
-      getLogicControlMarkers(
-        repeat as unknown as Blockly.Block,
-      ),
-    ).toEqual({ kind: 'repeat', endNodeId: 'repeat-end' });
     expect(change?.type).toBe(VARIABLE_CHANGE_BLOCK_TYPE);
+  });
+
+  it('projects a CG C block inside If/Repeat while keeping its end marker hidden', () => {
+    vi.spyOn(
+      Blockly.renderManagement,
+      'triggerQueuedRenders',
+    ).mockImplementation(() => {});
+    const scene: SceneDocument = {
+      schemaVersion: 1,
+      id: 'scene-nested-cg',
+      name: 'Nested CG',
+      backgroundAssetId: null,
+      nodes: [
+        { id: 'repeat-1', type: 'logicRepeat', count: 2 },
+        {
+          id: 'if-1',
+          type: 'logicIf',
+          condition: {
+            left: { kind: 'variable', name: 'route' },
+            operator: 'eq',
+            right: { kind: 'literal', value: 'A' },
+          },
+        },
+        {
+          id: 'cg-1',
+          type: 'cgDisplay',
+          assetId: 'cg-image',
+          leadInMs: 750,
+        },
+        {
+          id: 'cg-line',
+          type: 'dialogue',
+          speaker: 'A',
+          text: 'CG line',
+          voiceAssetId: null,
+        },
+        {
+          id: 'cg-end',
+          type: 'cgEndDisplay',
+          cgDisplayNodeId: 'cg-1',
+        },
+        { id: 'else-1', type: 'logicElse', ifNodeId: 'if-1' },
+        { id: 'if-end', type: 'logicEndIf', ifNodeId: 'if-1' },
+        {
+          id: 'repeat-end',
+          type: 'logicEndRepeat',
+          repeatNodeId: 'repeat-1',
+        },
+      ],
+    };
+    const workspace = new FakeWorkspace();
+
+    projectSceneToWorkspace(
+      scene,
+      workspace as unknown as Blockly.WorkspaceSvg,
+      { x: 120, y: 80 },
+    );
+
+    const repeat = workspace.blocks.find((block) => block.id === 'repeat-1');
+    const ifBlock = workspace.blocks.find((block) => block.id === 'if-1');
+    const cg = workspace.blocks.find((block) => block.id === 'cg-1');
+    const line = workspace.blocks.find((block) => block.id === 'cg-line');
+    expect(repeat?.getInputTargetBlock(LOGIC_CONTROL_INPUTS.body)).toBe(
+      ifBlock,
+    );
+    expect(ifBlock?.getInputTargetBlock(LOGIC_CONTROL_INPUTS.then)).toBe(cg);
+    expect(cg?.type).toBe(CG_DISPLAY_BLOCK_TYPE);
+    expect(cg?.fields.get(CG_DISPLAY_FIELDS.leadInSeconds)).toBe('0.75');
+    expect(cg?.getInputTargetBlock(CG_DISPLAY_INPUTS.body)).toBe(line);
+    expect(workspace.blocks.map((block) => block.id)).not.toContain('cg-end');
+    expect(getCgDisplayMarkers(cg as unknown as Blockly.Block)).toEqual({
+      endNodeId: 'cg-end',
+    });
   });
 });

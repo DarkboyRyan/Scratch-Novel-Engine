@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 runtime bundle exporter 的行为。
+ * 测试覆盖：`runtime bundle exporter`。
+ */
+
 import { createHash } from 'node:crypto';
 import {
   access,
@@ -33,7 +38,7 @@ async function makeDirectory(): Promise<string> {
 function projectDocument(relativePath = 'assets/images/image-1.png'): unknown {
   return {
     format: 'vn-engine-project',
-    fileVersion: 16,
+    fileVersion: 18,
     project: {
       schemaVersion: 1,
       id: 'project-1',
@@ -152,10 +157,12 @@ function legacyV12Snapshot(contents: string) {
                 {
                   id: 'legacy-character',
                   type: 'character' as const,
+                  mode: 'show' as const,
                   assetId: 'image-1',
                   slot: 'right' as const,
                   layer: 1,
                   position: null,
+                  effect: null,
                 },
                 {
                   id: 'legacy-dialogue',
@@ -225,7 +232,7 @@ afterEach(async () => {
 });
 
 describe('runtime bundle exporter', () => {
-  it('publishes a verified runtime v7 bundle with start-screen and CG assets', async () => {
+  it('publishes a verified runtime v9 bundle with start-screen and CG assets', async () => {
     const {
       projectRoot,
       outputParent,
@@ -270,7 +277,7 @@ describe('runtime bundle exporter', () => {
     ]);
     expect(game).toMatchObject({
       format: 'vn-engine-runtime',
-      runtimeVersion: 7,
+      runtimeVersion: 9,
       game: {
         id: 'project-1',
         title: 'Export Game',
@@ -304,8 +311,8 @@ describe('runtime bundle exporter', () => {
       'files',
     ]);
     expect(manifest).toMatchObject({
-      runtimeVersion: 7,
-      playerCompatibility: '>=7 <8',
+      runtimeVersion: 9,
+      playerCompatibility: '>=9 <10',
     });
     expect(manifest.files).toEqual([
       {
@@ -417,7 +424,7 @@ describe('runtime bundle exporter', () => {
     const manifest = JSON.parse(
       await readFile(path.join(targetPath, 'manifest.json'), 'utf8'),
     ) as { files: Array<{ assetId: string }> };
-    expect(game.runtimeVersion).toBe(7);
+    expect(game.runtimeVersion).toBe(9);
     expect(game.game.cgGallery).toEqual({
       pages: [{ imageAssetIds: Array(9).fill(null) }],
     });
@@ -429,6 +436,7 @@ describe('runtime bundle exporter', () => {
         slot: 'right',
         layer: 1,
         position: null,
+        effect: null,
       },
       {
         id: 'legacy-dialogue',
@@ -518,7 +526,7 @@ describe('runtime bundle exporter', () => {
       game: { startScreen: unknown; cgGallery: unknown };
       scenes: Array<{ backgroundAssetId: string | null; nodes: unknown[] }>;
     };
-    expect(game.runtimeVersion).toBe(7);
+    expect(game.runtimeVersion).toBe(9);
     expect(game.game.startScreen).toEqual({
       title: 'Legacy v1',
       backgroundAssetId: null,
@@ -544,7 +552,7 @@ describe('runtime bundle exporter', () => {
     const expected = currentSnapshot();
 
     const future = projectDocument() as { fileVersion: number };
-    future.fileVersion = 17;
+    future.fileVersion = 20;
     const futureContents = JSON.stringify(future);
     await writeFile(path.join(projectRoot, 'project.vn.json'), futureContents);
     await expect(exportRuntimeBundle({

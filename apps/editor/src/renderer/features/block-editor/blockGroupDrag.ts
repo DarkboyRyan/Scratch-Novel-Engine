@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：实现故事积木组拖动时的拓扑收集与整体位移。
+ * 包含实现：`BlockGroupDragController`、`BlockGroupSelectionMode`、`getBlockGroupSelectionMode`、`createBlockGroupDragController`。
+ */
+
 import * as Blockly from 'blockly';
 
 import type { TimelineReorderManyParams } from '../../../shared/engineProtocol';
@@ -55,7 +60,8 @@ type ActiveGesture = {
 export type BlockGroupSelectionMode =
   | 'move-all-layout'
   | 'reorder-timeline'
-  | 'reject-extension-selection';
+  | 'reject-extension-selection'
+  | 'reject-structured-selection';
 
 export function getBlockGroupSelectionMode(
   scene: SceneDocument,
@@ -80,7 +86,15 @@ export function getBlockGroupSelectionMode(
       node.type === 'storyExtension' && selectedIds.has(node.id),
   )
     ? 'reject-extension-selection'
-    : 'reorder-timeline';
+    : scene.nodes.some(
+          (node) =>
+            (node.type === 'logicIf' ||
+              node.type === 'logicRepeat' ||
+              node.type === 'cgDisplay') &&
+            selectedIds.has(node.id),
+        )
+      ? 'reject-structured-selection'
+      : 'reorder-timeline';
 }
 
 function containsPoint(rectangle: DOMRect, x: number, y: number): boolean {
@@ -481,7 +495,8 @@ export function createBlockGroupDragController(
     // 输入口的“整页原子移动”约束。这里同时阻止 Blockly
     // 退化为单块拖动；全选仍可仅移动画布布局。
     if (
-      selectionMode === 'reject-extension-selection'
+      selectionMode === 'reject-extension-selection' ||
+      selectionMode === 'reject-structured-selection'
     ) {
       event.preventDefault();
       event.stopImmediatePropagation();

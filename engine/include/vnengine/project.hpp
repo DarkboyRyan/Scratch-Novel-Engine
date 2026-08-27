@@ -1,3 +1,5 @@
+// 文件职责：声明对权威项目模型的查询、校验和原子编辑接口。
+// 关键实现：IdGenerator、项目/场景命令、时间线节点、控制范围和聚合校验函数。
 #pragma once
 
 #include <optional>
@@ -172,6 +174,7 @@ enum class AddBackgroundNodeStatus {
   scene_not_found,
   placement_conflict,
   anchor_not_found,
+  control_boundary_conflict,
 };
 
 struct AddBackgroundNodeResult {
@@ -212,6 +215,8 @@ enum class AddCharacterNodeStatus {
   scene_not_found,
   placement_conflict,
   anchor_not_found,
+  control_boundary_conflict,
+  invalid_mode,
 };
 
 struct AddCharacterNodeResult {
@@ -224,7 +229,8 @@ AddCharacterNodeResult add_character_node(
     IdGenerator& ids,
     std::string_view scene_id,
     std::optional<std::string> after_node_id = std::nullopt,
-    std::optional<std::string> before_node_id = std::nullopt);
+    std::optional<std::string> before_node_id = std::nullopt,
+    CharacterNodeMode mode = CharacterNodeMode::show);
 
 enum class UpdateCharacterNodeResult {
   changed,
@@ -236,6 +242,7 @@ enum class UpdateCharacterNodeResult {
   invalid_slot,
   invalid_layer,
   invalid_position,
+  invalid_mode,
 };
 
 UpdateCharacterNodeResult update_character_node(
@@ -245,13 +252,49 @@ UpdateCharacterNodeResult update_character_node(
     std::optional<std::string> asset_id,
     CharacterSlot slot,
     int layer,
-    std::optional<CharacterPosition> position = std::nullopt);
+    std::optional<CharacterPosition> position = std::nullopt,
+    std::optional<CharacterNodeMode> mode = std::nullopt);
+
+enum class UpdateCharacterEffectResult {
+  changed,
+  unchanged,
+  scene_not_found,
+  node_not_found,
+  character_cleared,
+  invalid_effect,
+};
+
+UpdateCharacterEffectResult update_character_effect(
+    ProjectAggregate& aggregate,
+    std::string_view scene_id,
+    std::string_view node_id,
+    std::optional<CharacterEffect> effect);
+
+enum class MoveCharacterEffectResult {
+  changed,
+  scene_not_found,
+  source_node_not_found,
+  target_node_not_found,
+  same_node,
+  source_effect_missing,
+  source_effect_mismatch,
+  target_character_cleared,
+  invalid_effect,
+};
+
+MoveCharacterEffectResult move_character_effect(
+    ProjectAggregate& aggregate,
+    std::string_view scene_id,
+    std::string_view from_node_id,
+    std::string_view to_node_id,
+    CharacterEffect effect);
 
 enum class AddBgmNodeStatus {
   added,
   scene_not_found,
   placement_conflict,
   anchor_not_found,
+  control_boundary_conflict,
 };
 
 struct AddBgmNodeResult {
@@ -288,6 +331,7 @@ enum class AddVideoNodeStatus {
   scene_not_found,
   placement_conflict,
   anchor_not_found,
+  control_boundary_conflict,
 };
 
 struct AddVideoNodeResult {
@@ -324,6 +368,7 @@ enum class AddChoiceNodeStatus {
   scene_not_found,
   placement_conflict,
   anchor_not_found,
+  control_boundary_conflict,
 };
 
 struct AddChoiceNodeResult {
@@ -419,6 +464,7 @@ enum class AddSceneJumpNodeStatus {
   self_target,
   placement_conflict,
   anchor_not_found,
+  control_boundary_conflict,
 };
 
 struct AddSceneJumpNodeResult {
@@ -476,10 +522,11 @@ inline constexpr std::size_t kMaximumLogicStringBytes = 4096;
 inline constexpr std::size_t kMaximumLogicVariableCount = 32;
 inline constexpr int kMaximumLogicNestingDepth = 16;
 inline constexpr int kMaximumLogicRepeatCount = 1000;
+inline constexpr int kMaximumCgLeadInMs = 60000;
 
-// Logic validation is shared by persistence, authoring commands, and the
-// structural timeline guard. Returning a message keeps the pure Core API
-// useful to non-Electron callers without exposing protocol error codes.
+// Control validation is shared by persistence, authoring commands, and the
+// structural timeline guard. The legacy function name is retained for API
+// compatibility; it validates both logic controls and paired CG displays.
 std::optional<std::string> validate_logic_value(const LogicValue& value);
 std::optional<std::string> validate_logic_operand(const LogicOperand& operand);
 std::optional<std::string> validate_logic_condition(
@@ -590,9 +637,75 @@ LogicControlMutationResult reorder_logic_control(
     std::optional<std::string> before_node_id);
 
 bool is_logic_control_marker(const SceneNode& node);
+bool is_cg_display_control_marker(const SceneNode& node);
 
-// A generic multi-node move may carry controls only when selecting any of that
-// control's own root/branch/end markers also selects its complete range.
+enum class AddCgDisplayStatus {
+  added,
+  scene_not_found,
+  placement_conflict,
+  anchor_not_found,
+  asset_not_found,
+  asset_not_image,
+  invalid_lead_in,
+  boundary_conflict,
+};
+
+struct AddCgDisplayResult {
+  AddCgDisplayStatus status;
+  std::optional<std::string> node_id;
+};
+
+enum class UpdateCgDisplayResult {
+  changed,
+  unchanged,
+  scene_not_found,
+  node_not_found,
+  asset_not_found,
+  asset_not_image,
+  invalid_lead_in,
+};
+
+AddCgDisplayResult add_cg_display_node(
+    ProjectAggregate& aggregate,
+    IdGenerator& ids,
+    std::string_view scene_id,
+    std::string asset_id,
+    int lead_in_ms,
+    std::optional<std::string> after_node_id = std::nullopt,
+    std::optional<std::string> before_node_id = std::nullopt);
+UpdateCgDisplayResult update_cg_display_node(
+    ProjectAggregate& aggregate,
+    std::string_view scene_id,
+    std::string_view node_id,
+    std::string asset_id,
+    int lead_in_ms);
+
+enum class CgDisplayMutationResult {
+  changed,
+  unchanged,
+  scene_not_found,
+  node_not_found,
+  not_display_root,
+  anchor_not_found,
+  anchor_inside_display,
+  boundary_conflict,
+};
+
+// Delete/reorder always treats a CG display root, every body dialogue, and
+// its paired end marker as one atomic C-shaped block.
+CgDisplayMutationResult delete_cg_display(
+    Project& project,
+    std::string_view scene_id,
+    std::string_view node_id);
+CgDisplayMutationResult reorder_cg_display(
+    Project& project,
+    std::string_view scene_id,
+    std::string_view node_id,
+    std::optional<std::string> before_node_id);
+
+// A generic multi-node move may carry logic or CG controls only when selecting
+// any of that control's own root/branch/end markers also selects its complete
+// range.
 // Semantic body leaves remain independently movable. This is used by
 // StoryExtension page moves, which send the entire page through
 // timeline.reorderMany.

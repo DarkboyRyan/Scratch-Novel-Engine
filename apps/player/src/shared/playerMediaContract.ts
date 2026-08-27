@@ -1,3 +1,7 @@
+/**
+ * 主要作用：定义 Player 支持的媒体 MIME、目录和大小限制。
+ * 关键函数与实现：`PlayerMediaMime`、`maximumPlayerMediaBytes`、`expectedAssetDirectory`、`mimeForPlayerAsset`；以 TypeScript 类型边界和可组合函数实现。
+ */
 import type { PlayerAssetType } from './playerProtocol';
 
 export type PlayerMediaMime =

@@ -1,3 +1,5 @@
+// 主要作用：验证 Editor 导出的运行包能被 Player 严格读取并启动。
+// 关键实现：编译作者项目、导出资产清单，再以真实 Player 加载器回读。
 import { createHash } from 'node:crypto';
 import {
   mkdir,
@@ -26,7 +28,7 @@ afterEach(async () => {
 });
 
 describe('Editor export to Player compatibility', () => {
-  it('reopens an exported runtime v7 bundle through the Player strict reader', async () => {
+  it('reopens an exported runtime v9 bundle through the Player strict reader', async () => {
     const testRoot = await mkdtemp(
       path.join(tmpdir(), 'vn-export-player-contract-'),
     );
@@ -41,7 +43,7 @@ describe('Editor export to Player compatibility', () => {
 
     const authorDocument = {
       format: 'vn-engine-project',
-      fileVersion: 16,
+      fileVersion: 18,
       project: {
         schemaVersion: 1,
         id: 'contract-project',
@@ -84,6 +86,20 @@ describe('Editor export to Player compatibility', () => {
                   left: { kind: 'variable', name: 'route' },
                   operator: 'eq',
                   right: { kind: 'literal', value: 'open' },
+                },
+              },
+              {
+                id: 'portrait-1',
+                type: 'character',
+                assetId: 'background-asset',
+                slot: 'left',
+                layer: 1,
+                position: null,
+                effect: {
+                  type: 'slideIn',
+                  durationMs: 650,
+                  intensity: 'normal',
+                  direction: 'left',
                 },
               },
               {
@@ -148,6 +164,15 @@ describe('Editor export to Player compatibility', () => {
     expect(startGame(loaded.game.project)).toMatchObject({
       dialogue: { id: 'dialogue-1' },
       variables: { route: 'open' },
+      characters: [{
+        nodeId: 'portrait-1',
+        effect: {
+          type: 'slideIn',
+          durationMs: 650,
+          intensity: 'normal',
+          direction: 'left',
+        },
+      }],
     });
     expect([...loaded.assets.keys()]).toEqual(['background-asset']);
     expect(loaded.assets.get('background-asset')).toMatchObject({

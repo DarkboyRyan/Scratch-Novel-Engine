@@ -1,3 +1,5 @@
+// 主要作用：统一资产扩展名、预览 MIME 和不同媒体的大小上限。
+// 关键实现：canonicalAssetExtension、previewMimeForAsset 与 maximumPreviewBytes。
 import path from 'node:path';
 
 import type { AssetDocument } from '../../shared/projectTypes';

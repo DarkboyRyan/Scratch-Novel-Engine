@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：注册场景跳转积木并维护目标场景下拉选项。
+ * 包含实现：`SCENE_JUMP_BLOCK_TYPE`、`SCENE_JUMP_BLOCK_FIELDS`、`applySceneJumpBlockLocalization`、`setSceneJumpBlockOptions`、`registerSceneJumpBlock`。
+ */
+
 import * as Blockly from 'blockly';
 
 import type { SceneDocument } from '../../../../shared/projectTypes';

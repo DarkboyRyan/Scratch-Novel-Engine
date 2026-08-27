@@ -1,3 +1,7 @@
+/**
+ * 主要作用：验证存档原子写入、列举、恢复、版本兼容与安全拒绝。
+ * 关键函数与实现：测试套件“Player save storage”、`temporaryDirectories`、`project`、`game`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 import { createHash } from 'node:crypto';
 import {
   mkdir,
@@ -13,6 +17,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
+  completeCgLeadIn,
   createGameRuntimeSnapshot,
   startGame,
   type GameRuntime,
@@ -53,6 +58,7 @@ const project: ProjectDocument = {
           slot: 'left',
           layer: 1,
           position: null,
+          effect: null,
         },
         {
           id: 'dialogue',
@@ -235,6 +241,63 @@ describe('Player save storage', () => {
     });
   });
 
+  it('restores a CG wait from its full lead-in and an active CG dialogue', async () => {
+    const { store } = await makeStore();
+    const cgProject: ProjectDocument = {
+      ...project,
+      id: 'cg-save-game',
+      scenes: [{
+        ...project.scenes[0]!,
+        backgroundAssetId: null,
+        nodes: [
+          { id: 'cg', type: 'cgDisplay', assetId: 'story-cg', leadInMs: 800 },
+          {
+            id: 'cg-line',
+            type: 'dialogue',
+            speaker: 'Narrator',
+            text: 'CG line',
+            voiceAssetId: null,
+          },
+          { id: 'cg-end', type: 'cgEndDisplay', cgDisplayNodeId: 'cg' },
+        ],
+      }],
+    };
+    const active: PlayerActiveGameContext = {
+      game: {
+        project: cgProject,
+        assets: [{ id: 'story-cg', type: 'image', displayName: 'Story CG' }],
+      },
+      generation: 1,
+      identity: {
+        projectId: cgProject.id,
+        runtimeVersion: 8,
+        contentFingerprint: 'c'.repeat(64),
+      },
+    };
+    const waiting = startGame(cgProject)!;
+    const waitingSnapshot = createGameRuntimeSnapshot(cgProject, waiting)!;
+    await expect(
+      store.write(active, 1, waitingSnapshot, () => true),
+    ).resolves.toMatchObject({
+      status: 'saved',
+      slot: { summary: { kind: 'progress' } },
+    });
+    await expect(store.load(active, 1, () => true)).resolves.toEqual({
+      status: 'loaded',
+      runtime: waiting,
+    });
+
+    const body = completeCgLeadIn(cgProject, waiting);
+    const bodySnapshot = createGameRuntimeSnapshot(cgProject, body)!;
+    await expect(
+      store.write(active, 'quick', bodySnapshot, () => true),
+    ).resolves.toMatchObject({ status: 'saved' });
+    await expect(store.load(active, 'quick', () => true)).resolves.toEqual({
+      status: 'loaded',
+      runtime: body,
+    });
+  });
+
   it('loads legacy snapshot v1 saves and restores empty logic state safely', async () => {
     const { root, store } = await makeStore();
     const active = activeContext();
@@ -262,6 +325,58 @@ describe('Player save storage', () => {
       status: 'loaded',
       runtime: startGame(project),
     });
+  });
+
+  it('loads legacy snapshot v2 and v3 saves after the snapshot v4 upgrade', async () => {
+    const { root, store } = await makeStore();
+    const active = activeContext();
+    const runtime = startGame(project)!;
+    const current = createGameRuntimeSnapshot(project, runtime)!;
+    const snapshotV2 = {
+      snapshotVersion: 2,
+      status: current.status,
+      sceneId: current.sceneId,
+      nextNodeIndex: current.nextNodeIndex,
+      backgroundAssetId: current.backgroundAssetId,
+      bgmAssetId: current.bgmAssetId,
+      bgmSequence: current.bgmSequence,
+      dialogueSequence: current.dialogueSequence,
+      videoSequence: current.videoSequence,
+      characters: current.characters.map((character) => ({
+        nodeId: character.nodeId,
+        assetId: character.assetId,
+        slot: character.slot,
+        layer: character.layer,
+        position: character.position,
+      })),
+      variables: current.variables,
+      loopStack: current.loopStack,
+    };
+    const namespace = gameDirectory(root, active.identity);
+    await mkdir(namespace, { recursive: true });
+    const snapshotV3 = {
+      ...snapshotV2,
+      snapshotVersion: 3,
+      cgAssetId: null,
+      cgLeadInMs: 0,
+      cgSequence: 0,
+    };
+
+    for (const snapshot of [snapshotV2, snapshotV3]) {
+      await writeFile(path.join(namespace, 'slot-1.json'), JSON.stringify({
+        format: 'vn-engine-player-save',
+        saveVersion: 1,
+        game: active.identity,
+        slotId: 1,
+        savedAt: '2026-08-24T06:00:00.000Z',
+        snapshot,
+      }));
+
+      await expect(store.load(active, 1, () => true)).resolves.toEqual({
+        status: 'loaded',
+        runtime,
+      });
+    }
   });
 
   it('rejects a forged snapshot before any file is published', async () => {

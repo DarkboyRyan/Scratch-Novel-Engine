@@ -1,4 +1,8 @@
 /** @vitest-environment jsdom */
+/**
+ * 主要作用：验证 Web Gateway 的加载、全屏、设置、存档与媒体能力。
+ * 关键函数与实现：测试套件“Web Player gateway”、`MemoryDocuments`、`FakeFullscreenDocument`、`project`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 
 import type { ProjectDocument } from '@vnengine/runtime';
 import { describe, expect, it, vi } from 'vitest';

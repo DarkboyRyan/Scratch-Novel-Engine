@@ -1,3 +1,7 @@
+/**
+ * 主要作用：管理 BGM 与语音双通道的解析、切换、暂停和音量同步。
+ * 关键函数与实现：`PreviewAudioElement`、`PreviewAudioController`、`PreviewAudioSyncOptions`、`PreviewAudioControllerOptions`；以 TypeScript 类型边界和可组合函数实现。
+ */
 import type { GameRuntime } from '@vnengine/runtime';
 
 import type { MediaUrlResolver } from './mediaPort';
@@ -135,7 +139,9 @@ export function createPreviewAudioController({
       }
 
       const isBgmActive =
-        runtime.status === 'playing' || runtime.status === 'choosing';
+        runtime.status === 'playing' ||
+        runtime.status === 'waitingCgLeadIn' ||
+        runtime.status === 'choosing';
       const bgmAssetId = isBgmActive ? runtime.bgmAssetId : null;
       const dialogue = runtime.status === 'playing' ? runtime.dialogue : null;
       const voiceAssetId = dialogue?.voiceAssetId ?? null;

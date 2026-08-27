@@ -1,5 +1,10 @@
 /** @vitest-environment jsdom */
 
+/**
+ * 文件主要作用：验证 character position form controls 的行为。
+ * 测试覆盖：`character position form controls`。
+ */
+
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -10,10 +15,12 @@ import type { CharacterNode } from '../../src/shared/projectTypes';
 const character: CharacterNode = {
   id: 'character-1',
   type: 'character',
+  mode: 'show',
   assetId: 'portrait-1',
   slot: 'left',
   layer: 2,
   position: { x: 31, y: 87 },
+  effect: null,
 };
 
 describe('character position form controls', () => {
@@ -38,16 +45,14 @@ describe('character position form controls', () => {
     container.remove();
   });
 
-  async function renderInspector() {
+  async function renderInspector(selectedNode: CharacterNode = character) {
     await act(async () => {
       root.render(
         <InspectorPanel
-          selectedNode={character}
+          selectedNode={selectedNode}
           scenes={[]}
           currentSceneId="scene-1"
-          assets={[
-            { id: 'portrait-1', type: 'image', displayName: '立绘' },
-          ]}
+          assets={[{ id: 'portrait-1', type: 'image', displayName: '立绘' }]}
           speaker=""
           text=""
           isBusy={false}
@@ -111,5 +116,83 @@ describe('character position form controls', () => {
       layer: 2,
       position: null,
     });
+  });
+
+  it('keeps an unresolved show portrait editable and selects its image as show', async () => {
+    await renderInspector({
+      ...character,
+      assetId: null,
+      position: null,
+      effect: null,
+    });
+    const imageSelect = container.querySelectorAll('select')[0];
+
+    expect(imageSelect.value).toBe('');
+    expect(imageSelect.options[0]?.textContent).toBe('无');
+    expect(
+      container.querySelector('.character-coordinate-fields'),
+    ).not.toBeNull();
+
+    await act(async () => {
+      imageSelect.value = 'portrait-1';
+      imageSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(onCharacterChange).toHaveBeenCalledWith({
+      mode: 'show',
+      assetId: 'portrait-1',
+      slot: 'left',
+      layer: 2,
+      position: null,
+    });
+  });
+
+  it('hides coordinates for clear and atomically turns it into show when an image is selected', async () => {
+    await renderInspector({
+      id: 'clear-1',
+      type: 'character',
+      mode: 'clear',
+      assetId: null,
+      slot: 'center',
+      layer: 3,
+      position: null,
+      effect: null,
+    });
+    const imageSelect = container.querySelectorAll('select')[0];
+
+    expect(imageSelect.options[0]?.textContent).toBe('无立绘（清空这一层）');
+    expect(container.querySelector('.character-coordinate-fields')).toBeNull();
+    expect(container.querySelector('.character-effect-readonly')).toBeNull();
+
+    await act(async () => {
+      imageSelect.value = 'portrait-1';
+      imageSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(onCharacterChange).toHaveBeenCalledWith({
+      mode: 'show',
+      assetId: 'portrait-1',
+      slot: 'center',
+      layer: 3,
+      position: null,
+    });
+  });
+
+  it('summarizes a portrait effect without exposing form edit controls', async () => {
+    await renderInspector({
+      ...character,
+      effect: {
+        type: 'slideIn',
+        durationMs: 850,
+        intensity: 'strong',
+        direction: 'right',
+      },
+    });
+
+    const summary = container.querySelector('.character-effect-readonly');
+    expect(summary?.textContent).toContain('人物特效');
+    expect(summary?.textContent).toContain('滑入');
+    expect(summary?.textContent).toContain('从右侧');
+    expect(summary?.textContent).toContain('强烈');
+    expect(summary?.textContent).toContain('0.85秒');
+    expect(summary?.querySelector('input, select, button')).toBeNull();
   });
 });

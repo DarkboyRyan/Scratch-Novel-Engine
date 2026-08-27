@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：把变量、条件和循环积木事件转换为逻辑节点命令。
+ * 包含实现：`LogicFieldDraft`、`LogicDraftCollection`、`NewLogicBlockDrop`、`LogicControlReorderResolution`、`LogicControlDeleteResolution`、`collectLogicFieldDrafts` 等 10 项。
+ */
+
 import * as Blockly from 'blockly';
 
 import type {

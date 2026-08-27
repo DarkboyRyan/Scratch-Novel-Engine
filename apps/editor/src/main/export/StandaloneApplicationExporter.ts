@@ -1,3 +1,5 @@
+// 主要作用：将运行包嵌入平台 Player 模板并发布可分发的独立应用。
+// 关键实现：复制稳定快照、校验模板签名、平台收尾、归档与原子发布。
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import * as nodeFileSystem from "node:fs";

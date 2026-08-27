@@ -1,5 +1,10 @@
 /** @vitest-environment jsdom */
 
+/**
+ * 文件主要作用：验证 GamePreview video input 的行为。
+ * 测试覆盖：`GamePreview video input`。
+ */
+
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -45,8 +50,12 @@ const session: GamePreviewSession = {
     bgmAssetId: null,
     bgmSequence: 0,
     dialogueSequence: 0,
+    characterEffectSequence: 0,
     videoAssetId: 'asset-video',
     videoSequence: 1,
+    cgAssetId: null,
+    cgLeadInMs: 0,
+    cgSequence: 0,
     characters: [],
     dialogue: null,
     choices: [],

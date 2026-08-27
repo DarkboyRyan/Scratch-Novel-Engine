@@ -1,3 +1,5 @@
+// 主要作用：记录项目目录、清单路径和最近持久化修订等文件会话状态。
+// 关键实现：ProjectFileSession 提供绑定、脏状态计算和会话快照。
 import type { EngineSessionState } from '../../shared/engineProtocol';
 import type { ProjectFileSessionSnapshot } from '../../shared/projectFileProtocol';
 import { PROJECT_FILE_NAME } from '../../shared/projectFileProtocol';

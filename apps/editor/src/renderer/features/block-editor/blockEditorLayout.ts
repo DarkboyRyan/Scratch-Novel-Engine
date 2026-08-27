@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：捕获并恢复场景积木坐标、视口和自动布局状态。
+ * 包含实现：`WorkspacePoint`、`SceneWorkspaceLayout`、`BlockEditorLayoutStore`、`captureSceneWorkspaceLayout`、`restoreSceneWorkspaceViewport`。
+ */
+
 import type * as Blockly from 'blockly';
 
 import type { SceneDocument } from '../../../shared/projectTypes';

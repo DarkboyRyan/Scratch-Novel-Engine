@@ -1,4 +1,7 @@
+// 主要作用：在 Runtime DTO 上扩展 Editor 专用节点和作者资产模型。
+// 关键实现：区分语义/隐藏节点，并通过 toRuntimeProjectDocument 降级运行时模型。
 import type {
+  CharacterNode as RuntimeCharacterNode,
   ProjectDocument as RuntimeProjectDocument,
   SceneDocument as RuntimeSceneDocument,
   SceneNode as RuntimeSceneNode,
@@ -10,9 +13,13 @@ import type {
 export type {
   BackgroundNode,
   BgmNode,
+  CgDisplayNode,
+  CgEndDisplayNode,
   CgGalleryDocument,
   CgGalleryPageDocument,
-  CharacterNode,
+  CharacterEffect,
+  CharacterEffectDirection,
+  CharacterEffectIntensity,
   CharacterPosition,
   CharacterSlot,
   ChoiceNode,
@@ -34,21 +41,63 @@ export type {
   VideoNode,
 } from '@vnengine/runtime';
 
+export type CharacterMode = 'show' | 'clear';
+
+// Author v19 keeps an unresolved "show" node distinct from an intentional
+// clear action. Runtime v9 deliberately remains unchanged: it still uses a
+// nullable assetId, so this author-only discriminator must be removed at the
+// projection boundary.
+type CharacterNodeBase = Pick<
+  RuntimeCharacterNode,
+  'id' | 'type' | 'slot' | 'layer'
+>;
+
+export type CharacterNode =
+  | (CharacterNodeBase & {
+      mode: 'clear';
+      assetId: null;
+      position: null;
+      effect: null;
+    })
+  | (CharacterNodeBase & {
+      mode: 'show';
+      assetId: null;
+      position: RuntimeCharacterNode['position'];
+      effect: null;
+    })
+  | (CharacterNodeBase & {
+      mode: 'show';
+      assetId: string;
+      position: RuntimeCharacterNode['position'];
+      effect: RuntimeCharacterNode['effect'];
+    });
+
 export type StoryExtensionNode = {
   id: string;
   type: 'storyExtension';
 };
 
-export type SemanticSceneNode = RuntimeSceneNode;
+type RuntimeNonCharacterSceneNode = Exclude<
+  RuntimeSceneNode,
+  { type: 'character' }
+>;
+
+export type SemanticSceneNode = RuntimeNonCharacterSceneNode | CharacterNode;
 export type HiddenLogicMarkerNode = Extract<
   RuntimeSceneNode,
-  { type: 'logicElse' | 'logicEndIf' | 'logicEndRepeat' }
+  {
+    type:
+      | 'logicElse'
+      | 'logicEndIf'
+      | 'logicEndRepeat'
+      | 'cgEndDisplay';
+  }
 >;
 export type FormVisibleSceneNode = Exclude<
-  RuntimeSceneNode,
+  SemanticSceneNode,
   HiddenLogicMarkerNode
 >;
-export type SceneNode = RuntimeSceneNode | StoryExtensionNode;
+export type SceneNode = SemanticSceneNode | StoryExtensionNode;
 
 export type SceneDocument = Omit<RuntimeSceneDocument, 'nodes'> & {
   nodes: SceneNode[];
@@ -81,7 +130,8 @@ export function isHiddenLogicMarkerNode(
 ): node is HiddenLogicMarkerNode {
   return node.type === 'logicElse' ||
     node.type === 'logicEndIf' ||
-    node.type === 'logicEndRepeat';
+    node.type === 'logicEndRepeat' ||
+    node.type === 'cgEndDisplay';
 }
 
 export function formVisibleSceneNodes(
@@ -110,7 +160,38 @@ export function toRuntimeProjectDocument(
       id: scene.id,
       name: scene.name,
       backgroundAssetId: scene.backgroundAssetId,
-      nodes: scene.nodes.filter(isSemanticSceneNode),
+      nodes: scene.nodes.flatMap((node): RuntimeSceneNode[] => {
+        if (!isSemanticSceneNode(node)) {
+          return [];
+        }
+        if (node.type !== 'character') {
+          return [node];
+        }
+
+        const runtimeNode: RuntimeCharacterNode = {
+          id: node.id,
+          type: 'character',
+          assetId: node.assetId,
+          slot: node.slot,
+          layer: node.layer,
+          position: node.position,
+          effect: node.effect,
+        };
+        if (node.mode === 'show') {
+          // An unresolved authoring placeholder must be a preview no-op. If it
+          // leaked through as assetId:null, Runtime v9 would interpret it as a
+          // destructive clear-layer action. Export performs its own strict
+          // validation and rejects this incomplete state before projection.
+          return node.assetId === null ? [] : [runtimeNode];
+        }
+
+        return [{
+          ...runtimeNode,
+          assetId: null,
+          position: null,
+          effect: null,
+        }];
+      }),
     })),
   };
 }

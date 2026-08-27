@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：管理标题界面 Blockly 工作区及资源拖放同步。
+ * 包含实现：`StartScreenBlocklyWorkspaceHandle`、`StartScreenBlocklyWorkspace`。
+ */
+
 import {
   forwardRef,
   useEffect,

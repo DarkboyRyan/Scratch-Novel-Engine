@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：安全读取 preload 暴露的资产、项目文件和平台命令网关。
+ * 包含实现：`EditorPlatformGateway`、`getEditorPlatformGateway`、`subscribeEditorProjectFileCommands`。
+ */
+
 import type { VnAssetsApi } from '../../shared/assetProtocol';
 import type { VnEngineApi } from '../../shared/engineProtocol';
 import type { VnGameExportApi } from '../../shared/exportProtocol';

@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 createAuthoringActions 的行为。
+ * 测试覆盖：`createAuthoringActions`。
+ */
+
 import { describe, expect, it, vi } from 'vitest';
 
 import { createAuthoringActions } from '../../src/renderer/application/createAuthoringActions';
@@ -269,5 +274,237 @@ describe('createAuthoringActions', () => {
       nodeId: 'if-1',
       beforeNodeId: null,
     })).rejects.toThrow('[logic-module]');
+  });
+
+  it('guards all four CG-display commands when preload is stale', async () => {
+    const run = vi.fn();
+    const onCgDisplayModuleUnavailable = vi.fn();
+    const actions = createAuthoringActions({
+      commands: {} as VnEngineApi,
+      run,
+      onSceneJumpUnavailable: vi.fn(),
+      onStoryExtensionUnavailable: vi.fn(),
+      onLogicModuleUnavailable: vi.fn(),
+      onCgDisplayModuleUnavailable,
+    });
+
+    await expect(actions.addCgDisplay({
+      sceneId: 'scene-1',
+      assetId: 'cg-1',
+      leadInMs: 1250,
+      afterNodeId: null,
+      beforeNodeId: null,
+    })).resolves.toBe(false);
+    await expect(actions.updateCgDisplay({
+      sceneId: 'scene-1',
+      nodeId: 'cg-display-1',
+      assetId: 'cg-1',
+      leadInMs: 1250,
+    })).resolves.toBe(false);
+    await expect(actions.deleteCgDisplay({
+      sceneId: 'scene-1',
+      nodeId: 'cg-display-1',
+    })).resolves.toBe(false);
+    await expect(actions.reorderCgDisplay({
+      sceneId: 'scene-1',
+      nodeId: 'cg-display-1',
+      beforeNodeId: null,
+    })).resolves.toBe(false);
+
+    expect(onCgDisplayModuleUnavailable).toHaveBeenCalledTimes(4);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('tags stale CG-display methods but preserves ordinary business errors', async () => {
+    const stale = vi.fn().mockRejectedValue(
+      new Error('unknown method: cgDisplay.reorder'),
+    );
+    const businessError = new Error('asset_not_image');
+    const update = vi.fn().mockRejectedValue(businessError);
+    const oldMain = vi.fn().mockRejectedValue(
+      new Error('invalid engine invocation'),
+    );
+    const run = vi.fn(
+      (action: () => Promise<EngineMutationResult>) => action(),
+    );
+    const actions = createAuthoringActions({
+      commands: {
+        reorderCgDisplay: stale,
+        updateCgDisplay: update,
+        addCgDisplay: oldMain,
+      } as unknown as VnEngineApi,
+      run,
+      onSceneJumpUnavailable: vi.fn(),
+      onStoryExtensionUnavailable: vi.fn(),
+      onLogicModuleUnavailable: vi.fn(),
+      onCgDisplayModuleUnavailable: vi.fn(),
+    });
+
+    await expect(actions.reorderCgDisplay({
+      sceneId: 'scene-1',
+      nodeId: 'cg-display-1',
+      beforeNodeId: null,
+    })).rejects.toThrow('[cg-display-module]');
+    await expect(actions.addCgDisplay({
+      sceneId: 'scene-1',
+      assetId: 'cg-image',
+      leadInMs: 0,
+    })).rejects.toThrow('[cg-display-module]');
+    await expect(actions.updateCgDisplay({
+      sceneId: 'scene-1',
+      nodeId: 'cg-display-1',
+      assetId: 'not-an-image',
+      leadInMs: 0,
+    })).rejects.toBe(businessError);
+  });
+
+  it('maps portrait-effect commands and guards stale preload methods', async () => {
+    const updateCharacterEffect = vi.fn().mockResolvedValue(result);
+    const moveCharacterEffect = vi.fn().mockResolvedValue(result);
+    const run = vi.fn(
+      (action: () => Promise<EngineMutationResult>) => action(),
+    );
+    const actions = createAuthoringActions({
+      commands: {
+        updateCharacterEffect,
+        moveCharacterEffect,
+      } as unknown as VnEngineApi,
+      run,
+      onSceneJumpUnavailable: vi.fn(),
+      onStoryExtensionUnavailable: vi.fn(),
+      onLogicModuleUnavailable: vi.fn(),
+      onCharacterEffectModuleUnavailable: vi.fn(),
+    });
+    const effect = {
+      type: 'slideIn' as const,
+      durationMs: 500,
+      intensity: 'normal' as const,
+      direction: 'right' as const,
+    };
+
+    await expect(actions.updateCharacterEffect({
+      sceneId: 'scene-1',
+      nodeId: 'character-1',
+      effect,
+    })).resolves.toBe(true);
+    await expect(actions.moveCharacterEffect({
+      sceneId: 'scene-1',
+      fromNodeId: 'character-1',
+      toNodeId: 'character-2',
+      effect,
+    })).resolves.toBe(true);
+    expect(updateCharacterEffect).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      nodeId: 'character-1',
+      effect,
+    });
+    expect(moveCharacterEffect).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      fromNodeId: 'character-1',
+      toNodeId: 'character-2',
+      effect,
+    });
+
+    const unavailable = vi.fn();
+    const staleActions = createAuthoringActions({
+      commands: {} as VnEngineApi,
+      run,
+      onSceneJumpUnavailable: vi.fn(),
+      onStoryExtensionUnavailable: vi.fn(),
+      onLogicModuleUnavailable: vi.fn(),
+      onCharacterEffectModuleUnavailable: unavailable,
+    });
+    await expect(staleActions.updateCharacterEffect({
+      sceneId: 'scene-1',
+      nodeId: 'character-1',
+      effect: null,
+    })).resolves.toBe(false);
+    await expect(staleActions.moveCharacterEffect({
+      sceneId: 'scene-1',
+      fromNodeId: 'character-1',
+      toNodeId: 'character-2',
+      effect,
+    })).resolves.toBe(false);
+    expect(unavailable).toHaveBeenCalledTimes(2);
+  });
+
+  it('tags stale character-mode protocols without hiding business errors', async () => {
+    const addCharacter = vi.fn().mockRejectedValue(
+      new Error('invalid engine invocation'),
+    );
+    const businessError = new Error('asset_not_image');
+    const updateCharacter = vi.fn()
+      .mockRejectedValueOnce(new Error('unknown params: mode'))
+      .mockRejectedValueOnce(businessError);
+    const run = vi.fn(
+      (action: () => Promise<EngineMutationResult>) => action(),
+    );
+    const actions = createAuthoringActions({
+      commands: {
+        addCharacter,
+        updateCharacter,
+      } as unknown as VnEngineApi,
+      run,
+      onSceneJumpUnavailable: vi.fn(),
+      onStoryExtensionUnavailable: vi.fn(),
+      onLogicModuleUnavailable: vi.fn(),
+    });
+
+    await expect(actions.addCharacter({
+      sceneId: 'scene-1',
+      mode: 'show',
+      assetId: null,
+    })).rejects.toThrow('[character-mode-module]');
+    const update = {
+      sceneId: 'scene-1',
+      nodeId: 'character-1',
+      mode: 'show' as const,
+      assetId: 'portrait-1',
+      slot: 'center' as const,
+      layer: 1,
+      position: null,
+    };
+    await expect(actions.updateCharacter(update))
+      .rejects.toThrow('[character-mode-module]');
+    await expect(actions.updateCharacter(update)).rejects.toBe(businessError);
+  });
+
+  it('tags stale portrait-effect methods but preserves business errors', async () => {
+    const stale = vi.fn().mockRejectedValue(
+      new Error('unknown method: characterEffect.move'),
+    );
+    const businessError = new Error('source_effect_mismatch');
+    const update = vi.fn().mockRejectedValue(businessError);
+    const run = vi.fn(
+      (action: () => Promise<EngineMutationResult>) => action(),
+    );
+    const actions = createAuthoringActions({
+      commands: {
+        moveCharacterEffect: stale,
+        updateCharacterEffect: update,
+      } as unknown as VnEngineApi,
+      run,
+      onSceneJumpUnavailable: vi.fn(),
+      onStoryExtensionUnavailable: vi.fn(),
+      onLogicModuleUnavailable: vi.fn(),
+      onCharacterEffectModuleUnavailable: vi.fn(),
+    });
+    const effect = {
+      type: 'shake' as const,
+      durationMs: 500,
+      intensity: 'normal' as const,
+    };
+
+    await expect(actions.moveCharacterEffect({
+      sceneId: 'scene-1',
+      fromNodeId: 'character-1',
+      toNodeId: 'character-2',
+      effect,
+    })).rejects.toThrow('[character-effect-module]');
+    await expect(actions.updateCharacterEffect({
+      sceneId: 'scene-1',
+      nodeId: 'character-1',
+      effect,
+    })).rejects.toBe(businessError);
   });
 });

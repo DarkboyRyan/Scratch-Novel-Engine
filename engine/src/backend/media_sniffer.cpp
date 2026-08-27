@@ -1,3 +1,5 @@
+// 文件职责：按文件头和容器结构验证图片、视频与音频的真实媒体类型。
+// 关键实现：MP4/WebM、MP3/WAV/Ogg 解析以及 media_magic_matches。
 #include "media_sniffer.hpp"
 
 #include <algorithm>

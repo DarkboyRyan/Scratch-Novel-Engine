@@ -1,3 +1,5 @@
+// 主要作用：解析 vn-asset 媒体请求中的单段 HTTP 字节范围。
+// 关键实现：parseSingleByteRange 处理闭合、开放和后缀 Range 表达式。
 export type ByteRange = {
   start: number;
   end: number;

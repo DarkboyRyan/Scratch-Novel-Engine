@@ -1,3 +1,5 @@
+// 文件职责：对 C++ Core 的项目与时间线业务规则执行自包含回归测试。
+// 关键覆盖：节点命令、逻辑/CG 配对、人物特效、批量重排和失败原子性。
 #include <algorithm>
 #include <functional>
 #include <iostream>
@@ -1117,6 +1119,18 @@ void manages_character_timeline_nodes_atomically() {
        .relative_path = "assets/videos/clip.mp4", .display_name = "Clip"},
   };
 
+  const vnengine::ProjectAggregate before_invalid_add = aggregate;
+  const auto invalid_add = vnengine::add_character_node(
+      aggregate,
+      ids,
+      scene_id,
+      std::nullopt,
+      std::nullopt,
+      static_cast<vnengine::CharacterNodeMode>(99));
+  CHECK(invalid_add.status == vnengine::AddCharacterNodeStatus::invalid_mode);
+  CHECK(!invalid_add.node_id.has_value());
+  CHECK(aggregate == before_invalid_add);
+
   const auto added = vnengine::add_character_node(
       aggregate, ids, scene_id);
   CHECK(added.status == vnengine::AddCharacterNodeStatus::added);
@@ -1124,6 +1138,7 @@ void manages_character_timeline_nodes_atomically() {
   const vnengine::Scene& scene = aggregate.project.scenes[0];
   const vnengine::CharacterNode& empty = character_at(scene, 0);
   CHECK(!empty.asset_id.has_value());
+  CHECK(empty.mode == vnengine::CharacterNodeMode::show);
   CHECK(empty.slot == vnengine::CharacterSlot::center);
   CHECK(empty.layer == 1);
   CHECK(!empty.position.has_value());
@@ -1139,6 +1154,7 @@ void manages_character_timeline_nodes_atomically() {
         vnengine::UpdateCharacterNodeResult::changed);
   const vnengine::CharacterNode& updated = character_at(scene, 0);
   CHECK(updated.asset_id == "portrait");
+  CHECK(updated.mode == vnengine::CharacterNodeMode::show);
   CHECK(updated.slot == vnengine::CharacterSlot::left);
   CHECK(updated.layer == 3);
   CHECK(updated.position ==
@@ -1194,7 +1210,187 @@ void manages_character_timeline_nodes_atomically() {
             vnengine::CharacterSlot::right,
             3) == vnengine::UpdateCharacterNodeResult::changed);
   CHECK(!character_at(scene, 0).asset_id.has_value());
+  CHECK(character_at(scene, 0).mode == vnengine::CharacterNodeMode::show);
+
+  // An asset-less show node is an editable placeholder. Only an explicit
+  // mode transition turns it into the runtime command that clears the layer.
+  CHECK(vnengine::update_character_node(
+            aggregate,
+            scene_id,
+            *added.node_id,
+            std::nullopt,
+            vnengine::CharacterSlot::right,
+            3,
+            std::nullopt,
+            vnengine::CharacterNodeMode::clear) ==
+        vnengine::UpdateCharacterNodeResult::changed);
+  CHECK(character_at(scene, 0).mode == vnengine::CharacterNodeMode::clear);
+  const vnengine::ProjectAggregate before_invalid_clear = aggregate;
+  CHECK(vnengine::update_character_node(
+            aggregate,
+            scene_id,
+            *added.node_id,
+            "portrait",
+            vnengine::CharacterSlot::right,
+            3,
+            std::nullopt,
+            vnengine::CharacterNodeMode::clear) ==
+        vnengine::UpdateCharacterNodeResult::invalid_mode);
+  CHECK(vnengine::update_character_node(
+            aggregate,
+            scene_id,
+            *added.node_id,
+            std::nullopt,
+            vnengine::CharacterSlot::right,
+            3,
+            vnengine::CharacterPosition{.x = 50.0, .y = 50.0},
+            vnengine::CharacterNodeMode::clear) ==
+        vnengine::UpdateCharacterNodeResult::invalid_mode);
+  CHECK(aggregate == before_invalid_clear);
   CHECK(!vnengine::validate_project_aggregate(aggregate).has_value());
+}
+
+void manages_character_effects_atomically() {
+  SequenceIdGenerator ids;
+  vnengine::ProjectAggregate aggregate =
+      vnengine::create_empty_project_aggregate(ids);
+  const std::string scene_id = aggregate.project.entry_scene_id;
+  aggregate.assets.push_back({
+      .id = "portrait",
+      .type = vnengine::AssetType::image,
+      .relative_path = "assets/images/portrait.png",
+      .display_name = "Portrait",
+  });
+
+  const auto source = vnengine::add_character_node(aggregate, ids, scene_id);
+  const auto target = vnengine::add_character_node(aggregate, ids, scene_id);
+  const auto cleared = vnengine::add_character_node(
+      aggregate,
+      ids,
+      scene_id,
+      std::nullopt,
+      std::nullopt,
+      vnengine::CharacterNodeMode::clear);
+  CHECK(source.status == vnengine::AddCharacterNodeStatus::added);
+  CHECK(target.status == vnengine::AddCharacterNodeStatus::added);
+  CHECK(cleared.status == vnengine::AddCharacterNodeStatus::added);
+  CHECK(vnengine::update_character_node(
+            aggregate,
+            scene_id,
+            *source.node_id,
+            "portrait",
+            vnengine::CharacterSlot::left,
+            1) == vnengine::UpdateCharacterNodeResult::changed);
+  CHECK(vnengine::update_character_node(
+            aggregate,
+            scene_id,
+            *target.node_id,
+            "portrait",
+            vnengine::CharacterSlot::right,
+            2) == vnengine::UpdateCharacterNodeResult::changed);
+
+  const vnengine::CharacterEffect shake{
+      .type = vnengine::CharacterEffectType::shake,
+      .duration_ms = 450,
+      .intensity = vnengine::CharacterEffectIntensity::strong,
+      .direction = std::nullopt,
+  };
+  CHECK(vnengine::update_character_effect(
+            aggregate, scene_id, *source.node_id, shake) ==
+        vnengine::UpdateCharacterEffectResult::changed);
+  CHECK(vnengine::update_character_effect(
+            aggregate, scene_id, *source.node_id, shake) ==
+        vnengine::UpdateCharacterEffectResult::unchanged);
+
+  // Ordinary portrait editing preserves an attached effect.
+  CHECK(vnengine::update_character_node(
+            aggregate,
+            scene_id,
+            *source.node_id,
+            "portrait",
+            vnengine::CharacterSlot::center,
+            3,
+            vnengine::CharacterPosition{.x = 40.0, .y = 90.0}) ==
+        vnengine::UpdateCharacterNodeResult::changed);
+  CHECK(vnengine::find_character_node(
+            aggregate.project.scenes[0], *source.node_id)
+            ->effect == shake);
+
+  vnengine::CharacterEffect invalid = shake;
+  invalid.duration_ms = 99;
+  const vnengine::ProjectAggregate before_invalid = aggregate;
+  CHECK(vnengine::update_character_effect(
+            aggregate, scene_id, *source.node_id, invalid) ==
+        vnengine::UpdateCharacterEffectResult::invalid_effect);
+  CHECK(vnengine::update_character_effect(
+            aggregate, scene_id, *cleared.node_id, shake) ==
+        vnengine::UpdateCharacterEffectResult::character_cleared);
+  CHECK(vnengine::move_character_effect(
+            aggregate,
+            scene_id,
+            *source.node_id,
+            *target.node_id,
+            invalid) == vnengine::MoveCharacterEffectResult::invalid_effect);
+  CHECK(aggregate == before_invalid);
+
+  vnengine::CharacterEffect mismatched = shake;
+  mismatched.duration_ms = 451;
+  CHECK(vnengine::move_character_effect(
+            aggregate,
+            scene_id,
+            *source.node_id,
+            *target.node_id,
+            mismatched) ==
+        vnengine::MoveCharacterEffectResult::source_effect_mismatch);
+  CHECK(vnengine::move_character_effect(
+            aggregate,
+            scene_id,
+            *source.node_id,
+            *source.node_id,
+            shake) == vnengine::MoveCharacterEffectResult::same_node);
+  CHECK(vnengine::move_character_effect(
+            aggregate,
+            scene_id,
+            *source.node_id,
+            *cleared.node_id,
+            shake) ==
+        vnengine::MoveCharacterEffectResult::target_character_cleared);
+  CHECK(aggregate == before_invalid);
+
+  CHECK(vnengine::move_character_effect(
+            aggregate,
+            scene_id,
+            *source.node_id,
+            *target.node_id,
+            shake) == vnengine::MoveCharacterEffectResult::changed);
+  CHECK(!vnengine::find_character_node(
+             aggregate.project.scenes[0], *source.node_id)
+             ->effect.has_value());
+  CHECK(vnengine::find_character_node(
+            aggregate.project.scenes[0], *target.node_id)
+            ->effect == shake);
+
+  // Clearing a portrait also clears its effect to preserve the aggregate
+  // invariant, while all other character.update fields remain independent.
+  CHECK(vnengine::update_character_node(
+            aggregate,
+            scene_id,
+            *target.node_id,
+            std::nullopt,
+            vnengine::CharacterSlot::right,
+            2,
+            std::nullopt,
+            vnengine::CharacterNodeMode::clear) ==
+        vnengine::UpdateCharacterNodeResult::changed);
+  CHECK(!vnengine::find_character_node(
+             aggregate.project.scenes[0], *target.node_id)
+             ->effect.has_value());
+  CHECK(!vnengine::validate_project_aggregate(aggregate).has_value());
+
+  vnengine::CharacterNode* invalid_node = vnengine::find_character_node(
+      aggregate.project.scenes[0], *cleared.node_id);
+  invalid_node->effect = shake;
+  CHECK(vnengine::validate_project_aggregate(aggregate).has_value());
 }
 
 void manages_scene_jump_nodes_and_protects_targets() {
@@ -1999,6 +2195,146 @@ void reorders_story_pages_with_complete_logic_ranges() {
   expect_atomic_rejection(complete_page, repeat_id);
 }
 
+void manages_cg_display_controls_atomically() {
+  SequenceIdGenerator ids;
+  vnengine::ProjectAggregate aggregate =
+      vnengine::create_empty_project_aggregate(ids, "CG controls");
+  aggregate.assets.push_back(vnengine::Asset{
+      .id = "cg-image",
+      .type = vnengine::AssetType::image,
+      .relative_path = "assets/images/cg.png",
+      .display_name = "CG",
+  });
+  aggregate.assets.push_back(vnengine::Asset{
+      .id = "not-image",
+      .type = vnengine::AssetType::video,
+      .relative_path = "assets/videos/not-image.mp4",
+      .display_name = "Video",
+  });
+  const std::string scene_id = aggregate.project.entry_scene_id;
+  const vnengine::LogicCondition condition{
+      .left = vnengine::LogicLiteralOperand{.value = true},
+      .comparison = vnengine::LogicComparisonOperator::equal,
+      .right = vnengine::LogicLiteralOperand{.value = true},
+  };
+  const auto added_if = vnengine::add_logic_if_node(
+      aggregate.project, ids, scene_id, condition);
+  CHECK(added_if.status == vnengine::AddLogicNodeStatus::added);
+  vnengine::Scene& scene = aggregate.project.scenes[0];
+  const std::string else_id =
+      std::get<vnengine::LogicElseNode>(scene.nodes[1]).id;
+  const std::string end_if_id =
+      std::get<vnengine::LogicEndIfNode>(scene.nodes[2]).id;
+
+  const auto display = vnengine::add_cg_display_node(
+      aggregate,
+      ids,
+      scene_id,
+      "cg-image",
+      1250,
+      std::nullopt,
+      else_id);
+  CHECK(display.status == vnengine::AddCgDisplayStatus::added);
+  CHECK(display.node_id.has_value());
+  CHECK(std::get<vnengine::CgDisplayNode>(scene.nodes[1]).asset_id ==
+        "cg-image");
+  CHECK(std::get<vnengine::CgDisplayNode>(scene.nodes[1]).lead_in_ms == 1250);
+  const std::string end_display_id =
+      std::get<vnengine::CgEndDisplayNode>(scene.nodes[2]).id;
+  CHECK(std::get<vnengine::CgEndDisplayNode>(scene.nodes[2])
+            .cg_display_node_id == *display.node_id);
+
+  const std::string dialogue_id = *vnengine::add_dialogue(
+      aggregate.project,
+      ids,
+      scene_id,
+      "Alice",
+      "CG dialogue",
+      std::nullopt,
+      end_display_id);
+  CHECK(!vnengine::validate_project_aggregate(aggregate).has_value());
+
+  const vnengine::Project before_invalid_body = aggregate.project;
+  const auto nested_repeat = vnengine::add_logic_repeat_node(
+      aggregate.project,
+      ids,
+      scene_id,
+      2,
+      std::nullopt,
+      end_display_id);
+  CHECK(nested_repeat.status == vnengine::AddLogicNodeStatus::invalid_logic);
+  CHECK(aggregate.project == before_invalid_body);
+  const auto nested_background = vnengine::add_background_node(
+      aggregate,
+      ids,
+      scene_id,
+      std::nullopt,
+      end_display_id);
+  CHECK(nested_background.status ==
+        vnengine::AddBackgroundNodeStatus::control_boundary_conflict);
+  CHECK(aggregate.project == before_invalid_body);
+
+  CHECK(vnengine::add_cg_display_node(
+            aggregate, ids, scene_id, "missing", 0)
+            .status == vnengine::AddCgDisplayStatus::asset_not_found);
+  CHECK(vnengine::add_cg_display_node(
+            aggregate, ids, scene_id, "not-image", 0)
+            .status == vnengine::AddCgDisplayStatus::asset_not_image);
+  CHECK(vnengine::add_cg_display_node(
+            aggregate, ids, scene_id, "cg-image", 60001)
+            .status == vnengine::AddCgDisplayStatus::invalid_lead_in);
+  CHECK(vnengine::update_cg_display_node(
+            aggregate, scene_id, *display.node_id, "cg-image", 60000) ==
+        vnengine::UpdateCgDisplayResult::changed);
+  CHECK(vnengine::update_cg_display_node(
+            aggregate, scene_id, *display.node_id, "cg-image", 60000) ==
+        vnengine::UpdateCgDisplayResult::unchanged);
+
+  const std::vector<std::string> partial{*display.node_id, dialogue_id};
+  const std::vector<std::string> complete{
+      *display.node_id, dialogue_id, end_display_id};
+  CHECK(!vnengine::scene_node_selection_respects_logic_boundaries(
+      scene, partial));
+  CHECK(vnengine::scene_node_selection_respects_logic_boundaries(
+      scene, complete));
+  CHECK(vnengine::reorder_scene_nodes(
+      aggregate.project, scene_id, complete, end_if_id));
+  CHECK(!vnengine::validate_project_aggregate(aggregate).has_value());
+
+  const auto repeat = vnengine::add_logic_repeat_node(
+      aggregate.project, ids, scene_id, 2);
+  CHECK(repeat.status == vnengine::AddLogicNodeStatus::added);
+  const std::string end_repeat_id = std::get<vnengine::LogicEndRepeatNode>(
+      scene.nodes.back()).id;
+  const auto empty_repeat_display = vnengine::add_cg_display_node(
+      aggregate,
+      ids,
+      scene_id,
+      "cg-image",
+      0,
+      std::nullopt,
+      end_repeat_id);
+  CHECK(empty_repeat_display.status == vnengine::AddCgDisplayStatus::added);
+  CHECK(!vnengine::validate_project_aggregate(aggregate).has_value());
+  CHECK(vnengine::delete_cg_display(
+            aggregate.project,
+            scene_id,
+            *empty_repeat_display.node_id) ==
+        vnengine::CgDisplayMutationResult::changed);
+
+  CHECK(vnengine::reorder_cg_display(
+            aggregate.project,
+            scene_id,
+            *display.node_id,
+            dialogue_id) ==
+        vnengine::CgDisplayMutationResult::anchor_inside_display);
+  CHECK(vnengine::delete_cg_display(
+            aggregate.project, scene_id, *display.node_id) ==
+        vnengine::CgDisplayMutationResult::changed);
+  CHECK(vnengine::find_scene_node(scene, dialogue_id) == nullptr);
+  CHECK(!vnengine::validate_project_aggregate(aggregate).has_value());
+}
+
 }  // namespace
 
 int main() {
@@ -2046,6 +2382,8 @@ int main() {
        normalizes_committed_dialogue_content},
       {"manages character timeline nodes atomically",
        manages_character_timeline_nodes_atomically},
+      {"manages character effects atomically",
+       manages_character_effects_atomically},
       {"manages scene jump nodes and protects targets",
        manages_scene_jump_nodes_and_protects_targets},
       {"manages dialogue voice and BGM audio references",
@@ -2060,6 +2398,8 @@ int main() {
        manages_logic_controls_and_variables_atomically},
       {"reorders story pages with complete logic ranges",
        reorders_story_pages_with_complete_logic_ranges},
+      {"manages CG display controls atomically",
+       manages_cg_display_controls_atomically},
   };
 
   int failures = 0;

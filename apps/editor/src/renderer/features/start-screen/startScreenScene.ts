@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：管理标题、CG 画廊和故事三类编辑界面导航状态。
+ * 包含实现：`START_SCREEN_SCENE_ID`、`CG_GALLERY_SCENE_ID`、`EditorSurface`、`EditorSurfaceAction`、`initialEditorSurface`、`editorSurfaceReducer` 等 10 项。
+ */
+
 import type { ProjectDocument } from '../../../shared/projectTypes';
 import {
   DEFAULT_EDITOR_LANGUAGE,

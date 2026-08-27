@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 story block type registry 的行为。
+ * 测试覆盖：`story block type registry`。
+ */
+
 import { describe, expect, it } from 'vitest';
 
 import { BGM_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/bgmBlock';
@@ -27,6 +32,8 @@ import {
   STORY_BLOCK_TYPES,
 } from '../../src/renderer/features/block-editor/storyBlockTypes';
 import { createBlockEditorToolbox } from '../../src/renderer/features/block-editor/toolbox';
+import { CG_DISPLAY_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/cgDisplayBlock';
+import { CHARACTER_EFFECT_BLOCK_TYPES } from '../../src/renderer/features/block-editor/blocks/characterEffectBlock';
 
 describe('story block type registry', () => {
   it('includes every non-dialogue story node in generic interactions', () => {
@@ -42,6 +49,7 @@ describe('story block type registry', () => {
     expect(isStoryBlockType(STORY_CONTINUATION_BLOCK_TYPE)).toBe(true);
     expect(isStoryBlockType(LOGIC_IF_BLOCK_TYPE)).toBe(true);
     expect(isStoryBlockType(LOGIC_REPEAT_BLOCK_TYPE)).toBe(true);
+    expect(isStoryBlockType(CG_DISPLAY_BLOCK_TYPE)).toBe(true);
     expect(isStoryBlockType(VARIABLE_SET_BLOCK_TYPE)).toBe(true);
     expect(isStoryBlockType(VARIABLE_CHANGE_BLOCK_TYPE)).toBe(true);
     expect(isStoryBlockType('unrelated-block')).toBe(false);
@@ -68,6 +76,7 @@ describe('story block type registry', () => {
       '变量',
       '音乐',
       '图片',
+      '特效',
     ]);
     expect(typesIn('剧情')).toEqual([
       DIALOGUE_BLOCK_TYPE,
@@ -89,7 +98,11 @@ describe('story block type registry', () => {
       BACKGROUND_BLOCK_TYPE,
       CHARACTER_BLOCK_TYPE,
       CLEAR_CHARACTER_BLOCK_TYPE,
+      CG_DISPLAY_BLOCK_TYPE,
       VIDEO_BLOCK_TYPE,
     ]);
+    expect(typesIn('特效')).toEqual(
+      Object.values(CHARACTER_EFFECT_BLOCK_TYPES),
+    );
   });
 });

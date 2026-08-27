@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：通过 contextBridge 向 Editor Renderer 暴露最小类型化 API。
+ * 包含实现：Engine、资产、项目、导出和设置 IPC 的参数封装与事件订阅。
+ */
+
 import { contextBridge, ipcRenderer } from 'electron';
 
 import {
@@ -184,6 +189,16 @@ const vnEngine: VnEngineApi = {
       method: 'character.update',
       params,
     }),
+  updateCharacterEffect: (params) =>
+    invokeEngine({
+      method: 'characterEffect.update',
+      params,
+    }),
+  moveCharacterEffect: (params) =>
+    invokeEngine({
+      method: 'characterEffect.move',
+      params,
+    }),
   addSceneJump: (params) =>
     invokeEngine({
       method: 'sceneJump.add',
@@ -212,6 +227,26 @@ const vnEngine: VnEngineApi = {
   updateVideo: (params) =>
     invokeEngine({
       method: 'video.update',
+      params,
+    }),
+  addCgDisplay: (params) =>
+    invokeEngine({
+      method: 'cgDisplay.add',
+      params,
+    }),
+  updateCgDisplay: (params) =>
+    invokeEngine({
+      method: 'cgDisplay.update',
+      params,
+    }),
+  deleteCgDisplay: (params) =>
+    invokeEngine({
+      method: 'cgDisplay.delete',
+      params,
+    }),
+  reorderCgDisplay: (params) =>
+    invokeEngine({
+      method: 'cgDisplay.reorder',
       params,
     }),
   addChoice: (params) =>

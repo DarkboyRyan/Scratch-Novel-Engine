@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 scene start block 的行为。
+ * 测试覆盖：`scene start block`。
+ */
+
 import * as Blockly from 'blockly';
 import { describe, expect, it } from 'vitest';
 

@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：呈现正式游戏预览并驱动对白、选项、CG、视频和角色特效。
+ * 包含实现：`GamePreview`。
+ */
+
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { TitleScreen } from '@vnengine/player-ui';
 import { getLocalizedRuntimeErrorMessage } from '@vnengine/runtime';
@@ -20,6 +25,7 @@ type GamePreviewProps = {
   previewUrls: Readonly<Record<string, string>>;
   resolveMediaUrl: MediaUrlResolver;
   onAdvance: () => void;
+  onCgLeadInComplete?: () => void;
   onVideoComplete: () => void;
   onChoiceSelect: (optionId: string) => void;
   onEnterStory: () => void;
@@ -28,12 +34,19 @@ type GamePreviewProps = {
 
 type StoryGamePreviewProps = Omit<GamePreviewProps, 'onEnterStory'>;
 
+type CgPreviewMediaState = {
+  key: string;
+  status: 'resolving' | 'loading' | 'ready' | 'error';
+  url: string | null;
+};
+
 function StoryGamePreview({
   session,
   assets,
   previewUrls,
   resolveMediaUrl,
   onAdvance,
+  onCgLeadInComplete,
   onVideoComplete,
   onChoiceSelect,
   onExit,
@@ -41,7 +54,19 @@ function StoryGamePreview({
   const labels = useEditorLabels();
   const language = useEditorLanguage();
   const rootRef = useRef<HTMLDivElement>(null);
+  const cgTimerRef = useRef<{ key: string; remainingMs: number } | null>(null);
+  const cgCompletionRef = useRef(onCgLeadInComplete);
+  const [cgMedia, setCgMedia] = useState<CgPreviewMediaState>({
+    key: '',
+    status: 'resolving',
+    url: null,
+  });
+  const [pageHidden, setPageHidden] = useState(() => document.hidden);
   const { runtime } = session;
+  cgCompletionRef.current = onCgLeadInComplete;
+  const cgMediaKey = runtime.cgAssetId === null
+    ? ''
+    : `${runtime.cgAssetId}:${runtime.cgSequence}`;
   const choices = getGamePreviewChoices(session.project, runtime);
   usePreviewAudio(runtime, resolveMediaUrl);
   const backgroundAsset = runtime.backgroundAssetId
@@ -57,9 +82,107 @@ function StoryGamePreview({
         slot: character.slot,
         layer: character.layer,
         position: character.position,
+        opacity: character.opacity,
+        effect: character.effect,
+        effectSequence: character.effectSequence,
       };
     },
   );
+
+  useEffect(() => {
+    const handleVisibilityChange = () => setPageHidden(document.hidden);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener(
+      'visibilitychange',
+      handleVisibilityChange,
+    );
+  }, []);
+
+  useEffect(() => {
+    const assetId = runtime.cgAssetId;
+    const key = cgMediaKey;
+    if (assetId === null) {
+      setCgMedia({ key: '', status: 'resolving', url: null });
+      return;
+    }
+    let cancelled = false;
+    setCgMedia({ key, status: 'resolving', url: null });
+    void resolveMediaUrl(assetId).then((url) => {
+      if (!cancelled) {
+        setCgMedia(url === null
+          ? { key, status: 'error', url: null }
+          : { key, status: 'loading', url });
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setCgMedia({ key, status: 'error', url: null });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [cgMediaKey, resolveMediaUrl, runtime.cgAssetId]);
+
+  useEffect(() => {
+    if (runtime.status !== 'waitingCgLeadIn') {
+      cgTimerRef.current = null;
+      return;
+    }
+    const key = `${runtime.sceneId}:${runtime.cgSequence}`;
+    if (cgTimerRef.current?.key !== key) {
+      cgTimerRef.current = { key, remainingMs: runtime.cgLeadInMs };
+    }
+    if (
+      pageHidden ||
+      cgMedia.key !== cgMediaKey ||
+      cgMedia.status !== 'ready'
+    ) {
+      return;
+    }
+    const timerState = cgTimerRef.current;
+    const startedAt = performance.now();
+    const timeout = window.setTimeout(() => {
+      if (cgTimerRef.current?.key === key) {
+        cgTimerRef.current.remainingMs = 0;
+      }
+      cgCompletionRef.current?.();
+    }, timerState.remainingMs);
+    return () => {
+      window.clearTimeout(timeout);
+      if (cgTimerRef.current?.key === key) {
+        cgTimerRef.current.remainingMs = Math.max(
+          0,
+          timerState.remainingMs - Math.max(0, performance.now() - startedAt),
+        );
+      }
+    };
+  }, [
+    cgMedia.key,
+    cgMedia.status,
+    cgMediaKey,
+    pageHidden,
+    runtime.cgLeadInMs,
+    runtime.cgSequence,
+    runtime.sceneId,
+    runtime.status,
+  ]);
+
+  const completeCgImageLoad = (image: HTMLImageElement) => {
+    const key = cgMediaKey;
+    const markReady = () => setCgMedia((current) =>
+      current.key === key && current.status === 'loading'
+        ? { ...current, status: 'ready' }
+        : current);
+    if (typeof image.decode !== 'function') {
+      markReady();
+      return;
+    }
+    void image.decode().then(markReady).catch(() => {
+      setCgMedia((current) => current.key === key
+        ? { key, status: 'error', url: null }
+        : current);
+    });
+  };
 
   useEffect(() => {
     rootRef.current?.focus();
@@ -114,8 +237,49 @@ function StoryGamePreview({
         backgroundName={backgroundAsset?.displayName ?? null}
         showDialogue={runtime.status === 'playing' && runtime.dialogue !== null}
         characters={characters}
+        animateCharacters
+        animationsPaused={pageHidden}
         placeholder={labels.preview.gamePreview}
       >
+        {runtime.cgAssetId ? (
+          <div
+            className="game-preview-cg-layer"
+            aria-label={language === 'zh-CN' ? '剧情 CG' : 'Story CG'}
+            aria-busy={
+              cgMedia.status === 'resolving' || cgMedia.status === 'loading'
+            }
+          >
+            {cgMedia.url ? (
+              <img
+                src={cgMedia.url}
+                alt={assets.find((asset) => asset.id === runtime.cgAssetId)
+                  ?.displayName ?? 'CG'}
+                onLoad={(event) => completeCgImageLoad(event.currentTarget)}
+                onError={() => setCgMedia((current) =>
+                  current.key === cgMediaKey
+                    ? { key: cgMediaKey, status: 'error', url: null }
+                    : current)}
+              />
+            ) : null}
+            {cgMedia.status === 'resolving' || cgMedia.status === 'loading' ? (
+              <p className="game-preview-cg-message" role="status">
+                {language === 'zh-CN' ? '正在载入 CG…' : 'Loading CG…'}
+              </p>
+            ) : null}
+            {cgMedia.status === 'error' ? (
+              <div className="game-preview-cg-error" role="alert">
+                <p>{language === 'zh-CN'
+                  ? 'CG 图片无法读取，预览已暂停。'
+                  : 'The CG image could not be loaded. Preview is paused.'}
+                </p>
+                <button type="button" onClick={onExit}>
+                  {labels.preview.exit}
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         {runtime.status === 'finished' ? (
           <div className="game-preview-finished" role="status">
             <strong>{labels.preview.finished}</strong>
@@ -318,6 +482,7 @@ export function GamePreview(props: GamePreviewProps) {
       previewUrls={props.previewUrls}
       resolveMediaUrl={props.resolveMediaUrl}
       onAdvance={props.onAdvance}
+      onCgLeadInComplete={props.onCgLeadInComplete}
       onVideoComplete={props.onVideoComplete}
       onChoiceSelect={props.onChoiceSelect}
       onExit={props.onExit}

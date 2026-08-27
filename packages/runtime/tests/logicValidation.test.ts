@@ -1,3 +1,7 @@
+/**
+ * 主要作用：验证逻辑值、变量名、UTF-8 长度和资源预算限制。
+ * 关键函数与实现：测试套件“logic value validation”；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 import { describe, expect, it } from 'vitest';
 
 import {

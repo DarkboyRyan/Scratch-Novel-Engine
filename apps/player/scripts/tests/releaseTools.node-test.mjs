@@ -1,3 +1,7 @@
+/**
+ * 主要作用：验证 releaseTools 的运行包、模板、制品、发布集及防篡改规则。
+ * 关键函数与实现：测试套件“verifies a runtime bundle and rejects post-manifest tampering”、`temporaryDirectories`、`testDirectory`、`playerDirectory`；使用 node:test、临时目录与真实文件制品覆盖发布工具。
+ */
 import { createPackage as createAsarPackage } from '@electron/asar';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -68,7 +72,7 @@ function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-async function writeMediaBundle(root, runtimeVersion = 7) {
+async function writeMediaBundle(root, runtimeVersion = 9) {
   const png = Buffer.from([
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
     0x00, 0x00, 0x00, 0x0d,
@@ -141,7 +145,11 @@ async function writeMediaBundle(root, runtimeVersion = 7) {
                 ? '>=5 <6'
                 : runtimeVersion === 6
                   ? '>=6 <7'
-                  : '>=7 <8',
+                : runtimeVersion === 7
+                  ? '>=7 <8'
+                  : runtimeVersion === 8
+                    ? '>=8 <9'
+                    : '>=9 <10',
       createdAt: '2026-08-18T00:00:00.000Z',
       files: [{
         assetId: 'background',

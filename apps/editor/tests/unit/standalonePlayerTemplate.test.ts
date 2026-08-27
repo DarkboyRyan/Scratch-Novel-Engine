@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 standalone Player template contract 的行为。
+ * 测试覆盖：`standalone Player template contract`。
+ */
+
 import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,7 +29,7 @@ describe('standalone Player template contract', () => {
       platform: process.platform,
       arch: process.arch,
       playerVersion: '0.1.0',
-      runtimeCompatibility: '>=1 <8',
+      runtimeCompatibility: '>=1 <10',
       payloadRoot: 'payload',
       artifactEntry: macos ? 'VN Engine Player.app' : 'player',
       gameResourceDirectory: macos

@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+/**
+ * 主要作用：构建带哈希清单的 Web Player 模板目录。
+ * 关键函数与实现：collectFiles、validatePayloadFiles、removeOwnedDirectory、main；基于 Node.js ESM、文件系统和受限子进程完成确定性 CLI 流程。
+ */
 
 import { createHash, randomUUID } from 'node:crypto';
 import {
@@ -18,7 +22,7 @@ import { commandOptions } from './lib/releaseTools.mjs';
 
 const TEMPLATE_FORMAT = 'vn-engine-web-player-template';
 const TEMPLATE_VERSION = 1;
-const RUNTIME_COMPATIBILITY = '>=1 <8';
+const RUNTIME_COMPATIBILITY = '>=1 <10';
 
 function sameFile(left, right) {
   return left.isFile() &&

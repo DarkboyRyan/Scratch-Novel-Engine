@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：把逻辑时间线节点转换为表单编辑器可展示的树结构。
+ * 包含实现：`FormLogicTreeEntry`、`createFormLogicTree`、`getCharacterGroupDialogueAnchorId`。
+ */
+
 import type {
   FormVisibleSceneNode,
   SceneDocument,
@@ -12,12 +17,12 @@ export type FormLogicTreeEntry =
       kind: 'node';
       node: FormVisibleSceneNode;
       depth: number;
-      branch: 'root' | 'then' | 'else' | 'body';
+      branch: 'root' | 'then' | 'else' | 'body' | 'cgBody';
     }
   | {
       kind: 'branch';
       id: string;
-      branch: 'then' | 'else' | 'body';
+      branch: 'then' | 'else' | 'body' | 'cgBody';
       depth: number;
     };
 
@@ -61,7 +66,7 @@ function appendItems(
         depth: depth + 1,
       });
       appendItems(entries, item.elseItems, depth + 1, 'else');
-    } else {
+    } else if (item.kind === 'repeat') {
       entries.push({
         kind: 'branch',
         id: `${item.node.id}:body`,
@@ -69,6 +74,14 @@ function appendItems(
         depth: depth + 1,
       });
       appendItems(entries, item.bodyItems, depth + 1, 'body');
+    } else {
+      entries.push({
+        kind: 'branch',
+        id: `${item.node.id}:cg-body`,
+        branch: 'cgBody',
+        depth: depth + 1,
+      });
+      appendItems(entries, item.bodyItems, depth + 1, 'cgBody');
     }
   }
 }
@@ -122,7 +135,7 @@ function findCharacterGroupDialogueAnchor(
       if (elseResult) {
         return elseResult;
       }
-    } else if (item.kind === 'repeat') {
+    } else if (item.kind === 'repeat' || item.kind === 'cg') {
       const bodyResult = findCharacterGroupDialogueAnchor(
         item.bodyItems,
         characterNodeId,

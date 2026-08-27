@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：以可访问模态框展示并关闭应用错误。
+ * 包含实现：`ErrorDialog`。
+ */
+
 import { useEffect, useRef } from 'react';
 
 import { useEditorLabels } from '../i18n/editorLocalization';

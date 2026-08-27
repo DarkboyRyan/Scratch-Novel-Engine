@@ -1,3 +1,5 @@
+// 主要作用：编排运行包、Web 包和独立应用的原生导出流程。
+// 关键实现：runExportGameWorkflow 选择目标、加载模板并调度对应导出器。
 import { app, dialog } from 'electron';
 import path from 'node:path';
 
@@ -8,6 +10,7 @@ import type {
 import type { EditorLanguage } from '../../shared/editorSettingsProtocol';
 import { getEditorNativeLabels } from '../i18n/editorNativeLabels';
 import type { EditorWindowContext } from '../window/EditorWindowContext';
+import { AuthorProjectCompileError } from './AuthorProjectCompiler';
 import { exportRuntimeBundle } from './RuntimeBundleExporter';
 import {
   exportStandaloneApplication,
@@ -289,6 +292,15 @@ export async function runExportGameWorkflow(
   } catch (error) {
     // Native paths and low-level filesystem details stay in Main logs.
     console.error('[game-export] export failed', error);
+    if (error instanceof AuthorProjectCompileError) {
+      const publicError = new Error(
+        getEditorNativeLabels(language).export.characterImageRequired,
+      );
+      // The stable name lets future Renderer versions map the failure without
+      // parsing localized prose; current clients still receive a useful text.
+      publicError.name = `GameExportError:${error.code}`;
+      throw publicError;
+    }
     throw new Error(
       standalone
         ? '独立应用导出失败，源项目和已有导出内容均未修改'

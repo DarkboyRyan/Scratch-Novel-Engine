@@ -1,7 +1,10 @@
+// 主要作用：在进入 C++ 后端前严格验证每一种引擎命令参数。
+// 关键实现：isEngineInvocation 按 ENGINE_METHODS 分支校验精确字段与值域。
 import {
   ENGINE_METHODS,
   type EngineInvocation,
 } from '../../shared/engineProtocol';
+import { isCharacterEffect } from '@vnengine/runtime';
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -270,6 +273,47 @@ export function isEngineInvocation(
         (params.count as number) <= 1000 &&
         hasOnly(['sceneId', 'nodeId', 'count'])
       );
+    case 'cgDisplay.add':
+      return (
+        hasString('sceneId') &&
+        hasString('assetId') &&
+        (params.assetId as string).length > 0 &&
+        Number.isInteger(params.leadInMs) &&
+        (params.leadInMs as number) >= 0 &&
+        (params.leadInMs as number) <= 60000 &&
+        hasOnly([
+          'sceneId',
+          'assetId',
+          'leadInMs',
+          'afterNodeId',
+          'beforeNodeId',
+        ]) &&
+        hasValidOptionalPlacement()
+      );
+    case 'cgDisplay.update':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        hasString('assetId') &&
+        (params.assetId as string).length > 0 &&
+        Number.isInteger(params.leadInMs) &&
+        (params.leadInMs as number) >= 0 &&
+        (params.leadInMs as number) <= 60000 &&
+        hasOnly(['sceneId', 'nodeId', 'assetId', 'leadInMs'])
+      );
+    case 'cgDisplay.delete':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        hasOnly(['sceneId', 'nodeId'])
+      );
+    case 'cgDisplay.reorder':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        (params.beforeNodeId === null || hasString('beforeNodeId')) &&
+        hasOnly(['sceneId', 'nodeId', 'beforeNodeId'])
+      );
     case 'logicControl.delete':
       return (
         hasString('sceneId') &&
@@ -333,16 +377,31 @@ export function isEngineInvocation(
     case 'character.add':
       return (
         hasString('sceneId') &&
-        params.assetId === undefined &&
-        params.slot === undefined &&
-        params.layer === undefined &&
-        params.position === undefined &&
+        (params.mode === undefined ||
+          params.mode === 'show' ||
+          params.mode === 'clear') &&
+        (params.assetId === undefined ||
+          params.assetId === null ||
+          hasString('assetId')) &&
+        (params.mode !== 'clear' ||
+          params.assetId === undefined ||
+          params.assetId === null) &&
+        hasOnly([
+          'sceneId',
+          'mode',
+          'assetId',
+          'afterNodeId',
+          'beforeNodeId',
+        ]) &&
         hasValidOptionalPlacement()
       );
     case 'character.update':
       return (
         hasString('sceneId') &&
         hasString('nodeId') &&
+        (params.mode === undefined ||
+          params.mode === 'show' ||
+          params.mode === 'clear') &&
         (params.assetId === null || hasString('assetId')) &&
         (params.slot === 'left' ||
           params.slot === 'center' ||
@@ -362,7 +421,34 @@ export function isEngineInvocation(
             typeof params.position.y === 'number' &&
             Number.isFinite(params.position.y) &&
             params.position.y >= 0 &&
-            params.position.y <= 100))
+            params.position.y <= 100)) &&
+        (params.mode !== 'clear' ||
+          params.assetId === null && params.position === null) &&
+        hasOnly([
+          'sceneId',
+          'nodeId',
+          'mode',
+          'assetId',
+          'slot',
+          'layer',
+          'position',
+        ])
+      );
+    case 'characterEffect.update':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        Object.hasOwn(params, 'effect') &&
+        (params.effect === null || isCharacterEffect(params.effect)) &&
+        hasOnly(['sceneId', 'nodeId', 'effect'])
+      );
+    case 'characterEffect.move':
+      return (
+        hasString('sceneId') &&
+        hasString('fromNodeId') &&
+        hasString('toNodeId') &&
+        isCharacterEffect(params.effect) &&
+        hasOnly(['sceneId', 'fromNodeId', 'toNodeId', 'effect'])
       );
     case 'sceneJump.add':
       return (

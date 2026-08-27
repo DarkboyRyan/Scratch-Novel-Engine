@@ -1,3 +1,7 @@
+/**
+ * 主要作用：解析并播放场景视频，处理音量、暂停、结束和错误回退。
+ * 关键函数与实现：`PreviewVideoProps`、`PreviewVideo`；基于 React 组件、Hooks、可访问交互与受控状态实现。
+ */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { PlayerUiLocalizationProps } from './localization';

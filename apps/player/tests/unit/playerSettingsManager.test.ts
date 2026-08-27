@@ -1,3 +1,7 @@
+/**
+ * 主要作用：验证设置写入、窗口预设、全屏切换和并发协调。
+ * 关键函数与实现：测试套件“Player settings window manager”、`FakeSettingsStore`、`FakeWindow`、`asStore`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 import { EventEmitter } from 'node:events';
 
 import type { BrowserWindow, Rectangle } from 'electron';

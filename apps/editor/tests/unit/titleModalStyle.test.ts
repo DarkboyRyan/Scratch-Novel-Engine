@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 title preview modal visual style contract 的行为。
+ * 测试覆盖：`title preview modal visual style contract`。
+ */
+
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 

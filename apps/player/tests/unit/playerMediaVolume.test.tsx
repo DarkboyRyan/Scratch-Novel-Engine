@@ -1,4 +1,8 @@
 /** @vitest-environment jsdom */
+/**
+ * 主要作用：验证主音量、通道音量和视频元素的实时同步。
+ * 关键函数与实现：测试套件“Player media volume”；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';

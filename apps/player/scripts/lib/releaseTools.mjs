@@ -1,3 +1,7 @@
+/**
+ * 主要作用：提供运行包、模板、制品、收据和发布集的共享严格校验工具。
+ * 关键函数与实现：verifyRuntimeBundle、copyVerifiedDirectory、collectArtifacts、verifyReleaseSet；基于 Node.js ESM、文件系统和受限子进程完成确定性 CLI 流程。
+ */
 import { extractFile as extractAsarFile } from '@electron/asar';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -439,7 +443,11 @@ function validateManifestDocument(input, projectId, runtimeVersion) {
                 ? '>=5 <6'
                 : runtimeVersion === 6
                   ? '>=6 <7'
-                  : '>=7 <8'
+                  : runtimeVersion === 7
+                    ? '>=7 <8'
+                    : runtimeVersion === 8
+                      ? '>=8 <9'
+                      : '>=9 <10'
     )
   ) {
     throw new Error('manifest.json 的格式或版本不受支持');
@@ -518,7 +526,9 @@ function validateGameDocument(input) {
       root.runtimeVersion !== 4 &&
       root.runtimeVersion !== 5 &&
       root.runtimeVersion !== 6 &&
-      root.runtimeVersion !== 7
+      root.runtimeVersion !== 7 &&
+      root.runtimeVersion !== 8 &&
+      root.runtimeVersion !== 9
     )
   ) {
     throw new Error('game.json 的格式或版本不受支持');

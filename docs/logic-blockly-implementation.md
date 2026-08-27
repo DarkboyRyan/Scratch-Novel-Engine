@@ -1,11 +1,14 @@
+<!-- 文件职责：记录逻辑 Blockly 系统；关键内容：变量、If/Else、Repeat、paired markers、Runtime 与快照。 -->
+
 # 逻辑 Blockly 实现
 
-> 实现状态：已完成。当前作者项目格式为 v16，导出为 runtime v7；桌面与 Web Player
-> 共用同一套严格逻辑模型、执行器和 `GameRuntimeSnapshot v2`。
+> 实现状态：已完成。当前作者项目格式为 v19，导出为 runtime v9；桌面与 Web Player
+> 共用同一套严格逻辑模型、执行器和 `GameRuntimeSnapshot v4`。逻辑首次引入版本仍为
+> author v16 / runtime v7 / snapshot v2。
 
 ## 1. 功能范围
 
-剧情场景的 Toolbox 现在按“剧情 / 逻辑 / 变量 / 音乐 / 图片”分类。首版逻辑功能包含：
+剧情场景的 Toolbox 现在按“剧情 / 逻辑 / 变量 / 音乐 / 图片 / 特效”分类。首版逻辑功能包含：
 
 - “设置变量”：把布尔值、有限数字或字符串写入变量；
 - “增减变量”：给数值变量加上一个有限数字；
@@ -111,7 +114,8 @@ Toolbox 分类如下：
 | 逻辑 | If/Else、Repeat |
 | 变量 | Set、Change |
 | 音乐 | BGM |
-| 图片 | 背景、立绘、清除立绘、视频 |
+| 图片 | 背景、立绘、清除立绘、显示 CG、视频 |
+| 特效 | 震动、跳跃、呼吸、闪烁、淡入、淡出、滑入（接入人物右侧 value socket） |
 
 表单编辑不会把隐藏 markers 显示成普通节点。它使用缩进树展示 If 的 Then/Else 和
 Repeat body，也会显示变量操作的当前摘要；条件、变量值和循环次数是只读的，作者需回到
@@ -139,19 +143,22 @@ Player，所以三处的条件、循环和错误语义一致。
 
 ## 6. 保存、读取与版本兼容
 
-作者 Writer 当前固定写 `fileVersion: 16`。Reader 接受 v1–v16：v1–v15 按既有规则
+作者 Writer 当前固定写 `fileVersion: 19`。Reader 接受 v1–v19：v1–v15 按既有规则
 迁移为当前模型，但这些旧版本若伪造 v16 才有的逻辑节点会被拒绝；v16 首次保存变量、
-条件和 paired markers。
+条件和 paired markers。v17 增加显示 CG 的配对节点；v18 增加人物 sidecar effect，v19
+增加人物 `show/clear` 意图；这些升级均不改变既有逻辑 AST。
 
-Editor Main 严格把已保存 author v16 编译为 runtime v7。Player Reader 支持 runtime
-v1–v7；逻辑节点只允许出现在 v7。当前 bundle manifest 声明
-`playerCompatibility: ">=7 <8"`，桌面和 Web Player 模板声明
-`runtimeCompatibility: ">=1 <8"`，两者分别表示“本包需要哪个 Player”与“本模板能读取
+Editor Main 直接严格读取 author v14–v19，并把已保存的当前 author v19 编译为 runtime
+v9。Player Reader 支持 runtime
+v1–v9；逻辑节点从 v7 起可用，显示 CG 节点从 v8 起可用，人物特效只允许出现在 v9。
+当前 bundle manifest 声明 `playerCompatibility: ">=9 <10"`，桌面和 Web Player 模板声明
+`runtimeCompatibility: ">=1 <10"`，两者分别表示“本包需要哪个 Player”与“本模板能读取
 哪些包”，不可互换。
 
-游戏进度使用 `GameRuntimeSnapshot v2`。相较 v1，它额外保存背景、立绘、变量表和活动
-Repeat 栈，恢复时会重新校验当前项目的控制结构、变量声明、循环 owner 与剩余次数。
-snapshot v1 只为无逻辑的旧存档保留兼容；它没有变量和循环状态，因此当前 Scene 游标
+游戏进度当前使用 `GameRuntimeSnapshot v4`。v2 相较 v1 增加背景、立绘、变量表和活动
+Repeat 栈；v3 再增加 CG 展示状态；v4 保存人物最终 opacity 与全局/分层特效序号，恢复时
+不重播瞬时 effect。恢复时会重新校验当前项目的控制结构、变量声明、
+循环 owner 与剩余次数。snapshot v1 只为无逻辑的旧存档保留兼容；它没有变量和循环状态，因此当前 Scene 游标
 之前一旦包含逻辑节点就会被拒绝，其余旧进度仍按既有严格规则恢复。桌面存档和
 IndexedDB Web 存档都复用这套严格解析与恢复。
 
@@ -160,12 +167,12 @@ IndexedDB Web 存档都复用这套严格解析与恢复。
 | 层 | 技术与职责 |
 | --- | --- |
 | C++ Core | C++20、`std::variant`、候选副本事务；保存权威节点并校验 marker、嵌套、变量预算 |
-| C++ Backend | nlohmann/json、JSONL；author v16 strict Reader/Writer、exact params、业务错误码 |
+| C++ Backend | nlohmann/json、JSONL；author v19 strict Reader/Writer、exact params、业务错误码 |
 | Electron 边界 | typed shared protocol、Main IPC validator、contextBridge preload；逐层 exact-field 校验 |
 | Renderer | React 19、Blockly 13、TypeScript；分类 Toolbox、C 形投影、后端优先 actions、表单只读树 |
-| 导出 | Editor Main TypeScript strict compiler；author v16 → runtime v7，保留运行节点并剥离延伸 |
+| 导出 | Editor Main TypeScript strict compiler；author v19 → runtime v9，保留运行节点并剥离延伸 |
 | Runtime | 纯 TypeScript reducer、预编译控制流、变量表、显式 loop stack、10000 步预算 |
-| Player/存档 | Electron 与 Web 共用 runtime schema；`GameRuntimeSnapshot v2`、桌面原子文件与 IndexedDB |
+| Player/存档 | Electron 与 Web 共用 runtime schema；`GameRuntimeSnapshot v4`、桌面原子文件与 IndexedDB |
 
 主要实现位置：
 
@@ -188,8 +195,8 @@ IndexedDB Web 存档都复用这套严格解析与恢复。
 - 原子新增、更新、整棵删除与整体移动，以及通用 timeline 命令不能拆散控制结构；
 - NUL、UTF-8 多字节边界、NaN/Infinity、Repeat/嵌套/32 变量上限和 extra fields；
 - Blockly 投影、事件路由、分类 Toolbox、表单树和不确定静态预览；
-- Runtime 条件语义、循环、自动步骤预算、snapshot v2 round-trip 与旧 v1 兼容；
-- author v16 → runtime v7 导出，以及桌面/Web Player v1–v7 Reader 和模板契约。
+- Runtime 条件语义、循环、自动步骤预算、snapshot v4 round-trip 与旧 v1–v3 兼容；
+- author v19 → runtime v9 导出，以及桌面/Web Player v1–v9 Reader 和模板契约。
 
 本次实现验收使用 CTest、Editor TypeScript typecheck/ESLint/Vitest、Runtime Vitest、
 Player Vitest 与 Player release-tools Node tests；逻辑链相关改动通过完整测试套件。

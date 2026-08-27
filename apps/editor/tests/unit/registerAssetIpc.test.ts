@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 asset IPC 的行为。
+ * 测试覆盖：`asset IPC`。
+ */
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { BackendClient } from '../../src/main/backend/backendClient';

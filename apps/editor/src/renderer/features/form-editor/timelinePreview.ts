@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：从选中时间线位置推导背景、角色和媒体预览状态。
+ * 包含实现：`TimelineCharacterState`、`TimelinePreviewState`、`deriveTimelinePreview`。
+ */
+
 import type { RuntimeCharacterState } from '@vnengine/runtime';
 
 import {
@@ -14,6 +19,7 @@ export type TimelinePreviewState = {
   characters: TimelineCharacterState[];
   showDialogue: boolean;
   logicPreviewUncertain?: true;
+  cgPreviewUncertain?: true;
 };
 
 // 背景节点是时间线事件。预览播放头以前最后出现的背景节点生效；
@@ -27,7 +33,10 @@ export function deriveTimelinePreview(
     ? nodes.findIndex((node) => node.id === selectedNodeId)
     : -1;
   const firstControlIndex = nodes.findIndex(
-    (node) => node.type === 'logicIf' || node.type === 'logicRepeat',
+    (node) =>
+      node.type === 'logicIf' ||
+      node.type === 'logicRepeat' ||
+      node.type === 'cgDisplay',
   );
   const requestedPlayheadIndex =
     selectedIndex >= 0 ? selectedIndex : nodes.length - 1;
@@ -48,20 +57,26 @@ export function deriveTimelinePreview(
     if (node?.type === 'background') {
       backgroundAssetId = node.assetId;
     } else if (node?.type === 'character') {
-      if (node.assetId === null) {
+      if (node.mode === 'clear') {
         charactersByLayer.delete(node.layer);
-      } else {
+      } else if (node.assetId !== null) {
         charactersByLayer.set(node.layer, {
           nodeId: node.id,
           assetId: node.assetId,
           slot: node.slot,
           layer: node.layer,
           position: node.position,
+          opacity: node.effect?.type === 'fadeOut' ? 0 : 1,
+          effect: null,
+          effectSequence: 0,
         });
       }
     }
   }
 
+  const uncertainNode = previewIsUncertain
+    ? nodes[firstControlIndex]
+    : undefined;
   return {
     backgroundAssetId,
     characters: [...charactersByLayer.values()].sort(
@@ -70,8 +85,11 @@ export function deriveTimelinePreview(
     showDialogue:
       !previewIsUncertain &&
       (selectedIndex < 0 || nodes[selectedIndex]?.type === 'dialogue'),
-    ...(previewIsUncertain
+    ...(previewIsUncertain && uncertainNode?.type !== 'cgDisplay'
       ? { logicPreviewUncertain: true as const }
+      : {}),
+    ...(previewIsUncertain && uncertainNode?.type === 'cgDisplay'
+      ? { cgPreviewUncertain: true as const }
       : {}),
   };
 }

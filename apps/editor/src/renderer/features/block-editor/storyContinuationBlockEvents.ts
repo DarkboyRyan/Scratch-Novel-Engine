@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：处理故事续页积木的顺序变化和页面重排命令。
+ * 包含实现：`StoryContinuationSequenceResolution`、`buildStoryContinuationPageReorder`、`getStoryContinuationSequenceUpdate`、`collectStoryContinuationSequenceDraft`。
+ */
+
 import * as Blockly from 'blockly';
 
 import type { TimelineReorderManyParams } from '../../../shared/engineProtocol';

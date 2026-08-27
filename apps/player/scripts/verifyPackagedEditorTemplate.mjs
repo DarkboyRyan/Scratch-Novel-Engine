@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+/**
+ * 主要作用：检查打包后的 Editor 是否携带完整可信的 Player 模板。
+ * 关键函数与实现：`oneEditorApp`、`requireRegularFile`、`main`；基于 Node.js ESM、文件系统和受限子进程完成确定性 CLI 流程。
+ */
 
 import { spawnSync } from 'node:child_process';
 import { isDeepStrictEqual } from 'node:util';
@@ -89,7 +93,7 @@ async function main() {
     platform: 'darwin',
     arch,
     playerVersion,
-    runtimeCompatibility: '>=1 <8',
+    runtimeCompatibility: '>=1 <10',
     payloadRoot: 'payload',
     artifactEntry: GENERIC_PLAYER_ARTIFACT_ENTRY,
     gameResourceDirectory: 'Contents/Resources/game',

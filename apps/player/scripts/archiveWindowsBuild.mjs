@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+/**
+ * 主要作用：将已验证的 Windows Player 目录归档为发布 ZIP。
+ * 关键函数与实现：`main`；基于 Node.js ESM、文件系统和受限子进程完成确定性 CLI 流程。
+ */
 
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';

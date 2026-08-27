@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：创建 React 根节点并挂载编辑器应用与国际化上下文。
+ * 包含实现：模块内部类型与实现。
+ */
+
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 

@@ -1,3 +1,7 @@
+/**
+ * 主要作用：解析 Renderer 入口并创建安全隔离的 Electron Player 窗口。
+ * 关键函数与实现：`resolvePlayerEntryUrl`、`createPlayerWindow`；基于 Electron Main 与 Node.js 安全文件/协议边界实现。
+ */
 import { app, BrowserWindow } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';

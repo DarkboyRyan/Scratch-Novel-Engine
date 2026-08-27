@@ -1,13 +1,19 @@
+/**
+ * 主要作用：验证共享剧情执行、控制流、CG、人物和错误语义合同。
+ * 关键函数与实现：测试套件“shared runtime execution contract”、`dialogue`、`emptyCgGallery`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 import { describe, expect, it } from 'vitest';
 
 import {
   advanceGame,
+  completeCgLeadIn,
   getLocalizedRuntimeErrorMessage,
   getChoices,
   MAX_LOGIC_STRING_BYTES,
   MAX_RUNTIME_VARIABLES,
   selectChoice,
   startGame,
+  validateSceneControlFlow,
   type ProjectDocument,
   type SceneNode,
 } from '../src';
@@ -54,6 +60,7 @@ describe('shared runtime execution contract', () => {
             slot: 'center',
             layer: 2,
             position: { x: 42, y: 91 },
+            effect: null,
           },
           dialogue('line', 'voice'),
         ],
@@ -74,6 +81,225 @@ describe('shared runtime execution contract', () => {
         layer: 2,
         position: { x: 42, y: 91 },
       }],
+    });
+  });
+
+  it('emits every character effect in an automatic batch and retains final opacity', () => {
+    const project: ProjectDocument = {
+      schemaVersion: 1,
+      id: 'character-effects',
+      name: 'Character effects',
+      entrySceneId: 'entry',
+      startScreen: { title: '', backgroundAssetId: null, musicAssetId: null },
+      cgGallery: emptyCgGallery(),
+      scenes: [{
+        schemaVersion: 1,
+        id: 'entry',
+        name: 'Entry',
+        backgroundAssetId: null,
+        nodes: [
+          {
+            id: 'hero-out',
+            type: 'character',
+            assetId: 'hero',
+            slot: 'left',
+            layer: 1,
+            position: null,
+            effect: { type: 'fadeOut', durationMs: 600 },
+          },
+          {
+            id: 'friend-shake',
+            type: 'character',
+            assetId: 'friend',
+            slot: 'right',
+            layer: 2,
+            position: { x: 75, y: 92 },
+            effect: {
+              type: 'shake',
+              durationMs: 400,
+              intensity: 'strong',
+            },
+          },
+          dialogue('effects-start'),
+          dialogue('effects-finished'),
+          {
+            id: 'hero-return',
+            type: 'character',
+            assetId: 'hero-smile',
+            slot: 'center',
+            layer: 1,
+            position: null,
+            effect: {
+              type: 'slideIn',
+              durationMs: 900,
+              intensity: 'normal',
+              direction: 'up',
+            },
+          },
+          dialogue('new-effect'),
+        ],
+      }],
+    };
+
+    const first = startGame(project)!;
+    expect(first.dialogue?.id).toBe('effects-start');
+    expect(first.characters).toMatchObject([
+      {
+        nodeId: 'hero-out',
+        opacity: 0,
+        effectSequence: 1,
+        effect: { type: 'fadeOut', durationMs: 600 },
+      },
+      {
+        nodeId: 'friend-shake',
+        opacity: 1,
+        effectSequence: 2,
+        effect: { type: 'shake', intensity: 'strong' },
+      },
+    ]);
+    expect(first.characterEffectSequence).toBe(2);
+
+    const second = advanceGame(project, first);
+    expect(second.dialogue?.id).toBe('effects-finished');
+    expect(second.characters).toMatchObject([
+      { nodeId: 'hero-out', opacity: 0, effectSequence: 1, effect: null },
+      { nodeId: 'friend-shake', opacity: 1, effectSequence: 2, effect: null },
+    ]);
+
+    const third = advanceGame(project, second);
+    expect(third.dialogue?.id).toBe('new-effect');
+    expect(third.characters[0]).toMatchObject({
+      nodeId: 'hero-return',
+      assetId: 'hero-smile',
+      opacity: 1,
+      effectSequence: 3,
+      effect: { type: 'slideIn', direction: 'up' },
+    });
+    expect(third.characterEffectSequence).toBe(3);
+  });
+
+  it('replays the same character effect on every repeat iteration', () => {
+    const project: ProjectDocument = {
+      schemaVersion: 1,
+      id: 'replayed-effect',
+      name: 'Replayed effect',
+      entrySceneId: 'entry',
+      startScreen: { title: '', backgroundAssetId: null, musicAssetId: null },
+      cgGallery: emptyCgGallery(),
+      scenes: [{
+        schemaVersion: 1,
+        id: 'entry',
+        name: 'Entry',
+        backgroundAssetId: null,
+        nodes: [
+          { id: 'repeat', type: 'logicRepeat', count: 2 },
+          {
+            id: 'jumping-hero',
+            type: 'character',
+            assetId: 'hero',
+            slot: 'center',
+            layer: 1,
+            position: null,
+            effect: { type: 'jump', durationMs: 500, intensity: 'normal' },
+          },
+          dialogue('loop-line'),
+          {
+            id: 'clear-jumping-hero',
+            type: 'character',
+            assetId: null,
+            slot: 'center',
+            layer: 1,
+            position: null,
+            effect: null,
+          },
+          { id: 'repeat-end', type: 'logicEndRepeat', repeatNodeId: 'repeat' },
+        ],
+      }],
+    };
+
+    const first = startGame(project)!;
+    expect(first.characters[0]).toMatchObject({
+      effectSequence: 1,
+      effect: { type: 'jump' },
+    });
+    expect(first.characterEffectSequence).toBe(1);
+    const second = advanceGame(project, first);
+    expect(second.characters[0]).toMatchObject({
+      effectSequence: 2,
+      effect: { type: 'jump' },
+    });
+    expect(second.characterEffectSequence).toBe(2);
+  });
+
+  it('stops conservatively before a character event sequence would overflow', () => {
+    const project: ProjectDocument = {
+      schemaVersion: 1,
+      id: 'effect-sequence-overflow',
+      name: 'Effect sequence overflow',
+      entrySceneId: 'entry',
+      startScreen: { title: '', backgroundAssetId: null, musicAssetId: null },
+      cgGallery: emptyCgGallery(),
+      scenes: [{
+        schemaVersion: 1,
+        id: 'entry',
+        name: 'Entry',
+        backgroundAssetId: null,
+        nodes: [
+          dialogue('before-overflow'),
+          {
+            id: 'overflow-effect',
+            type: 'character',
+            assetId: 'hero',
+            slot: 'center',
+            layer: 1,
+            position: null,
+            effect: { type: 'flash', durationMs: 300, intensity: 'normal' },
+          },
+          dialogue('after-overflow'),
+        ],
+      }],
+    };
+
+    const before = startGame(project)!;
+    const overflow = advanceGame(project, {
+      ...before,
+      characterEffectSequence: Number.MAX_SAFE_INTEGER,
+    });
+    expect(overflow).toMatchObject({
+      status: 'runtimeError',
+      errorCode: 'characterEffectInvalid',
+      characterEffectSequence: Number.MAX_SAFE_INTEGER,
+      characters: [],
+    });
+  });
+
+  it('rejects effects attached to a clear-character action', () => {
+    const project: ProjectDocument = {
+      schemaVersion: 1,
+      id: 'invalid-clear-effect',
+      name: 'Invalid clear effect',
+      entrySceneId: 'entry',
+      startScreen: { title: '', backgroundAssetId: null, musicAssetId: null },
+      cgGallery: emptyCgGallery(),
+      scenes: [{
+        schemaVersion: 1,
+        id: 'entry',
+        name: 'Entry',
+        backgroundAssetId: null,
+        nodes: [{
+          id: 'invalid-clear',
+          type: 'character',
+          assetId: null,
+          slot: 'left',
+          layer: 1,
+          position: null,
+          effect: { type: 'fadeOut', durationMs: 500 },
+        }],
+      }],
+    };
+    expect(startGame(project)).toMatchObject({
+      status: 'runtimeError',
+      errorCode: 'characterEffectInvalid',
     });
   });
 
@@ -117,6 +343,131 @@ describe('shared runtime execution contract', () => {
     });
   });
 
+  it('waits for a CG lead-in, keeps the CG through its dialogue body, then clears it', () => {
+    const project: ProjectDocument = {
+      schemaVersion: 1,
+      id: 'cg-display',
+      name: 'CG display',
+      entrySceneId: 'entry',
+      startScreen: { title: '', backgroundAssetId: null, musicAssetId: null },
+      cgGallery: emptyCgGallery(),
+      scenes: [{
+        schemaVersion: 1,
+        id: 'entry',
+        name: 'Entry',
+        backgroundAssetId: null,
+        nodes: [
+          { id: 'cg', type: 'cgDisplay', assetId: 'cg-image', leadInMs: 750 },
+          dialogue('cg-line-1'),
+          dialogue('cg-line-2'),
+          { id: 'cg-end', type: 'cgEndDisplay', cgDisplayNodeId: 'cg' },
+          dialogue('outside'),
+        ],
+      }],
+    };
+
+    const waiting = startGame(project)!;
+    expect(waiting).toMatchObject({
+      status: 'waitingCgLeadIn',
+      nextNodeIndex: 1,
+      cgAssetId: 'cg-image',
+      cgLeadInMs: 750,
+      cgSequence: 1,
+      dialogue: null,
+    });
+    expect(advanceGame(project, waiting)).toBe(waiting);
+
+    const first = completeCgLeadIn(project, waiting);
+    expect(first).toMatchObject({
+      status: 'playing',
+      dialogue: { id: 'cg-line-1' },
+      cgAssetId: 'cg-image',
+      cgLeadInMs: 0,
+    });
+    const second = advanceGame(project, first);
+    expect(second).toMatchObject({
+      dialogue: { id: 'cg-line-2' },
+      cgAssetId: 'cg-image',
+    });
+    expect(advanceGame(project, second)).toMatchObject({
+      dialogue: { id: 'outside' },
+      cgAssetId: null,
+      cgLeadInMs: 0,
+    });
+  });
+
+  it('supports an empty CG body nested in if/repeat and retriggers each iteration', () => {
+    const project: ProjectDocument = {
+      schemaVersion: 1,
+      id: 'nested-cg',
+      name: 'Nested CG',
+      entrySceneId: 'entry',
+      startScreen: { title: '', backgroundAssetId: null, musicAssetId: null },
+      cgGallery: emptyCgGallery(),
+      scenes: [{
+        schemaVersion: 1,
+        id: 'entry',
+        name: 'Entry',
+        backgroundAssetId: null,
+        nodes: [
+          { id: 'repeat', type: 'logicRepeat', count: 2 },
+          {
+            id: 'if',
+            type: 'logicIf',
+            condition: {
+              left: { kind: 'literal', value: true },
+              operator: 'eq',
+              right: { kind: 'literal', value: true },
+            },
+          },
+          { id: 'cg', type: 'cgDisplay', assetId: 'cg-image', leadInMs: 0 },
+          { id: 'cg-end', type: 'cgEndDisplay', cgDisplayNodeId: 'cg' },
+          { id: 'else', type: 'logicElse', ifNodeId: 'if' },
+          dialogue('else-line'),
+          { id: 'if-end', type: 'logicEndIf', ifNodeId: 'if' },
+          { id: 'repeat-end', type: 'logicEndRepeat', repeatNodeId: 'repeat' },
+          dialogue('outside'),
+        ],
+      }],
+    };
+
+    const firstWait = startGame(project)!;
+    expect(firstWait).toMatchObject({
+      status: 'waitingCgLeadIn',
+      cgSequence: 1,
+      loopStack: [{ repeatNodeId: 'repeat', remainingIterations: 2 }],
+    });
+    const secondWait = completeCgLeadIn(project, firstWait);
+    expect(secondWait).toMatchObject({
+      status: 'waitingCgLeadIn',
+      cgSequence: 2,
+      loopStack: [{ repeatNodeId: 'repeat', remainingIterations: 1 }],
+    });
+    expect(completeCgLeadIn(project, secondWait)).toMatchObject({
+      status: 'playing',
+      dialogue: { id: 'outside' },
+      cgAssetId: null,
+      loopStack: [],
+    });
+  });
+
+  it('strictly rejects non-dialogue nodes and nested controls in a CG body', () => {
+    const wrap = (body: SceneNode[]) => [
+      { id: 'cg', type: 'cgDisplay' as const, assetId: 'image', leadInMs: 100 },
+      ...body,
+      { id: 'cg-end', type: 'cgEndDisplay' as const, cgDisplayNodeId: 'cg' },
+    ];
+    expect(validateSceneControlFlow(wrap([
+      { id: 'jump', type: 'sceneJump', targetSceneId: 'other' },
+    ]))).toContain('只能放置对白');
+    expect(validateSceneControlFlow(wrap([
+      { id: 'choice', type: 'choice', options: [] },
+    ]))).toContain('只能放置对白');
+    expect(validateSceneControlFlow(wrap([
+      { id: 'nested', type: 'cgDisplay', assetId: 'image-2', leadInMs: 0 },
+    ]))).toContain('只能放置对白');
+  });
+
   it('blocks on choices and enters the selected scene with target visuals', () => {
     const project: ProjectDocument = {
       schemaVersion: 1,
@@ -144,6 +495,7 @@ describe('shared runtime execution contract', () => {
               slot: 'left',
               layer: 1,
               position: null,
+              effect: null,
             },
             {
               id: 'choice',

@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：呈现新建项目表单并管理名称输入和确认流程。
+ * 包含实现：`CreateProjectDialog`。
+ */
+
 import { useEffect, useRef } from 'react';
 
 import { useEditorLabels } from '../i18n/editorLocalization';

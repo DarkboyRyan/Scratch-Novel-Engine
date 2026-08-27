@@ -1,5 +1,10 @@
 /** @vitest-environment jsdom */
 
+/**
+ * 文件主要作用：验证 CG gallery Editor 的行为。
+ * 测试覆盖：`CG gallery Editor`。
+ */
+
 import * as Blockly from 'blockly';
 import { act, createRef } from 'react';
 import { createRoot } from 'react-dom/client';

@@ -1,3 +1,7 @@
+/**
+ * 主要作用：集中生成 macOS 与 Windows 的受限签名参数。
+ * 关键函数与实现：`macSignOptions`、`windowsSignOptions`；基于 Node.js ESM、文件系统和受限子进程完成确定性 CLI 流程。
+ */
 export function macSignOptions({ app, identity, keychain }) {
   return {
     app,

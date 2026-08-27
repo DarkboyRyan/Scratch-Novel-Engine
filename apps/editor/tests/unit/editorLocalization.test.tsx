@@ -1,5 +1,10 @@
 // @vitest-environment jsdom
 
+/**
+ * 文件主要作用：验证 Editor localization 的行为。
+ * 测试覆盖：`Editor localization`。
+ */
+
 import { act, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';

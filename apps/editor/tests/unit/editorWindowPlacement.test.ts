@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 editor window placement 的行为。
+ * 测试覆盖：`editor window placement`。
+ */
+
 import { describe, expect, it } from 'vitest';
 
 import { cascadedEditorWindowPosition } from '../../src/main/window/editorWindowPlacement';

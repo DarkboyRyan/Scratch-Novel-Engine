@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：解析对白积木拖放、草稿字段更新与时间线重排。
+ * 包含实现：`DialogueFieldUpdate`、`DialogueFieldDraft`、`NewDialogueDrop`、`NewStoryExtensionDrop`、`NewStoryExtensionDropResolution`、`DialogueReorderDrop` 等 14 项。
+ */
+
 import * as Blockly from 'blockly';
 
 import type { SceneDocument } from '../../../shared/projectTypes';
@@ -9,13 +14,20 @@ import {
 import { STORY_CONTINUATION_BLOCK_TYPE } from './blocks/storyContinuationBlock';
 import { isStoryBlockType } from './storyBlockTypes';
 import { isStoryPaginationProjectionConsistent } from './storyBlockPagination';
-import { getLogicControlNodeIds } from './logicStructure';
+import {
+  getCgDisplayNodeIds,
+  getLogicControlNodeIds,
+} from './logicStructure';
 import {
   LOGIC_CONTROL_INPUTS,
   LOGIC_IF_BLOCK_TYPE,
   LOGIC_REPEAT_BLOCK_TYPE,
   getLogicControlMarkers,
 } from './blocks/logicControlBlock';
+import {
+  CG_DISPLAY_BLOCK_TYPE,
+  getCgDisplayMarkers,
+} from './blocks/cgDisplayBlock';
 
 export type DialogueFieldUpdate = {
   nodeId: string;
@@ -183,6 +195,15 @@ export function getTimelineBeforeNodeIdForBlock(
   ) {
     return markers.endNodeId;
   }
+  const cgMarkers = surroundParent
+    ? getCgDisplayMarkers(surroundParent)
+    : null;
+  if (
+    surroundParent?.type === CG_DISPLAY_BLOCK_TYPE &&
+    cgMarkers !== null
+  ) {
+    return cgMarkers.endNodeId;
+  }
 
   // 分页或显式跳转会让某些权威后继不再是物理 next 积木。
   // 当被拖动的积木没有 next 连接时，用上方正式节点在
@@ -195,12 +216,12 @@ export function getTimelineBeforeNodeIdForBlock(
     const previousNode = scene.nodes[previousIndex];
     if (
       previousNode.type === 'logicIf' ||
-      previousNode.type === 'logicRepeat'
+      previousNode.type === 'logicRepeat' ||
+      previousNode.type === 'cgDisplay'
     ) {
-      const controlNodeIds = getLogicControlNodeIds(
-        scene,
-        previousNode.id,
-      );
+      const controlNodeIds = previousNode.type === 'cgDisplay'
+        ? getCgDisplayNodeIds(scene, previousNode.id)
+        : getLogicControlNodeIds(scene, previousNode.id);
       const endNodeId = controlNodeIds.at(-1);
       const endIndex = endNodeId
         ? scene.nodes.findIndex((node) => node.id === endNodeId)
@@ -401,6 +422,11 @@ export function getTimelineReorderDropResolution(
   if (movedNode?.type === 'logicIf' || movedNode?.type === 'logicRepeat') {
     // C 形控制积木必须携带整个作用域移动，由专用
     // logicControl.reorder 命令处理，不能当作单个 timeline node。
+    return null;
+  }
+  if (movedNode?.type === 'cgDisplay') {
+    // CG C block has a paired end marker and moves atomically through its
+    // dedicated command.
     return null;
   }
 

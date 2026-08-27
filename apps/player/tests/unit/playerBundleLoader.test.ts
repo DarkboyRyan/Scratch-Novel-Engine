@@ -1,3 +1,7 @@
+/**
+ * 主要作用：验证运行包结构、资源哈希、文件安全与兼容加载。
+ * 关键函数与实现：测试套件“runtime bundle loader”、`temporaryDirectories`、`gameDocument`、`manifestDocument`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 import { createHash } from 'node:crypto';
 import {
   mkdtemp,
@@ -44,7 +48,7 @@ function gameDocument(assetId: string | null = null) {
 
 function manifestDocument(
   files: unknown[] = [],
-  runtimeVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 = 1,
+  runtimeVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 = 1,
 ): Record<string, unknown> {
   return {
     format: 'vn-engine-runtime-manifest',
@@ -65,7 +69,11 @@ function manifestDocument(
               ? '>=5 <6'
               : runtimeVersion === 6
                 ? '>=6 <7'
-                : '>=7 <8',
+                : runtimeVersion === 7
+                  ? '>=7 <8'
+                  : runtimeVersion === 8
+                    ? '>=8 <9'
+                    : '>=9 <10',
     createdAt: '2026-08-18T00:00:00.000Z',
     files,
   };
@@ -559,6 +567,177 @@ describe('runtime bundle loader', () => {
       JSON.stringify(runtimeV7),
       JSON.stringify(manifestDocument([], 7)),
     )).toThrow('没有匹配的条件节点');
+  });
+
+  it('strictly reads runtime v8 paired CG display nodes and image assets', () => {
+    const cgAsset = {
+      assetId: 'story-cg',
+      type: 'image',
+      displayName: 'Story CG',
+      path: 'assets/images/story-cg.png',
+      mime: 'image/png',
+      bytes: 4,
+      sha256: '0'.repeat(64),
+    };
+    const runtimeV8 = {
+      ...gameDocument(),
+      runtimeVersion: 8,
+      game: {
+        ...gameDocument().game,
+        startScreen: {
+          title: 'CG',
+          backgroundAssetId: null,
+          musicAssetId: null,
+        },
+        cgGallery: {
+          pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+        },
+      },
+      scenes: [{
+        ...gameDocument().scenes[0],
+        nodes: [
+          { id: 'cg', type: 'cgDisplay', assetId: 'story-cg', leadInMs: 900 },
+          {
+            id: 'line',
+            type: 'dialogue',
+            speaker: 'Narrator',
+            text: 'CG line',
+            voiceAssetId: null,
+          },
+          { id: 'cg-end', type: 'cgEndDisplay', cgDisplayNodeId: 'cg' },
+        ],
+      }],
+    };
+
+    const parsed = parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV8),
+      JSON.stringify(manifestDocument([cgAsset], 8)),
+    );
+    expect(parsed.runtimeVersion).toBe(8);
+    expect(parsed.game.project.scenes[0]?.nodes[0]).toMatchObject({
+      type: 'cgDisplay',
+      leadInMs: 900,
+    });
+
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify({ ...runtimeV8, runtimeVersion: 7 }),
+      JSON.stringify(manifestDocument([cgAsset], 7)),
+    )).toThrow('不受 runtime v7 支持');
+
+    const invalidBody = structuredClone(runtimeV8);
+    invalidBody.scenes[0]!.nodes.splice(1, 1, {
+      id: 'choice',
+      type: 'choice',
+      options: [],
+    } as never);
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(invalidBody),
+      JSON.stringify(manifestDocument([cgAsset], 8)),
+    )).toThrow('只能放置对白节点');
+
+    const invalidLeadIn = structuredClone(runtimeV8);
+    invalidLeadIn.scenes[0]!.nodes[0]!.leadInMs = 60_001;
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(invalidLeadIn),
+      JSON.stringify(manifestDocument([cgAsset], 8)),
+    )).toThrow('leadInMs');
+
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV8),
+      JSON.stringify(manifestDocument([], 8)),
+    )).toThrow('显示 CG cg 引用了缺失或类型错误的资源');
+  });
+
+  it('strictly reads runtime v9 character effects and defaults older nodes', () => {
+    const portraitAsset = {
+      assetId: 'hero',
+      type: 'image',
+      displayName: 'Hero',
+      path: 'assets/images/hero.png',
+      mime: 'image/png',
+      bytes: 4,
+      sha256: '0'.repeat(64),
+    };
+    const runtimeV9 = {
+      ...gameDocument(),
+      runtimeVersion: 9,
+      game: {
+        ...gameDocument().game,
+        startScreen: {
+          title: 'Effects',
+          backgroundAssetId: null,
+          musicAssetId: null,
+        },
+        cgGallery: {
+          pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+        },
+      },
+      scenes: [{
+        ...gameDocument().scenes[0],
+        nodes: [{
+          id: 'hero-slide',
+          type: 'character',
+          assetId: 'hero',
+          slot: 'left',
+          layer: 1,
+          position: { x: 25, y: 90 },
+          effect: {
+            type: 'slideIn',
+            durationMs: 750,
+            intensity: 'normal',
+            direction: 'right',
+          },
+        }],
+      }],
+    };
+
+    const parsed = parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV9),
+      JSON.stringify(manifestDocument([portraitAsset], 9)),
+    );
+    expect(parsed.runtimeVersion).toBe(9);
+    expect(parsed.game.project.scenes[0]?.nodes[0]).toMatchObject({
+      type: 'character',
+      effect: {
+        type: 'slideIn',
+        durationMs: 750,
+        intensity: 'normal',
+        direction: 'right',
+      },
+    });
+
+    const runtimeV8 = structuredClone(runtimeV9);
+    runtimeV8.runtimeVersion = 8;
+    delete (runtimeV8.scenes[0]!.nodes[0] as Record<string, unknown>).effect;
+    expect(parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV8),
+      JSON.stringify(manifestDocument([portraitAsset], 8)),
+    ).game.project.scenes[0]?.nodes[0]).toMatchObject({ effect: null });
+
+    for (const effect of [
+      { type: 'fadeIn', durationMs: 99 },
+      { type: 'shake', durationMs: 500, intensity: 'extreme' },
+      {
+        type: 'slideIn',
+        durationMs: 500,
+        intensity: 'normal',
+        direction: 'diagonal',
+      },
+    ]) {
+      const invalid = structuredClone(runtimeV9);
+      (invalid.scenes[0]!.nodes[0] as Record<string, unknown>).effect = effect;
+      expect(() => parseRuntimeBundleDocuments(
+        JSON.stringify(invalid),
+        JSON.stringify(manifestDocument([portraitAsset], 9)),
+      )).toThrow('不是有效的人物特效');
+    }
+
+    const invalidClear = structuredClone(runtimeV9);
+    (invalidClear.scenes[0]!.nodes[0] as Record<string, unknown>).assetId = null;
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(invalidClear),
+      JSON.stringify(manifestDocument([portraitAsset], 9)),
+    )).toThrow('不能用于清除立绘节点');
   });
 
   it('rejects mismatched or incorrectly typed runtime v2 title assets', () => {

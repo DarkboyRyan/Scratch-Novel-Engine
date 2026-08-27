@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：在保存前同步当前编辑模式中的草稿并返回可保存状态。
+ * 包含实现：`prepareProjectSave`。
+ */
+
 import type { EditorMode } from './application/editorMode';
 
 type PrepareProjectSaveOptions = {

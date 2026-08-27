@@ -1,5 +1,10 @@
 /** @vitest-environment jsdom */
 
+/**
+ * 文件主要作用：验证 useEngineProject asset state 的行为。
+ * 测试覆盖：`useEngineProject asset state`。
+ */
+
 import { act, StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -149,6 +154,10 @@ describe('useEngineProject asset state', () => {
   let addStoryExtension: ReturnType<typeof vi.fn>;
   let addLogicIf: ReturnType<typeof vi.fn>;
   let reorderLogicControl: ReturnType<typeof vi.fn>;
+  let addCgDisplay: ReturnType<typeof vi.fn>;
+  let addCharacter: ReturnType<typeof vi.fn>;
+  let updateCharacterEffect: ReturnType<typeof vi.fn>;
+  let moveCharacterEffect: ReturnType<typeof vi.fn>;
   let saveProject: ReturnType<typeof vi.fn>;
   let exportGame: ReturnType<typeof vi.fn>;
   let platform: EditorPlatformGateway;
@@ -231,6 +240,10 @@ describe('useEngineProject asset state', () => {
     addStoryExtension = vi.fn().mockResolvedValue(backgroundResult);
     addLogicIf = vi.fn().mockResolvedValue(backgroundResult);
     reorderLogicControl = vi.fn().mockResolvedValue(backgroundResult);
+    addCgDisplay = vi.fn().mockResolvedValue(backgroundResult);
+    addCharacter = vi.fn().mockResolvedValue(backgroundResult);
+    updateCharacterEffect = vi.fn().mockResolvedValue(backgroundResult);
+    moveCharacterEffect = vi.fn().mockResolvedValue(backgroundResult);
     saveProject = vi.fn().mockResolvedValue({
       cancelled: false,
       result: initialResult,
@@ -270,6 +283,10 @@ describe('useEngineProject asset state', () => {
         addStoryExtension,
         addLogicIf,
         reorderLogicControl,
+        addCgDisplay,
+        addCharacter,
+        updateCharacterEffect,
+        moveCharacterEffect,
       } as unknown as EditorPlatformGateway['engine'],
       projectFiles: {
         getSession: vi.fn().mockResolvedValue({
@@ -358,6 +375,55 @@ describe('useEngineProject asset state', () => {
     });
     expect(snapshot!.cgGallery).toEqual({
       pages: [{ imageAssetIds: Array(9).fill(null) }],
+    });
+  });
+
+  it('projects a pre-v19 HMR portrait with show mode and effect null', async () => {
+    const legacyProject = structuredClone(initialResult.project) as unknown as {
+      scenes: Array<{ nodes: unknown[] }>;
+    };
+    legacyProject.scenes[0]!.nodes = [{
+      id: 'legacy-character',
+      type: 'character',
+      assetId: 'asset-1',
+      slot: 'center',
+      layer: 1,
+      position: null,
+    }];
+    const legacyResult = {
+      ...initialResult,
+      project: legacyProject,
+    } as unknown as EngineMutationResult;
+    platform = {
+      ...platform,
+      engine: {
+        ...platform.engine,
+        ensureProject: vi.fn().mockResolvedValue(legacyResult),
+        getProject: vi.fn().mockResolvedValue(legacyResult),
+      },
+    };
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    expect(current?.project?.scenes[0]!.nodes).toEqual([{
+      id: 'legacy-character',
+      type: 'character',
+      mode: 'show',
+      assetId: 'asset-1',
+      slot: 'center',
+      layer: 1,
+      position: null,
+      effect: null,
+    }]);
+    let snapshot: Awaited<ReturnType<EngineProjectState['getProjectSnapshot']>>;
+    await act(async () => {
+      snapshot = await current!.getProjectSnapshot();
+    });
+    expect(snapshot!.scenes[0]!.nodes[0]).toMatchObject({
+      mode: 'show',
+      effect: null,
     });
   });
 
@@ -980,6 +1046,71 @@ describe('useEngineProject asset state', () => {
 
     expect(current!.engineMessage).toBe(
       '逻辑积木模块尚未加载，请完全退出并重新启动编辑器',
+    );
+  });
+
+  it('reports restart guidance when stale Main rejects a CG invocation shape', async () => {
+    addCgDisplay.mockRejectedValue(
+      new Error('Renderer 发来了无效的引擎请求'),
+    );
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(await current!.addCgDisplay({
+        sceneId: 'scene-1',
+        assetId: 'asset-1',
+        leadInMs: 750,
+        afterNodeId: null,
+        beforeNodeId: null,
+      })).toBe(false);
+    });
+
+    expect(current!.engineMessage).toBe(
+      'CG 显示积木模块尚未加载，请完全退出并重新启动编辑器',
+    );
+  });
+
+  it('reports restart guidance when stale Main rejects a portrait-effect command', async () => {
+    updateCharacterEffect.mockRejectedValue(
+      new Error('Renderer 发来了无效的引擎请求'),
+    );
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(await current!.updateCharacterEffect({
+        sceneId: 'scene-1',
+        nodeId: 'character-1',
+        effect: { type: 'fadeIn', durationMs: 500 },
+      })).toBe(false);
+    });
+
+    expect(current!.engineMessage).toBe(
+      '人物特效模块尚未加载，请完全退出并重新启动编辑器',
+    );
+  });
+
+  it('reports restart guidance when stale Main rejects character mode', async () => {
+    addCharacter.mockRejectedValue(
+      new Error('Renderer 发来了无效的引擎请求'),
+    );
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(await current!.addCharacter({
+        sceneId: 'scene-1',
+        mode: 'show',
+        assetId: null,
+      })).toBe(false);
+    });
+
+    expect(current!.engineMessage).toBe(
+      '人物立绘模块已更新，请完全退出并重新启动编辑器',
     );
   });
 

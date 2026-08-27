@@ -1,4 +1,8 @@
 /** @vitest-environment jsdom */
+/**
+ * 主要作用：验证浏览器显示能力不足时选项状态与提交行为。
+ * 关键函数与实现：测试套件“Web options display capabilities”、`containers`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';

@@ -1,3 +1,5 @@
+// 主要作用：验证项目文件 IPC 的动作、名称和无路径参数约束。
+// 关键实现：isProjectFileInvocation 按 create/open/save/get-session 精确分支判断。
 import type { ProjectFileInvocation } from '../../shared/projectFileProtocol';
 
 function isObject(value: unknown): value is Record<string, unknown> {

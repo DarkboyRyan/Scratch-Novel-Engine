@@ -1,3 +1,7 @@
+/**
+ * 主要作用：定义 Main、Preload、Renderer 共享的 IPC、设置、存档与资源协议。
+ * 关键函数与实现：createDefaultPlayerSettings、isPlayerSettings、createPlayerSaveSummaryContent；以 TypeScript 类型边界和可组合函数实现。
+ */
 import type {
   GameRuntime,
   GameRuntimeSnapshot,

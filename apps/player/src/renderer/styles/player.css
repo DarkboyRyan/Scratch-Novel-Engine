@@ -1,3 +1,7 @@
+/**
+ * 主要作用：统一标题、场景、对白、存档、选项、CG 与响应式 Player 视觉样式。
+ * 关键函数与实现：设计令牌、组件状态、响应式布局、动画与 reduced-motion；实现设计令牌、组件状态、动画、焦点和响应式布局。
+ */
 :root {
   color: #f7f3ff;
   background: #090710;
@@ -368,13 +372,73 @@ button.secondary {
   pointer-events: none;
 }
 
-.preview-character {
+.player-cg-display-layer {
+  position: absolute;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  overflow: hidden;
+  pointer-events: none;
+  background: #000000;
+  place-items: center;
+}
+
+.player-cg-display-layer > img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.player-cg-display-message,
+.player-cg-display-error {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  bottom: 48px;
+  max-width: min(560px, calc(100% - 48px));
+  margin: 0;
+  padding: 12px 16px;
+  color: #f8f8f8;
+  text-align: center;
+  background: rgb(8 8 10 / 82%);
+  border: 1px solid rgb(255 255 255 / 22%);
+  border-radius: 8px;
+  transform: translateX(-50%);
+}
+
+.player-cg-display-error {
+  display: grid;
+  gap: 12px;
+  pointer-events: auto;
+}
+
+.player-cg-display-error > p {
+  margin: 0;
+}
+
+.player-cg-display-error > button {
+  min-height: 40px;
+  color: #ffffff;
+  cursor: pointer;
+  background: rgb(255 255 255 / 13%);
+  border: 1px solid rgb(255 255 255 / 32%);
+  border-radius: 6px;
+}
+
+.preview-character-anchor {
   position: absolute;
   bottom: 0;
   width: min(42vw, 540px);
   height: 94%;
+}
+
+.preview-character-image {
+  display: block;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
   object-position: bottom center;
+  transform-origin: center bottom;
   filter: drop-shadow(0 18px 24px rgb(0 0 0 / 42%));
 }
 
@@ -391,6 +455,108 @@ button.secondary {
 .preview-character-right {
   right: 2%;
   transform: translateX(8%);
+}
+
+.preview-character-effect {
+  animation-duration: var(--character-effect-duration, 500ms);
+  animation-fill-mode: both;
+  animation-iteration-count: 1;
+  animation-play-state: running;
+}
+
+.preview-stage[data-character-animations-paused="true"]
+  .preview-character-effect {
+  animation-play-state: paused;
+}
+
+.preview-character-effect-shake {
+  animation-name: preview-character-shake;
+  animation-timing-function: ease-in-out;
+}
+
+.preview-character-effect-jump {
+  animation-name: preview-character-jump;
+  animation-timing-function: cubic-bezier(0.22, 0.7, 0.32, 1);
+}
+
+.preview-character-effect-breathe {
+  animation-name: preview-character-breathe;
+  animation-timing-function: ease-in-out;
+}
+
+.preview-character-effect-flash {
+  animation-name: preview-character-flash;
+  animation-timing-function: linear;
+}
+
+.preview-character-effect-fadeIn {
+  animation-name: preview-character-fade-in;
+  animation-timing-function: ease-out;
+}
+
+.preview-character-effect-fadeOut {
+  animation-name: preview-character-fade-out;
+  animation-timing-function: ease-in;
+}
+
+.preview-character-effect-slideIn {
+  animation-name: preview-character-slide-in;
+  animation-timing-function: cubic-bezier(0.2, 0.8, 0.25, 1);
+}
+
+@keyframes preview-character-shake {
+  0%, 100% { transform: translateX(0); }
+  18% { transform: translateX(var(--character-effect-negative-distance)); }
+  36% { transform: translateX(var(--character-effect-distance)); }
+  54% { transform: translateX(var(--character-effect-negative-distance)); }
+  72% { transform: translateX(var(--character-effect-distance)); }
+}
+
+@keyframes preview-character-jump {
+  0%, 100% { transform: translateY(0); }
+  42% { transform: translateY(var(--character-effect-negative-distance)); }
+  68% { transform: translateY(1.5%); }
+}
+
+@keyframes preview-character-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(var(--character-effect-scale)); }
+}
+
+@keyframes preview-character-flash {
+  0%, 100% { opacity: 1; }
+  22%, 66% { opacity: var(--character-flash-opacity); }
+  44%, 82% { opacity: 1; }
+}
+
+@keyframes preview-character-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes preview-character-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes preview-character-slide-in {
+  from {
+    opacity: 0;
+    transform: translate(
+      var(--character-slide-x, 0%),
+      var(--character-slide-y, 0%)
+    );
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .preview-character-effect {
+    animation: none;
+  }
 }
 
 .dialogue-box {
