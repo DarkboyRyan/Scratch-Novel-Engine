@@ -1,3 +1,7 @@
+/**
+ * 主要作用：解析并规范化 HTTP 单区间 Range 请求。
+ * 关键函数与实现：`PlayerByteRange`、`parsePlayerByteRange`；基于 Electron Main 与 Node.js 安全文件/协议边界实现。
+ */
 export type PlayerByteRange = {
   start: number;
   end: number;

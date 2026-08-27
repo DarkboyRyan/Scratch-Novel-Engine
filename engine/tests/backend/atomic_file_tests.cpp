@@ -1,3 +1,5 @@
+// 文件职责：验证跨平台原子文件写入在成功和故障路径下的耐久语义。
+// 关键覆盖：临时文件、替换前失败、旧文件保留与清理。
 #include <chrono>
 #include <filesystem>
 #include <fstream>

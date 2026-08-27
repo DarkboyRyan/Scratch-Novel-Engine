@@ -1,3 +1,7 @@
+/**
+ * 主要作用：验证运行包结构、资源哈希、文件安全与兼容加载。
+ * 关键函数与实现：测试套件“runtime bundle loader”、`temporaryDirectories`、`gameDocument`、`manifestDocument`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 import { createHash } from 'node:crypto';
 import {
   mkdtemp,
@@ -44,7 +48,7 @@ function gameDocument(assetId: string | null = null) {
 
 function manifestDocument(
   files: unknown[] = [],
-  runtimeVersion: 1 | 2 | 3 | 4 | 5 | 6 = 1,
+  runtimeVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 = 1,
 ): Record<string, unknown> {
   return {
     format: 'vn-engine-runtime-manifest',
@@ -53,17 +57,7 @@ function manifestDocument(
     projectId: 'project-1',
     sourceRevision: 3,
     runtimeVersion,
-    playerCompatibility: runtimeVersion === 1
-      ? '>=1 <2'
-      : runtimeVersion === 2
-        ? '>=2 <3'
-        : runtimeVersion === 3
-          ? '>=3 <4'
-          : runtimeVersion === 4
-            ? '>=4 <5'
-            : runtimeVersion === 5
-              ? '>=5 <6'
-              : '>=6 <7',
+    playerCompatibility: `>=${runtimeVersion} <${runtimeVersion + 1}`,
     createdAt: '2026-08-18T00:00:00.000Z',
     files,
   };
@@ -122,6 +116,7 @@ describe('runtime bundle loader', () => {
       entrySceneId: 'scene-entry',
       startScreen: {
         title: '星光物语',
+        eyebrow: 'A VN ENGINE STORY',
         backgroundAssetId: null,
         musicAssetId: null,
       },
@@ -211,6 +206,7 @@ describe('runtime bundle loader', () => {
     );
     expect(legacy.game.project.startScreen).toEqual({
       title: 'Runtime test',
+      eyebrow: 'A VN ENGINE STORY',
       backgroundAssetId: null,
       musicAssetId: null,
     });
@@ -245,6 +241,7 @@ describe('runtime bundle loader', () => {
       ).game.project.startScreen,
     ).toEqual({
       title: 'Runtime test',
+      eyebrow: 'A VN ENGINE STORY',
       backgroundAssetId: 'title-background',
       musicAssetId: null,
     });
@@ -288,6 +285,87 @@ describe('runtime bundle loader', () => {
         JSON.stringify(manifestDocument([], 3)),
       ),
     ).toThrow('game.json.game.startScreen 字段不符合');
+  });
+
+  it('strictly reads runtime v10 eyebrows and rejects legacy or unsafe fields', () => {
+    const runtimeV10 = {
+      ...gameDocument(),
+      runtimeVersion: 10,
+      game: {
+        ...gameDocument().game,
+        startScreen: {
+          title: 'Custom title',
+          eyebrow: '',
+          backgroundAssetId: null,
+          musicAssetId: null,
+        },
+        cgGallery: {
+          pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+        },
+      },
+    };
+
+    const parsed = parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV10),
+      JSON.stringify(manifestDocument([], 10)),
+    );
+    expect(parsed.runtimeVersion).toBe(10);
+    expect(parsed.game.project.startScreen).toMatchObject({
+      title: 'Custom title',
+      eyebrow: '',
+    });
+
+    runtimeV10.game.startScreen.eyebrow = 'x'.repeat(256);
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV10),
+      JSON.stringify(manifestDocument([], 10)),
+    )).not.toThrow();
+    runtimeV10.game.startScreen.eyebrow = '界'.repeat(85);
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV10),
+      JSON.stringify(manifestDocument([], 10)),
+    )).not.toThrow();
+    runtimeV10.game.startScreen.eyebrow = '😀'.repeat(64);
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV10),
+      JSON.stringify(manifestDocument([], 10)),
+    )).not.toThrow();
+
+    for (const eyebrow of [
+      ' leading',
+      'trailing ',
+      '\ttab',
+      'newline\n',
+      'nul\0inside',
+      'x'.repeat(257),
+      '界'.repeat(86),
+      '😀'.repeat(65),
+      '\ud800',
+      '\udc00',
+    ]) {
+      runtimeV10.game.startScreen.eyebrow = eyebrow;
+      expect(() => parseRuntimeBundleDocuments(
+        JSON.stringify(runtimeV10),
+        JSON.stringify(manifestDocument([], 10)),
+      )).toThrow('game.json.game.startScreen.eyebrow 不是有效字符串');
+    }
+
+    const missingEyebrow = structuredClone(runtimeV10);
+    delete (missingEyebrow.game.startScreen as Partial<
+      typeof missingEyebrow.game.startScreen
+    >).eyebrow;
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(missingEyebrow),
+      JSON.stringify(manifestDocument([], 10)),
+    )).toThrow('game.json.game.startScreen 字段不符合');
+
+    const runtimeV9WithEyebrow = structuredClone(runtimeV10);
+    runtimeV9WithEyebrow.runtimeVersion = 9;
+    runtimeV9WithEyebrow.game.startScreen.eyebrow = 'Legacy must reject this';
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV9WithEyebrow),
+      JSON.stringify(manifestDocument([], 9)),
+    )).toThrow('game.json.game.startScreen 字段不符合');
   });
 
   it('reads runtime v4 portrait coordinates and keeps v3 portraits on presets', () => {
@@ -503,6 +581,232 @@ describe('runtime bundle loader', () => {
         JSON.stringify(manifestDocument([cgAsset], 6)),
       ),
     ).toThrow('不能包含重复资源 ID');
+  });
+
+  it('strictly reads runtime v7 variables and paired control markers', () => {
+    const runtimeV7 = {
+      ...gameDocument(),
+      runtimeVersion: 7,
+      game: {
+        ...gameDocument().game,
+        startScreen: {
+          title: 'Logic',
+          backgroundAssetId: null,
+          musicAssetId: null,
+        },
+        cgGallery: {
+          pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+        },
+      },
+      scenes: [{
+        ...gameDocument().scenes[0],
+        nodes: [
+          { id: 'set', type: 'variableSet', variableName: 'score', value: 1 },
+          {
+            id: 'if',
+            type: 'logicIf',
+            condition: {
+              left: { kind: 'variable', name: 'score' },
+              operator: 'gte',
+              right: { kind: 'literal', value: 1 },
+            },
+          },
+          { id: 'repeat', type: 'logicRepeat', count: 2 },
+          { id: 'change', type: 'variableChange', variableName: 'score', amount: 1 },
+          { id: 'end-repeat', type: 'logicEndRepeat', repeatNodeId: 'repeat' },
+          { id: 'else', type: 'logicElse', ifNodeId: 'if' },
+          { id: 'reset', type: 'variableSet', variableName: 'score', value: 0 },
+          { id: 'end-if', type: 'logicEndIf', ifNodeId: 'if' },
+        ],
+      }],
+    };
+
+    expect(parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV7),
+      JSON.stringify(manifestDocument([], 7)),
+    )).toMatchObject({ runtimeVersion: 7 });
+
+    runtimeV7.scenes[0]!.nodes[5] = {
+      id: 'else',
+      type: 'logicElse',
+      ifNodeId: 'wrong-if',
+    };
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV7),
+      JSON.stringify(manifestDocument([], 7)),
+    )).toThrow('没有匹配的条件节点');
+  });
+
+  it('strictly reads runtime v8 paired CG display nodes and image assets', () => {
+    const cgAsset = {
+      assetId: 'story-cg',
+      type: 'image',
+      displayName: 'Story CG',
+      path: 'assets/images/story-cg.png',
+      mime: 'image/png',
+      bytes: 4,
+      sha256: '0'.repeat(64),
+    };
+    const runtimeV8 = {
+      ...gameDocument(),
+      runtimeVersion: 8,
+      game: {
+        ...gameDocument().game,
+        startScreen: {
+          title: 'CG',
+          backgroundAssetId: null,
+          musicAssetId: null,
+        },
+        cgGallery: {
+          pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+        },
+      },
+      scenes: [{
+        ...gameDocument().scenes[0],
+        nodes: [
+          { id: 'cg', type: 'cgDisplay', assetId: 'story-cg', leadInMs: 900 },
+          {
+            id: 'line',
+            type: 'dialogue',
+            speaker: 'Narrator',
+            text: 'CG line',
+            voiceAssetId: null,
+          },
+          { id: 'cg-end', type: 'cgEndDisplay', cgDisplayNodeId: 'cg' },
+        ],
+      }],
+    };
+
+    const parsed = parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV8),
+      JSON.stringify(manifestDocument([cgAsset], 8)),
+    );
+    expect(parsed.runtimeVersion).toBe(8);
+    expect(parsed.game.project.scenes[0]?.nodes[0]).toMatchObject({
+      type: 'cgDisplay',
+      leadInMs: 900,
+    });
+
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify({ ...runtimeV8, runtimeVersion: 7 }),
+      JSON.stringify(manifestDocument([cgAsset], 7)),
+    )).toThrow('不受 runtime v7 支持');
+
+    const invalidBody = structuredClone(runtimeV8);
+    invalidBody.scenes[0]!.nodes.splice(1, 1, {
+      id: 'choice',
+      type: 'choice',
+      options: [],
+    } as never);
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(invalidBody),
+      JSON.stringify(manifestDocument([cgAsset], 8)),
+    )).toThrow('只能放置对白节点');
+
+    const invalidLeadIn = structuredClone(runtimeV8);
+    invalidLeadIn.scenes[0]!.nodes[0]!.leadInMs = 60_001;
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(invalidLeadIn),
+      JSON.stringify(manifestDocument([cgAsset], 8)),
+    )).toThrow('leadInMs');
+
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV8),
+      JSON.stringify(manifestDocument([], 8)),
+    )).toThrow('显示 CG cg 引用了缺失或类型错误的资源');
+  });
+
+  it('strictly reads runtime v9 character effects and defaults older nodes', () => {
+    const portraitAsset = {
+      assetId: 'hero',
+      type: 'image',
+      displayName: 'Hero',
+      path: 'assets/images/hero.png',
+      mime: 'image/png',
+      bytes: 4,
+      sha256: '0'.repeat(64),
+    };
+    const runtimeV9 = {
+      ...gameDocument(),
+      runtimeVersion: 9,
+      game: {
+        ...gameDocument().game,
+        startScreen: {
+          title: 'Effects',
+          backgroundAssetId: null,
+          musicAssetId: null,
+        },
+        cgGallery: {
+          pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+        },
+      },
+      scenes: [{
+        ...gameDocument().scenes[0],
+        nodes: [{
+          id: 'hero-slide',
+          type: 'character',
+          assetId: 'hero',
+          slot: 'left',
+          layer: 1,
+          position: { x: 25, y: 90 },
+          effect: {
+            type: 'slideIn',
+            durationMs: 750,
+            intensity: 'normal',
+            direction: 'right',
+          },
+        }],
+      }],
+    };
+
+    const parsed = parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV9),
+      JSON.stringify(manifestDocument([portraitAsset], 9)),
+    );
+    expect(parsed.runtimeVersion).toBe(9);
+    expect(parsed.game.project.startScreen.eyebrow).toBe('A VN ENGINE STORY');
+    expect(parsed.game.project.scenes[0]?.nodes[0]).toMatchObject({
+      type: 'character',
+      effect: {
+        type: 'slideIn',
+        durationMs: 750,
+        intensity: 'normal',
+        direction: 'right',
+      },
+    });
+
+    const runtimeV8 = structuredClone(runtimeV9);
+    runtimeV8.runtimeVersion = 8;
+    delete (runtimeV8.scenes[0]!.nodes[0] as Record<string, unknown>).effect;
+    expect(parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV8),
+      JSON.stringify(manifestDocument([portraitAsset], 8)),
+    ).game.project.scenes[0]?.nodes[0]).toMatchObject({ effect: null });
+
+    for (const effect of [
+      { type: 'fadeIn', durationMs: 99 },
+      { type: 'shake', durationMs: 500, intensity: 'extreme' },
+      {
+        type: 'slideIn',
+        durationMs: 500,
+        intensity: 'normal',
+        direction: 'diagonal',
+      },
+    ]) {
+      const invalid = structuredClone(runtimeV9);
+      (invalid.scenes[0]!.nodes[0] as Record<string, unknown>).effect = effect;
+      expect(() => parseRuntimeBundleDocuments(
+        JSON.stringify(invalid),
+        JSON.stringify(manifestDocument([portraitAsset], 9)),
+      )).toThrow('不是有效的人物特效');
+    }
+
+    const invalidClear = structuredClone(runtimeV9);
+    (invalidClear.scenes[0]!.nodes[0] as Record<string, unknown>).assetId = null;
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(invalidClear),
+      JSON.stringify(manifestDocument([portraitAsset], 9)),
+    )).toThrow('不能用于清除立绘节点');
   });
 
   it('rejects mismatched or incorrectly typed runtime v2 title assets', () => {

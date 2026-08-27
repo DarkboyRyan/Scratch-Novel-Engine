@@ -1,3 +1,7 @@
+/**
+ * 主要作用：从静态站点受限拉取、校验和装配 Web 运行包。
+ * 关键函数与实现：`WebBundleIdentity`、`LoadedWebBundle`、`WebFetch`、`WebBundleLoaderOptions`；基于浏览器 Fetch、IndexedDB、Fullscreen 与 React 边界实现。
+ */
 import type { PlayerGameView } from '../renderer/playerGateway';
 import {
   parseRuntimeBundleDocuments,

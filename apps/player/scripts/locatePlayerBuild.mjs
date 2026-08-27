@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+/**
+ * 主要作用：在构建输出中定位唯一且匹配目标平台的 Player 制品。
+ * 关键函数与实现：`main`；基于 Node.js ESM、文件系统和受限子进程完成确定性 CLI 流程。
+ */
 
 import { appendFile } from 'node:fs/promises';
 import path from 'node:path';

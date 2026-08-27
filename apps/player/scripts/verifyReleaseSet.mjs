@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+/**
+ * 主要作用：交叉校验多平台发布集、收据与制品哈希。
+ * 关键函数与实现：`main`；基于 Node.js ESM、文件系统和受限子进程完成确定性 CLI 流程。
+ */
 
 import path from 'node:path';
 

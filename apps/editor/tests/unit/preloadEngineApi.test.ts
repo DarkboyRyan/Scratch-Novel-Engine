@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 preload background and timeline engine API 的行为。
+ * 测试覆盖：`preload background and timeline engine API`。
+ */
+
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { VnEngineApi } from '../../src/shared/engineProtocol';
@@ -70,6 +75,7 @@ describe('preload background and timeline engine API', () => {
       'updateStartScreen',
       {
         title: 'Custom title',
+        eyebrow: 'A CUSTOM STORY',
         backgroundAssetId: 'background-1',
         musicAssetId: 'music-1',
       },
@@ -124,6 +130,25 @@ describe('preload background and timeline engine API', () => {
         layer: 3,
       },
       'character.update',
+    ],
+    [
+      'updateCharacterEffect',
+      {
+        sceneId: 'scene-1',
+        nodeId: 'character-1',
+        effect: { type: 'fadeIn', durationMs: 500 },
+      },
+      'characterEffect.update',
+    ],
+    [
+      'moveCharacterEffect',
+      {
+        sceneId: 'scene-1',
+        fromNodeId: 'character-1',
+        toNodeId: 'character-2',
+        effect: { type: 'shake', durationMs: 500, intensity: 'normal' },
+      },
+      'characterEffect.move',
     ],
     [
       'addSceneJump',
@@ -187,6 +212,40 @@ describe('preload background and timeline engine API', () => {
       'video.update',
     ],
     [
+      'addCgDisplay',
+      {
+        sceneId: 'scene-1',
+        assetId: 'cg-1',
+        leadInMs: 1500,
+        beforeNodeId: 'dialogue-2',
+      },
+      'cgDisplay.add',
+    ],
+    [
+      'updateCgDisplay',
+      {
+        sceneId: 'scene-1',
+        nodeId: 'cg-display-1',
+        assetId: 'cg-2',
+        leadInMs: 250,
+      },
+      'cgDisplay.update',
+    ],
+    [
+      'deleteCgDisplay',
+      { sceneId: 'scene-1', nodeId: 'cg-display-1' },
+      'cgDisplay.delete',
+    ],
+    [
+      'reorderCgDisplay',
+      {
+        sceneId: 'scene-1',
+        nodeId: 'cg-display-1',
+        beforeNodeId: null,
+      },
+      'cgDisplay.reorder',
+    ],
+    [
       'addChoice',
       {
         sceneId: 'scene-1',
@@ -242,6 +301,86 @@ describe('preload background and timeline engine API', () => {
         beforeNodeId: 'dialogue-2',
       },
       'storyExtension.add',
+    ],
+    [
+      'addVariableSet',
+      {
+        sceneId: 'scene-1',
+        variableName: 'score',
+        value: 3,
+        beforeNodeId: 'dialogue-2',
+      },
+      'variableSet.add',
+    ],
+    [
+      'updateVariableSet',
+      {
+        sceneId: 'scene-1',
+        nodeId: 'set-1',
+        variableName: 'route',
+        value: 'good',
+      },
+      'variableSet.update',
+    ],
+    [
+      'addVariableChange',
+      { sceneId: 'scene-1', variableName: 'score', amount: 1 },
+      'variableChange.add',
+    ],
+    [
+      'updateVariableChange',
+      {
+        sceneId: 'scene-1',
+        nodeId: 'change-1',
+        variableName: 'score',
+        amount: -2,
+      },
+      'variableChange.update',
+    ],
+    [
+      'addLogicIf',
+      {
+        sceneId: 'scene-1',
+        condition: {
+          left: { kind: 'variable', name: 'score' },
+          operator: 'gte',
+          right: { kind: 'literal', value: 3 },
+        },
+      },
+      'logicIf.add',
+    ],
+    [
+      'updateLogicIf',
+      {
+        sceneId: 'scene-1',
+        nodeId: 'if-1',
+        condition: {
+          left: { kind: 'variable', name: 'route' },
+          operator: 'eq',
+          right: { kind: 'literal', value: 'good' },
+        },
+      },
+      'logicIf.update',
+    ],
+    [
+      'addLogicRepeat',
+      { sceneId: 'scene-1', count: 3 },
+      'logicRepeat.add',
+    ],
+    [
+      'updateLogicRepeat',
+      { sceneId: 'scene-1', nodeId: 'repeat-1', count: 5 },
+      'logicRepeat.update',
+    ],
+    [
+      'deleteLogicControl',
+      { sceneId: 'scene-1', nodeId: 'if-1' },
+      'logicControl.delete',
+    ],
+    [
+      'reorderLogicControl',
+      { sceneId: 'scene-1', nodeId: 'repeat-1', beforeNodeId: null },
+      'logicControl.reorder',
     ],
     [
       'deleteTimelineNodes',

@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：解析选项及选项分支积木的创建、编辑和排序事件。
+ * 包含实现：`ChoiceOptionLocation`、`ChoiceOptionFieldUpdate`、`NewChoiceOptionDrop`、`NewChoiceOptionDropResolution`、`ChoiceOptionReorderDrop`、`findChoiceOption` 等 11 项。
+ */
+
 import * as Blockly from 'blockly';
 
 import type {

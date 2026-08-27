@@ -1,3 +1,5 @@
+// 主要作用：定义项目新建、打开、保存和会话查询的共享 IPC 契约。
+// 关键实现：限制 Renderer 不传本机路径，并声明命令事件与 VnProjectFilesApi。
 import type { EngineMutationResult } from './engineProtocol';
 
 // Renderer 只能表达文件操作意图；所有本机路径都由 Electron Main 的原生

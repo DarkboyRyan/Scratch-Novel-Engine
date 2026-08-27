@@ -1,3 +1,7 @@
+/**
+ * 主要作用：根据开发、通用或嵌入模式解析 Player 启动内容。
+ * 关键函数与实现：`PlayerStartupContent`、`PlayerStartupEnvironment`、`resolvePlayerStartupContent`；基于 Electron Main 与 Node.js 安全文件/协议边界实现。
+ */
 import { app } from 'electron';
 import { lstat } from 'node:fs/promises';
 import path from 'node:path';

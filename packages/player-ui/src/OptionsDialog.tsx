@@ -1,3 +1,7 @@
+/**
+ * 主要作用：提供语言、四路音量和显示模式的可访问设置对话框。
+ * 关键函数与实现：`OptionsSettingsValue`、`OptionsDialogProps`、`OptionsDialog`；基于 React 组件、Hooks、可访问交互与受控状态实现。
+ */
 import { useLayoutEffect, useRef } from 'react';
 
 import {

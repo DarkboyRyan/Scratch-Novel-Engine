@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：注册选项容器和分支积木并维护分支文本与目标场景。
+ * 包含实现：`CHOICE_BLOCK_TYPE`、`CHOICE_OPTION_BLOCK_TYPE`、`CHOICE_OPTION_CONNECTION_TYPE`、`CHOICE_BLOCK_INPUTS`、`CHOICE_OPTION_BLOCK_FIELDS`、`applyChoiceBlockLocalization` 等 8 项。
+ */
+
 import * as Blockly from 'blockly';
 
 import type { SceneDocument } from '../../../../shared/projectTypes';

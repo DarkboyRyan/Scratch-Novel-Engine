@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 runtime Bundle File Provider Stability 的关键行为与回归边界。
+ * 测试覆盖：关键成功、失败与边界场景。
+ */
+
 import { createHash } from 'node:crypto';
 import type { Stats } from 'node:fs';
 import {
@@ -40,7 +45,7 @@ type FileHandleMethodInterceptor = (
 function projectDocument(): unknown {
   return {
     format: 'vn-engine-project',
-    fileVersion: 15,
+    fileVersion: 18,
     project: {
       schemaVersion: 1,
       id: 'project-1',

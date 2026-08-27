@@ -1,3 +1,5 @@
+// 主要作用：注册游戏导出 IPC，并把请求路由到当前窗口的导出工作流。
+// 关键实现：registerExportIpc 校验来源与请求后调用 runExportGameWorkflow。
 import { ipcMain } from 'electron';
 
 import { EXPORT_GAME_IPC_CHANNEL } from '../../shared/exportProtocol';

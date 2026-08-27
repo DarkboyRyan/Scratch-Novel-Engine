@@ -1,3 +1,5 @@
+// 文件职责：跨平台实现原子写入、数据刷新和失败时旧文件保留。
+// 关键实现：安全临时文件、fsync/FlushFileBuffers、rename 与父目录刷新。
 #include "atomic_file.hpp"
 
 #include <algorithm>

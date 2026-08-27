@@ -1,10 +1,19 @@
+<!-- 文件职责：记录人物立绘全链路；关键内容：资源、节点、层级坐标、Blockly 与预览。 -->
+
 # 人物立绘实现流程
 
 > 实现状态：已完成。人物节点最初在项目文件格式 v5 引入；场景跳转曾将 Writer
 > 升级为 v6，音频升级为 v7，视频升级为 v8，选项分支升级为 v9；主界面媒体配置
-> 在 v10 加入、独立标题在 v11 加入，当前 Writer 为 v15。
+> 在 v10 加入、独立标题在 v11 加入；v17 加入显示 CG，v18 加入人物立绘侧挂特效，
+> v19 增加人物 `mode` 并区分待选图占位与明确清除；v20 再加入标题页 eyebrow。当前
+> Writer 为 v20、Reader 支持 v1–v20。显示 CG 的完整历史里程碑是 Author v17 / Runtime v8 / Snapshot v3；
+> 人物特效首次在 Author v18 / Runtime v9 / Snapshot v4 引入，当前 Runtime/Snapshot
+> 分别为 v10/v4。
 > 详见 [视频播放积木](./video-playback-block.md)。测试数量会随功能变化，当前
 > 状态应以 `pnpm --dir apps/editor test` 的结果为准。
+
+> 七类人物动画、右侧 value socket、原子移动、Runtime v9 引入/当前 Runtime v10、Snapshot v4 与暂停/
+> reduced-motion 语义见 [人物立绘特效](./character-portrait-effects.md)。
 
 > 总体技术选型和面试问答见
 > [技术栈与面试讲解指南](./technical-stack-interview-guide.md)。
@@ -13,9 +22,9 @@
 
 | 部分 | 使用技术 | 作用 |
 | --- | --- | --- |
-| 领域模型 | C++20、`std::variant`、`std::optional` | 把人物作为强类型时间线节点，`null` 表示清除层 |
+| 领域模型 | C++20、`std::variant`、`std::optional` | 把人物作为强类型时间线节点，`mode` 区分显示与清除 |
 | 层级规则 | C++ Core、整数 layer 1–10 | C++ 校验范围，Renderer 只负责映射视觉 z-order |
-| 文件格式 | nlohmann/json、版本化严格 Reader/Writer | 人物在 v5 引入；v13 增加可空百分比坐标，当前 v15 继续严格校验 |
+| 文件格式 | nlohmann/json、版本化严格 Reader/Writer | 人物在 v5 引入；v13 增加坐标，v18 增加 effect，v19 增加 mode |
 | 跨进程 DTO | TypeScript discriminated union | 用 `node.type === 'character'` 做安全缩窄 |
 | UI | React 19 受控表单、HTML/CSS | 人物检查器、左中右位置和分层渲染 |
 | 图形化编辑 | Blockly 13 自定义 Block/Field | 人物积木、图片资源槽、拖动和时间线重排 |
@@ -60,8 +69,10 @@ C++ ProjectAggregate（唯一业务真相）
 
 首版提供 1–10 层。人物节点的 `layer` 表示它修改哪一层：
 
-- `assetId` 有值：设置或替换该层图片。
-- `assetId` 为 `null`：清除该层。
+- `mode: 'show'` 且 `assetId` 有值：设置或替换该层图片。
+- `mode: 'show'` 且 `assetId` 为 `null`：尚未选图的 Author 占位；编辑预览按 no-op
+  处理，导出会拒绝，不会误清人物层。
+- `mode: 'clear'`：明确清除该层，并要求 `assetId`、`position`、`effect` 全为 `null`。
 - `slot` 为 `left | center | right`：决定画面位置。
 - `position` 为 `null` 时使用 slot 预设；有值时保存画面百分比坐标，原点为左上角。
 - 后出现的同层节点覆盖前面的同层节点。
@@ -79,10 +90,12 @@ C++ ProjectAggregate（唯一业务真相）
 ```cpp
 struct CharacterNode {
   std::string id;
+  CharacterNodeMode mode = CharacterNodeMode::show;
   std::optional<std::string> asset_id;
   CharacterSlot slot = CharacterSlot::center;
   int layer = 1;
   std::optional<CharacterPosition> position;
+  std::optional<CharacterEffect> effect;
 };
 
 using SceneNode = std::variant<
@@ -96,7 +109,10 @@ using SceneNode = std::variant<
 
 - layer 必须在 1–10。
 - position 有值时，x/y 都必须是 0–100 的有限数字。
-- asset_id 非空时必须指向当前 ProjectAggregate 中已有的 image Asset。
+- `show` 的非空 asset_id 必须指向当前 ProjectAggregate 中已有的 image Asset；空值表示
+  可继续编辑的待选图占位，此时 effect 必须为空。
+- `clear` 必须同时令 asset_id、position 与 effect 为空。
+- effect 必须是严格七类 tagged union，只能用于已选图的 `show` 节点。
 - asset_id 不能是空字符串。
 - ID 继续与 Project、Scene、对白、背景、视觉实例和 Asset 共用全局命名空间。
 - 所有参数先验证，失败时不能改变 Project 或 revision。
@@ -104,19 +120,32 @@ using SceneNode = std::variant<
 ### TypeScript 公共快照
 
 ```ts
-type CharacterNode = {
-  id: string;
-  type: 'character';
-  assetId: string | null;
-  slot: 'left' | 'center' | 'right';
-  layer: number;
-  position: { x: number; y: number } | null;
-};
+type CharacterNode =
+  | {
+      id: string;
+      type: 'character';
+      mode: 'clear';
+      assetId: null;
+      slot: 'left' | 'center' | 'right';
+      layer: number;
+      position: null;
+      effect: null;
+    }
+  | {
+      id: string;
+      type: 'character';
+      mode: 'show';
+      assetId: string | null;
+      slot: 'left' | 'center' | 'right';
+      layer: number;
+      position: { x: number; y: number } | null;
+      effect: CharacterEffect | null;
+    };
 ```
 
 公共快照只含 Asset ID 和显示所需字段，不含绝对路径或项目相对路径。
 
-## 文件格式 v5（人物引入版本）与当前 v15
+## 文件格式 v5（人物引入版本）、v19 mode 与当前 v20
 
 v5 增加人物时间线节点：
 
@@ -130,28 +159,39 @@ v5 增加人物时间线节点：
 }
 ```
 
-清除第 1 层：
+v19 及当前 v20 明确清除第 1 层：
 
 ```json
 {
   "id": "character-clear-id",
   "type": "character",
+  "mode": "clear",
   "assetId": null,
   "slot": "left",
-  "layer": 1
+  "layer": 1,
+  "position": null,
+  "effect": null
 }
 ```
+
+Author v18 在 v5 字段基础上精确加入 `position` 与 `effect`，无特效时写
+`"effect": null`；v19 再精确加入 `mode`。`show + assetId:null` 是尚未选择图片的
+Author 占位，预览会跳过，所有导出格式都会以稳定错误拒绝；它不会降级成 Runtime v10 的
+清除指令。完整 effect union 示例见[人物立绘特效](./character-portrait-effects.md)。
 
 兼容策略：
 
 - 人物节点在 v5 首次加入。
-- 当前 Reader 严格接受 v1–v15。
+- 当前 Reader 严格接受 v1–v20。
 - v1/v2 只有对白节点。
 - v3 支持必须绑定图片的背景节点。
 - v4 支持 `assetId: null` 的背景节点。
 - v5 支持人物节点。
 - v6 支持场景跳转；v7 增加语音/BGM；v8 增加 VideoNode；v9 增加 ChoiceNode；
-  v10 增加项目级 `startScreen` 媒体，v11 增加独立标题，v12 增加手动延伸，v13 为人物节点增加可空 `position: {x,y}`，v14 增加扁平 CG 画廊，v15 把画廊升级为固定九槽页面；当前 Writer 始终写 v15。
+  v10 增加项目级 `startScreen` 媒体，v11 增加独立标题，v12 增加手动延伸，v13 为人物节点增加可空 `position: {x,y}`，v14 增加扁平 CG 画廊，v15 把画廊升级为固定九槽页面，v16 增加变量和配对逻辑，v17 增加显示 CG 控制块，v18 增加人物 sidecar effect，v19 增加人物 `mode`，v20 增加标题页 eyebrow；当前 Writer 始终写 v20。
+- v1–v17 人物节点迁移为 `effect: null`；旧版本伪造 effect、或 v18 缺少 effect 都会被 exact-fields Reader 拒绝。
+- v1–v18 人物根据旧 `assetId` 迁移：非空为 `show`、空值为 `clear`；旧 clear 遗留
+  position 会规范化为 `null`。v19 缺少或伪造 `mode` 会被拒绝。
 - Project/Scene `schemaVersion` 仍为 1；本次变化属于磁盘 envelope 的演进。
 
 ## C++ 命令
@@ -161,6 +201,8 @@ v5 增加人物时间线节点：
 ```text
 character.add {
   sceneId,
+  mode?: "show" | "clear",
+  assetId?: string | null,
   afterNodeId?,
   beforeNodeId?
 }
@@ -168,13 +210,22 @@ character.add {
 character.update {
   sceneId,
   nodeId,
+  mode?: "show" | "clear",
   assetId: string | null,
   slot: "left" | "center" | "right",
-  layer: 1..10
+  layer: 1..10,
+  position: {x, y} | null
 }
+
+characterEffect.update { sceneId, nodeId, effect: CharacterEffect | null }
+characterEffect.move { sceneId, fromNodeId, toNodeId, effect: CharacterEffect }
 ```
 
-`character.add` 总是创建 `{assetId:null, slot:center, layer:1}`，ID 由 C++ 生成。
+`character.add` 省略 mode 时默认创建
+`{mode:show, assetId:null, slot:center, layer:1, position:null, effect:null}` 待选图占位，
+ID 由 C++ 生成；显式 `mode:clear` 才创建清除指令。`character.update` 省略 mode 时保留
+现有模式，显式切换为 clear 时原子清空 assetId、position 和 effect。
+跨人物拖动特效使用一次 `characterEffect.move`，任何失败都不改变 source、target 或 revision。
 
 继续复用：
 
@@ -237,6 +288,9 @@ PreviewPanel 的固定视觉顺序：
 编辑 UI z=40+
 ```
 
+表单预览只展示动画结束后的静态 opacity；Editor 正式预览与 Player 使用共享
+`VisualStage` 播放 effect。动画暂停、reduced-motion 和 Snapshot v4 语义见特效专文。
+
 ### 阶段 4：表单编辑器
 
 修改：
@@ -270,6 +324,8 @@ PreviewPanel 的固定视觉顺序：
 ```
 
 具体 X/Y 只在表单编辑中显示；Blockly 不显示数值，只在存在自定义坐标时把位置显示为“自定义”。
+人物积木右侧的 typed value socket 接受独立“特效”分类中的七类 value block；表单只读显示
+摘要，避免出现第二套特效编辑真相。
 
 资源条图片拖到人物积木后调用 `character.update`。混合选择、顺序、Delete 和垃圾桶继续使用通用 timeline 命令。
 
@@ -288,15 +344,18 @@ PreviewPanel 的固定视觉顺序：
 3. 左、中、右预设正确；表单坐标保存后预览按百分比定位，Blockly 只显示“自定义”。
 4. 多层人物按 layer 遮挡，高层在前。
 5. 后续同层节点替换之前图片。
-6. `assetId:null` 清除对应层，不影响其他层。
+6. 只有 `mode:clear` 清除对应层；`mode:show + assetId:null` 保持占位且不影响画面。
 7. 删除或重排人物节点后，预览重新归约得到正确历史状态。
 8. 人物始终位于背景上方、对白框下方。
 9. 表单与 Blockly 修改同一 C++ 节点，没有本地第二份真相。
 10. 混合多选拖动、Delete 和垃圾桶对对白/背景/人物都有效。
 11. 保存重开后人物、位置、层级与时间线顺序不变。
-12. v1–v14 项目仍能打开并在保存时升级到当前 v15；v1–v12 的旧人物节点自动补 `position: null`，v13 及之后的坐标保持不变。
+12. v1–v19 项目仍能打开并在保存时升级到当前 v20；v1–v12 的旧人物节点自动补 `position: null`，v13 及之后的坐标保持不变，v1–v17 人物统一补 `effect: null`，并按旧 assetId 推导 mode。
 13. 非图片、缺失资源、非法 slot/layer 失败且 Project/revision 不变。
 14. 图片路径不进入 Renderer、Preload 公共返回或普通 Engine 调用。
+15. 七类特效严格读写；普通人物更新保留特效，清图同步清特效，跨人物移动保持原子性。
+16. 正式预览/Player 播放动画；暂停保留动画进度，reduced-motion 与表单预览使用最终静态状态。
+17. 未选图 show 占位在预览中是 no-op，导出明确失败；clear 的三个可空字段必须全为 null。
 
 ## 完成定义
 

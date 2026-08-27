@@ -1,3 +1,5 @@
+// 主要作用：协调 Editor 设置的读取、更新、缓存与变更订阅。
+// 关键实现：EditorSettingsManager 验证补丁，调用存储并以克隆值广播。
 import {
   createDefaultEditorSettings,
   isEditorSettings,

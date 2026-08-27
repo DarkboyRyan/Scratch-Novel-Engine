@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：管理引擎项目加载、刷新、修订、错误和保存状态。
+ * 包含实现：`OpenProjectStatus`、`ImportAssetStatus`、`ImportImageStatus`、`ExportGameStatus`、`useEngineProject`、`EngineProjectState`。
+ */
+
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ImportAssetResult } from '../../shared/assetProtocol';
@@ -10,6 +15,7 @@ import type {
   AssetDocument,
   ProjectDocument,
 } from '../../shared/projectTypes';
+import { DEFAULT_START_SCREEN_EYEBROW } from '../../shared/projectTypes';
 import type { ProjectFileSessionSnapshot } from '../../shared/projectFileProtocol';
 import { createAuthoringActions } from '../application/createAuthoringActions';
 import {
@@ -46,11 +52,15 @@ function withRendererProjectDefaults(
   project: ProjectDocument,
 ): ProjectDocument {
   // Vite can hot-reload the Renderer while Electron Main, Preload and the C++
-  // backend keep running. A Project snapshot retained by React from before CG
-  // gallery support therefore has no `cgGallery` property. Treat that one
-  // legacy in-memory shape as an empty gallery so selecting the new surface
-  // cannot crash the complete Renderer. Fresh backend responses are still
-  // validated strictly by Main before they reach this boundary.
+  // backend keep running. Project snapshots retained by React can therefore
+  // predate CG gallery or title-eyebrow support. Supply those two legacy
+  // in-memory defaults so the new Renderer can render safely. Fresh backend
+  // responses are still validated strictly by Main before this boundary.
+  const legacyStartScreen = project.startScreen as
+    Omit<ProjectDocument['startScreen'], 'eyebrow'> & {
+      eyebrow?: unknown;
+    };
+  const hasValidEyebrow = typeof legacyStartScreen.eyebrow === 'string';
   const gallery = (
     project as ProjectDocument & {
       cgGallery?: ProjectDocument['cgGallery'];
@@ -82,19 +92,174 @@ function withRendererProjectDefaults(
           return true;
         }),
     );
-  if (hasValidPages) {
+  let normalizedLegacyCharacter = false;
+  const scenes = project.scenes.map((scene) => ({
+    ...scene,
+    nodes: scene.nodes.map((node) => {
+      if (node.type === 'character') {
+        const legacyNode = node as typeof node & {
+          mode?: unknown;
+          effect?: unknown;
+        };
+        const mode = legacyNode.mode === 'show' || legacyNode.mode === 'clear'
+          ? legacyNode.mode
+          : node.assetId === null
+            ? 'clear'
+            : 'show';
+        const needsDefaults =
+          legacyNode.mode !== mode ||
+          !Object.hasOwn(legacyNode, 'effect');
+        if (needsDefaults) {
+          normalizedLegacyCharacter = true;
+          return mode === 'clear'
+            ? {
+                ...node,
+                mode,
+                assetId: null,
+                position: null,
+                effect: null,
+              }
+            : node.assetId === null
+              ? {
+                  ...node,
+                  mode,
+                  assetId: null,
+                  effect: null,
+                }
+              : {
+                ...node,
+                mode,
+                effect: Object.hasOwn(legacyNode, 'effect')
+                  ? node.effect
+                  : null,
+                };
+        }
+      }
+      return node;
+    }),
+  }));
+  if (
+    hasValidPages &&
+    hasValidEyebrow &&
+    !normalizedLegacyCharacter
+  ) {
     return project;
   }
 
   return {
     ...project,
-    cgGallery: {
-      pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
-    },
+    startScreen: hasValidEyebrow
+      ? project.startScreen
+      : {
+          ...project.startScreen,
+          eyebrow: DEFAULT_START_SCREEN_EYEBROW,
+        },
+    cgGallery: hasValidPages
+      ? project.cgGallery
+      : {
+          pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+        },
+    scenes,
   };
 }
 
+function isStartScreenModuleUnavailableError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const message = error.message.toLowerCase();
+  return (
+    message.includes('[start-screen-module]') ||
+    message.includes('updatestartscreen is not a function') ||
+    message.includes('unknown method: startscreen.update')
+  );
+}
+
+function shouldMarkStartScreenModuleError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const message = error.message.toLowerCase();
+  return (
+    isStartScreenModuleUnavailableError(error) ||
+    message.includes('no handler registered') ||
+    message.includes('renderer 发来了无效的引擎请求') ||
+    message.includes('invalid engine request')
+  );
+}
+
+function startScreenModuleError(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  return new Error(`[start-screen-module] ${message}`, { cause: error });
+}
+
 function readableError(error: unknown, labels: EditorLabels): string {
+  if (isStartScreenModuleUnavailableError(error)) {
+    return labels.messages.startScreenModuleUnavailable;
+  }
+
+  if (
+    error instanceof Error &&
+    error.message.includes('[character-mode-module]')
+  ) {
+    return labels.messages.characterModeModuleUnavailable;
+  }
+
+  if (
+    error instanceof Error &&
+    (error.message.includes('[character-effect-module]') ||
+      error.message.includes('updateCharacterEffect is not a function') ||
+      error.message.includes('moveCharacterEffect is not a function') ||
+      error.message.includes('unknown method: characterEffect.'))
+  ) {
+    return labels.messages.effectModuleUnavailable;
+  }
+
+  if (
+    error instanceof Error &&
+    (error.message.includes('[cg-display-module]') ||
+      error.message.includes('addCgDisplay is not a function') ||
+      error.message.includes('updateCgDisplay is not a function') ||
+      error.message.includes('deleteCgDisplay is not a function') ||
+      error.message.includes('reorderCgDisplay is not a function') ||
+      error.message.includes('unknown method: cgDisplay.'))
+  ) {
+    return labels.messages.cgDisplayModuleUnavailable;
+  }
+
+  if (
+    error instanceof Error &&
+    (error.message.includes('[logic-module]') ||
+      error.message.includes('addVariableSet is not a function') ||
+      error.message.includes('updateVariableSet is not a function') ||
+      error.message.includes('addVariableChange is not a function') ||
+      error.message.includes('updateVariableChange is not a function') ||
+      error.message.includes('addLogicIf is not a function') ||
+      error.message.includes('updateLogicIf is not a function') ||
+      error.message.includes('addLogicRepeat is not a function') ||
+      error.message.includes('updateLogicRepeat is not a function') ||
+      error.message.includes('deleteLogicControl is not a function') ||
+      error.message.includes('reorderLogicControl is not a function') ||
+      error.message.includes('unknown method: variableSet.') ||
+      error.message.includes('unknown method: variableChange.') ||
+      error.message.includes('unknown method: logicIf.') ||
+      error.message.includes('unknown method: logicRepeat.') ||
+      error.message.includes('unknown method: logicControl.'))
+  ) {
+    return labels.messages.logicModuleUnavailable;
+  }
+
+  if (
+    error instanceof Error &&
+    (error.name === 'VnEngineError:logic_variable_limit' ||
+      error.message.includes('logic_variable_limit') ||
+      error.message.includes(
+        'project cannot contain more than 32 logic variables',
+      ))
+  ) {
+    return labels.messages.logicVariableLimit;
+  }
+
   if (
     error instanceof Error &&
     (error.message.includes('updateCgGallery is not a function') ||
@@ -322,6 +487,15 @@ export function useEngineProject(
     onStoryExtensionUnavailable: () => {
       setEngineMessage(labelsRef.current.messages.extensionModuleUnavailable);
     },
+    onLogicModuleUnavailable: () => {
+      setEngineMessage(labelsRef.current.messages.logicModuleUnavailable);
+    },
+    onCgDisplayModuleUnavailable: () => {
+      setEngineMessage(labelsRef.current.messages.cgDisplayModuleUnavailable);
+    },
+    onCharacterEffectModuleUnavailable: () => {
+      setEngineMessage(labelsRef.current.messages.effectModuleUnavailable);
+    },
   });
 
   async function createProject(name?: string): Promise<boolean> {
@@ -504,16 +678,31 @@ export function useEngineProject(
 
   async function updateStartScreen(
     title: string,
+    eyebrow: string,
     backgroundAssetId: string | null,
     musicAssetId: string | null,
   ): Promise<boolean> {
-    const result = await runEngineAction(() =>
-      platform.engine.updateStartScreen({
-        title,
-        backgroundAssetId,
-        musicAssetId,
-      }),
-    );
+    const command = platform.engine.updateStartScreen;
+    if (typeof command !== 'function') {
+      setEngineMessage(labelsRef.current.messages.startScreenModuleUnavailable);
+      setExportMessage('');
+      return false;
+    }
+    const result = await runEngineAction(async () => {
+      try {
+        return await command({
+          title,
+          eyebrow,
+          backgroundAssetId,
+          musicAssetId,
+        });
+      } catch (error: unknown) {
+        if (shouldMarkStartScreenModuleError(error)) {
+          throw startScreenModuleError(error);
+        }
+        throw error;
+      }
+    });
     return result !== null;
   }
 

@@ -1,3 +1,5 @@
+// 主要作用：把作者项目和资产发布为带校验清单的 Runtime Bundle。
+// 关键实现：exportRuntimeBundle 稳定读取资产、原子暂存、哈希验证并提交目录。
 import { createHash, randomUUID } from "node:crypto";
 import { constants, type Stats } from "node:fs";
 import {
@@ -37,7 +39,7 @@ const MAX_CTIME_ONLY_RETRY_ATTEMPTS = 3;
 
 export const RUNTIME_MANIFEST_FORMAT = "vn-engine-runtime-manifest";
 export const RUNTIME_MANIFEST_VERSION = 1;
-export const PLAYER_COMPATIBILITY = ">=6 <7";
+export const PLAYER_COMPATIBILITY = ">=10 <11";
 
 export type RuntimeManifestAssetV1 = {
   assetId: string;
@@ -132,7 +134,7 @@ function parseSavedAuthorProjectEnvelope(
     !isJsonObject(parsed) ||
     !hasExactFields(parsed, ["format", "fileVersion", "project", "assets"])
   ) {
-    throw new Error("document 字段不符合作者项目 v15");
+    throw new Error("document 字段不符合作者项目 v20");
   }
   if (parsed.format !== AUTHOR_PROJECT_FORMAT) {
     throw new Error("document.format 版本或格式不受支持");
@@ -200,7 +202,7 @@ function assertLegacyProjectMatchesBackendProjection(
       // absent from the Backend Renderer projection. Never canonicalize by
       // silently dropping them from an old project.
       if (characters.length > 0) {
-        throw new Error("runtime v6 不支持场景初始人物，请改用人物立绘时间线节点");
+        throw new Error("runtime v10 不支持场景初始人物，请改用人物立绘时间线节点");
       }
       if (sourceSceneValue.visuals.backgroundAssetId !== expectedScene.backgroundAssetId) {
         throw new Error("磁盘项目与当前编辑器项目不一致");
@@ -235,7 +237,7 @@ function compileSavedAuthorProject(
   // are the exact bytes that produced expectedProject. Reuse that canonical
   // projection instead of duplicating thirteen migration readers in Main;
   // retain the original private Asset records so paths still pass the strict
-  // v15 compiler and are compared with expectedAssets below.
+  // v20 compiler and are compared with expectedAssets below.
   assertLegacyProjectMatchesBackendProjection(envelope, expectedProject);
   const canonicalContents = JSON.stringify({
     format: AUTHOR_PROJECT_FORMAT,
@@ -681,7 +683,7 @@ async function copyAssetAndHash(
   stagingRootPath: string,
   asset: AuthorAssetRecord,
 ): Promise<RuntimeManifestAssetV1> {
-  // Author assets have no trusted digest in the saved v15 document. Treat even
+  // Author assets have no trusted digest in the saved v20 document. Treat even
   // ctime-only drift as a source change instead of learning a new hash here.
   return (await copyAssetAndHashAttempt(sourceRootPath, stagingRootPath, asset))
     .value;

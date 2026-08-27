@@ -1,3 +1,7 @@
+/**
+ * 主要作用：通过受控自定义协议向 Renderer 流式提供当前游戏媒体。
+ * 关键函数与实现：`PLAYER_MEDIA_SCHEME`、`PlayerMediaService`；基于 Electron Main 与 Node.js 安全文件/协议边界实现。
+ */
 import { randomUUID } from 'node:crypto';
 import type { ReadStream } from 'node:fs';
 import { lstat, realpath } from 'node:fs/promises';

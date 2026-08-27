@@ -1,3 +1,7 @@
+/**
+ * 主要作用：验证 Preload 仅暴露受控 API 并使用固定 IPC 通道。
+ * 关键函数与实现：测试套件“Player Preload API”、`electronMocks`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import type { GameRuntimeSnapshot } from '@vnengine/runtime';

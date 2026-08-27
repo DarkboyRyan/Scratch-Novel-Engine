@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：提供标题上方文字、游戏名、背景图和背景音乐的表单配置界面。
+ * 包含实现：`StartScreenFormEditor`。
+ */
+
 import {
   forwardRef,
   useEffect,
@@ -13,8 +18,11 @@ import type {
 } from '../../../shared/projectTypes';
 import type { StartScreenEditorHandle } from './StartScreenEditor';
 import {
+  constrainStartScreenEyebrowInput,
   createEditorSceneOptions,
+  normalizeStartScreenEyebrowInput,
   START_SCREEN_SCENE_ID,
+  trimStartScreenAsciiWhitespace,
 } from './startScreenScene';
 import { useEditorLabels } from '../../i18n/editorLocalization';
 
@@ -27,16 +35,13 @@ type StartScreenFormEditorProps = {
   onSceneChange: (sceneId: string) => Promise<void>;
   onUpdateStartScreen: (
     title: string,
+    eyebrow: string,
     backgroundAssetId: string | null,
     musicAssetId: string | null,
   ) => Promise<boolean>;
   onDraftDirtyChange: (dirty: boolean) => void;
   onStartPreview: () => void;
 };
-
-function normalizeTitleDraft(value: string): string {
-  return value.replace(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/gu, '');
-}
 
 export const StartScreenFormEditor = forwardRef<
   StartScreenEditorHandle,
@@ -60,10 +65,15 @@ export const StartScreenFormEditor = forwardRef<
   const startScreenRef = useRef(project.startScreen);
   const projectIdRef = useRef(project.id);
   const titleSourceRef = useRef(project.startScreen.title);
+  const eyebrowSourceRef = useRef(project.startScreen.eyebrow);
   const [titleDraft, setTitleDraft] = useState(
     project.startScreen.title,
   );
   const titleDraftRef = useRef(titleDraft);
+  const [eyebrowDraft, setEyebrowDraft] = useState(
+    project.startScreen.eyebrow,
+  );
+  const eyebrowDraftRef = useRef(eyebrowDraft);
   const [isMutating, setIsMutating] = useState(false);
   const titleFit = useAutoFitScale<HTMLDivElement, HTMLDivElement>();
   const controlsDisabled = isBusy || isMutating;
@@ -79,25 +89,48 @@ export const StartScreenFormEditor = forwardRef<
 
   startScreenRef.current = project.startScreen;
   titleDraftRef.current = titleDraft;
+  eyebrowDraftRef.current = eyebrowDraft;
 
   useEffect(() => {
     const projectChanged = projectIdRef.current !== project.id;
     projectIdRef.current = project.id;
     const previousSource = titleSourceRef.current;
+    const previousEyebrowSource = eyebrowSourceRef.current;
     titleSourceRef.current = project.startScreen.title;
+    eyebrowSourceRef.current = project.startScreen.eyebrow;
     if (projectChanged) {
       titleDraftRef.current = project.startScreen.title;
       setTitleDraft(project.startScreen.title);
+      eyebrowDraftRef.current = project.startScreen.eyebrow;
+      setEyebrowDraft(project.startScreen.eyebrow);
       return;
     }
     setTitleDraft((current) =>
       current === previousSource ? project.startScreen.title : current,
     );
-  }, [project.id, project.startScreen.title]);
+    setEyebrowDraft((current) =>
+      current === previousEyebrowSource
+        ? project.startScreen.eyebrow
+        : current,
+    );
+  }, [
+    project.id,
+    project.startScreen.eyebrow,
+    project.startScreen.title,
+  ]);
 
   useEffect(() => {
-    onDraftDirtyChange(titleDraft !== project.startScreen.title);
-  }, [onDraftDirtyChange, project.startScreen.title, titleDraft]);
+    onDraftDirtyChange(
+      titleDraft !== project.startScreen.title ||
+        eyebrowDraft !== project.startScreen.eyebrow,
+    );
+  }, [
+    eyebrowDraft,
+    onDraftDirtyChange,
+    project.startScreen.eyebrow,
+    project.startScreen.title,
+    titleDraft,
+  ]);
 
   useEffect(
     () => () => onDraftDirtyChange(false),
@@ -106,19 +139,26 @@ export const StartScreenFormEditor = forwardRef<
 
   const update = (
     title: string,
+    eyebrow: string,
     backgroundAssetId: string | null,
     musicAssetId: string | null,
   ): Promise<boolean> => {
-    const normalizedTitle = normalizeTitleDraft(title);
+    const normalizedTitle = trimStartScreenAsciiWhitespace(title);
+    const normalizedEyebrow = normalizeStartScreenEyebrowInput(eyebrow);
     if (normalizedTitle !== titleDraftRef.current) {
       titleDraftRef.current = normalizedTitle;
       setTitleDraft(normalizedTitle);
+    }
+    if (normalizedEyebrow !== eyebrowDraftRef.current) {
+      eyebrowDraftRef.current = normalizedEyebrow;
+      setEyebrowDraft(normalizedEyebrow);
     }
     if (activeMutationRef.current !== null) {
       return activeMutationRef.current;
     }
     if (
       normalizedTitle === startScreenRef.current.title &&
+      normalizedEyebrow === startScreenRef.current.eyebrow &&
       backgroundAssetId === startScreenRef.current.backgroundAssetId &&
       musicAssetId === startScreenRef.current.musicAssetId
     ) {
@@ -127,6 +167,7 @@ export const StartScreenFormEditor = forwardRef<
     setIsMutating(true);
     const mutation = onUpdateStartScreen(
       normalizedTitle,
+      normalizedEyebrow,
       backgroundAssetId,
       musicAssetId,
     )
@@ -150,10 +191,12 @@ export const StartScreenFormEditor = forwardRef<
         return activeMutationRef.current;
       }
       const current = startScreenRef.current;
-      return titleDraftRef.current === current.title
+      return titleDraftRef.current === current.title &&
+        eyebrowDraftRef.current === current.eyebrow
         ? true
         : update(
             titleDraftRef.current,
+            eyebrowDraftRef.current,
             current.backgroundAssetId,
             current.musicAssetId,
           );
@@ -214,7 +257,7 @@ export const StartScreenFormEditor = forwardRef<
           <div className="start-screen-design-scrim" aria-hidden="true" />
           <div ref={titleFit.containerRef} className="start-screen-design-fit">
             <div ref={titleFit.contentRef} className="start-screen-design-card">
-              <p>A VN ENGINE STORY</p>
+              {eyebrowDraft ? <p>{eyebrowDraft}</p> : null}
               <h2>{titleDraft || labels.common.unnamedGame}</h2>
               <div className="start-screen-design-actions">
                 <span className="is-primary">▶ {labels.startScreen.startGame}</span>
@@ -234,6 +277,42 @@ export const StartScreenFormEditor = forwardRef<
         </div>
         <form onSubmit={(event) => event.preventDefault()}>
           <label>
+            {labels.startScreen.eyebrow}
+            <input
+              aria-label={labels.startScreen.eyebrowAria}
+              value={eyebrowDraft}
+              disabled={controlsDisabled}
+              onChange={(event) => {
+                const nextEyebrow = constrainStartScreenEyebrowInput(
+                  event.target.value,
+                );
+                eyebrowDraftRef.current = nextEyebrow;
+                setEyebrowDraft(nextEyebrow);
+              }}
+              onBlur={() => {
+                const current = startScreenRef.current;
+                void update(
+                  titleDraftRef.current,
+                  eyebrowDraftRef.current,
+                  current.backgroundAssetId,
+                  current.musicAssetId,
+                );
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  event.currentTarget.blur();
+                } else if (event.key === 'Escape') {
+                  event.preventDefault();
+                  const savedEyebrow = startScreenRef.current.eyebrow;
+                  eyebrowDraftRef.current = savedEyebrow;
+                  setEyebrowDraft(savedEyebrow);
+                  event.currentTarget.blur();
+                }
+              }}
+            />
+          </label>
+          <label>
             {labels.startScreen.displayName}
             <input
               aria-label={labels.startScreen.gameNameAria}
@@ -244,6 +323,7 @@ export const StartScreenFormEditor = forwardRef<
                 const current = startScreenRef.current;
                 void update(
                   titleDraftRef.current,
+                  eyebrowDraftRef.current,
                   current.backgroundAssetId,
                   current.musicAssetId,
                 );
@@ -271,6 +351,7 @@ export const StartScreenFormEditor = forwardRef<
               onChange={(event) => {
                 void update(
                   titleDraftRef.current,
+                  eyebrowDraftRef.current,
                   event.target.value || null,
                   project.startScreen.musicAssetId,
                 );
@@ -299,6 +380,7 @@ export const StartScreenFormEditor = forwardRef<
               onChange={(event) => {
                 void update(
                   titleDraftRef.current,
+                  eyebrowDraftRef.current,
                   project.startScreen.backgroundAssetId,
                   event.target.value || null,
                 );

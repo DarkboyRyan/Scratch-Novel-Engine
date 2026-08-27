@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 story continuation Blockly block 的行为。
+ * 测试覆盖：`story continuation Blockly block`。
+ */
+
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 

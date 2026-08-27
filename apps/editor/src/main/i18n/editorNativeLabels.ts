@@ -1,3 +1,5 @@
+// 主要作用：集中提供 Electron 原生菜单、对话框和窗口标题的中英文文案。
+// 关键实现：getEditorNativeLabels 根据 EditorLanguage 返回完整标签集合。
 import type { EditorLanguage } from '../../shared/editorSettingsProtocol';
 
 export type EditorNativeLabels = {
@@ -34,6 +36,7 @@ export type EditorNativeLabels = {
     button: string;
     webFilter: string;
     macFilter: string;
+    characterImageRequired: string;
   };
   window: {
     untitledProject: string;
@@ -76,6 +79,7 @@ const zhCN: EditorNativeLabels = {
     button: '导出',
     webFilter: 'Web 游戏 ZIP',
     macFilter: 'macOS 游戏 ZIP',
+    characterImageRequired: '人物立绘尚未选择图片，请先选择图片后再导出',
   },
   window: {
     untitledProject: '未命名项目',
@@ -118,6 +122,8 @@ const enUS: EditorNativeLabels = {
     button: 'Export',
     webFilter: 'Web Game ZIP',
     macFilter: 'macOS Game ZIP',
+    characterImageRequired:
+      'A character portrait has no image selected. Choose an image before exporting.',
   },
   window: {
     untitledProject: 'Untitled Project',

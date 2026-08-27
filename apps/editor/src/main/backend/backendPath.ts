@@ -1,3 +1,5 @@
+// 主要作用：解析开发版和打包版 C++ 后端可执行文件的位置。
+// 关键实现：resolveBackendPath 处理平台路径，assertBackendIsExecutable 校验权限。
 import { accessSync, constants, existsSync } from 'node:fs';
 import path from 'node:path';
 import { app } from 'electron';

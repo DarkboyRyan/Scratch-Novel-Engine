@@ -1,3 +1,5 @@
+# 文件职责：在 PR、main push 和手动触发时执行跨平台内部质量门禁。
+# 关键实现：Node/pnpm、C++ CTest、Editor/Player 测试与平台构建矩阵。
 name: Player internal CI
 
 on:

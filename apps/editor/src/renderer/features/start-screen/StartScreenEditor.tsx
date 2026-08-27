@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：在表单与积木模式间切换标题界面编辑器。
+ * 包含实现：`StartScreenEditorHandle`、`StartScreenEditor`。
+ */
+
 import {
   forwardRef,
   useImperativeHandle,
@@ -26,6 +31,7 @@ type StartScreenEditorProps = {
   onSceneChange: (sceneId: string) => Promise<void>;
   onUpdateStartScreen: (
     title: string,
+    eyebrow: string,
     backgroundAssetId: string | null,
     musicAssetId: string | null,
   ) => Promise<boolean>;

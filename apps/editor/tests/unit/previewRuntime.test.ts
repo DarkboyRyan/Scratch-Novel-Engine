@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 game preview runtime 的行为。
+ * 测试覆盖：`game preview runtime`。
+ */
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -16,6 +21,7 @@ const project: ProjectDocument = {
   entrySceneId: 'scene-entry',
   startScreen: {
     title: 'Story',
+    eyebrow: 'A VN ENGINE STORY',
     backgroundAssetId: null,
     musicAssetId: null,
   },
@@ -45,6 +51,7 @@ const project: ProjectDocument = {
           slot: 'left',
           layer: 1,
           position: null,
+          effect: null,
         },
         {
           id: 'd1',
@@ -60,6 +67,7 @@ const project: ProjectDocument = {
           slot: 'right',
           layer: 2,
           position: { x: 82, y: 96 },
+          effect: null,
         },
         {
           id: 'replace',
@@ -68,6 +76,7 @@ const project: ProjectDocument = {
           slot: 'center',
           layer: 1,
           position: null,
+          effect: null,
         },
         {
           id: 'd2',
@@ -83,6 +92,7 @@ const project: ProjectDocument = {
           slot: 'right',
           layer: 2,
           position: null,
+          effect: null,
         },
       ],
     },
@@ -159,8 +169,12 @@ describe('game preview runtime', () => {
       bgmAssetId: 'theme-audio',
       bgmSequence: 1,
       dialogueSequence: 1,
+      characterEffectSequence: 1,
       videoAssetId: null,
       videoSequence: 0,
+      cgAssetId: null,
+      cgLeadInMs: 0,
+      cgSequence: 0,
       characters: [
         {
           nodeId: 'alice',
@@ -168,6 +182,9 @@ describe('game preview runtime', () => {
           slot: 'left',
           layer: 1,
           position: null,
+          opacity: 1,
+          effect: null,
+          effectSequence: 1,
         },
       ],
       dialogue: {
@@ -178,6 +195,8 @@ describe('game preview runtime', () => {
         voiceAssetId: 'voice-a',
       },
       choices: [],
+      variables: {},
+      loopStack: [],
     });
   });
 
@@ -194,6 +213,9 @@ describe('game preview runtime', () => {
         slot: 'center',
         layer: 1,
         position: null,
+        opacity: 1,
+        effect: null,
+        effectSequence: 3,
       },
       {
         nodeId: 'bob',
@@ -201,6 +223,9 @@ describe('game preview runtime', () => {
         slot: 'right',
         layer: 2,
         position: { x: 82, y: 96 },
+        opacity: 1,
+        effect: null,
+        effectSequence: 2,
       },
     ]);
 
@@ -214,6 +239,9 @@ describe('game preview runtime', () => {
         slot: 'center',
         layer: 1,
         position: null,
+        opacity: 1,
+        effect: null,
+        effectSequence: 3,
       },
     ]);
   });
@@ -306,6 +334,7 @@ describe('game preview runtime', () => {
       entrySceneId: 'loop',
       startScreen: {
         title: 'Story',
+        eyebrow: 'A VN ENGINE STORY',
         backgroundAssetId: null,
         musicAssetId: null,
       },
@@ -387,6 +416,7 @@ describe('game preview runtime', () => {
       entrySceneId: 'a',
       startScreen: {
         title: 'Story',
+        eyebrow: 'A VN ENGINE STORY',
         backgroundAssetId: null,
         musicAssetId: null,
       },
@@ -458,6 +488,7 @@ describe('game preview runtime', () => {
       entrySceneId: 'entry',
       startScreen: {
         title: 'Story',
+        eyebrow: 'A VN ENGINE STORY',
         backgroundAssetId: null,
         musicAssetId: null,
       },
@@ -479,6 +510,7 @@ describe('game preview runtime', () => {
               slot: 'center',
               layer: 1,
               position: null,
+              effect: null,
             },
             {
               id: 'choice',
@@ -543,6 +575,7 @@ describe('game preview runtime', () => {
       entrySceneId: 'entry',
       startScreen: {
         title: 'Story',
+        eyebrow: 'A VN ENGINE STORY',
         backgroundAssetId: null,
         musicAssetId: null,
       },

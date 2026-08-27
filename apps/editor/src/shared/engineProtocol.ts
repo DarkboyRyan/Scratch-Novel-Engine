@@ -1,7 +1,13 @@
+// 主要作用：定义 C++、Main、Preload 与 Renderer 共用的引擎命令协议。
+// 关键实现：以方法到参数映射生成严格 Invocation、Response 和 VnEngineApi 类型。
 import type {
   AssetDocument,
+  CharacterEffect,
+  CharacterMode,
   CharacterPosition,
   CharacterSlot,
+  LogicCondition,
+  LogicValue,
   ProjectDocument,
 } from './projectTypes';
 
@@ -44,6 +50,8 @@ export type UpdateBackgroundParams = {
 
 export type AddCharacterParams = {
   sceneId: string;
+  mode?: CharacterMode;
+  assetId?: string | null;
   afterNodeId?: string | null;
   beforeNodeId?: string | null;
 };
@@ -51,10 +59,24 @@ export type AddCharacterParams = {
 export type UpdateCharacterParams = {
   sceneId: string;
   nodeId: string;
+  mode?: CharacterMode;
   assetId: string | null;
   slot: CharacterSlot;
   layer: number;
   position: CharacterPosition | null;
+};
+
+export type UpdateCharacterEffectParams = {
+  sceneId: string;
+  nodeId: string;
+  effect: CharacterEffect | null;
+};
+
+export type MoveCharacterEffectParams = {
+  sceneId: string;
+  fromNodeId: string;
+  toNodeId: string;
+  effect: CharacterEffect;
 };
 
 export type AddSceneJumpParams = {
@@ -90,6 +112,7 @@ export type UpdateBgmParams = {
 
 export type UpdateStartScreenParams = {
   title: string;
+  eyebrow: string;
   backgroundAssetId: string | null;
   musicAssetId: string | null;
 };
@@ -110,6 +133,32 @@ export type UpdateVideoParams = {
   assetId: string | null;
 };
 
+export type AddCgDisplayParams = {
+  sceneId: string;
+  assetId: string;
+  leadInMs: number;
+  afterNodeId?: string | null;
+  beforeNodeId?: string | null;
+};
+
+export type UpdateCgDisplayParams = {
+  sceneId: string;
+  nodeId: string;
+  assetId: string;
+  leadInMs: number;
+};
+
+export type DeleteCgDisplayParams = {
+  sceneId: string;
+  nodeId: string;
+};
+
+export type ReorderCgDisplayParams = {
+  sceneId: string;
+  nodeId: string;
+  beforeNodeId: string | null;
+};
+
 export type AddChoiceParams = {
   sceneId: string;
   afterNodeId?: string | null;
@@ -120,6 +169,73 @@ export type AddStoryExtensionParams = {
   sceneId: string;
   afterNodeId?: string | null;
   beforeNodeId?: string | null;
+};
+
+export type AddVariableSetParams = {
+  sceneId: string;
+  variableName: string;
+  value: LogicValue;
+  afterNodeId?: string | null;
+  beforeNodeId?: string | null;
+};
+
+export type UpdateVariableSetParams = {
+  sceneId: string;
+  nodeId: string;
+  variableName: string;
+  value: LogicValue;
+};
+
+export type AddVariableChangeParams = {
+  sceneId: string;
+  variableName: string;
+  amount: number;
+  afterNodeId?: string | null;
+  beforeNodeId?: string | null;
+};
+
+export type UpdateVariableChangeParams = {
+  sceneId: string;
+  nodeId: string;
+  variableName: string;
+  amount: number;
+};
+
+export type AddLogicIfParams = {
+  sceneId: string;
+  condition: LogicCondition;
+  afterNodeId?: string | null;
+  beforeNodeId?: string | null;
+};
+
+export type UpdateLogicIfParams = {
+  sceneId: string;
+  nodeId: string;
+  condition: LogicCondition;
+};
+
+export type AddLogicRepeatParams = {
+  sceneId: string;
+  count: number;
+  afterNodeId?: string | null;
+  beforeNodeId?: string | null;
+};
+
+export type UpdateLogicRepeatParams = {
+  sceneId: string;
+  nodeId: string;
+  count: number;
+};
+
+export type DeleteLogicControlParams = {
+  sceneId: string;
+  nodeId: string;
+};
+
+export type ReorderLogicControlParams = {
+  sceneId: string;
+  nodeId: string;
+  beforeNodeId: string | null;
 };
 
 export type AddChoiceOptionParams = {
@@ -226,18 +342,34 @@ export const ENGINE_METHODS = [
   'background.reorder',
   'character.add',
   'character.update',
+  'characterEffect.update',
+  'characterEffect.move',
   'sceneJump.add',
   'sceneJump.update',
   'bgm.add',
   'bgm.update',
   'video.add',
   'video.update',
+  'cgDisplay.add',
+  'cgDisplay.update',
+  'cgDisplay.delete',
+  'cgDisplay.reorder',
   'choice.add',
   'choice.option.add',
   'choice.option.update',
   'choice.option.delete',
   'choice.option.reorder',
   'storyExtension.add',
+  'variableSet.add',
+  'variableSet.update',
+  'variableChange.add',
+  'variableChange.update',
+  'logicIf.add',
+  'logicIf.update',
+  'logicRepeat.add',
+  'logicRepeat.update',
+  'logicControl.delete',
+  'logicControl.reorder',
   'timeline.deleteMany',
   'timeline.reorder',
   'timeline.reorderMany',
@@ -296,18 +428,34 @@ export type EngineParamsByMethod = {
   'background.reorder': ReorderBackgroundParams;
   'character.add': AddCharacterParams;
   'character.update': UpdateCharacterParams;
+  'characterEffect.update': UpdateCharacterEffectParams;
+  'characterEffect.move': MoveCharacterEffectParams;
   'sceneJump.add': AddSceneJumpParams;
   'sceneJump.update': UpdateSceneJumpParams;
   'bgm.add': AddBgmParams;
   'bgm.update': UpdateBgmParams;
   'video.add': AddVideoParams;
   'video.update': UpdateVideoParams;
+  'cgDisplay.add': AddCgDisplayParams;
+  'cgDisplay.update': UpdateCgDisplayParams;
+  'cgDisplay.delete': DeleteCgDisplayParams;
+  'cgDisplay.reorder': ReorderCgDisplayParams;
   'choice.add': AddChoiceParams;
   'choice.option.add': AddChoiceOptionParams;
   'choice.option.update': UpdateChoiceOptionParams;
   'choice.option.delete': DeleteChoiceOptionParams;
   'choice.option.reorder': ReorderChoiceOptionParams;
   'storyExtension.add': AddStoryExtensionParams;
+  'variableSet.add': AddVariableSetParams;
+  'variableSet.update': UpdateVariableSetParams;
+  'variableChange.add': AddVariableChangeParams;
+  'variableChange.update': UpdateVariableChangeParams;
+  'logicIf.add': AddLogicIfParams;
+  'logicIf.update': UpdateLogicIfParams;
+  'logicRepeat.add': AddLogicRepeatParams;
+  'logicRepeat.update': UpdateLogicRepeatParams;
+  'logicControl.delete': DeleteLogicControlParams;
+  'logicControl.reorder': ReorderLogicControlParams;
   'timeline.deleteMany': TimelineDeleteManyParams;
   'timeline.reorder': TimelineReorderParams;
   'timeline.reorderMany': TimelineReorderManyParams;
@@ -443,6 +591,12 @@ export type VnEngineApi = {
   updateCharacter(
     params: UpdateCharacterParams,
   ): Promise<EngineMutationResult>;
+  updateCharacterEffect(
+    params: UpdateCharacterEffectParams,
+  ): Promise<EngineMutationResult>;
+  moveCharacterEffect(
+    params: MoveCharacterEffectParams,
+  ): Promise<EngineMutationResult>;
   addSceneJump(
     params: AddSceneJumpParams,
   ): Promise<EngineMutationResult>;
@@ -461,6 +615,18 @@ export type VnEngineApi = {
   updateVideo(
     params: UpdateVideoParams,
   ): Promise<EngineMutationResult>;
+  addCgDisplay(
+    params: AddCgDisplayParams,
+  ): Promise<EngineMutationResult>;
+  updateCgDisplay(
+    params: UpdateCgDisplayParams,
+  ): Promise<EngineMutationResult>;
+  deleteCgDisplay(
+    params: DeleteCgDisplayParams,
+  ): Promise<EngineMutationResult>;
+  reorderCgDisplay(
+    params: ReorderCgDisplayParams,
+  ): Promise<EngineMutationResult>;
   addChoice(
     params: AddChoiceParams,
   ): Promise<EngineMutationResult>;
@@ -478,6 +644,36 @@ export type VnEngineApi = {
   ): Promise<EngineMutationResult>;
   addStoryExtension(
     params: AddStoryExtensionParams,
+  ): Promise<EngineMutationResult>;
+  addVariableSet(
+    params: AddVariableSetParams,
+  ): Promise<EngineMutationResult>;
+  updateVariableSet(
+    params: UpdateVariableSetParams,
+  ): Promise<EngineMutationResult>;
+  addVariableChange(
+    params: AddVariableChangeParams,
+  ): Promise<EngineMutationResult>;
+  updateVariableChange(
+    params: UpdateVariableChangeParams,
+  ): Promise<EngineMutationResult>;
+  addLogicIf(
+    params: AddLogicIfParams,
+  ): Promise<EngineMutationResult>;
+  updateLogicIf(
+    params: UpdateLogicIfParams,
+  ): Promise<EngineMutationResult>;
+  addLogicRepeat(
+    params: AddLogicRepeatParams,
+  ): Promise<EngineMutationResult>;
+  updateLogicRepeat(
+    params: UpdateLogicRepeatParams,
+  ): Promise<EngineMutationResult>;
+  deleteLogicControl(
+    params: DeleteLogicControlParams,
+  ): Promise<EngineMutationResult>;
+  reorderLogicControl(
+    params: ReorderLogicControlParams,
   ): Promise<EngineMutationResult>;
   deleteTimelineNodes(
     params: TimelineDeleteManyParams,

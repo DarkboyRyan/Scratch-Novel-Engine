@@ -1,3 +1,7 @@
+/**
+ * 主要作用：组装 Electron Player 主进程生命周期、窗口、服务与 IPC。
+ * 关键函数与实现：openPlayerWindow、settingsQuitCoordinator；基于 Electron Main 与 Node.js 安全文件/协议边界实现。
+ */
 import {
   app,
   BrowserWindow,

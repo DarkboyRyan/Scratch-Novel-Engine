@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：统一 Blockly 积木选中、取消选中和选择状态读取。
+ * 包含实现：`BlockSelectionController`、`getBlockClientRectangle`、`createBlockSelectionController`。
+ */
+
 import * as Blockly from 'blockly';
 
 import type { SceneDocument } from '../../../shared/projectTypes';

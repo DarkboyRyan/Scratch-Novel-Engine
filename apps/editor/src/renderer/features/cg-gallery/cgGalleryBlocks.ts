@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：注册 CG 画廊根积木、分页积木和九个图片槽位。
+ * 包含实现：`CG_GALLERY_PAGE_BLOCK_TYPE`、`CG_GALLERY_PAGE_BLOCK_ID_PREFIX`、`CG_GALLERY_IMAGE_FIELD_PREFIX`、`CgGalleryAssetOption`、`cgGalleryPageBlockId`、`cgGalleryImageFieldName` 等 12 项。
+ */
+
 import * as Blockly from 'blockly';
 
 import type {
@@ -14,6 +19,7 @@ import {
   getEditorLabels,
   type EditorLabels,
 } from '../../i18n/editorLocalization';
+import { limitAssetFieldDisplay } from '../block-editor/blocks/assetNameField';
 
 export const CG_GALLERY_PAGE_BLOCK_TYPE = 'vn_cg_gallery_page';
 export const CG_GALLERY_PAGE_BLOCK_ID_PREFIX = 'vn-editor-cg-page-';
@@ -72,13 +78,17 @@ function registerCgGalleryPageBlock(): void {
         .appendField(new Blockly.FieldLabelSerializable('1'), 'PAGE_NUMBER')
         .appendField(currentLabels.blockly.pageSuffix, CG_GALLERY_LABEL_FIELDS.pageSuffix);
       for (let slotIndex = 0; slotIndex < CG_GALLERY_PAGE_SIZE; slotIndex += 1) {
+        const assetField = new Blockly.FieldDropdown([
+          [currentLabels.common.none, ''],
+        ]);
+        limitAssetFieldDisplay(assetField);
         this.appendDummyInput(`SLOT_${slotIndex}`)
           .appendField(
             `${currentLabels.blockly.imageSlot} ${slotIndex + 1}`,
             `${CG_GALLERY_LABEL_FIELDS.slotPrefix}${slotIndex}`,
           )
           .appendField(
-            new Blockly.FieldDropdown([[currentLabels.common.none, '']]),
+            assetField,
             cgGalleryImageFieldName(slotIndex),
           );
       }

@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 MediaFormat、parseSingleByteRange 的行为。
+ * 测试覆盖：`MediaFormat`、`parseSingleByteRange`。
+ */
+
 import { describe, expect, it } from 'vitest';
 
 import {

@@ -1,3 +1,5 @@
+// 文件职责：声明对权威项目模型的查询、校验和原子编辑接口。
+// 关键实现：IdGenerator、项目/场景命令、时间线节点、控制范围和聚合校验函数。
 #pragma once
 
 #include <optional>
@@ -93,6 +95,7 @@ enum class UpdateStartScreenResult {
   changed,
   unchanged,
   title_required,
+  eyebrow_invalid,
   background_asset_not_found,
   background_asset_not_image,
   music_asset_not_found,
@@ -102,6 +105,7 @@ enum class UpdateStartScreenResult {
 UpdateStartScreenResult update_start_screen(
     ProjectAggregate& aggregate,
     std::string title,
+    std::string eyebrow,
     std::optional<std::string> background_asset_id,
     std::optional<std::string> music_asset_id);
 
@@ -124,6 +128,12 @@ UpdateCgGalleryResult update_cg_gallery(
 // Title-screen names follow the same whitespace rules as project names but
 // remain an independent value after project creation/migration.
 std::optional<std::string> normalize_start_screen_title(std::string title);
+
+// Empty eyebrow copy is valid (and hides the line), while non-empty copy uses
+// surrounding ASCII whitespace normalization. Every accepted value is valid
+// UTF-8, NUL-free, and bounded by kStartScreenEyebrowMaxBytes.
+std::optional<std::string> normalize_start_screen_eyebrow(
+    std::string eyebrow);
 
 // Background changes are aggregate operations because a Scene may only
 // reference an existing image Asset. Expected validation failures are
@@ -172,6 +182,7 @@ enum class AddBackgroundNodeStatus {
   scene_not_found,
   placement_conflict,
   anchor_not_found,
+  control_boundary_conflict,
 };
 
 struct AddBackgroundNodeResult {
@@ -212,6 +223,8 @@ enum class AddCharacterNodeStatus {
   scene_not_found,
   placement_conflict,
   anchor_not_found,
+  control_boundary_conflict,
+  invalid_mode,
 };
 
 struct AddCharacterNodeResult {
@@ -224,7 +237,8 @@ AddCharacterNodeResult add_character_node(
     IdGenerator& ids,
     std::string_view scene_id,
     std::optional<std::string> after_node_id = std::nullopt,
-    std::optional<std::string> before_node_id = std::nullopt);
+    std::optional<std::string> before_node_id = std::nullopt,
+    CharacterNodeMode mode = CharacterNodeMode::show);
 
 enum class UpdateCharacterNodeResult {
   changed,
@@ -236,6 +250,7 @@ enum class UpdateCharacterNodeResult {
   invalid_slot,
   invalid_layer,
   invalid_position,
+  invalid_mode,
 };
 
 UpdateCharacterNodeResult update_character_node(
@@ -245,13 +260,49 @@ UpdateCharacterNodeResult update_character_node(
     std::optional<std::string> asset_id,
     CharacterSlot slot,
     int layer,
-    std::optional<CharacterPosition> position = std::nullopt);
+    std::optional<CharacterPosition> position = std::nullopt,
+    std::optional<CharacterNodeMode> mode = std::nullopt);
+
+enum class UpdateCharacterEffectResult {
+  changed,
+  unchanged,
+  scene_not_found,
+  node_not_found,
+  character_cleared,
+  invalid_effect,
+};
+
+UpdateCharacterEffectResult update_character_effect(
+    ProjectAggregate& aggregate,
+    std::string_view scene_id,
+    std::string_view node_id,
+    std::optional<CharacterEffect> effect);
+
+enum class MoveCharacterEffectResult {
+  changed,
+  scene_not_found,
+  source_node_not_found,
+  target_node_not_found,
+  same_node,
+  source_effect_missing,
+  source_effect_mismatch,
+  target_character_cleared,
+  invalid_effect,
+};
+
+MoveCharacterEffectResult move_character_effect(
+    ProjectAggregate& aggregate,
+    std::string_view scene_id,
+    std::string_view from_node_id,
+    std::string_view to_node_id,
+    CharacterEffect effect);
 
 enum class AddBgmNodeStatus {
   added,
   scene_not_found,
   placement_conflict,
   anchor_not_found,
+  control_boundary_conflict,
 };
 
 struct AddBgmNodeResult {
@@ -288,6 +339,7 @@ enum class AddVideoNodeStatus {
   scene_not_found,
   placement_conflict,
   anchor_not_found,
+  control_boundary_conflict,
 };
 
 struct AddVideoNodeResult {
@@ -324,6 +376,7 @@ enum class AddChoiceNodeStatus {
   scene_not_found,
   placement_conflict,
   anchor_not_found,
+  control_boundary_conflict,
 };
 
 struct AddChoiceNodeResult {
@@ -419,6 +472,7 @@ enum class AddSceneJumpNodeStatus {
   self_target,
   placement_conflict,
   anchor_not_found,
+  control_boundary_conflict,
 };
 
 struct AddSceneJumpNodeResult {
@@ -454,6 +508,7 @@ enum class AddStoryExtensionNodeStatus {
   scene_not_found,
   placement_conflict,
   anchor_not_found,
+  logic_boundary_conflict,
 };
 
 struct AddStoryExtensionNodeResult {
@@ -470,9 +525,206 @@ AddStoryExtensionNodeResult add_story_extension_node(
     std::optional<std::string> after_node_id = std::nullopt,
     std::optional<std::string> before_node_id = std::nullopt);
 
-// Generic timeline ordering supports every SceneNode variant, including
-// Choice and authoring-only StoryExtension nodes. A null before ID means the
-// end of the Scene.
+inline constexpr std::size_t kMaximumLogicVariableNameBytes = 64;
+inline constexpr std::size_t kMaximumLogicStringBytes = 4096;
+inline constexpr std::size_t kMaximumLogicVariableCount = 32;
+inline constexpr int kMaximumLogicNestingDepth = 16;
+inline constexpr int kMaximumLogicRepeatCount = 1000;
+inline constexpr int kMaximumCgLeadInMs = 60000;
+
+// Control validation is shared by persistence, authoring commands, and the
+// structural timeline guard. The legacy function name is retained for API
+// compatibility; it validates both logic controls and paired CG displays.
+std::optional<std::string> validate_logic_value(const LogicValue& value);
+std::optional<std::string> validate_logic_operand(const LogicOperand& operand);
+std::optional<std::string> validate_logic_condition(
+    const LogicCondition& condition);
+std::optional<std::string> validate_scene_logic_structure(const Scene& scene);
+
+enum class AddLogicNodeStatus {
+  added,
+  scene_not_found,
+  placement_conflict,
+  anchor_not_found,
+  invalid_logic,
+  variable_limit,
+};
+
+struct AddLogicNodeResult {
+  AddLogicNodeStatus status;
+  std::optional<std::string> node_id;
+};
+
+enum class UpdateLogicNodeResult {
+  changed,
+  unchanged,
+  scene_not_found,
+  node_not_found,
+  invalid_logic,
+  variable_limit,
+};
+
+AddLogicNodeResult add_variable_set_node(
+    Project& project,
+    IdGenerator& ids,
+    std::string_view scene_id,
+    std::string variable_name,
+    LogicValue value,
+    std::optional<std::string> after_node_id = std::nullopt,
+    std::optional<std::string> before_node_id = std::nullopt);
+UpdateLogicNodeResult update_variable_set_node(
+    Project& project,
+    std::string_view scene_id,
+    std::string_view node_id,
+    std::string variable_name,
+    LogicValue value);
+
+AddLogicNodeResult add_variable_change_node(
+    Project& project,
+    IdGenerator& ids,
+    std::string_view scene_id,
+    std::string variable_name,
+    double amount,
+    std::optional<std::string> after_node_id = std::nullopt,
+    std::optional<std::string> before_node_id = std::nullopt);
+UpdateLogicNodeResult update_variable_change_node(
+    Project& project,
+    std::string_view scene_id,
+    std::string_view node_id,
+    std::string variable_name,
+    double amount);
+
+// Adding a control root atomically creates every paired marker. An if always
+// has an else branch, even while both branches are empty.
+AddLogicNodeResult add_logic_if_node(
+    Project& project,
+    IdGenerator& ids,
+    std::string_view scene_id,
+    LogicCondition condition,
+    std::optional<std::string> after_node_id = std::nullopt,
+    std::optional<std::string> before_node_id = std::nullopt);
+UpdateLogicNodeResult update_logic_if_node(
+    Project& project,
+    std::string_view scene_id,
+    std::string_view node_id,
+    LogicCondition condition);
+
+AddLogicNodeResult add_logic_repeat_node(
+    Project& project,
+    IdGenerator& ids,
+    std::string_view scene_id,
+    int count,
+    std::optional<std::string> after_node_id = std::nullopt,
+    std::optional<std::string> before_node_id = std::nullopt);
+UpdateLogicNodeResult update_logic_repeat_node(
+    Project& project,
+    std::string_view scene_id,
+    std::string_view node_id,
+    int count);
+
+enum class LogicControlMutationResult {
+  changed,
+  unchanged,
+  scene_not_found,
+  node_not_found,
+  not_control_root,
+  anchor_not_found,
+  anchor_inside_control,
+};
+
+// Deletion follows Blockly's C-block semantics: the root, paired markers,
+// and every nested body node are removed as one transaction.
+LogicControlMutationResult delete_logic_control(
+    Project& project,
+    std::string_view scene_id,
+    std::string_view node_id);
+LogicControlMutationResult reorder_logic_control(
+    Project& project,
+    std::string_view scene_id,
+    std::string_view node_id,
+    std::optional<std::string> before_node_id);
+
+bool is_logic_control_marker(const SceneNode& node);
+bool is_cg_display_control_marker(const SceneNode& node);
+
+enum class AddCgDisplayStatus {
+  added,
+  scene_not_found,
+  placement_conflict,
+  anchor_not_found,
+  asset_not_found,
+  asset_not_image,
+  invalid_lead_in,
+  boundary_conflict,
+};
+
+struct AddCgDisplayResult {
+  AddCgDisplayStatus status;
+  std::optional<std::string> node_id;
+};
+
+enum class UpdateCgDisplayResult {
+  changed,
+  unchanged,
+  scene_not_found,
+  node_not_found,
+  asset_not_found,
+  asset_not_image,
+  invalid_lead_in,
+};
+
+AddCgDisplayResult add_cg_display_node(
+    ProjectAggregate& aggregate,
+    IdGenerator& ids,
+    std::string_view scene_id,
+    std::string asset_id,
+    int lead_in_ms,
+    std::optional<std::string> after_node_id = std::nullopt,
+    std::optional<std::string> before_node_id = std::nullopt);
+UpdateCgDisplayResult update_cg_display_node(
+    ProjectAggregate& aggregate,
+    std::string_view scene_id,
+    std::string_view node_id,
+    std::string asset_id,
+    int lead_in_ms);
+
+enum class CgDisplayMutationResult {
+  changed,
+  unchanged,
+  scene_not_found,
+  node_not_found,
+  not_display_root,
+  anchor_not_found,
+  anchor_inside_display,
+  boundary_conflict,
+};
+
+// Delete/reorder always treats a CG display root, every body dialogue, and
+// its paired end marker as one atomic C-shaped block.
+CgDisplayMutationResult delete_cg_display(
+    Project& project,
+    std::string_view scene_id,
+    std::string_view node_id);
+CgDisplayMutationResult reorder_cg_display(
+    Project& project,
+    std::string_view scene_id,
+    std::string_view node_id,
+    std::optional<std::string> before_node_id);
+
+// A generic multi-node move may carry logic or CG controls only when selecting
+// any of that control's own root/branch/end markers also selects its complete
+// range.
+// Semantic body leaves remain independently movable. This is used by
+// StoryExtension page moves, which send the entire page through
+// timeline.reorderMany.
+bool scene_node_selection_respects_logic_boundaries(
+    const Scene& scene,
+    const std::vector<std::string>& node_ids);
+
+// Generic timeline ordering supports semantic leaf nodes and complete,
+// balanced control ranges. Individual or partial control selections must use
+// the atomic logic-control commands so they can never become orphaned.
+// A null before ID means the end of the Scene.
 bool reorder_scene_node(
     Project& project,
     std::string_view scene_id,

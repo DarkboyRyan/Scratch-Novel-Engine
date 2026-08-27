@@ -1,7 +1,10 @@
+// 主要作用：在进入 C++ 后端前严格验证每一种引擎命令参数。
+// 关键实现：isEngineInvocation 按 ENGINE_METHODS 分支校验精确字段与值域。
 import {
   ENGINE_METHODS,
   type EngineInvocation,
 } from '../../shared/engineProtocol';
+import { isCharacterEffect } from '@vnengine/runtime';
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -39,6 +42,71 @@ function isCgGalleryPages(value: unknown): boolean {
   });
 }
 
+const utf8ByteLength = (value: string): number =>
+  new TextEncoder().encode(value).length;
+
+function isStartScreenEyebrow(value: unknown): value is string {
+  if (typeof value !== 'string' || value.includes('\0')) {
+    return false;
+  }
+  const encoded = new TextEncoder().encode(value);
+  return encoded.length <= 256 &&
+    new TextDecoder('utf-8', { fatal: true }).decode(encoded) === value;
+}
+
+function isLogicValue(value: unknown): boolean {
+  return (
+    typeof value === 'boolean' ||
+    (typeof value === 'number' && Number.isFinite(value)) ||
+    (typeof value === 'string' &&
+      !value.includes('\0') &&
+      utf8ByteLength(value) <= 4096)
+  );
+}
+
+function isLogicVariableName(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value === value.replace(/^[ \t\n\r\f\v]+|[ \t\n\r\f\v]+$/g, '') &&
+    !value.includes('\0') &&
+    utf8ByteLength(value) <= 64
+  );
+}
+
+function isLogicOperand(value: unknown): boolean {
+  if (!isObject(value) || typeof value.kind !== 'string') {
+    return false;
+  }
+  if (value.kind === 'variable') {
+    return (
+      Object.keys(value).length === 2 &&
+      isLogicVariableName(value.name)
+    );
+  }
+  return (
+    value.kind === 'literal' &&
+    Object.keys(value).length === 2 &&
+    Object.hasOwn(value, 'value') &&
+    isLogicValue(value.value)
+  );
+}
+
+function isLogicCondition(value: unknown): boolean {
+  return (
+    isObject(value) &&
+    Object.keys(value).length === 3 &&
+    isLogicOperand(value.left) &&
+    (value.operator === 'eq' ||
+      value.operator === 'neq' ||
+      value.operator === 'gt' ||
+      value.operator === 'gte' ||
+      value.operator === 'lt' ||
+      value.operator === 'lte') &&
+    isLogicOperand(value.right)
+  );
+}
+
 export function isEngineInvocation(
   value: unknown,
 ): value is EngineInvocation {
@@ -52,6 +120,8 @@ export function isEngineInvocation(
 
   const params = value.params;
   const hasString = (key: string) => typeof params[key] === 'string';
+  const hasOnly = (keys: readonly string[]): boolean =>
+    Object.keys(params).every((key) => keys.includes(key));
   const hasValidOptionalPlacement = (): boolean => {
     const hasAfterNodeId = hasString('afterNodeId');
     const hasBeforeNodeId = hasString('beforeNodeId');
@@ -79,8 +149,9 @@ export function isEngineInvocation(
       return hasString('name');
     case 'startScreen.update':
       return (
-        Object.keys(params).length === 3 &&
+        Object.keys(params).length === 4 &&
         hasString('title') &&
+        isStartScreenEyebrow(params.eyebrow) &&
         Object.hasOwn(params, 'backgroundAssetId') &&
         Object.hasOwn(params, 'musicAssetId') &&
         (params.backgroundAssetId === null ||
@@ -121,6 +192,150 @@ export function isEngineInvocation(
         hasString('sceneId') &&
         params.assetId === undefined &&
         hasValidOptionalPlacement()
+      );
+    case 'variableSet.add':
+      return (
+        hasString('sceneId') &&
+        isLogicVariableName(params.variableName) &&
+        Object.hasOwn(params, 'value') &&
+        isLogicValue(params.value) &&
+        hasOnly([
+          'sceneId',
+          'variableName',
+          'value',
+          'afterNodeId',
+          'beforeNodeId',
+        ]) &&
+        hasValidOptionalPlacement()
+      );
+    case 'variableSet.update':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        isLogicVariableName(params.variableName) &&
+        Object.hasOwn(params, 'value') &&
+        isLogicValue(params.value) &&
+        hasOnly(['sceneId', 'nodeId', 'variableName', 'value'])
+      );
+    case 'variableChange.add':
+      return (
+        hasString('sceneId') &&
+        isLogicVariableName(params.variableName) &&
+        typeof params.amount === 'number' &&
+        Number.isFinite(params.amount) &&
+        hasOnly([
+          'sceneId',
+          'variableName',
+          'amount',
+          'afterNodeId',
+          'beforeNodeId',
+        ]) &&
+        hasValidOptionalPlacement()
+      );
+    case 'variableChange.update':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        isLogicVariableName(params.variableName) &&
+        typeof params.amount === 'number' &&
+        Number.isFinite(params.amount) &&
+        hasOnly(['sceneId', 'nodeId', 'variableName', 'amount'])
+      );
+    case 'logicIf.add':
+      return (
+        hasString('sceneId') &&
+        isLogicCondition(params.condition) &&
+        hasOnly([
+          'sceneId',
+          'condition',
+          'afterNodeId',
+          'beforeNodeId',
+        ]) &&
+        hasValidOptionalPlacement()
+      );
+    case 'logicIf.update':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        isLogicCondition(params.condition) &&
+        hasOnly(['sceneId', 'nodeId', 'condition'])
+      );
+    case 'logicRepeat.add':
+      return (
+        hasString('sceneId') &&
+        Number.isInteger(params.count) &&
+        (params.count as number) >= 1 &&
+        (params.count as number) <= 1000 &&
+        hasOnly([
+          'sceneId',
+          'count',
+          'afterNodeId',
+          'beforeNodeId',
+        ]) &&
+        hasValidOptionalPlacement()
+      );
+    case 'logicRepeat.update':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        Number.isInteger(params.count) &&
+        (params.count as number) >= 1 &&
+        (params.count as number) <= 1000 &&
+        hasOnly(['sceneId', 'nodeId', 'count'])
+      );
+    case 'cgDisplay.add':
+      return (
+        hasString('sceneId') &&
+        hasString('assetId') &&
+        (params.assetId as string).length > 0 &&
+        Number.isInteger(params.leadInMs) &&
+        (params.leadInMs as number) >= 0 &&
+        (params.leadInMs as number) <= 60000 &&
+        hasOnly([
+          'sceneId',
+          'assetId',
+          'leadInMs',
+          'afterNodeId',
+          'beforeNodeId',
+        ]) &&
+        hasValidOptionalPlacement()
+      );
+    case 'cgDisplay.update':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        hasString('assetId') &&
+        (params.assetId as string).length > 0 &&
+        Number.isInteger(params.leadInMs) &&
+        (params.leadInMs as number) >= 0 &&
+        (params.leadInMs as number) <= 60000 &&
+        hasOnly(['sceneId', 'nodeId', 'assetId', 'leadInMs'])
+      );
+    case 'cgDisplay.delete':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        hasOnly(['sceneId', 'nodeId'])
+      );
+    case 'cgDisplay.reorder':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        (params.beforeNodeId === null || hasString('beforeNodeId')) &&
+        hasOnly(['sceneId', 'nodeId', 'beforeNodeId'])
+      );
+    case 'logicControl.delete':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        hasOnly(['sceneId', 'nodeId'])
+      );
+    case 'logicControl.reorder':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        (params.beforeNodeId === null || hasString('beforeNodeId')) &&
+        hasOnly(['sceneId', 'nodeId', 'beforeNodeId'])
       );
     case 'choice.option.add':
       return (
@@ -172,16 +387,31 @@ export function isEngineInvocation(
     case 'character.add':
       return (
         hasString('sceneId') &&
-        params.assetId === undefined &&
-        params.slot === undefined &&
-        params.layer === undefined &&
-        params.position === undefined &&
+        (params.mode === undefined ||
+          params.mode === 'show' ||
+          params.mode === 'clear') &&
+        (params.assetId === undefined ||
+          params.assetId === null ||
+          hasString('assetId')) &&
+        (params.mode !== 'clear' ||
+          params.assetId === undefined ||
+          params.assetId === null) &&
+        hasOnly([
+          'sceneId',
+          'mode',
+          'assetId',
+          'afterNodeId',
+          'beforeNodeId',
+        ]) &&
         hasValidOptionalPlacement()
       );
     case 'character.update':
       return (
         hasString('sceneId') &&
         hasString('nodeId') &&
+        (params.mode === undefined ||
+          params.mode === 'show' ||
+          params.mode === 'clear') &&
         (params.assetId === null || hasString('assetId')) &&
         (params.slot === 'left' ||
           params.slot === 'center' ||
@@ -201,7 +431,34 @@ export function isEngineInvocation(
             typeof params.position.y === 'number' &&
             Number.isFinite(params.position.y) &&
             params.position.y >= 0 &&
-            params.position.y <= 100))
+            params.position.y <= 100)) &&
+        (params.mode !== 'clear' ||
+          params.assetId === null && params.position === null) &&
+        hasOnly([
+          'sceneId',
+          'nodeId',
+          'mode',
+          'assetId',
+          'slot',
+          'layer',
+          'position',
+        ])
+      );
+    case 'characterEffect.update':
+      return (
+        hasString('sceneId') &&
+        hasString('nodeId') &&
+        Object.hasOwn(params, 'effect') &&
+        (params.effect === null || isCharacterEffect(params.effect)) &&
+        hasOnly(['sceneId', 'nodeId', 'effect'])
+      );
+    case 'characterEffect.move':
+      return (
+        hasString('sceneId') &&
+        hasString('fromNodeId') &&
+        hasString('toNodeId') &&
+        isCharacterEffect(params.effect) &&
+        hasOnly(['sceneId', 'fromNodeId', 'toNodeId', 'effect'])
       );
     case 'sceneJump.add':
       return (

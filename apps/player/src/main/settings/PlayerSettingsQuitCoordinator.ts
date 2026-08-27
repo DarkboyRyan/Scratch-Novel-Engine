@@ -1,3 +1,7 @@
+/**
+ * 主要作用：在退出前只执行一次设置刷盘并处理并发退出事件。
+ * 关键函数与实现：`PlayerQuitEvent`、`PlayerSettingsQuitCoordinatorOptions`、`PlayerSettingsQuitCoordinator`；基于 Electron Main 与 Node.js 安全文件/协议边界实现。
+ */
 export type PlayerQuitEvent = {
   preventDefault(): void;
 };

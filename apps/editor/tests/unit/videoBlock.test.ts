@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 video block asset slot 的行为。
+ * 测试覆盖：`video block asset slot`。
+ */
+
 import type * as Blockly from 'blockly';
 import { describe, expect, it } from 'vitest';
 

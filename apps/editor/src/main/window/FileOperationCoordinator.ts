@@ -1,3 +1,5 @@
+// 主要作用：避免同一窗口内的新建、打开、保存和导入操作互相竞态。
+// 关键实现：FileOperationCoordinator.runExclusive 提供窗口级异步互斥保护。
 export const FILE_OPERATION_BUSY_MESSAGE =
   '当前窗口正在执行另一项项目文件操作';
 

@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+/**
+ * 主要作用：校验并暂存桌面 Player 模板供 Editor 导出使用。
+ * 关键函数与实现：`runChecked`、`main`；基于 Node.js ESM、文件系统和受限子进程完成确定性 CLI 流程。
+ */
 
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -78,7 +82,7 @@ async function main() {
       platform: 'darwin',
       arch,
       playerVersion: version,
-      runtimeCompatibility: '>=1 <7',
+      runtimeCompatibility: '>=1 <11',
       payloadRoot: 'payload',
       artifactEntry: GENERIC_PLAYER_ARTIFACT_ENTRY,
       gameResourceDirectory: GAME_RESOURCE_DIRECTORY,

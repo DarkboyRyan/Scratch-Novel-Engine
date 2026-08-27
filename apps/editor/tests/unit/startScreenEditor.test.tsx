@@ -1,5 +1,10 @@
 /** @vitest-environment jsdom */
 
+/**
+ * 文件主要作用：验证 start screen Editor projection 的行为。
+ * 测试覆盖：`start screen Editor projection`。
+ */
+
 import * as Blockly from 'blockly';
 import { act, createRef } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -13,6 +18,7 @@ import {
 import { StartScreenFormEditor } from '../../src/renderer/features/start-screen/StartScreenFormEditor';
 import { getStartScreenFieldUpdate } from '../../src/renderer/features/start-screen/startScreenBlockEvents';
 import {
+  applyStartScreenBlocksLocalization,
   createStartScreenBackgroundOptions,
   createStartScreenMusicOptions,
   renderStartScreenBlocks,
@@ -25,12 +31,15 @@ import {
 } from '../../src/renderer/features/start-screen/startScreenBlocks';
 import {
   CG_GALLERY_SCENE_ID,
+  constrainStartScreenEyebrowInput,
   createEditorSceneOptions,
   editorSurfaceReducer,
   initialEditorSurface,
+  normalizeStartScreenEyebrowInput,
   START_SCREEN_SCENE_ID,
   updateStartScreenFromLatest,
 } from '../../src/renderer/features/start-screen/startScreenScene';
+import { getEditorLabels } from '../../src/renderer/i18n/editorLocalization';
 import type {
   AssetDocument,
   ProjectDocument,
@@ -43,6 +52,7 @@ const project: ProjectDocument = {
   entrySceneId: 'scene-1',
   startScreen: {
     title: 'Start screen title',
+    eyebrow: 'A VN ENGINE STORY',
     backgroundAssetId: null,
     musicAssetId: 'music-1',
   },
@@ -140,6 +150,7 @@ describe('start screen Editor projection', () => {
     let latestProject: Pick<ProjectDocument, 'startScreen'> = {
       startScreen: {
         title: '旧标题',
+        eyebrow: '旧标题上方文字',
         backgroundAssetId: null,
         musicAssetId: null,
       },
@@ -156,6 +167,7 @@ describe('start screen Editor projection', () => {
     latestProject = {
       startScreen: {
         title: '刚提交的标题',
+        eyebrow: '刚提交的标题上方文字',
         backgroundAssetId: null,
         musicAssetId: 'music-just-committed',
       },
@@ -165,6 +177,7 @@ describe('start screen Editor projection', () => {
     await expect(update).resolves.toBe(true);
     expect(updateStartScreen).toHaveBeenCalledWith(
       '刚提交的标题',
+      '刚提交的标题上方文字',
       'background-1',
       'music-just-committed',
     );
@@ -197,6 +210,23 @@ describe('start screen Editor projection', () => {
     expect(
       root?.getFieldValue(START_SCREEN_BLOCK_FIELDS.title),
     ).toBe('Start screen title');
+    const eyebrowField = root?.getField(
+      START_SCREEN_BLOCK_FIELDS.eyebrow,
+    );
+    expect(eyebrowField).toBeInstanceOf(Blockly.FieldTextInput);
+    expect(
+      root?.getFieldValue(START_SCREEN_BLOCK_FIELDS.eyebrow),
+    ).toBe('A VN ENGINE STORY');
+    eyebrowField?.setValue(`\0\ud800${'界'.repeat(86)}\udc00`);
+    expect(root?.getFieldValue(START_SCREEN_BLOCK_FIELDS.eyebrow)).toBe(
+      '界'.repeat(85),
+    );
+    eyebrowField?.setValue('😀'.repeat(65));
+    expect(root?.getFieldValue(START_SCREEN_BLOCK_FIELDS.eyebrow)).toBe(
+      '😀'.repeat(64),
+    );
+    eyebrowField?.setValue('');
+    expect(root?.getFieldValue(START_SCREEN_BLOCK_FIELDS.eyebrow)).toBe('');
 
     const backgroundField = background?.getField(
       START_SCREEN_BLOCK_FIELDS.backgroundAssetId,
@@ -230,11 +260,59 @@ describe('start screen Editor projection', () => {
     workspace.dispose();
   });
 
+  it('upgrades a stale global title-screen block definition after Renderer HMR', () => {
+    Blockly.Blocks[START_SCREEN_ROOT_BLOCK_TYPE] = {
+      init(): void {
+        this.appendDummyInput()
+          .appendField('Title', 'VN_LABEL_START_SCREEN_TITLE')
+          .appendField(
+            new Blockly.FieldTextInput('Old title'),
+            START_SCREEN_BLOCK_FIELDS.title,
+          );
+        this.appendStatementInput('CONTENTS').appendField(
+          'Screen content',
+          'VN_LABEL_START_SCREEN_CONTENTS',
+        );
+      },
+    };
+
+    const staleWorkspace = new Blockly.Workspace();
+    const staleRoot = staleWorkspace.newBlock(
+      START_SCREEN_ROOT_BLOCK_TYPE,
+      START_SCREEN_BLOCK_IDS.root,
+    );
+    expect(
+      staleRoot.getField(START_SCREEN_BLOCK_FIELDS.eyebrow),
+    ).toBeNull();
+
+    applyStartScreenBlocksLocalization(
+      staleWorkspace,
+      project.startScreen,
+      assets,
+      getEditorLabels('zh-CN'),
+    );
+    expect(
+      staleRoot.getFieldValue(START_SCREEN_BLOCK_FIELDS.eyebrow),
+    ).toBe('A VN ENGINE STORY');
+
+    const freshWorkspace = new Blockly.Workspace();
+    renderStartScreenBlocks(freshWorkspace, project.startScreen, assets);
+    expect(
+      freshWorkspace
+        .getBlockById(START_SCREEN_BLOCK_IDS.root)
+        ?.getFieldValue(START_SCREEN_BLOCK_FIELDS.eyebrow),
+    ).toBe('A VN ENGINE STORY');
+
+    staleWorkspace.dispose();
+    freshWorkspace.dispose();
+  });
+
   it('keeps missing selections reachable and always places “无” first', () => {
     expect(
       resolveStartScreenAssetLabels(
         {
           title: '主界面标题',
+          eyebrow: 'A VN ENGINE STORY',
           backgroundAssetId: 'missing-image',
           musicAssetId: 'music-1',
         },
@@ -247,6 +325,7 @@ describe('start screen Editor projection', () => {
 
     const missingStartScreen = {
       title: '主界面标题',
+      eyebrow: 'A VN ENGINE STORY',
       backgroundAssetId: 'missing-image',
       musicAssetId: 'missing-audio',
     };
@@ -280,8 +359,12 @@ describe('start screen Editor projection', () => {
     );
     music?.setFieldValue('', START_SCREEN_BLOCK_FIELDS.musicAssetId);
     root?.setFieldValue(
-      '新的主界面标题',
+      '\v新的主界面标题\v',
       START_SCREEN_BLOCK_FIELDS.title,
+    );
+    root?.setFieldValue(
+      '\v我的故事\v',
+      START_SCREEN_BLOCK_FIELDS.eyebrow,
     );
 
     expect(
@@ -296,6 +379,23 @@ describe('start screen Editor projection', () => {
       ),
     ).toEqual({
       title: '新的主界面标题',
+      eyebrow: '我的故事',
+      backgroundAssetId: 'background-1',
+      musicAssetId: null,
+    });
+    expect(
+      getStartScreenFieldUpdate(
+        {
+          type: Blockly.Events.BLOCK_CHANGE,
+          blockId: START_SCREEN_BLOCK_IDS.root,
+          element: 'field',
+          name: START_SCREEN_BLOCK_FIELDS.eyebrow,
+        } as Blockly.Events.BlockChange,
+        workspace,
+      ),
+    ).toEqual({
+      title: '新的主界面标题',
+      eyebrow: '我的故事',
       backgroundAssetId: 'background-1',
       musicAssetId: null,
     });
@@ -376,8 +476,17 @@ describe('start screen Editor projection', () => {
     const titleInput = container.querySelector(
       '[aria-label="主界面游戏名称"]',
     ) as HTMLInputElement;
+    const eyebrowInput = container.querySelector(
+      '[aria-label="主界面标题上方文字"]',
+    ) as HTMLInputElement;
     expect(titleInput).toBeInstanceOf(HTMLInputElement);
+    expect(eyebrowInput).toBeInstanceOf(HTMLInputElement);
     expect(titleInput.value).toBe('Start screen title');
+    expect(eyebrowInput.value).toBe('A VN ENGINE STORY');
+    await act(async () => {
+      setInputValue(eyebrowInput, ` ${'a'.repeat(256)}`);
+    });
+    expect(eyebrowInput.value).toBe('a'.repeat(256));
     expect(
       [...backgroundSelect.options].map((option) => [
         option.text,
@@ -398,7 +507,7 @@ describe('start screen Editor projection', () => {
     ]);
 
     await act(async () => {
-      titleInput.focus();
+      setInputValue(eyebrowInput, 'MY CUSTOM STORY');
       setInputValue(titleInput, '自定义游戏名');
     });
     await act(async () => {
@@ -408,6 +517,7 @@ describe('start screen Editor projection', () => {
     });
     expect(onUpdateStartScreen).toHaveBeenLastCalledWith(
       '自定义游戏名',
+      'MY CUSTOM STORY',
       null,
       'music-1',
     );
@@ -417,6 +527,7 @@ describe('start screen Editor projection', () => {
       startScreen: {
         ...project.startScreen,
         title: '自定义游戏名',
+        eyebrow: 'MY CUSTOM STORY',
       },
     };
     await act(async () => {
@@ -443,6 +554,7 @@ describe('start screen Editor projection', () => {
     );
     expect(onUpdateStartScreen).toHaveBeenLastCalledWith(
       '自定义游戏名',
+      'MY CUSTOM STORY',
       'background-1',
       'music-1',
     );
@@ -451,6 +563,7 @@ describe('start screen Editor projection', () => {
       ...projectWithTitle,
       startScreen: {
         title: '自定义游戏名',
+        eyebrow: 'MY CUSTOM STORY',
         backgroundAssetId: 'background-1',
         musicAssetId: 'music-1',
       },
@@ -477,6 +590,7 @@ describe('start screen Editor projection', () => {
     await act(async () => setSelectValue(rerenderedMusicSelect, ''));
     expect(onUpdateStartScreen).toHaveBeenLastCalledWith(
       '自定义游戏名',
+      'MY CUSTOM STORY',
       'background-1',
       null,
     );
@@ -487,6 +601,7 @@ describe('start screen Editor projection', () => {
       )?.src,
     ).toContain('vn-asset://preview/night-sky');
     expect(container.textContent).toContain('自定义游戏名');
+    expect(container.textContent).toContain('MY CUSTOM STORY');
     expect(container.textContent).toContain('开始游戏');
     expect(container.textContent).toContain('读取游戏');
     expect(container.textContent).toContain('CG 画廊');
@@ -510,6 +625,122 @@ describe('start screen Editor projection', () => {
     expect(onStartPreview).toHaveBeenCalledOnce();
 
     await act(async () => root.unmount());
+  });
+
+  it('trims the editable eyebrow and hides its preview when saved empty', async () => {
+    (
+      globalThis as typeof globalThis & {
+        IS_REACT_ACT_ENVIRONMENT: boolean;
+      }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
+    const container = document.createElement('div');
+    document.body.replaceChildren(container);
+    const root = createRoot(container);
+    const formRef = createRef<StartScreenEditorHandle>();
+    const onUpdateStartScreen = vi.fn().mockResolvedValue(true);
+
+    await act(async () => {
+      root.render(
+        <StartScreenFormEditor
+          ref={formRef}
+          project={project}
+          assets={assets}
+          backgroundUrl={null}
+          isBusy={false}
+          isStartPreviewDisabled={false}
+          onSceneChange={async () => {}}
+          onUpdateStartScreen={onUpdateStartScreen}
+          onDraftDirtyChange={() => {}}
+          onStartPreview={() => {}}
+        />,
+      );
+    });
+
+    const eyebrowInput = container.querySelector<HTMLInputElement>(
+      '[aria-label="主界面标题上方文字"]',
+    );
+    expect(eyebrowInput).not.toBeNull();
+    const oversizedEyebrow = `\v\0\ud800${'界'.repeat(86)}\v\udc00`;
+    await act(async () => {
+      if (eyebrowInput) {
+        setInputValue(eyebrowInput, oversizedEyebrow);
+      }
+    });
+    expect(eyebrowInput?.value).toBe('界'.repeat(85));
+    expect(
+      new TextEncoder().encode(eyebrowInput?.value ?? '').byteLength,
+    ).toBe(255);
+    await act(async () => {
+      await expect(formRef.current?.flushPendingDraft()).resolves.toBe(true);
+    });
+
+    expect(onUpdateStartScreen).toHaveBeenCalledWith(
+      'Start screen title',
+      '界'.repeat(85),
+      null,
+      'music-1',
+    );
+
+    const projectWithBoundedEyebrow: ProjectDocument = {
+      ...project,
+      startScreen: {
+        ...project.startScreen,
+        eyebrow: '界'.repeat(85),
+      },
+    };
+    await act(async () => {
+      root.render(
+        <StartScreenFormEditor
+          ref={formRef}
+          project={projectWithBoundedEyebrow}
+          assets={assets}
+          backgroundUrl={null}
+          isBusy={false}
+          isStartPreviewDisabled={false}
+          onSceneChange={async () => {}}
+          onUpdateStartScreen={onUpdateStartScreen}
+          onDraftDirtyChange={() => {}}
+          onStartPreview={() => {}}
+        />,
+      );
+    });
+    const rerenderedEyebrowInput = container.querySelector<HTMLInputElement>(
+      '[aria-label="主界面标题上方文字"]',
+    );
+    await act(async () => {
+      if (rerenderedEyebrowInput) {
+        setInputValue(rerenderedEyebrowInput, '\t\v\f ');
+      }
+    });
+    await act(async () => {
+      await expect(formRef.current?.flushPendingDraft()).resolves.toBe(true);
+    });
+    expect(onUpdateStartScreen).toHaveBeenLastCalledWith(
+      'Start screen title',
+      '',
+      null,
+      'music-1',
+    );
+    expect(
+      container.querySelector('.start-screen-design-card > p'),
+    ).toBeNull();
+
+    await act(async () => root.unmount());
+  });
+
+  it('constrains eyebrow text by valid UTF-8 bytes without splitting astral characters', () => {
+    expect(constrainStartScreenEyebrowInput('😀'.repeat(65))).toBe(
+      '😀'.repeat(64),
+    );
+    expect(
+      constrainStartScreenEyebrowInput(`ok\0\ud800!\udc00`),
+    ).toBe('ok!');
+    expect(normalizeStartScreenEyebrowInput('\t\v story \f\r')).toBe(
+      'story',
+    );
+    expect(
+      constrainStartScreenEyebrowInput(` ${'a'.repeat(256)}`),
+    ).toBe('a'.repeat(256));
   });
 
   it('cancels a title draft with Escape and resets dirty text for another project', async () => {

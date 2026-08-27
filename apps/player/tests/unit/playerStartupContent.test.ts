@@ -1,3 +1,7 @@
+/**
+ * 主要作用：验证开发、通用与嵌入 Player 的启动内容解析。
+ * 关键函数与实现：测试套件“Player startup content mode”、`temporaryDirectories`、`temporaryRoot`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';

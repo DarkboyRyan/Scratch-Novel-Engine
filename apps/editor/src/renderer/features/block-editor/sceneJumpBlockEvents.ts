@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：处理跳转场景积木的创建与目标场景更新。
+ * 包含实现：`SceneJumpFieldUpdate`、`getSceneJumpFieldUpdate`。
+ */
+
 import * as Blockly from 'blockly';
 
 import type { SceneDocument } from '../../../shared/projectTypes';

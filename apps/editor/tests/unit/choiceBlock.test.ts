@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 choice Blockly blocks 的行为。
+ * 测试覆盖：`choice Blockly blocks`。
+ */
+
 import * as Blockly from 'blockly';
 import { afterEach, describe, expect, it } from 'vitest';
 

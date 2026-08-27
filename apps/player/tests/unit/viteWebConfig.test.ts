@@ -1,3 +1,7 @@
+/**
+ * 主要作用：验证 Web Player 的入口、base 和模板输出配置。
+ * 关键函数与实现：测试套件“Web Player Vite template configuration”；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';

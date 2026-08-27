@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 game export IPC 的行为。
+ * 测试覆盖：`game export IPC`。
+ */
+
 import path from 'node:path';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';

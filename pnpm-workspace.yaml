@@ -1,3 +1,5 @@
+# 文件职责：声明 monorepo 工作区、依赖链接方式和允许执行安装脚本的包。
+# 关键实现：apps/*、packages/*，hoisted node linker 与 Electron/esbuild allowBuilds。
 packages:
   - "apps/*"
   - "packages/*"

@@ -1,8 +1,25 @@
+/**
+ * 主要作用：严格解析多版本运行包并验证场景、资源及逻辑引用。
+ * 关键函数与实现：parseRuntimeBundleDocuments；以 TypeScript 类型边界和可组合函数实现。
+ */
 import type {
+  CharacterEffect,
   ChoiceOption,
+  LogicCondition,
+  LogicOperand,
+  LogicValue,
   ProjectDocument,
   SceneDocument,
   SceneNode,
+} from '@vnengine/runtime';
+import {
+  isLogicValue,
+  isCharacterEffect,
+  isLogicVariableName,
+  MAX_CG_LEAD_IN_MS,
+  MAX_REPEAT_COUNT,
+  validateProjectLogicVariableBudget,
+  validateSceneControlFlow,
 } from '@vnengine/runtime';
 
 import type {
@@ -31,7 +48,10 @@ export type ParsedRuntimeBundle = {
   buildId: string;
 };
 
-type SupportedRuntimeVersion = 1 | 2 | 3 | 4 | 5 | 6;
+type SupportedRuntimeVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+
+const LEGACY_START_SCREEN_EYEBROW = 'A VN ENGINE STORY';
+const UTF8_ENCODER = new TextEncoder();
 
 type ParsedRuntimeGame = {
   project: ProjectDocument;
@@ -78,6 +98,56 @@ function stringValue(
     candidate.includes('\0')
   ) {
     throw new Error(`${context}.${field} 不是有效字符串`);
+  }
+  return candidate;
+}
+
+function isAsciiWhitespace(codeUnit: number): boolean {
+  return codeUnit === 0x20 || (codeUnit >= 0x09 && codeUnit <= 0x0d);
+}
+
+function hasOnlyPairedSurrogates(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index);
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      const nextCodeUnit = value.charCodeAt(index + 1);
+      if (
+        index + 1 >= value.length ||
+        nextCodeUnit < 0xdc00 ||
+        nextCodeUnit > 0xdfff
+      ) {
+        return false;
+      }
+      index += 1;
+      continue;
+    }
+    if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function startScreenEyebrowValue(
+  value: JsonObject,
+  context: string,
+): string {
+  const candidate = stringValue(value, 'eyebrow', context, {
+    empty: true,
+    maximum: 256,
+  });
+  if (
+    !hasOnlyPairedSurrogates(candidate) ||
+    UTF8_ENCODER.encode(candidate).length > 256 ||
+    (
+      candidate.length > 0 &&
+      (
+        isAsciiWhitespace(candidate.charCodeAt(0)) ||
+        isAsciiWhitespace(candidate.charCodeAt(candidate.length - 1))
+      )
+    )
+  ) {
+    throw new Error(`${context}.eyebrow 不是有效字符串`);
   }
   return candidate;
 }
@@ -132,6 +202,14 @@ function playerCompatibilityForRuntime(
       return '>=5 <6';
     case 6:
       return '>=6 <7';
+    case 7:
+      return '>=7 <8';
+    case 8:
+      return '>=8 <9';
+    case 9:
+      return '>=9 <10';
+    case 10:
+      return '>=10 <11';
   }
 }
 
@@ -156,6 +234,53 @@ function parseChoiceOption(
   };
   registerId(ids, option.id);
   return option;
+}
+
+function parseLogicValue(input: unknown, context: string): LogicValue {
+  if (!isLogicValue(input)) {
+    throw new Error(`${context} 不是有效的逻辑值`);
+  }
+  return input;
+}
+
+function parseLogicOperand(input: unknown, context: string): LogicOperand {
+  const value = objectValue(input, context);
+  if (value.kind === 'variable') {
+    exactFields(value, ['kind', 'name'], context);
+    if (!isLogicVariableName(value.name)) {
+      throw new Error(`${context}.name 不是有效变量名`);
+    }
+    return { kind: 'variable', name: value.name };
+  }
+  if (value.kind === 'literal') {
+    exactFields(value, ['kind', 'value'], context);
+    return {
+      kind: 'literal',
+      value: parseLogicValue(value.value, `${context}.value`),
+    };
+  }
+  throw new Error(`${context}.kind 无效`);
+}
+
+function parseLogicCondition(input: unknown, context: string): LogicCondition {
+  const value = objectValue(input, context);
+  exactFields(value, ['left', 'operator', 'right'], context);
+  const operator = value.operator;
+  if (
+    operator !== 'eq' &&
+    operator !== 'neq' &&
+    operator !== 'gt' &&
+    operator !== 'gte' &&
+    operator !== 'lt' &&
+    operator !== 'lte'
+  ) {
+    throw new Error(`${context}.operator 无效`);
+  }
+  return {
+    left: parseLogicOperand(value.left, `${context}.left`),
+    operator,
+    right: parseLogicOperand(value.right, `${context}.right`),
+  };
 }
 
 function parseSceneNode(
@@ -195,9 +320,11 @@ function parseSceneNode(
     case 'character': {
       exactFields(
         value,
-        runtimeVersion >= 4
-          ? ['id', 'type', 'assetId', 'slot', 'layer', 'position']
-          : ['id', 'type', 'assetId', 'slot', 'layer'],
+        runtimeVersion >= 9
+          ? ['id', 'type', 'assetId', 'slot', 'layer', 'position', 'effect']
+          : runtimeVersion >= 4
+            ? ['id', 'type', 'assetId', 'slot', 'layer', 'position']
+            : ['id', 'type', 'assetId', 'slot', 'layer'],
         context,
       );
       const slot = value.slot;
@@ -227,13 +354,25 @@ function parseSceneNode(
         }
         position = { x, y };
       }
+      const assetId = nullableId(value, 'assetId', context);
+      let effect: CharacterEffect | null = null;
+      if (runtimeVersion >= 9 && value.effect !== null) {
+        if (!isCharacterEffect(value.effect)) {
+          throw new Error(`${context}.effect 不是有效的人物特效`);
+        }
+        effect = value.effect;
+      }
+      if (assetId === null && effect !== null) {
+        throw new Error(`${context}.effect 不能用于清除立绘节点`);
+      }
       return {
         id,
         type,
-        assetId: nullableId(value, 'assetId', context),
+        assetId,
         slot,
         layer: layer as number,
         position,
+        effect,
       };
     }
     case 'sceneJump':
@@ -249,6 +388,36 @@ function parseSceneNode(
     case 'video':
       exactFields(value, ['id', 'type', 'assetId'], context);
       return { id, type, assetId: nullableId(value, 'assetId', context) };
+    case 'cgDisplay':
+      if (runtimeVersion < 8) {
+        throw new Error(`${context}.type 不受 runtime v${runtimeVersion} 支持`);
+      }
+      exactFields(value, ['id', 'type', 'assetId', 'leadInMs'], context);
+      if (
+        !Number.isSafeInteger(value.leadInMs) ||
+        (value.leadInMs as number) < 0 ||
+        (value.leadInMs as number) > MAX_CG_LEAD_IN_MS
+      ) {
+        throw new Error(
+          `${context}.leadInMs 必须是 0 到 ${MAX_CG_LEAD_IN_MS} 的整数`,
+        );
+      }
+      return {
+        id,
+        type,
+        assetId: idValue(value, 'assetId', context),
+        leadInMs: value.leadInMs as number,
+      };
+    case 'cgEndDisplay':
+      if (runtimeVersion < 8) {
+        throw new Error(`${context}.type 不受 runtime v${runtimeVersion} 支持`);
+      }
+      exactFields(value, ['id', 'type', 'cgDisplayNodeId'], context);
+      return {
+        id,
+        type,
+        cgDisplayNodeId: idValue(value, 'cgDisplayNodeId', context),
+      };
     case 'choice':
       exactFields(value, ['id', 'type', 'options'], context);
       return {
@@ -257,6 +426,77 @@ function parseSceneNode(
         options: arrayValue(value, 'options', context).map((option, index) =>
           parseChoiceOption(option, `${context}.options[${index}]`, ids),
         ),
+      };
+    case 'variableSet':
+      if (runtimeVersion < 7) {
+        throw new Error(`${context}.type 不受 runtime v${runtimeVersion} 支持`);
+      }
+      exactFields(value, ['id', 'type', 'variableName', 'value'], context);
+      if (!isLogicVariableName(value.variableName)) {
+        throw new Error(`${context}.variableName 不是有效变量名`);
+      }
+      return {
+        id,
+        type,
+        variableName: value.variableName,
+        value: parseLogicValue(value.value, `${context}.value`),
+      };
+    case 'variableChange':
+      if (runtimeVersion < 7) {
+        throw new Error(`${context}.type 不受 runtime v${runtimeVersion} 支持`);
+      }
+      exactFields(value, ['id', 'type', 'variableName', 'amount'], context);
+      if (!isLogicVariableName(value.variableName)) {
+        throw new Error(`${context}.variableName 不是有效变量名`);
+      }
+      if (typeof value.amount !== 'number' || !Number.isFinite(value.amount)) {
+        throw new Error(`${context}.amount 必须是有限数值`);
+      }
+      return { id, type, variableName: value.variableName, amount: value.amount };
+    case 'logicIf':
+      if (runtimeVersion < 7) {
+        throw new Error(`${context}.type 不受 runtime v${runtimeVersion} 支持`);
+      }
+      exactFields(value, ['id', 'type', 'condition'], context);
+      return {
+        id,
+        type,
+        condition: parseLogicCondition(value.condition, `${context}.condition`),
+      };
+    case 'logicElse':
+      if (runtimeVersion < 7) {
+        throw new Error(`${context}.type 不受 runtime v${runtimeVersion} 支持`);
+      }
+      exactFields(value, ['id', 'type', 'ifNodeId'], context);
+      return { id, type, ifNodeId: idValue(value, 'ifNodeId', context) };
+    case 'logicEndIf':
+      if (runtimeVersion < 7) {
+        throw new Error(`${context}.type 不受 runtime v${runtimeVersion} 支持`);
+      }
+      exactFields(value, ['id', 'type', 'ifNodeId'], context);
+      return { id, type, ifNodeId: idValue(value, 'ifNodeId', context) };
+    case 'logicRepeat':
+      if (runtimeVersion < 7) {
+        throw new Error(`${context}.type 不受 runtime v${runtimeVersion} 支持`);
+      }
+      exactFields(value, ['id', 'type', 'count'], context);
+      if (
+        !Number.isSafeInteger(value.count) ||
+        (value.count as number) < 1 ||
+        (value.count as number) > MAX_REPEAT_COUNT
+      ) {
+        throw new Error(`${context}.count 必须是 1 到 ${MAX_REPEAT_COUNT} 的整数`);
+      }
+      return { id, type, count: value.count as number };
+    case 'logicEndRepeat':
+      if (runtimeVersion < 7) {
+        throw new Error(`${context}.type 不受 runtime v${runtimeVersion} 支持`);
+      }
+      exactFields(value, ['id', 'type', 'repeatNodeId'], context);
+      return {
+        id,
+        type,
+        repeatNodeId: idValue(value, 'repeatNodeId', context),
       };
     default:
       throw new Error(`${context}.type 不受 runtime 支持`);
@@ -279,14 +519,19 @@ function parseScene(
   requireLiteral(value, 'schemaVersion', 1, context);
   const id = idValue(value, 'id', context);
   registerId(ids, id);
+  const nodes = arrayValue(value, 'nodes', context).map((node, nodeIndex) =>
+    parseSceneNode(node, `${context}.nodes[${nodeIndex}]`, ids, runtimeVersion),
+  );
+  const controlError = validateSceneControlFlow(nodes);
+  if (controlError !== null) {
+    throw new Error(`${context}.nodes ${controlError}`);
+  }
   return {
     schemaVersion: 1,
     id,
     name: stringValue(value, 'name', context, { maximum: 4096 }),
     backgroundAssetId: nullableId(value, 'backgroundAssetId', context),
-    nodes: arrayValue(value, 'nodes', context).map((node, nodeIndex) =>
-      parseSceneNode(node, `${context}.nodes[${nodeIndex}]`, ids, runtimeVersion),
-    ),
+    nodes,
   };
 }
 
@@ -300,7 +545,11 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
     root.runtimeVersion !== 3 &&
     root.runtimeVersion !== 4 &&
     root.runtimeVersion !== 5 &&
-    root.runtimeVersion !== 6
+    root.runtimeVersion !== 6 &&
+    root.runtimeVersion !== 7 &&
+    root.runtimeVersion !== 8 &&
+    root.runtimeVersion !== 9 &&
+    root.runtimeVersion !== 10
   ) {
     throw new Error('game.json.runtimeVersion 版本或格式不受支持');
   }
@@ -330,6 +579,7 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
   });
   let startScreen = {
     title: projectName,
+    eyebrow: LEGACY_START_SCREEN_EYEBROW,
     backgroundAssetId: null as string | null,
     musicAssetId: null as string | null,
   };
@@ -342,7 +592,9 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
       startScreenValue,
       runtimeVersion === 2
         ? ['backgroundAssetId', 'musicAssetId']
-        : ['title', 'backgroundAssetId', 'musicAssetId'],
+        : runtimeVersion < 10
+          ? ['title', 'backgroundAssetId', 'musicAssetId']
+          : ['title', 'eyebrow', 'backgroundAssetId', 'musicAssetId'],
       'game.json.game.startScreen',
     );
     startScreen = {
@@ -353,6 +605,12 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
             'title',
             'game.json.game.startScreen',
             { maximum: 4096 },
+          ),
+      eyebrow: runtimeVersion < 10
+        ? LEGACY_START_SCREEN_EYEBROW
+        : startScreenEyebrowValue(
+            startScreenValue,
+            'game.json.game.startScreen',
           ),
       backgroundAssetId: nullableId(
         startScreenValue,
@@ -463,17 +721,22 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
     };
   }
 
+  const project: ProjectDocument = {
+    schemaVersion: 1,
+    id: projectId,
+    name: projectName,
+    entrySceneId: idValue(metadata, 'entrySceneId', 'game.json.game'),
+    startScreen,
+    cgGallery,
+    scenes,
+  };
+  const variableBudgetError = validateProjectLogicVariableBudget(project);
+  if (variableBudgetError !== null) {
+    throw new Error(`game.json.scenes ${variableBudgetError}`);
+  }
   return {
     runtimeVersion,
-    project: {
-      schemaVersion: 1,
-      id: projectId,
-      name: projectName,
-      entrySceneId: idValue(metadata, 'entrySceneId', 'game.json.game'),
-      startScreen,
-      cgGallery,
-      scenes,
-    },
+    project,
   };
 }
 
@@ -673,6 +936,9 @@ function validateProjectReferences(
           break;
         case 'video':
           requireAssetType(assets, node.assetId, 'video', `视频 ${node.id}`);
+          break;
+        case 'cgDisplay':
+          requireAssetType(assets, node.assetId, 'image', `显示 CG ${node.id}`);
           break;
         case 'sceneJump':
           if (node.targetSceneId === scene.id || !scenes.has(node.targetSceneId)) {

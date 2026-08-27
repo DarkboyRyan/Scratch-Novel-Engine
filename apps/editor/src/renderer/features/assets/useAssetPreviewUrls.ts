@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：解析资源预览 URL 并在依赖变化时释放旧地址。
+ * 包含实现：`useAssetPreviewUrls`。
+ */
+
 import { useEffect, useState } from 'react';
 
 import type { AssetDocument } from '../../../shared/projectTypes';

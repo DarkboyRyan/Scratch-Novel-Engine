@@ -1,3 +1,7 @@
+/**
+ * 主要作用：验证 IPC 可信来源、严格负载校验与服务分派。
+ * 关键函数与实现：测试套件“Player trusted IPC”、`RegisteredHandler`、`trustedEvent`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createGameRuntimeSnapshot, startGame } from '@vnengine/runtime';
 
@@ -32,6 +36,7 @@ describe('Player trusted IPC', () => {
       entrySceneId: 'scene',
       startScreen: {
         title: 'Story Title',
+        eyebrow: 'A VN ENGINE STORY',
         backgroundAssetId: null,
         musicAssetId: null,
       },
@@ -301,7 +306,7 @@ describe('Player trusted IPC', () => {
       },
       {
         action: 'quick-save',
-        params: { snapshot: { ...snapshot, snapshotVersion: 2 } },
+        params: { snapshot: { ...snapshot, snapshotVersion: 99 } },
       },
       {
         action: 'quick-save',

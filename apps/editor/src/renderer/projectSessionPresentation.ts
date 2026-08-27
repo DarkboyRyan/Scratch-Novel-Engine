@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：根据项目会话状态生成窗口标题与未保存标记。
+ * 包含实现：`projectWindowTitle`、`projectSaveStatus`。
+ */
+
 export function projectWindowTitle(
   projectName: string,
   hasStorage: boolean,

@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 runtime bundle exporter 的行为。
+ * 测试覆盖：`runtime bundle exporter`。
+ */
+
 import { createHash } from 'node:crypto';
 import {
   access,
@@ -33,7 +38,7 @@ async function makeDirectory(): Promise<string> {
 function projectDocument(relativePath = 'assets/images/image-1.png'): unknown {
   return {
     format: 'vn-engine-project',
-    fileVersion: 15,
+    fileVersion: 18,
     project: {
       schemaVersion: 1,
       id: 'project-1',
@@ -152,10 +157,12 @@ function legacyV12Snapshot(contents: string) {
                 {
                   id: 'legacy-character',
                   type: 'character' as const,
+                  mode: 'show' as const,
                   assetId: 'image-1',
                   slot: 'right' as const,
                   layer: 1,
                   position: null,
+                  effect: null,
                 },
                 {
                   id: 'legacy-dialogue',
@@ -225,7 +232,7 @@ afterEach(async () => {
 });
 
 describe('runtime bundle exporter', () => {
-  it('publishes a verified runtime v6 bundle with start-screen and CG assets', async () => {
+  it('publishes a verified runtime v10 bundle with start-screen and CG assets', async () => {
     const {
       projectRoot,
       outputParent,
@@ -265,18 +272,20 @@ describe('runtime bundle exporter', () => {
     ]);
     expect(Object.keys(game.game.startScreen)).toEqual([
       'title',
+      'eyebrow',
       'backgroundAssetId',
       'musicAssetId',
     ]);
     expect(game).toMatchObject({
       format: 'vn-engine-runtime',
-      runtimeVersion: 6,
+      runtimeVersion: 10,
       game: {
         id: 'project-1',
         title: 'Export Game',
         entrySceneId: 'scene-1',
         startScreen: {
           title: 'Custom Title',
+          eyebrow: 'A VN ENGINE STORY',
           backgroundAssetId: 'image-1',
           musicAssetId: 'title-music',
         },
@@ -304,8 +313,8 @@ describe('runtime bundle exporter', () => {
       'files',
     ]);
     expect(manifest).toMatchObject({
-      runtimeVersion: 6,
-      playerCompatibility: '>=6 <7',
+      runtimeVersion: 10,
+      playerCompatibility: '>=10 <11',
     });
     expect(manifest.files).toEqual([
       {
@@ -417,7 +426,7 @@ describe('runtime bundle exporter', () => {
     const manifest = JSON.parse(
       await readFile(path.join(targetPath, 'manifest.json'), 'utf8'),
     ) as { files: Array<{ assetId: string }> };
-    expect(game.runtimeVersion).toBe(6);
+    expect(game.runtimeVersion).toBe(10);
     expect(game.game.cgGallery).toEqual({
       pages: [{ imageAssetIds: Array(9).fill(null) }],
     });
@@ -429,6 +438,7 @@ describe('runtime bundle exporter', () => {
         slot: 'right',
         layer: 1,
         position: null,
+        effect: null,
       },
       {
         id: 'legacy-dialogue',
@@ -486,6 +496,7 @@ describe('runtime bundle exporter', () => {
         entrySceneId: 'legacy-scene',
         startScreen: {
           title: 'Legacy v1',
+          eyebrow: 'A VN ENGINE STORY',
           backgroundAssetId: null,
           musicAssetId: null,
         },
@@ -518,9 +529,10 @@ describe('runtime bundle exporter', () => {
       game: { startScreen: unknown; cgGallery: unknown };
       scenes: Array<{ backgroundAssetId: string | null; nodes: unknown[] }>;
     };
-    expect(game.runtimeVersion).toBe(6);
+    expect(game.runtimeVersion).toBe(10);
     expect(game.game.startScreen).toEqual({
       title: 'Legacy v1',
+      eyebrow: 'A VN ENGINE STORY',
       backgroundAssetId: null,
       musicAssetId: null,
     });
@@ -544,7 +556,7 @@ describe('runtime bundle exporter', () => {
     const expected = currentSnapshot();
 
     const future = projectDocument() as { fileVersion: number };
-    future.fileVersion = 16;
+    future.fileVersion = 21;
     const futureContents = JSON.stringify(future);
     await writeFile(path.join(projectRoot, 'project.vn.json'), futureContents);
     await expect(exportRuntimeBundle({

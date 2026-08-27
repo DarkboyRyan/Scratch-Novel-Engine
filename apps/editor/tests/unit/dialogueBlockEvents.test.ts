@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 timeline anchors after top-level logic controls、getDroppedNewDialogueBlock、getNewStoryExtensionDropResolution 等行为。
+ * 测试覆盖：`timeline anchors after top-level logic controls`、`getDroppedNewDialogueBlock`、`getNewStoryExtensionDropResolution`、`getDialogueFieldUpdate`、`collectDialogueFieldDrafts`、`getReorderedDialogueBlock` 等 7 项。
+ */
+
 import * as Blockly from 'blockly';
 import { describe, expect, it } from 'vitest';
 
@@ -9,6 +14,13 @@ import { SCENE_JUMP_BLOCK_TYPE } from '../../src/renderer/features/block-editor/
 import { BGM_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/bgmBlock';
 import { CHOICE_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/choiceBlock';
 import { STORY_CONTINUATION_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/storyContinuationBlock';
+import { VIDEO_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/videoBlock';
+import { VARIABLE_SET_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/variableBlock';
+import {
+  LOGIC_IF_BLOCK_TYPE,
+  LOGIC_REPEAT_BLOCK_TYPE,
+} from '../../src/renderer/features/block-editor/blocks/logicControlBlock';
+import { CG_DISPLAY_BLOCK_TYPE } from '../../src/renderer/features/block-editor/blocks/cgDisplayBlock';
 import {
   collectDialogueFieldDrafts,
   getDialogueFieldUpdate,
@@ -116,6 +128,202 @@ function createTopologyWorkspace(
     getBlockById: (blockId: string) => blocks.get(blockId) ?? null,
   } as Blockly.WorkspaceSvg;
 }
+
+describe('timeline anchors after top-level logic controls', () => {
+  const condition = {
+    left: { kind: 'variable' as const, name: 'route' },
+    operator: 'eq' as const,
+    right: { kind: 'literal' as const, value: 'A' },
+  };
+
+  it.each([
+    {
+      name: 'empty If',
+      rootId: 'if-empty',
+      nodes: [
+        { id: 'if-empty', type: 'logicIf' as const, condition },
+        { id: 'else-empty', type: 'logicElse' as const, ifNodeId: 'if-empty' },
+        { id: 'endif-empty', type: 'logicEndIf' as const, ifNodeId: 'if-empty' },
+      ],
+      expected: null,
+    },
+    {
+      name: 'populated If',
+      rootId: 'if-full',
+      nodes: [
+        { id: 'if-full', type: 'logicIf' as const, condition },
+        {
+          id: 'then-line',
+          type: 'dialogue' as const,
+          speaker: 'A',
+          text: 'Then',
+          voiceAssetId: null,
+        },
+        { id: 'else-full', type: 'logicElse' as const, ifNodeId: 'if-full' },
+        {
+          id: 'else-line',
+          type: 'dialogue' as const,
+          speaker: 'B',
+          text: 'Else',
+          voiceAssetId: null,
+        },
+        { id: 'endif-full', type: 'logicEndIf' as const, ifNodeId: 'if-full' },
+        {
+          id: 'after-if',
+          type: 'dialogue' as const,
+          speaker: 'C',
+          text: 'After',
+          voiceAssetId: null,
+        },
+      ],
+      expected: 'after-if',
+    },
+    {
+      name: 'empty Repeat',
+      rootId: 'repeat-empty',
+      nodes: [
+        { id: 'repeat-empty', type: 'logicRepeat' as const, count: 2 },
+        {
+          id: 'endrepeat-empty',
+          type: 'logicEndRepeat' as const,
+          repeatNodeId: 'repeat-empty',
+        },
+      ],
+      expected: null,
+    },
+    {
+      name: 'populated Repeat',
+      rootId: 'repeat-full',
+      nodes: [
+        { id: 'repeat-full', type: 'logicRepeat' as const, count: 2 },
+        {
+          id: 'body-line',
+          type: 'dialogue' as const,
+          speaker: 'A',
+          text: 'Body',
+          voiceAssetId: null,
+        },
+        {
+          id: 'endrepeat-full',
+          type: 'logicEndRepeat' as const,
+          repeatNodeId: 'repeat-full',
+        },
+        {
+          id: 'after-repeat',
+          type: 'dialogue' as const,
+          speaker: 'B',
+          text: 'After',
+          voiceAssetId: null,
+        },
+      ],
+      expected: 'after-repeat',
+    },
+    {
+      name: 'empty CG',
+      rootId: 'cg-empty',
+      nodes: [
+        {
+          id: 'cg-empty',
+          type: 'cgDisplay' as const,
+          assetId: 'cg-image',
+          leadInMs: 0,
+        },
+        {
+          id: 'endcg-empty',
+          type: 'cgEndDisplay' as const,
+          cgDisplayNodeId: 'cg-empty',
+        },
+      ],
+      expected: null,
+    },
+    {
+      name: 'populated CG',
+      rootId: 'cg-full',
+      nodes: [
+        {
+          id: 'cg-full',
+          type: 'cgDisplay' as const,
+          assetId: 'cg-image',
+          leadInMs: 500,
+        },
+        {
+          id: 'cg-line',
+          type: 'dialogue' as const,
+          speaker: 'A',
+          text: 'CG',
+          voiceAssetId: null,
+        },
+        {
+          id: 'endcg-full',
+          type: 'cgEndDisplay' as const,
+          cgDisplayNodeId: 'cg-full',
+        },
+        {
+          id: 'after-cg',
+          type: 'dialogue' as const,
+          speaker: 'B',
+          text: 'After',
+          voiceAssetId: null,
+        },
+      ],
+      expected: 'after-cg',
+    },
+  ])('skips the complete paired-marker range for $name', ({
+    rootId,
+    nodes,
+    expected,
+  }) => {
+    const logicScene: SceneDocument = {
+      ...scene,
+      nodes,
+    };
+    const block = createDialogueBlock('temporary', null, rootId);
+
+    expect(getTimelineBeforeNodeIdForBlock(block, logicScene)).toBe(
+      expected,
+    );
+  });
+
+  it.each([
+    ['dialogue', DIALOGUE_BLOCK_TYPE],
+    ['media', VIDEO_BLOCK_TYPE],
+    ['variable', VARIABLE_SET_BLOCK_TYPE],
+    ['If control', LOGIC_IF_BLOCK_TYPE],
+    ['Repeat control', LOGIC_REPEAT_BLOCK_TYPE],
+    ['CG control', CG_DISPLAY_BLOCK_TYPE],
+  ])('uses the same post-control anchor for a new %s block', (_label, type) => {
+    const logicScene: SceneDocument = {
+      ...scene,
+      nodes: [
+        { id: 'if-1', type: 'logicIf', condition },
+        {
+          id: 'then-line',
+          type: 'dialogue',
+          speaker: 'A',
+          text: 'Then',
+          voiceAssetId: null,
+        },
+        { id: 'else-1', type: 'logicElse', ifNodeId: 'if-1' },
+        { id: 'endif-1', type: 'logicEndIf', ifNodeId: 'if-1' },
+        {
+          id: 'after-if',
+          type: 'dialogue',
+          speaker: 'B',
+          text: 'After',
+          voiceAssetId: null,
+        },
+      ],
+    };
+    const block = {
+      ...createDialogueBlock('temporary', null, 'if-1'),
+      type,
+    } as Blockly.BlockSvg;
+
+    expect(getTimelineBeforeNodeIdForBlock(block, logicScene)).toBe(
+      'after-if',
+    );
+  });
+});
 
 describe('getDroppedNewDialogueBlock', () => {
   it('uses the connected next scene node as beforeNodeId', () => {
@@ -554,10 +762,12 @@ describe('getReorderedDialogueBlock', () => {
         {
           id: 'character-1',
           type: 'character',
+          mode: 'show',
           assetId: 'image-1',
           slot: 'left',
           layer: 2,
           position: null,
+          effect: null,
         },
         scene.nodes[1],
       ],

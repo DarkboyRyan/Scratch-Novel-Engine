@@ -1,7 +1,13 @@
+/**
+ * 文件主要作用：实现 Blockly 工作区使用的简洁自定义垃圾桶控件。
+ * 包含实现：`EngineTrashcan`。
+ */
+
 import * as Blockly from 'blockly';
 
 import { isStoryBlockType } from './storyBlockTypes';
 import { CHOICE_OPTION_BLOCK_TYPE } from './blocks/choiceBlock';
+import { isCharacterEffectBlockType } from './blocks/characterEffectBlock';
 
 type DeleteRequest = (draggedNodeId: string | null) => void;
 type PersistedNodeCheck = (nodeId: string) => boolean;
@@ -72,7 +78,8 @@ export class EngineTrashcan extends Blockly.Trashcan {
     return (
       draggable instanceof Blockly.BlockSvg &&
       (isStoryBlockType(draggable.type) ||
-        draggable.type === CHOICE_OPTION_BLOCK_TYPE)
+        draggable.type === CHOICE_OPTION_BLOCK_TYPE ||
+        isCharacterEffectBlockType(draggable.type))
     );
   }
 

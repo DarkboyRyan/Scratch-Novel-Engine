@@ -1,3 +1,7 @@
+/**
+ * 主要作用：按扩展名、MIME 和魔数严格识别允许播放的媒体文件。
+ * 关键函数与实现：`playerMediaMagicMatches`；基于 Electron Main 与 Node.js 安全文件/协议边界实现。
+ */
 import type { FileHandle } from 'node:fs/promises';
 
 import type { PlayerMediaMime } from '../../shared/playerMediaContract';

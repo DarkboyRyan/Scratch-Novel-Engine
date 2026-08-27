@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：创建并维护编辑器内游戏预览会话状态。
+ * 包含实现：`GamePreviewSession`、`useGamePreview`。
+ */
+
 import { useState } from 'react';
 
 import type { ProjectDocument as RuntimeProjectDocument } from '@vnengine/runtime';
@@ -8,6 +13,7 @@ import {
 } from '../../../shared/projectTypes';
 import {
   advanceGamePreview,
+  completeGamePreviewCgLeadIn,
   selectGamePreviewChoice,
   startGamePreview,
   startGamePreviewAtScene,
@@ -83,6 +89,25 @@ export function useGamePreview() {
     });
   }
 
+  function completeCgLeadIn(): void {
+    setSession((current) => {
+      if (
+        !current ||
+        current.phase !== 'story' ||
+        current.runtime.status !== 'waitingCgLeadIn'
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        runtime: completeGamePreviewCgLeadIn(
+          current.project,
+          current.runtime,
+        ),
+      };
+    });
+  }
+
   function selectChoice(optionId: string): void {
     setSession((current) => {
       if (
@@ -114,6 +139,7 @@ export function useGamePreview() {
     enterStory,
     advance,
     completeVideo,
+    completeCgLeadIn,
     selectChoice,
     exit,
   };

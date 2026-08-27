@@ -1,3 +1,5 @@
+// 主要作用：为导出目标提供跨进程、可恢复的独占文件锁。
+// 关键实现：acquireExportFileLock 检查持有者存活性并返回安全释放租约。
 import { execFile, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { constants, type Stats } from 'node:fs';

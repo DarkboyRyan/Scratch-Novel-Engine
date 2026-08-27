@@ -1,3 +1,7 @@
+/**
+ * 主要作用：安全持久化、列举和恢复手动及快速存档快照。
+ * 关键函数与实现：`PlayerSaveStore`；基于 Electron Main 与 Node.js 安全文件/协议边界实现。
+ */
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import {
@@ -10,6 +14,7 @@ import {
 import path from 'node:path';
 
 import {
+  areGameRuntimeSnapshotsEqual,
   createGameRuntimeSnapshot,
   restoreGameRuntimeSnapshot,
   type GameRuntime,
@@ -166,15 +171,12 @@ async function syncDirectory(directoryPath: string): Promise<void> {
 }
 
 function sameSnapshot(left: GameRuntimeSnapshot, right: unknown): boolean {
-  return isObject(right) &&
-    right.snapshotVersion === left.snapshotVersion &&
-    right.status === left.status &&
-    right.sceneId === left.sceneId &&
-    right.nextNodeIndex === left.nextNodeIndex &&
-    right.bgmAssetId === left.bgmAssetId &&
-    right.bgmSequence === left.bgmSequence &&
-    right.dialogueSequence === left.dialogueSequence &&
-    right.videoSequence === left.videoSequence;
+  return isObject(right) && (
+    right.snapshotVersion === 1 ||
+    right.snapshotVersion === 2 ||
+    right.snapshotVersion === 3 ||
+    areGameRuntimeSnapshotsEqual(left, right)
+  );
 }
 
 function parseSaveDocument(
@@ -245,6 +247,7 @@ function validateRuntimeAssets(game: PlayerGameData, runtime: GameRuntime): void
   requireType(runtime.backgroundAssetId, 'image');
   requireType(runtime.bgmAssetId, 'audio');
   requireType(runtime.videoAssetId, 'video');
+  requireType(runtime.cgAssetId, 'image');
   requireType(runtime.dialogue?.voiceAssetId ?? null, 'audio');
   for (const character of runtime.characters) {
     requireType(character.assetId, 'image');

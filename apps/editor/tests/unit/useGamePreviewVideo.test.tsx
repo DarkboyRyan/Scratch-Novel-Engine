@@ -1,5 +1,10 @@
 /** @vitest-environment jsdom */
 
+/**
+ * 文件主要作用：验证 useGamePreview video transition 的行为。
+ * 测试覆盖：`useGamePreview video transition`。
+ */
+
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -14,6 +19,7 @@ const project: ProjectDocument = {
   entrySceneId: 'scene-1',
   startScreen: {
     title: 'Story',
+    eyebrow: 'A VN ENGINE STORY',
     backgroundAssetId: null,
     musicAssetId: null,
   },

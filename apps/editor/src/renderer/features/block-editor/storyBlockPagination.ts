@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：计算长故事积木分页、续页边界和页面导航状态。
+ * 包含实现：`StoryBlockPage`、`paginateStoryNodes`、`isStoryPaginationProjectionConsistent`。
+ */
+
 import type * as Blockly from 'blockly';
 
 import type {
@@ -5,15 +10,41 @@ import type {
   SceneNode,
 } from '../../../shared/projectTypes';
 import {
+  LOGIC_CONTROL_INPUTS,
+  LOGIC_IF_BLOCK_TYPE,
+  LOGIC_REPEAT_BLOCK_TYPE,
+} from './blocks/logicControlBlock';
+import {
   getSceneStartBlockId,
   SCENE_START_BLOCK_TYPE,
 } from './blocks/sceneStartBlock';
+import {
+  parseLogicStructure,
+  type LogicStructureItem,
+} from './logicStructure';
+import {
+  CG_DISPLAY_BLOCK_TYPE,
+  CG_DISPLAY_INPUTS,
+} from './blocks/cgDisplayBlock';
 
 type StoryExtensionNode = Extract<
   SceneNode,
   { type: 'storyExtension' }
 >;
-type PlayableSceneNode = Exclude<SceneNode, StoryExtensionNode>;
+type HiddenLogicMarker = Extract<
+  SceneNode,
+  {
+    type:
+      | 'logicElse'
+      | 'logicEndIf'
+      | 'logicEndRepeat'
+      | 'cgEndDisplay';
+  }
+>;
+type PlayableSceneNode = Exclude<
+  SceneNode,
+  StoryExtensionNode | HiddenLogicMarker
+>;
 
 export type StoryBlockPage = {
   nodes: PlayableSceneNode[];
@@ -25,66 +56,154 @@ export type StoryBlockPage = {
     | null;
 };
 
-// “延伸”是用户显式放入时间线的新分页页首，不按节点数量
-// 自动生成。它之后、下一个延伸之前的正式节点都属于该页。
-// SceneJump 仍是运行语义上的自然链尾，但不会占用延伸页序。
-// 连续延伸和末尾延伸会保留为确定的 marker-only 页。
-export function paginateStoryNodes(
-  nodes: SceneNode[],
-): StoryBlockPage[] {
-  const pages: StoryBlockPage[] = [];
-  let pageNodes: PlayableSceneNode[] = [];
-  let continuation: StoryBlockPage['continuation'] = null;
+type StructuredPage = {
+  items: LogicStructureItem[];
+  continuation: StoryBlockPage['continuation'];
+};
+
+function visibleNodes(items: LogicStructureItem[]): PlayableSceneNode[] {
+  return items.flatMap((item): PlayableSceneNode[] => {
+    if (item.kind === 'node') {
+      return item.node.type === 'storyExtension' ? [] : [item.node];
+    }
+    if (item.kind === 'if') {
+      return [
+        item.node,
+        ...visibleNodes(item.thenItems),
+        ...visibleNodes(item.elseItems),
+      ];
+    }
+    return [item.node, ...visibleNodes(item.bodyItems)];
+  });
+}
+
+function paginateStructure(items: LogicStructureItem[]): StructuredPage[] {
+  const pages: StructuredPage[] = [];
+  let pageItems: LogicStructureItem[] = [];
+  let continuation: StructuredPage['continuation'] = null;
   let extensionSequence = 0;
 
   const pushCurrentPage = (): void => {
-    if (pageNodes.length === 0 && continuation === null) {
+    if (pageItems.length === 0 && continuation === null) {
       return;
     }
-    pages.push({ nodes: pageNodes, continuation });
-    pageNodes = [];
+    pages.push({ items: pageItems, continuation });
+    pageItems = [];
     continuation = null;
   };
 
-  for (let index = 0; index < nodes.length; index += 1) {
-    const node = nodes[index];
-
-    if (node.type === 'storyExtension') {
+  for (const item of items) {
+    if (item.kind === 'node' && item.node.type === 'storyExtension') {
       pushCurrentPage();
       extensionSequence += 1;
-      continuation = { node, sequence: extensionSequence };
+      continuation = { node: item.node, sequence: extensionSequence };
       continue;
     }
 
-    pageNodes.push(node);
-    if (
-      node.type === 'sceneJump' &&
-      index + 1 < nodes.length
-    ) {
+    pageItems.push(item);
+    // A jump nested in an If/Repeat is not an unconditional visual page end.
+    if (item.kind === 'node' && item.node.type === 'sceneJump') {
       pushCurrentPage();
     }
   }
 
   pushCurrentPage();
-
   return pages;
 }
 
-// 拖放可能在不改变权威节点顺序的情况下改变 Blockly 的物理连接。
-// 只有每个手动分段仍与 Scene 顺序完全一致时，语义 no-op 才能保留；
-// 否则调用方应从最后一次 C++ 快照恢复规范投影。
+// Extension is a top-level author-controlled page header. Logic markers remain
+// invisible, while nested visible nodes are included for layout completeness.
+export function paginateStoryNodes(
+  nodes: SceneNode[],
+): StoryBlockPage[] {
+  return paginateStructure(parseLogicStructure({ nodes })).map((page) => ({
+    nodes: visibleNodes(page.items),
+    continuation: page.continuation,
+  }));
+}
+
+function isItemChainConsistent(
+  items: LogicStructureItem[],
+  workspace: Blockly.WorkspaceSvg,
+  expectedParentId: string | null,
+): boolean {
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index];
+    const block = workspace.getBlockById(item.node.id);
+    if (!block) {
+      return false;
+    }
+
+    const expectedPreviousId =
+      index === 0 ? expectedParentId : items[index - 1].node.id;
+    const expectedNextId = items[index + 1]?.node.id ?? null;
+    if (
+      (block.getPreviousBlock()?.id ?? null) !== expectedPreviousId ||
+      (block.getNextBlock()?.id ?? null) !== expectedNextId
+    ) {
+      return false;
+    }
+
+    if (item.kind === 'if') {
+      if (block.type !== LOGIC_IF_BLOCK_TYPE) {
+        return false;
+      }
+      const thenFirstId = item.thenItems[0]?.node.id ?? null;
+      const elseFirstId = item.elseItems[0]?.node.id ?? null;
+      if (
+        (block.getInputTargetBlock(LOGIC_CONTROL_INPUTS.then)?.id ?? null) !==
+          thenFirstId ||
+        (block.getInputTargetBlock(LOGIC_CONTROL_INPUTS.else)?.id ?? null) !==
+          elseFirstId ||
+        !isItemChainConsistent(item.thenItems, workspace, block.id) ||
+        !isItemChainConsistent(item.elseItems, workspace, block.id)
+      ) {
+        return false;
+      }
+    } else if (item.kind === 'repeat') {
+      if (
+        block.type !== LOGIC_REPEAT_BLOCK_TYPE ||
+        (block.getInputTargetBlock(LOGIC_CONTROL_INPUTS.body)?.id ?? null) !==
+          (item.bodyItems[0]?.node.id ?? null) ||
+        !isItemChainConsistent(item.bodyItems, workspace, block.id)
+      ) {
+        return false;
+      }
+    } else if (item.kind === 'cg') {
+      if (
+        block.type !== CG_DISPLAY_BLOCK_TYPE ||
+        (block.getInputTargetBlock(CG_DISPLAY_INPUTS.body)?.id ?? null) !==
+          (item.bodyItems[0]?.node.id ?? null) ||
+        !isItemChainConsistent(item.bodyItems, workspace, block.id)
+      ) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+// Dragging can mutate Blockly topology before the backend accepts it. This
+// verifies both page roots and every C-block branch against the last snapshot.
 export function isStoryPaginationProjectionConsistent(
   scene: SceneDocument,
   workspace: Blockly.WorkspaceSvg,
 ): boolean {
-  const pages = paginateStoryNodes(scene.nodes);
+  let pages: StructuredPage[];
+  try {
+    pages = paginateStructure(parseLogicStructure(scene));
+  } catch {
+    return false;
+  }
+
   const startBlock = workspace.getBlockById(
     getSceneStartBlockId(scene.id),
   );
   const hasProjectedStart = startBlock?.type === SCENE_START_BLOCK_TYPE;
   const expectedStartNextId =
-    pages[0]?.continuation === null ? pages[0].nodes[0]?.id ?? null : null;
-
+    pages[0]?.continuation === null
+      ? pages[0].items[0]?.node.id ?? null
+      : null;
   if (
     hasProjectedStart &&
     (startBlock.getPreviousBlock() !== null ||
@@ -93,35 +212,26 @@ export function isStoryPaginationProjectionConsistent(
     return false;
   }
 
-  for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
-    const page = pages[pageIndex];
-    const expectedBlockIds = [
-      ...(page.continuation ? [page.continuation.node.id] : []),
-      ...page.nodes.map((node) => node.id),
-    ];
-
-    for (let index = 0; index < expectedBlockIds.length; index += 1) {
-      const block = workspace.getBlockById(expectedBlockIds[index]);
-      if (!block) {
-        return false;
-      }
-
-      const expectedPreviousId =
-        expectedBlockIds[index - 1] ??
-        (hasProjectedStart &&
-        pageIndex === 0 &&
-        page.continuation === null
-          ? startBlock.id
-          : null);
-      const expectedNextId = expectedBlockIds[index + 1] ?? null;
-      if (
-        (block.getPreviousBlock()?.id ?? null) !== expectedPreviousId ||
-        (block.getNextBlock()?.id ?? null) !== expectedNextId
-      ) {
-        return false;
-      }
+  return pages.every((page, pageIndex) => {
+    const continuationBlock = page.continuation
+      ? workspace.getBlockById(page.continuation.node.id)
+      : null;
+    if (
+      page.continuation &&
+      (!continuationBlock ||
+        continuationBlock.getPreviousBlock() !== null ||
+        (continuationBlock.getNextBlock()?.id ?? null) !==
+          (page.items[0]?.node.id ?? null))
+    ) {
+      return false;
     }
-  }
 
-  return true;
+    const expectedParentId = page.continuation?.node.id ??
+      (pageIndex === 0 && hasProjectedStart ? startBlock.id : null);
+    return isItemChainConsistent(
+      page.items,
+      workspace,
+      expectedParentId,
+    );
+  });
 }

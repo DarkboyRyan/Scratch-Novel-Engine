@@ -1,3 +1,7 @@
+/**
+ * 主要作用：配置 Electron Forge 打包、平台产物、应用熔断与嵌入游戏校验。
+ * 关键函数与实现：verifyEmbeddedResource、config；以 TypeScript 类型边界和可组合函数实现。
+ */
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
 import type { ForgeConfig } from '@electron-forge/shared-types';
 import type { HookFunction } from '@electron/packager';

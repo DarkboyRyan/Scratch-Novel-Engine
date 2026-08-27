@@ -1,3 +1,5 @@
+// 主要作用：定义 Renderer、Preload 与 Main 之间的资产导入 IPC 契约。
+// 关键实现：声明动作、返回联合类型及 window.vnAssets API。
 import type { EngineMutationResult } from './engineProtocol';
 
 export const ASSET_IPC_CHANNEL = 'vn-assets:request';

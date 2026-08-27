@@ -1,5 +1,10 @@
 /** @vitest-environment jsdom */
 
+/**
+ * 文件主要作用：验证 inline Blockly zoom control icons 的行为。
+ * 测试覆盖：`inline Blockly zoom control icons`。
+ */
+
 import { describe, expect, it } from 'vitest';
 
 import { installInlineZoomControlIcons } from '../../src/renderer/features/block-editor/zoomControlIcons';

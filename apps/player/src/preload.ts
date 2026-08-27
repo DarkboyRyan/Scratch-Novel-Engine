@@ -1,3 +1,7 @@
+/**
+ * 主要作用：通过 contextBridge 暴露最小且类型化的 Player API。
+ * 关键函数与实现：invokePlayer、vnPlayer；以 TypeScript 类型边界和可组合函数实现。
+ */
 import { contextBridge, ipcRenderer } from 'electron';
 
 import {

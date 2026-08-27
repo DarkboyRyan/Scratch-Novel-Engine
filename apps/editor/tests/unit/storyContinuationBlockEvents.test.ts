@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 story continuation sequence commands 的行为。
+ * 测试覆盖：`story continuation sequence commands`。
+ */
+
 import type * as Blockly from 'blockly';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -60,6 +65,96 @@ const scene: SceneDocument = {
       type: 'dialogue',
       speaker: 'E',
       text: 'E',
+      voiceAssetId: null,
+    },
+  ],
+};
+
+const nestedLogicPageNodeIds = [
+  'extension-logic',
+  'if-logic',
+  'then-line',
+  'repeat-logic',
+  'repeat-line',
+  'endrepeat-logic',
+  'else-logic',
+  'else-line',
+  'endif-logic',
+  'after-logic',
+];
+
+const sceneWithNestedLogicPage: SceneDocument = {
+  ...scene,
+  id: 'scene-with-nested-logic-page',
+  nodes: [
+    { id: 'extension-before', type: 'storyExtension' },
+    {
+      id: 'before-line',
+      type: 'dialogue',
+      speaker: 'A',
+      text: 'Before',
+      voiceAssetId: null,
+    },
+    { id: 'extension-logic', type: 'storyExtension' },
+    {
+      id: 'if-logic',
+      type: 'logicIf',
+      condition: {
+        left: { kind: 'variable', name: 'route' },
+        operator: 'eq',
+        right: { kind: 'literal', value: 'A' },
+      },
+    },
+    {
+      id: 'then-line',
+      type: 'dialogue',
+      speaker: 'B',
+      text: 'Then',
+      voiceAssetId: null,
+    },
+    { id: 'repeat-logic', type: 'logicRepeat', count: 2 },
+    {
+      id: 'repeat-line',
+      type: 'dialogue',
+      speaker: 'C',
+      text: 'Repeat',
+      voiceAssetId: null,
+    },
+    {
+      id: 'endrepeat-logic',
+      type: 'logicEndRepeat',
+      repeatNodeId: 'repeat-logic',
+    },
+    { id: 'else-logic', type: 'logicElse', ifNodeId: 'if-logic' },
+    {
+      id: 'else-line',
+      type: 'dialogue',
+      speaker: 'D',
+      text: 'Else',
+      voiceAssetId: null,
+    },
+    { id: 'endif-logic', type: 'logicEndIf', ifNodeId: 'if-logic' },
+    {
+      id: 'after-logic',
+      type: 'dialogue',
+      speaker: 'E',
+      text: 'After logic',
+      voiceAssetId: null,
+    },
+    { id: 'extension-after', type: 'storyExtension' },
+    {
+      id: 'after-line',
+      type: 'dialogue',
+      speaker: 'F',
+      text: 'After page',
+      voiceAssetId: null,
+    },
+    { id: 'extension-tail', type: 'storyExtension' },
+    {
+      id: 'tail-line',
+      type: 'dialogue',
+      speaker: 'G',
+      text: 'Tail',
       voiceAssetId: null,
     },
   ],
@@ -138,6 +233,32 @@ describe('story continuation sequence commands', () => {
         beforeNodeId: null,
       },
     });
+  });
+
+  it.each([
+    { direction: 'earlier', targetSequence: 1, beforeNodeId: 'extension-before' },
+    { direction: 'later', targetSequence: 3, beforeNodeId: 'extension-tail' },
+  ])('moves a page with nested If/Repeat $direction as one complete flat segment', ({
+    targetSequence,
+    beforeNodeId,
+  }) => {
+    const block = extensionBlock('extension-logic', targetSequence);
+    const resolution = getStoryContinuationSequenceUpdate(
+      sequenceChangeEvent(block.id),
+      workspaceWith(block),
+      sceneWithNestedLogicPage,
+    );
+    const reorderMany = vi.fn();
+
+    sendOnlyReorderRequests(resolution, reorderMany);
+
+    expect(reorderMany).toHaveBeenCalledOnce();
+    expect(reorderMany).toHaveBeenCalledWith({
+      sceneId: sceneWithNestedLogicPage.id,
+      nodeIds: nestedLogicPageNodeIds,
+      beforeNodeId,
+    });
+    expect(nestedLogicPageNodeIds).not.toContain(beforeNodeId);
   });
 
   it('treats the current sequence as a no-op without issuing reorder IPC', () => {

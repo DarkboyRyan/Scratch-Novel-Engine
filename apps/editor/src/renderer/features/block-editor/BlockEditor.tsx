@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：组合 Blockly 工作区、场景导航、资源面板和预览面板。
+ * 包含实现：`BlockEditorHandle`、`BlockEditor`。
+ */
+
 import {
   forwardRef,
   useImperativeHandle,
@@ -22,12 +27,28 @@ import type {
   UpdateBackgroundAction,
   UpdateDialogueAction,
   UpdateCharacterAction,
+  UpdateCharacterEffectAction,
+  MoveCharacterEffectAction,
   UpdateSceneJumpAction,
   UpdateBgmAction,
   UpdateVideoAction,
   UpdateChoiceOptionAction,
   ReorderChoiceOptionAction,
   SetDialogueVoiceAction,
+  AddVariableSetAction,
+  UpdateVariableSetAction,
+  AddVariableChangeAction,
+  UpdateVariableChangeAction,
+  AddLogicIfAction,
+  UpdateLogicIfAction,
+  AddLogicRepeatAction,
+  UpdateLogicRepeatAction,
+  DeleteLogicControlAction,
+  ReorderLogicControlAction,
+  AddCgDisplayAction,
+  UpdateCgDisplayAction,
+  DeleteCgDisplayAction,
+  ReorderCgDisplayAction,
 } from '../../application/authoringPorts';
 
 import type {
@@ -63,6 +84,8 @@ type BlockEditorProps = {
   onBackgroundUpdate: UpdateBackgroundAction;
   onCharacterAdd: AddCharacterAction;
   onCharacterUpdate: UpdateCharacterAction;
+  onCharacterEffectUpdate: UpdateCharacterEffectAction;
+  onCharacterEffectMove: MoveCharacterEffectAction;
   onSceneJumpAdd: AddSceneJumpAction;
   onSceneJumpUpdate: UpdateSceneJumpAction;
   onBgmAdd: AddBgmAction;
@@ -72,6 +95,20 @@ type BlockEditorProps = {
   onChoiceAdd: AddChoiceAction;
   onChoiceOptionAdd: AddChoiceOptionAction;
   onStoryExtensionAdd: AddStoryExtensionAction;
+  onVariableSetAdd: AddVariableSetAction;
+  onVariableSetUpdate: UpdateVariableSetAction;
+  onVariableChangeAdd: AddVariableChangeAction;
+  onVariableChangeUpdate: UpdateVariableChangeAction;
+  onLogicIfAdd: AddLogicIfAction;
+  onLogicIfUpdate: UpdateLogicIfAction;
+  onLogicRepeatAdd: AddLogicRepeatAction;
+  onLogicRepeatUpdate: UpdateLogicRepeatAction;
+  onLogicControlDelete: DeleteLogicControlAction;
+  onLogicControlReorder: ReorderLogicControlAction;
+  onCgDisplayAdd: AddCgDisplayAction;
+  onCgDisplayUpdate: UpdateCgDisplayAction;
+  onCgDisplayDelete: DeleteCgDisplayAction;
+  onCgDisplayReorder: ReorderCgDisplayAction;
   onChoiceOptionUpdate: UpdateChoiceOptionAction;
   onChoiceOptionDelete: DeleteChoiceOptionAction;
   onChoiceOptionReorder: ReorderChoiceOptionAction;
@@ -102,6 +139,8 @@ export const BlockEditor = forwardRef<
     onBackgroundUpdate,
     onCharacterAdd,
     onCharacterUpdate,
+    onCharacterEffectUpdate,
+    onCharacterEffectMove,
     onSceneJumpAdd,
     onSceneJumpUpdate,
     onBgmAdd,
@@ -111,6 +150,20 @@ export const BlockEditor = forwardRef<
     onChoiceAdd,
     onChoiceOptionAdd,
     onStoryExtensionAdd,
+    onVariableSetAdd,
+    onVariableSetUpdate,
+    onVariableChangeAdd,
+    onVariableChangeUpdate,
+    onLogicIfAdd,
+    onLogicIfUpdate,
+    onLogicRepeatAdd,
+    onLogicRepeatUpdate,
+    onLogicControlDelete,
+    onLogicControlReorder,
+    onCgDisplayAdd,
+    onCgDisplayUpdate,
+    onCgDisplayDelete,
+    onCgDisplayReorder,
     onChoiceOptionUpdate,
     onChoiceOptionDelete,
     onChoiceOptionReorder,
@@ -211,6 +264,8 @@ export const BlockEditor = forwardRef<
           onBackgroundUpdate={onBackgroundUpdate}
           onCharacterAdd={onCharacterAdd}
           onCharacterUpdate={onCharacterUpdate}
+          onCharacterEffectUpdate={onCharacterEffectUpdate}
+          onCharacterEffectMove={onCharacterEffectMove}
           onSceneJumpAdd={onSceneJumpAdd}
           onSceneJumpUpdate={onSceneJumpUpdate}
           onBgmAdd={onBgmAdd}
@@ -220,6 +275,20 @@ export const BlockEditor = forwardRef<
           onChoiceAdd={onChoiceAdd}
           onChoiceOptionAdd={onChoiceOptionAdd}
           onStoryExtensionAdd={onStoryExtensionAdd}
+          onVariableSetAdd={onVariableSetAdd}
+          onVariableSetUpdate={onVariableSetUpdate}
+          onVariableChangeAdd={onVariableChangeAdd}
+          onVariableChangeUpdate={onVariableChangeUpdate}
+          onLogicIfAdd={onLogicIfAdd}
+          onLogicIfUpdate={onLogicIfUpdate}
+          onLogicRepeatAdd={onLogicRepeatAdd}
+          onLogicRepeatUpdate={onLogicRepeatUpdate}
+          onLogicControlDelete={onLogicControlDelete}
+          onLogicControlReorder={onLogicControlReorder}
+          onCgDisplayAdd={onCgDisplayAdd}
+          onCgDisplayUpdate={onCgDisplayUpdate}
+          onCgDisplayDelete={onCgDisplayDelete}
+          onCgDisplayReorder={onCgDisplayReorder}
           onChoiceOptionUpdate={onChoiceOptionUpdate}
           onChoiceOptionDelete={onChoiceOptionDelete}
           onChoiceOptionReorder={onChoiceOptionReorder}

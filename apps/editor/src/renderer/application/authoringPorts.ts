@@ -1,21 +1,36 @@
+/**
+ * 文件主要作用：定义表单编辑器和 Blockly 编辑器共享的创作命令端口。
+ * 包含实现：`AddDialogueAction`、`UpdateDialogueAction`、`SetDialogueVoiceAction`、`ReorderDialogueAction`、`ReorderDialoguesAction`、`DeleteDialoguesAction` 等 46 项。
+ */
+
 import type {
   AddBackgroundParams,
   AddBgmParams,
   AddCharacterParams,
   AddChoiceOptionParams,
   AddChoiceParams,
+  AddCgDisplayParams,
   AddDialogueParams,
+  AddLogicIfParams,
+  AddLogicRepeatParams,
   AddSceneJumpParams,
   AddStoryExtensionParams,
+  AddVariableChangeParams,
+  AddVariableSetParams,
   AddVideoParams,
   DeleteBackgroundParams,
   DeleteDialoguesParams,
   DeleteChoiceOptionParams,
+  DeleteCgDisplayParams,
+  DeleteLogicControlParams,
   EngineMutationResult,
   ReorderBackgroundParams,
   ReorderDialogueParams,
   ReorderDialoguesParams,
   ReorderChoiceOptionParams,
+  ReorderCgDisplayParams,
+  ReorderLogicControlParams,
+  MoveCharacterEffectParams,
   SetDialogueVoiceParams,
   TimelineDeleteManyParams,
   TimelineReorderManyParams,
@@ -23,8 +38,14 @@ import type {
   UpdateBackgroundParams,
   UpdateBgmParams,
   UpdateCharacterParams,
+  UpdateCharacterEffectParams,
   UpdateChoiceOptionParams,
+  UpdateCgDisplayParams,
+  UpdateLogicIfParams,
+  UpdateLogicRepeatParams,
   UpdateSceneJumpParams,
+  UpdateVariableChangeParams,
+  UpdateVariableSetParams,
   UpdateVideoParams,
   VnEngineApi,
 } from '../../shared/engineProtocol';
@@ -63,11 +84,59 @@ export type AddCharacterAction = (
 export type UpdateCharacterAction = (
   params: UpdateCharacterParams,
 ) => Promise<boolean>;
+export type UpdateCharacterEffectAction = (
+  params: UpdateCharacterEffectParams,
+) => Promise<boolean>;
+export type MoveCharacterEffectAction = (
+  params: MoveCharacterEffectParams,
+) => Promise<boolean>;
 export type AddSceneJumpAction = (
   params: AddSceneJumpParams,
 ) => Promise<boolean>;
 export type AddStoryExtensionAction = (
   params: AddStoryExtensionParams,
+) => Promise<boolean>;
+export type AddVariableSetAction = (
+  params: AddVariableSetParams,
+) => Promise<boolean>;
+export type UpdateVariableSetAction = (
+  params: UpdateVariableSetParams,
+) => Promise<boolean>;
+export type AddVariableChangeAction = (
+  params: AddVariableChangeParams,
+) => Promise<boolean>;
+export type UpdateVariableChangeAction = (
+  params: UpdateVariableChangeParams,
+) => Promise<boolean>;
+export type AddLogicIfAction = (
+  params: AddLogicIfParams,
+) => Promise<boolean>;
+export type UpdateLogicIfAction = (
+  params: UpdateLogicIfParams,
+) => Promise<boolean>;
+export type AddLogicRepeatAction = (
+  params: AddLogicRepeatParams,
+) => Promise<boolean>;
+export type UpdateLogicRepeatAction = (
+  params: UpdateLogicRepeatParams,
+) => Promise<boolean>;
+export type DeleteLogicControlAction = (
+  params: DeleteLogicControlParams,
+) => Promise<boolean>;
+export type ReorderLogicControlAction = (
+  params: ReorderLogicControlParams,
+) => Promise<boolean>;
+export type AddCgDisplayAction = (
+  params: AddCgDisplayParams,
+) => Promise<boolean>;
+export type UpdateCgDisplayAction = (
+  params: UpdateCgDisplayParams,
+) => Promise<boolean>;
+export type DeleteCgDisplayAction = (
+  params: DeleteCgDisplayParams,
+) => Promise<boolean>;
+export type ReorderCgDisplayAction = (
+  params: ReorderCgDisplayParams,
 ) => Promise<boolean>;
 export type UpdateSceneJumpAction = (
   params: UpdateSceneJumpParams,
@@ -123,6 +192,8 @@ export type FormEditorCommands = Pick<
   | 'updateBackground'
   | 'addCharacter'
   | 'updateCharacter'
+  | 'updateCharacterEffect'
+  | 'moveCharacterEffect'
   | 'addSceneJump'
   | 'updateSceneJump'
   | 'addBgm'

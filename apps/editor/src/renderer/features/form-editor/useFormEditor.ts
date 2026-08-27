@@ -1,22 +1,29 @@
+/**
+ * 文件主要作用：集中管理表单编辑器选择状态、草稿和创作命令。
+ * 包含实现：`useFormEditor`、`FormEditorState`。
+ */
+
 import { useEffect, useRef, useState } from 'react';
 
 import type {
   BackgroundNode,
   BgmNode,
+  CharacterMode,
   CharacterNode,
   CharacterSlot,
   CharacterPosition,
   DialogueNode,
+  FormVisibleSceneNode,
   SceneJumpNode,
-  SemanticSceneNode,
   VideoNode,
 } from '../../../shared/projectTypes';
 import {
+  formVisibleSceneNodes,
   isSemanticSceneNode,
-  semanticSceneNodes,
 } from '../../../shared/projectTypes';
 import type { FormEditorPort } from '../../application/authoringPorts';
 import { useEditorLabels } from '../../i18n/editorLocalization';
+import { getCharacterGroupDialogueAnchorId } from './formLogicTree';
 
 // Controller hook 负责 Renderer 状态、选择规则以及调用 C++。
 // 组件只接收数据和事件，不直接知道 IPC 协议。
@@ -29,10 +36,8 @@ export function useFormEditor({
   authoringCommands,
 }: FormEditorPort) {
   const labels = useEditorLabels();
-  const [selectedSceneId, setSelectedSceneId] =
-    useState<string | null>(null);
-  const [selectedNodeId, setSelectedNodeId] =
-    useState<string | null>(null);
+  const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   // 输入框草稿仍属于界面状态：输入时无需为每个按键都调用 C++。
   const [speaker, setSpeaker] = useState('');
@@ -51,9 +56,7 @@ export function useFormEditor({
           (projectScene) => projectScene.id === currentSceneId,
         );
 
-      return currentSceneStillExists
-        ? currentSceneId
-        : project.entrySceneId;
+      return currentSceneStillExists ? currentSceneId : project.entrySceneId;
     });
   }, [project]);
 
@@ -63,11 +66,12 @@ export function useFormEditor({
       ) ?? project.scenes[0])
     : null;
 
-  const storyNodes = scene ? semanticSceneNodes(scene) : [];
+  // Paired Else/End markers are an author-file implementation detail. The
+  // form editor exposes only real selectable nodes; its tree view supplies
+  // branch labels and indentation separately.
+  const storyNodes = scene ? formVisibleSceneNodes(scene) : [];
 
-  const selectedNode = storyNodes.find(
-    (node) => node.id === selectedNodeId,
-  );
+  const selectedNode = storyNodes.find((node) => node.id === selectedNodeId);
   const selectedDialogue =
     selectedNode?.type === 'dialogue' ? selectedNode : undefined;
   const selectedBackground =
@@ -76,8 +80,7 @@ export function useFormEditor({
     selectedNode?.type === 'character' ? selectedNode : undefined;
   const selectedSceneJump =
     selectedNode?.type === 'sceneJump' ? selectedNode : undefined;
-  const selectedBgm =
-    selectedNode?.type === 'bgm' ? selectedNode : undefined;
+  const selectedBgm = selectedNode?.type === 'bgm' ? selectedNode : undefined;
   const selectedVideo =
     selectedNode?.type === 'video' ? selectedNode : undefined;
   const selectedChoice =
@@ -131,8 +134,7 @@ export function useFormEditor({
   }
 
   const draftDirty = selectedDialogue
-    ? speaker !== selectedDialogue.speaker ||
-      text !== selectedDialogue.text
+    ? speaker !== selectedDialogue.speaker || text !== selectedDialogue.text
     : selectedNode
       ? false
       : speaker.length > 0 || text.length > 0;
@@ -203,7 +205,7 @@ export function useFormEditor({
     }
   }
 
-  function applyNodeSelection(node: SemanticSceneNode) {
+  function applyNodeSelection(node: FormVisibleSceneNode) {
     setSelectedNodeId(node.id);
     if (node.type === 'dialogue') {
       setSpeaker(node.speaker);
@@ -214,7 +216,7 @@ export function useFormEditor({
     }
   }
 
-  async function selectNode(node: SemanticSceneNode): Promise<void> {
+  async function selectNode(node: FormVisibleSceneNode): Promise<void> {
     if (node.id === selectedNodeId) {
       return;
     }
@@ -230,9 +232,7 @@ export function useFormEditor({
     }
 
     // 不再由 React 计算“场景 N”或生成 ID；C++ 统一负责这些规则。
-    const result = await runEngineAction(() =>
-      authoringCommands.addScene(),
-    );
+    const result = await runEngineAction(() => authoringCommands.addScene());
 
     if (!result?.sceneId) {
       return;
@@ -247,9 +247,7 @@ export function useFormEditor({
       !project ||
       !scene ||
       nextSceneId === scene.id ||
-      !project.scenes.some(
-        (projectScene) => projectScene.id === nextSceneId,
-      )
+      !project.scenes.some((projectScene) => projectScene.id === nextSceneId)
     ) {
       return;
     }
@@ -320,8 +318,7 @@ export function useFormEditor({
   async function insertCharacter() {
     // 人物节点在运行时会自动执行。放在对白之后会等玩家推进后才生效，
     // 因此当前对白及其连续人物组都以“下一条对白”为插入锚点。
-    const wasCreatingDialogue =
-      selectedNodeId === null && draftDirty;
+    const wasCreatingDialogue = selectedNodeId === null && draftDirty;
     const selectedIndex = storyNodes.findIndex(
       (node) => node.id === selectedNodeId,
     );
@@ -329,14 +326,8 @@ export function useFormEditor({
     let dialogueAnchorId: string | null =
       selected?.type === 'dialogue' ? selected.id : null;
 
-    if (selected?.type === 'character') {
-      let nextIndex = selectedIndex + 1;
-      while (storyNodes[nextIndex]?.type === 'character') {
-        nextIndex += 1;
-      }
-      if (storyNodes[nextIndex]?.type === 'dialogue') {
-        dialogueAnchorId = storyNodes[nextIndex].id;
-      }
+    if (selected?.type === 'character' && scene) {
+      dialogueAnchorId = getCharacterGroupDialogueAnchorId(scene, selected.id);
     }
 
     if (wasCreatingDialogue) {
@@ -354,6 +345,8 @@ export function useFormEditor({
     const result = await runEngineAction(() =>
       authoringCommands.addCharacter({
         sceneId: scene.id,
+        mode: 'show',
+        assetId: null,
         ...(dialogueAnchorId
           ? { beforeNodeId: dialogueAnchorId }
           : { afterNodeId: selectedNodeId }),
@@ -437,6 +430,7 @@ export function useFormEditor({
   async function updateCharacterNode(
     node: CharacterNode,
     next: {
+      mode?: CharacterMode;
       assetId: string | null;
       slot: CharacterSlot;
       layer: number;
@@ -445,7 +439,8 @@ export function useFormEditor({
   ) {
     if (
       !scene ||
-      (node.assetId === next.assetId &&
+      ((next.mode === undefined || node.mode === next.mode) &&
+        node.assetId === next.assetId &&
         node.slot === next.slot &&
         node.layer === next.layer &&
         ((node.position === null && next.position === null) ||
@@ -482,10 +477,7 @@ export function useFormEditor({
     );
   }
 
-  async function updateBgmNode(
-    node: BgmNode,
-    assetId: string | null,
-  ) {
+  async function updateBgmNode(node: BgmNode, assetId: string | null) {
     if (!scene || node.assetId === assetId) {
       return;
     }
@@ -498,10 +490,7 @@ export function useFormEditor({
     );
   }
 
-  async function updateVideoNode(
-    node: VideoNode,
-    assetId: string | null,
-  ) {
+  async function updateVideoNode(node: VideoNode, assetId: string | null) {
     if (!scene || node.assetId === assetId) {
       return;
     }
@@ -552,9 +541,7 @@ export function useFormEditor({
       return;
     }
 
-    const nodeToDelete = storyNodes.find(
-      (node) => node.id === nodeId,
-    );
+    const nodeToDelete = storyNodes.find((node) => node.id === nodeId);
 
     if (!nodeToDelete) {
       return;
@@ -573,7 +560,10 @@ export function useFormEditor({
                 ? labels.messages.deleteBgm
                 : nodeToDelete.type === 'video'
                   ? labels.messages.deleteVideo
-                  : labels.messages.deleteChoice;
+                  : nodeToDelete.type === 'variableSet' ||
+                      nodeToDelete.type === 'variableChange'
+                    ? labels.messages.deleteVariableOperation
+                    : labels.messages.deleteChoice;
     const shouldDelete = window.confirm(
       `${labels.messages.deleteConfirmPrefix}${nodeLabel}${labels.messages.deleteConfirmSuffix}`,
     );
@@ -585,23 +575,17 @@ export function useFormEditor({
     // 删除其他节点也会返回完整 Project 快照。先提交当前对白草稿，
     // 避免这次重投影把正在编辑的内容覆盖掉。删除当前节点本身则是
     // 用户明确确认的丢弃操作，不要求先保存即将删除的草稿。
-    if (
-      nodeId !== selectedNodeId &&
-      !(await commitPendingDraft())
-    ) {
+    if (nodeId !== selectedNodeId && !(await commitPendingDraft())) {
       return;
     }
 
     // “删除哪条”由 C++ 决定；“删除后界面选中谁”仍是 UI 导航规则。
-    const selectedIndex = storyNodes.findIndex(
-      (node) => node.id === nodeId,
-    );
+    const selectedIndex = storyNodes.findIndex((node) => node.id === nodeId);
     const remainingNodeIds = storyNodes
       .filter((node) => node.id !== nodeId)
       .map((node) => node.id);
     const nextNodeId =
-      remainingNodeIds[selectedIndex] ??
-      remainingNodeIds[selectedIndex - 1];
+      remainingNodeIds[selectedIndex] ?? remainingNodeIds[selectedIndex - 1];
 
     const result = await runEngineAction(() =>
       authoringCommands.deleteTimelineNodes({
@@ -617,27 +601,28 @@ export function useFormEditor({
     const updatedScene = result.project.scenes.find(
       (projectScene) => projectScene.id === scene.id,
     );
-    const nextNode = updatedScene?.nodes.find(
-      (node) => node.id === nextNodeId,
-    );
+    const nextNode = updatedScene?.nodes.find((node) => node.id === nextNodeId);
 
-    if (nextNode && isSemanticSceneNode(nextNode)) {
+    if (
+      nextNode &&
+      isSemanticSceneNode(nextNode) &&
+      nextNode.type !== 'logicElse' &&
+      nextNode.type !== 'logicEndIf' &&
+      nextNode.type !== 'logicEndRepeat' &&
+      nextNode.type !== 'cgEndDisplay'
+    ) {
       applyNodeSelection(nextNode);
     } else {
       startNewDialogue();
     }
   }
 
-  async function moveNode(
-    nodeId: string,
-    direction: -1 | 1,
-  ) {
+  async function moveNode(nodeId: string, direction: -1 | 1) {
     if (!scene) {
       return;
     }
 
-    const wasCreatingDialogue =
-      selectedNodeId === null && draftDirty;
+    const wasCreatingDialogue = selectedNodeId === null && draftDirty;
     if (!(await commitPendingDraft())) {
       return;
     }
@@ -649,9 +634,7 @@ export function useFormEditor({
       return;
     }
 
-    const currentIndex = storyNodes.findIndex(
-      (node) => node.id === nodeId,
-    );
+    const currentIndex = storyNodes.findIndex((node) => node.id === nodeId);
     if (currentIndex < 0) {
       return;
     }
@@ -659,7 +642,7 @@ export function useFormEditor({
     const beforeNodeId =
       direction === -1
         ? storyNodes[currentIndex - 1]?.id
-        : storyNodes[currentIndex + 2]?.id ?? null;
+        : (storyNodes[currentIndex + 2]?.id ?? null);
 
     if (direction === -1 && !beforeNodeId) {
       return;

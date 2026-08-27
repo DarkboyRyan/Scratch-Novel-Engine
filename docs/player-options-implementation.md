@@ -1,3 +1,5 @@
+<!-- 文件职责：记录 Player 选项系统；关键内容：语言、音量、窗口模式、持久化与媒体同步。 -->
+
 # Player 选项系统实现
 
 > 实现状态：正式 Player 已提供持久化界面语言、音量与显示设置。标题页、游戏内操作栏和暂停菜单
@@ -24,15 +26,15 @@
 
 打开选项时会拦截剧情推进、Choice、视频完成和底栏操作。标题音乐或剧情 BGM 不会
 因为打开选项而从头播放，玩家可以直接听到音量调整结果；正在播放的视频会暂停，
-关闭选项后从原位置继续。
+人物立绘特效的 CSS animation 也会暂停，关闭选项后从原位置继续。
 
 ## 2. 版本与数据边界
 
 选项是 Player 外壳的本地偏好，不属于作者项目、导出内容或剧情存档：
 
-- 作者项目仍固定写 `fileVersion: 15`，Reader 支持 v1–v15；
-- 导出内容仍为 runtime v6，Player 兼容 runtime v1–v6；
-- 游戏进度仍使用独立的 `GameRuntimeSnapshot v1` 和 `saveVersion: 1`；
+- 作者项目固定写 `fileVersion: 20`，Reader 支持 v1–v20；
+- 导出内容为 runtime v10，Player 兼容 runtime v1–v10；
+- 游戏进度使用独立的 `GameRuntimeSnapshot v4` 和 `saveVersion: 1`，并受限兼容旧 v1–v3；
 - Player 设置当前写 `settingsVersion: 2`，Reader 严格迁移旧 v1；
 - 切换 `.vngame` 不会重置选项，同一 Player 用户的设置会继续生效。
 
@@ -300,7 +302,7 @@ Player 的 `onOpenOptions` 时，`TitleScreen` 创建一份仅属于该组件生
 - 语言可以在当前预览生命周期内切换，默认中文；
 - 不调用 `window.vnPlayer`、不访问 `userData`，关闭预览后不会保存；
 - 窗口模式和窗口尺寸控件保持禁用，并明确提示“仅在正式 Player 中应用”；
-- 不会调整 Editor BrowserWindow，也不会把设置写入 author v15 或 runtime v6。
+- 不会调整 Editor BrowserWindow，也不会把设置写入 author v20 或 runtime v10。
 
 这样 Editor 能预览正式选项样式和媒体效果，但不会意外获得 Player 的本地持久化或窗口
 控制权限。

@@ -1,3 +1,7 @@
+/**
+ * 主要作用：测量容器并计算、应用界面等比缩放 CSS 变量。
+ * 关键函数与实现：`calculateAutoFitScale`、`AutoFitScaleRefs`、`useAutoFitScale`；以 TypeScript 类型边界和可组合函数实现。
+ */
 import { useCallback, useLayoutEffect, useRef } from 'react';
 
 const AUTO_FIT_SCALE_PROPERTY = '--auto-fit-scale';

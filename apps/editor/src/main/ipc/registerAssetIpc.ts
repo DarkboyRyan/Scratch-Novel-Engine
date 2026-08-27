@@ -1,3 +1,5 @@
+// 主要作用：注册 Renderer 导入图片、音频和视频的可信 IPC 入口。
+// 关键实现：registerAssetIpc 校验 Frame、串行文件操作并刷新窗口状态。
 import { dialog, ipcMain } from 'electron';
 
 import {

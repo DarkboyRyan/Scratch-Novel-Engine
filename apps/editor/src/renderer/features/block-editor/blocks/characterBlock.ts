@@ -1,10 +1,21 @@
+/**
+ * 文件主要作用：注册人物立绘和清除立绘积木并读写位置与图片资源。
+ * 包含实现：`CHARACTER_BLOCK_TYPE`、`CLEAR_CHARACTER_BLOCK_TYPE`、`CHARACTER_BLOCK_FIELDS`、`CHARACTER_BLOCK_INPUTS`、`applyCharacterBlockLocalization`、`setCharacterBlockAsset` 等 12 项。
+ */
+
 import * as Blockly from 'blockly';
 
 import type {
   CharacterPosition,
   CharacterSlot,
 } from '../../../../shared/projectTypes';
-import { DEFAULT_EDITOR_LANGUAGE, getEditorLabels, type EditorLabels } from '../../../i18n/editorLocalization';
+import {
+  DEFAULT_EDITOR_LANGUAGE,
+  getEditorLabels,
+  type EditorLabels,
+} from '../../../i18n/editorLocalization';
+import { CHARACTER_EFFECT_CONNECTION_TYPE } from './characterEffectBlock';
+import { AssetNameField } from './assetNameField';
 
 export const CHARACTER_BLOCK_TYPE = 'vn_character';
 export const CLEAR_CHARACTER_BLOCK_TYPE = 'vn_clear_character';
@@ -15,11 +26,15 @@ export const CHARACTER_BLOCK_FIELDS = {
   layer: 'LAYER',
 } as const;
 
+export const CHARACTER_BLOCK_INPUTS = {
+  effect: 'EFFECT',
+} as const;
+
 const ASSET_DATA_PREFIX = 'vn-character-asset:';
-const EMPTY_CHARACTER_FIELD_VALUE = '\u00a0'.repeat(12);
 const LABEL_FIELDS = {
   character: 'VN_LABEL_CHARACTER',
   position: 'VN_LABEL_POSITION',
+  effect: 'VN_LABEL_EFFECT',
   layer: 'VN_LABEL_LAYER',
   clear: 'VN_LABEL_CLEAR_CHARACTER',
   clearLayer: 'VN_LABEL_CLEAR_LAYER',
@@ -48,7 +63,11 @@ export function applyCharacterBlockLocalization(
     isClear ? LABEL_FIELDS.clearLayer : LABEL_FIELDS.layer,
   );
   if (!isClear) {
+    block.setFieldValue(labels.blockly.characterEffect, LABEL_FIELDS.effect);
     block.setFieldValue(labels.blockly.position, LABEL_FIELDS.position);
+    if (getCharacterBlockAssetId(block) === null) {
+      block.setFieldValue(labels.common.none, CHARACTER_BLOCK_FIELDS.assetName);
+    }
     const field = block.getField(CHARACTER_BLOCK_FIELDS.slot);
     if (field instanceof Blockly.FieldDropdown) {
       const value = String(field.getValue());
@@ -75,14 +94,12 @@ export function setCharacterBlockAsset(
 ): void {
   block.data = assetId === null ? null : `${ASSET_DATA_PREFIX}${assetId}`;
   block.setFieldValue(
-    displayName || EMPTY_CHARACTER_FIELD_VALUE,
+    displayName || currentLabels.common.none,
     CHARACTER_BLOCK_FIELDS.assetName,
   );
 }
 
-export function getCharacterBlockAssetId(
-  block: Blockly.Block,
-): string | null {
+export function getCharacterBlockAssetId(block: Blockly.Block): string | null {
   return block.data?.startsWith(ASSET_DATA_PREFIX)
     ? block.data.slice(ASSET_DATA_PREFIX.length)
     : null;
@@ -106,12 +123,11 @@ export function setCharacterBlockPosition(
   }
   field.setOptions([
     ...characterSlotOptions(currentLabels),
-    ...(position ? [[currentLabels.blockly.custom, 'custom'] as [string, string]] : []),
+    ...(position
+      ? [[currentLabels.blockly.custom, 'custom'] as [string, string]]
+      : []),
   ]);
-  block.setFieldValue(
-    position ? 'custom' : slot,
-    CHARACTER_BLOCK_FIELDS.slot,
-  );
+  block.setFieldValue(position ? 'custom' : slot, CHARACTER_BLOCK_FIELDS.slot);
 }
 
 export function getCharacterBlockLayer(block: Blockly.Block): number {
@@ -120,9 +136,7 @@ export function getCharacterBlockLayer(block: Blockly.Block): number {
 }
 
 export function isCharacterBlockType(type: string): boolean {
-  return (
-    type === CHARACTER_BLOCK_TYPE || type === CLEAR_CHARACTER_BLOCK_TYPE
-  );
+  return type === CHARACTER_BLOCK_TYPE || type === CLEAR_CHARACTER_BLOCK_TYPE;
 }
 
 function createLayerField(): Blockly.FieldDropdown {
@@ -134,35 +148,31 @@ function createLayerField(): Blockly.FieldDropdown {
   );
 }
 
-export function registerCharacterBlock(labels: EditorLabels = currentLabels): void {
+export function registerCharacterBlock(
+  labels: EditorLabels = currentLabels,
+): void {
   currentLabels = labels;
   if (!Blockly.Blocks[CHARACTER_BLOCK_TYPE]) {
     Blockly.Blocks[CHARACTER_BLOCK_TYPE] = {
       init(): void {
-        const assetField = new Blockly.FieldTextInput(
-          EMPTY_CHARACTER_FIELD_VALUE,
-          undefined,
-          { spellcheck: false },
-        );
+        const assetField = new AssetNameField(currentLabels.common.none);
 
-        this.appendDummyInput()
+        this.appendValueInput(CHARACTER_BLOCK_INPUTS.effect)
+          .setCheck(CHARACTER_EFFECT_CONNECTION_TYPE)
           .appendField(currentLabels.blockly.character, LABEL_FIELDS.character)
-          .appendField(assetField, CHARACTER_BLOCK_FIELDS.assetName);
-        assetField.setEnabled(false);
-
+          .appendField(assetField, CHARACTER_BLOCK_FIELDS.assetName)
+          .appendField(
+            currentLabels.blockly.characterEffect,
+            LABEL_FIELDS.effect,
+          );
         this.appendDummyInput()
           .appendField(currentLabels.blockly.position, LABEL_FIELDS.position)
           .appendField(
-            new Blockly.FieldDropdown([
-              ...characterSlotOptions(currentLabels),
-            ]),
+            new Blockly.FieldDropdown([...characterSlotOptions(currentLabels)]),
             CHARACTER_BLOCK_FIELDS.slot,
           )
           .appendField(currentLabels.blockly.layer, LABEL_FIELDS.layer)
-          .appendField(
-            createLayerField(),
-            CHARACTER_BLOCK_FIELDS.layer,
-          );
+          .appendField(createLayerField(), CHARACTER_BLOCK_FIELDS.layer);
 
         this.setPreviousStatement(true);
         this.setNextStatement(true);
@@ -179,10 +189,7 @@ export function registerCharacterBlock(labels: EditorLabels = currentLabels): vo
         this.appendDummyInput()
           .appendField(currentLabels.blockly.clearCharacter, LABEL_FIELDS.clear)
           .appendField(currentLabels.blockly.layer, LABEL_FIELDS.clearLayer)
-          .appendField(
-            createLayerField(),
-            CHARACTER_BLOCK_FIELDS.layer,
-          );
+          .appendField(createLayerField(), CHARACTER_BLOCK_FIELDS.layer);
 
         this.setPreviousStatement(true);
         this.setNextStatement(true);

@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：注册对白积木并读写说话人、文本和语音资源。
+ * 包含实现：`DIALOGUE_BLOCK_TYPE`、`DIALOGUE_BLOCK_FIELDS`、`applyDialogueBlockLocalization`、`setDialogueBlockVoice`、`getDialogueBlockVoiceAssetId`、`registerDialogueBlock`。
+ */
+
 import * as Blockly from 'blockly';
 
 import {

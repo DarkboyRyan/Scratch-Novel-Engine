@@ -1,3 +1,7 @@
+/**
+ * 主要作用：验证图片、音频与视频的 MIME、魔数和大小策略。
+ * 关键函数与实现：测试套件“Player media content policy”、`temporaryDirectories`、`magicMatches`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 import { mkdtemp, open, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';

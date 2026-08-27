@@ -1,3 +1,7 @@
+/**
+ * 主要作用：提供防链接替换和目录逃逸的稳定文件读取与哈希能力。
+ * 关键函数与实现：`StableFileSnapshot`、`OpenedSafeFile`、`sameFileSnapshot`、`canonicalizeBundleRoot`；基于 Electron Main 与 Node.js 安全文件/协议边界实现。
+ */
 import { createHash } from 'node:crypto';
 import { constants, type Stats } from 'node:fs';
 import {

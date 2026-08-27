@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：生成 CG 画廊页面投影并解析资源选项和显示标签。
+ * 包含实现：`CG_GALLERY_PAGE_SIZE`、`CgGalleryPages`、`CgGalleryPageDocument`、`CgGalleryPage`、`createEmptyCgGalleryPage`、`cgGalleryPageCount` 等 12 项。
+ */
+
 import type { ProjectDocument } from '../../../shared/projectTypes';
 
 export const CG_GALLERY_PAGE_SIZE = 9;

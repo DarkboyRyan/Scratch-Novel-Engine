@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：展示项目资源并支持导入、删除、预览和拖拽图片资源。
+ * 包含实现：`ResourcePanel`。
+ */
+
 import type { AssetDocument } from '../../../shared/projectTypes';
 import {
   VN_AUDIO_ASSET_DRAG_TYPE,

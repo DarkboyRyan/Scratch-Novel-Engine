@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：注册视频积木并读写视频资源和播放设置。
+ * 包含实现：`VIDEO_BLOCK_TYPE`、`VIDEO_BLOCK_FIELDS`、`applyVideoBlockLocalization`、`setVideoBlockAsset`、`getVideoBlockAssetId`、`registerVideoBlock`。
+ */
+
 import * as Blockly from 'blockly';
 import { DEFAULT_EDITOR_LANGUAGE, getEditorLabels, type EditorLabels } from '../../../i18n/editorLocalization';
 

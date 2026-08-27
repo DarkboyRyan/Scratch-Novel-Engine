@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 scene jump Blockly field events 的行为。
+ * 测试覆盖：`scene jump Blockly field events`。
+ */
+
 import * as Blockly from 'blockly';
 import { describe, expect, it } from 'vitest';
 

@@ -1,3 +1,7 @@
+/**
+ * 主要作用：展示手动/快速存档槽并处理选择、确认和焦点管理。
+ * 关键函数与实现：`SaveSlotId`、`SaveSlotSummary`、`SaveSlotDialogProps`、`formatSaveTimestamp`；基于 React 组件、Hooks、可访问交互与受控状态实现。
+ */
 import {
   useId,
   useLayoutEffect,

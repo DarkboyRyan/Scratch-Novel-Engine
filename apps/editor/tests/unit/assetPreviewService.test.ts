@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 AssetPreviewService 的行为。
+ * 测试覆盖：`AssetPreviewService`。
+ */
+
 import {
   appendFile,
   mkdtemp,
@@ -73,6 +78,7 @@ function resultFor(assetId = 'asset-1'): EngineMutationResult {
       entrySceneId: 'scene-1',
       startScreen: {
         title: 'Story',
+        eyebrow: 'A VN ENGINE STORY',
         backgroundAssetId: null,
         musicAssetId: null,
       },

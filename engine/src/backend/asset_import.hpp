@@ -1,3 +1,5 @@
+// 文件职责：声明图片、音频和视频资源的安全导入计划与发布接口。
+// 关键实现：AssetImportPlan、plan_asset_import 和 copy_asset_no_clobber。
 #pragma once
 
 #include <cstdint>

@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：注册背景音乐积木并读写音频资源与播放参数。
+ * 包含实现：`BGM_BLOCK_TYPE`、`BGM_BLOCK_FIELDS`、`applyBgmBlockLocalization`、`setBgmBlockAsset`、`getBgmBlockAssetId`、`registerBgmBlock`。
+ */
+
 import * as Blockly from 'blockly';
 import { DEFAULT_EDITOR_LANGUAGE, getEditorLabels, type EditorLabels } from '../../../i18n/editorLocalization';
 

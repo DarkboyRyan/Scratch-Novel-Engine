@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 application menu 的行为。
+ * 测试覆盖：`application menu`。
+ */
+
 import type { MenuItemConstructorOptions } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

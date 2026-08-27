@@ -1,3 +1,7 @@
+/**
+ * 主要作用：验证设置原子持久化、备份恢复、迁移和链接防护。
+ * 关键函数与实现：测试套件“Player settings storage”、`temporaryDirectories`、`makeStore`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 import {
   mkdtemp,
   readFile,

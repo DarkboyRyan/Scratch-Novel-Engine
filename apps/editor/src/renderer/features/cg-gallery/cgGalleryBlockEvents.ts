@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：把 CG 画廊积木字段变化解析为页面槽位更新。
+ * 包含实现：`getCgGalleryFieldUpdate`、`getNewCgGalleryPageDrop`、`getDeletedCgGalleryPageUpdate`。
+ */
+
 import * as Blockly from 'blockly';
 
 import type { ProjectDocument } from '../../../shared/projectTypes';

@@ -1,3 +1,5 @@
+// 文件职责：声明支持媒体格式的内容探测与 MP3 帧定位接口。
+// 关键实现：MediaKind、media_magic_matches、mp3_audio_offset 和 probe 校验。
 #pragma once
 
 #include <array>

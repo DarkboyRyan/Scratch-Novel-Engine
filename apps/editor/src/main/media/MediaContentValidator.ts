@@ -1,3 +1,5 @@
+// 主要作用：依据文件内容而非扩展名验证可预览媒体的真实格式。
+// 关键实现：mediaMagicMatches 识别图像签名、音频帧及 MP4/WebM 容器。
 import type { FileHandle } from 'node:fs/promises';
 
 import type {

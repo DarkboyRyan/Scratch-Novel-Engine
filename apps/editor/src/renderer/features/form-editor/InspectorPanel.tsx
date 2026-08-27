@@ -1,13 +1,20 @@
+/**
+ * 文件主要作用：编辑当前时间线节点的对白、媒体、角色和逻辑属性。
+ * 包含实现：`InspectorPanel`。
+ */
+
 import type { FormEvent } from 'react';
 
 import type {
   AssetDocument,
+  CharacterMode,
   CharacterSlot,
   CharacterPosition,
   SemanticSceneNode,
   SceneDocument,
 } from '../../../shared/projectTypes';
 import { useEditorLabels } from '../../i18n/editorLocalization';
+import { formatCharacterEffect } from '../block-editor/blocks/characterEffectBlock';
 
 type InspectorPanelProps = {
   selectedNode?: SemanticSceneNode;
@@ -21,6 +28,7 @@ type InspectorPanelProps = {
   onTextChange: (text: string) => void;
   onBackgroundChange: (assetId: string | null) => Promise<void>;
   onCharacterChange: (next: {
+    mode?: CharacterMode;
     assetId: string | null;
     slot: CharacterSlot;
     layer: number;
@@ -103,11 +111,11 @@ export function InspectorPanel({
     );
   }
 
-
   if (selectedNode?.type === 'character') {
     const imageAssets = assets.filter((asset) => asset.type === 'image');
     const update = (
       next: Partial<{
+        mode: CharacterMode;
         assetId: string | null;
         slot: CharacterSlot;
         layer: number;
@@ -139,11 +147,19 @@ export function InspectorPanel({
           <select
             value={selectedNode.assetId ?? ''}
             disabled={isBusy}
-            onChange={(event) =>
-              void update({ assetId: event.target.value || null })
-            }
+            onChange={(event) => {
+              const assetId = event.target.value || null;
+              void update({
+                assetId,
+                ...(assetId ? { mode: 'show' } : {}),
+              });
+            }}
           >
-            <option value="">{labels.inspector.clearLayer}</option>
+            <option value="">
+              {selectedNode.mode === 'clear'
+                ? labels.inspector.clearLayer
+                : labels.common.none}
+            </option>
             {imageAssets.map((asset) => (
               <option key={asset.id} value={asset.id}>
                 {asset.displayName}
@@ -152,128 +168,134 @@ export function InspectorPanel({
           </select>
         </label>
 
-        <label>
-          {labels.inspector.position}
-          <select
-            value={selectedNode.position ? 'custom' : selectedNode.slot}
-            disabled={isBusy}
-            onChange={(event) =>
-              void update({
-                slot: event.target.value as CharacterSlot,
-                position: null,
-              })
-            }
-          >
-            <option value="left">{labels.scenes.left}</option>
-            <option value="center">{labels.scenes.center}</option>
-            <option value="right">{labels.scenes.right}</option>
-            {selectedNode.position ? (
-              <option value="custom">{labels.inspector.custom}</option>
-            ) : null}
-          </select>
-        </label>
-
-        <fieldset className="character-coordinate-fields">
-          <legend>{labels.inspector.coordinates}</legend>
-          <label>
-            {labels.inspector.xCoordinate}
-            <input
-              key={`${selectedNode.id}:x:${selectedNode.position?.x ?? selectedNode.slot}`}
-              type="number"
-              min="0"
-              max="100"
-              step="0.1"
-              defaultValue={
-                selectedNode.position?.x ??
-                (selectedNode.slot === 'left'
-                  ? 20
-                  : selectedNode.slot === 'right'
-                    ? 80
-                    : 50)
-              }
-              disabled={isBusy}
-              aria-label={labels.inspector.portraitX}
-              data-coordinate="x"
-              onBlur={(event) => {
-                const x = Number(event.currentTarget.value);
-                const y = Number(
-                  event.currentTarget
-                    .closest('.character-coordinate-fields')
-                    ?.querySelector<HTMLInputElement>(
-                      '[data-coordinate="y"]',
-                    )?.value ?? selectedNode.position?.y ?? 100,
-                );
-                if (
-                  Number.isFinite(x) &&
-                  x >= 0 &&
-                  x <= 100 &&
-                  Number.isFinite(y) &&
-                  y >= 0 &&
-                  y <= 100
-                ) {
+        {selectedNode.mode === 'show' ? (
+          <>
+            <label>
+              {labels.inspector.position}
+              <select
+                value={selectedNode.position ? 'custom' : selectedNode.slot}
+                disabled={isBusy}
+                onChange={(event) =>
                   void update({
-                    position: { x, y },
-                  });
-                } else {
-                  event.currentTarget.value = String(
-                    selectedNode.position?.x ??
-                      (selectedNode.slot === 'left'
-                        ? 20
-                        : selectedNode.slot === 'right'
-                          ? 80
-                          : 50),
-                  );
+                    slot: event.target.value as CharacterSlot,
+                    position: null,
+                  })
                 }
-              }}
-            />
-          </label>
-          <label>
-            {labels.inspector.yCoordinate}
-            <input
-              key={`${selectedNode.id}:y:${selectedNode.position?.y ?? 'default'}`}
-              type="number"
-              min="0"
-              max="100"
-              step="0.1"
-              defaultValue={selectedNode.position?.y ?? 100}
-              disabled={isBusy}
-              aria-label={labels.inspector.portraitY}
-              data-coordinate="y"
-              onBlur={(event) => {
-                const y = Number(event.currentTarget.value);
-                const x = Number(
-                  event.currentTarget
-                    .closest('.character-coordinate-fields')
-                    ?.querySelector<HTMLInputElement>(
-                      '[data-coordinate="x"]',
-                    )?.value ??
+              >
+                <option value="left">{labels.scenes.left}</option>
+                <option value="center">{labels.scenes.center}</option>
+                <option value="right">{labels.scenes.right}</option>
+                {selectedNode.position ? (
+                  <option value="custom">{labels.inspector.custom}</option>
+                ) : null}
+              </select>
+            </label>
+
+            <fieldset className="character-coordinate-fields">
+              <legend>{labels.inspector.coordinates}</legend>
+              <label>
+                {labels.inspector.xCoordinate}
+                <input
+                  key={`${selectedNode.id}:x:${selectedNode.position?.x ?? selectedNode.slot}`}
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  defaultValue={
                     selectedNode.position?.x ??
                     (selectedNode.slot === 'left'
                       ? 20
                       : selectedNode.slot === 'right'
                         ? 80
-                        : 50),
-                );
-                if (
-                  Number.isFinite(x) &&
-                  x >= 0 &&
-                  x <= 100 &&
-                  Number.isFinite(y) &&
-                  y >= 0 &&
-                  y <= 100
-                ) {
-                  void update({
-                    position: { x, y },
-                  });
-                } else {
-                  event.currentTarget.value = String(
-                    selectedNode.position?.y ?? 100,
-                  );
-                }
-              }}
-            />
-          </label>
-        </fieldset>
+                        : 50)
+                  }
+                  disabled={isBusy}
+                  aria-label={labels.inspector.portraitX}
+                  data-coordinate="x"
+                  onBlur={(event) => {
+                    const x = Number(event.currentTarget.value);
+                    const y = Number(
+                      event.currentTarget
+                        .closest('.character-coordinate-fields')
+                        ?.querySelector<HTMLInputElement>(
+                          '[data-coordinate="y"]',
+                        )?.value ??
+                        selectedNode.position?.y ??
+                        100,
+                    );
+                    if (
+                      Number.isFinite(x) &&
+                      x >= 0 &&
+                      x <= 100 &&
+                      Number.isFinite(y) &&
+                      y >= 0 &&
+                      y <= 100
+                    ) {
+                      void update({
+                        position: { x, y },
+                      });
+                    } else {
+                      event.currentTarget.value = String(
+                        selectedNode.position?.x ??
+                          (selectedNode.slot === 'left'
+                            ? 20
+                            : selectedNode.slot === 'right'
+                              ? 80
+                              : 50),
+                      );
+                    }
+                  }}
+                />
+              </label>
+              <label>
+                {labels.inspector.yCoordinate}
+                <input
+                  key={`${selectedNode.id}:y:${selectedNode.position?.y ?? 'default'}`}
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  defaultValue={selectedNode.position?.y ?? 100}
+                  disabled={isBusy}
+                  aria-label={labels.inspector.portraitY}
+                  data-coordinate="y"
+                  onBlur={(event) => {
+                    const y = Number(event.currentTarget.value);
+                    const x = Number(
+                      event.currentTarget
+                        .closest('.character-coordinate-fields')
+                        ?.querySelector<HTMLInputElement>(
+                          '[data-coordinate="x"]',
+                        )?.value ??
+                        selectedNode.position?.x ??
+                        (selectedNode.slot === 'left'
+                          ? 20
+                          : selectedNode.slot === 'right'
+                            ? 80
+                            : 50),
+                    );
+                    if (
+                      Number.isFinite(x) &&
+                      x >= 0 &&
+                      x <= 100 &&
+                      Number.isFinite(y) &&
+                      y >= 0 &&
+                      y <= 100
+                    ) {
+                      void update({
+                        position: { x, y },
+                      });
+                    } else {
+                      event.currentTarget.value = String(
+                        selectedNode.position?.y ?? 100,
+                      );
+                    }
+                  }}
+                />
+              </label>
+            </fieldset>
+          </>
+        ) : null}
 
         <label>
           {labels.inspector.characterLayer}
@@ -294,9 +316,26 @@ export function InspectorPanel({
           </select>
         </label>
 
-        <p className="character-node-help">
-          {labels.inspector.coordinateHelp}
-        </p>
+        {selectedNode.mode === 'show' ? (
+          <>
+            <p className="character-node-help">
+              {labels.inspector.coordinateHelp}
+            </p>
+
+            <section
+              className="character-effect-readonly"
+              aria-label={labels.inspector.characterEffect}
+            >
+              <strong>{labels.inspector.characterEffect}</strong>
+              <p>
+                {selectedNode.effect
+                  ? formatCharacterEffect(selectedNode.effect, labels)
+                  : labels.common.none}
+              </p>
+              <small>{labels.inspector.characterEffectReadonlyHelp}</small>
+            </section>
+          </>
+        ) : null}
       </aside>
     );
   }
@@ -318,25 +357,19 @@ export function InspectorPanel({
           <select
             value={selectedNode.targetSceneId}
             disabled={isBusy}
-            onChange={(event) =>
-              void onSceneJumpChange(event.target.value)
-            }
+            onChange={(event) => void onSceneJumpChange(event.target.value)}
           >
             {scenes.map((scene, index) =>
               scene.id === currentSceneId ? null : (
                 <option key={scene.id} value={scene.id}>
                   {labels.common.scene} {index + 1}
-                  {scene.name !== `场景 ${index + 1}`
-                    ? ` · ${scene.name}`
-                    : ''}
+                  {scene.name !== `场景 ${index + 1}` ? ` · ${scene.name}` : ''}
                 </option>
               ),
             )}
           </select>
         </label>
-        <p className="scene-jump-node-help">
-          {labels.inspector.sceneJumpHelp}
-        </p>
+        <p className="scene-jump-node-help">{labels.inspector.sceneJumpHelp}</p>
       </aside>
     );
   }
@@ -360,9 +393,7 @@ export function InspectorPanel({
           <select
             value={selectedNode.assetId ?? ''}
             disabled={isBusy}
-            onChange={(event) =>
-              void onBgmChange(event.target.value || null)
-            }
+            onChange={(event) => void onBgmChange(event.target.value || null)}
           >
             <option value="">{labels.scenes.stopBackgroundMusic}</option>
             {audioAssets.map((asset) => (
@@ -372,9 +403,7 @@ export function InspectorPanel({
             ))}
           </select>
         </label>
-        <p className="bgm-node-help">
-          {labels.inspector.bgmHelp}
-        </p>
+        <p className="bgm-node-help">{labels.inspector.bgmHelp}</p>
       </aside>
     );
   }
@@ -398,9 +427,7 @@ export function InspectorPanel({
           <select
             value={selectedNode.assetId ?? ''}
             disabled={isBusy}
-            onChange={(event) =>
-              void onVideoChange(event.target.value || null)
-            }
+            onChange={(event) => void onVideoChange(event.target.value || null)}
           >
             <option value="">{labels.scenes.noVideo}</option>
             {videoAssets.map((asset) => (
@@ -410,9 +437,7 @@ export function InspectorPanel({
             ))}
           </select>
         </label>
-        <p className="video-node-help">
-          {labels.inspector.videoHelp}
-        </p>
+        <p className="video-node-help">{labels.inspector.videoHelp}</p>
       </aside>
     );
   }
@@ -449,13 +474,36 @@ export function InspectorPanel({
             })}
           </ol>
         ) : (
-          <p className="choice-node-empty">
-            {labels.inspector.choiceEmpty}
-          </p>
+          <p className="choice-node-empty">{labels.inspector.choiceEmpty}</p>
         )}
-        <p className="choice-node-help">
-          {labels.inspector.choiceHelp}
-        </p>
+        <p className="choice-node-help">{labels.inspector.choiceHelp}</p>
+      </aside>
+    );
+  }
+
+  if (
+    selectedNode?.type === 'variableSet' ||
+    selectedNode?.type === 'variableChange' ||
+    selectedNode?.type === 'logicIf' ||
+    selectedNode?.type === 'logicRepeat' ||
+    selectedNode?.type === 'cgDisplay'
+  ) {
+    const title =
+      selectedNode.type === 'variableSet'
+        ? labels.blockly.setVariable
+        : selectedNode.type === 'variableChange'
+          ? labels.blockly.changeVariable
+          : selectedNode.type === 'logicIf'
+            ? labels.blockly.logicIf
+            : selectedNode.type === 'logicRepeat'
+              ? labels.blockly.logicRepeat
+              : labels.blockly.displayCg;
+    return (
+      <aside className="panel inspector-panel logic-inspector">
+        <div className="panel-heading timeline-panel-heading">
+          <h2>{title}</h2>
+        </div>
+        <p className="logic-inspector-help">{labels.inspector.logicTreeHelp}</p>
       </aside>
     );
   }
@@ -466,7 +514,11 @@ export function InspectorPanel({
   return (
     <aside className="panel inspector-panel">
       <div className="panel-heading timeline-panel-heading">
-        <h2>{dialogueNode ? labels.inspector.editDialogue : labels.inspector.dialogueManager}</h2>
+        <h2>
+          {dialogueNode
+            ? labels.inspector.editDialogue
+            : labels.inspector.dialogueManager}
+        </h2>
         <TimelineInsertActions
           isBusy={isBusy}
           onInsertCharacter={onInsertCharacter}
@@ -481,9 +533,7 @@ export function InspectorPanel({
           <input
             value={speaker}
             disabled={isBusy}
-            onChange={(event) =>
-              onSpeakerChange(event.target.value)
-            }
+            onChange={(event) => onSpeakerChange(event.target.value)}
             placeholder={labels.inspector.speakerPlaceholder}
           />
         </label>
@@ -524,7 +574,9 @@ export function InspectorPanel({
           className="dialogue-submit-button"
           disabled={isBusy}
         >
-          {dialogueNode ? labels.inspector.saveChanges : labels.inspector.addToStory}
+          {dialogueNode
+            ? labels.inspector.saveChanges
+            : labels.inspector.addToStory}
         </button>
       </form>
     </aside>

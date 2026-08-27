@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 EditorSettingsStore 的行为。
+ * 测试覆盖：`EditorSettingsStore`。
+ */
+
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';

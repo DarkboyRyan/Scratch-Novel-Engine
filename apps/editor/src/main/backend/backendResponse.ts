@@ -1,14 +1,26 @@
+// 主要作用：把 C++ JSONL 响应验证并转换成 Editor 公共项目模型。
+// 关键实现：parseBackendResponse 严格校验结构，formatBackendError 统一错误文案。
 import type {
   BackendResponse,
   EngineMutationResult,
 } from '../../shared/engineProtocol';
 import type {
   AssetDocument,
+  CharacterEffect,
   CharacterSlot,
   ProjectDocument,
   SceneDocument,
   SceneNode,
 } from '../../shared/projectTypes';
+import {
+  isCharacterEffect,
+  isLogicCondition,
+  isLogicValue,
+  isLogicVariableName,
+  MAX_CG_LEAD_IN_MS,
+  MAX_REPEAT_COUNT,
+  MAX_RUNTIME_VARIABLES,
+} from '@vnengine/runtime';
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -35,8 +47,17 @@ function isSceneNode(value: unknown): boolean {
     value.type !== 'sceneJump' &&
     value.type !== 'bgm' &&
     value.type !== 'video' &&
+    value.type !== 'cgDisplay' &&
+    value.type !== 'cgEndDisplay' &&
     value.type !== 'choice' &&
-    value.type !== 'storyExtension'
+    value.type !== 'storyExtension' &&
+    value.type !== 'variableSet' &&
+    value.type !== 'variableChange' &&
+    value.type !== 'logicIf' &&
+    value.type !== 'logicElse' &&
+    value.type !== 'logicEndIf' &&
+    value.type !== 'logicRepeat' &&
+    value.type !== 'logicEndRepeat'
   ) {
     return false;
   }
@@ -52,6 +73,7 @@ function isSceneNode(value: unknown): boolean {
 
   if (value.type === 'character') {
     return (
+      (value.mode === 'show' || value.mode === 'clear') &&
       (value.assetId === null || typeof value.assetId === 'string') &&
       (value.slot === 'left' ||
         value.slot === 'center' ||
@@ -71,7 +93,14 @@ function isSceneNode(value: unknown): boolean {
           typeof value.position.y === 'number' &&
           Number.isFinite(value.position.y) &&
           value.position.y >= 0 &&
-          value.position.y <= 100))
+          value.position.y <= 100)) &&
+      Object.hasOwn(value, 'effect') &&
+      (value.effect === null || isCharacterEffect(value.effect)) &&
+      (value.mode === 'show'
+        ? value.assetId !== null || value.effect === null
+        : value.assetId === null &&
+          value.position === null &&
+          value.effect === null)
     );
   }
 
@@ -90,11 +119,143 @@ function isSceneNode(value: unknown): boolean {
     );
   }
 
+  if (value.type === 'cgDisplay') {
+    return (
+      typeof value.assetId === 'string' &&
+      value.assetId.length > 0 &&
+      Number.isSafeInteger(value.leadInMs) &&
+      (value.leadInMs as number) >= 0 &&
+      (value.leadInMs as number) <= MAX_CG_LEAD_IN_MS
+    );
+  }
+
+  if (value.type === 'cgEndDisplay') {
+    return typeof value.cgDisplayNodeId === 'string';
+  }
+
   if (value.type === 'storyExtension') {
     return true;
   }
 
+  if (value.type === 'variableSet') {
+    return (
+      isLogicVariableName(value.variableName) &&
+      isLogicValue(value.value)
+    );
+  }
+
+  if (value.type === 'variableChange') {
+    return (
+      isLogicVariableName(value.variableName) &&
+      typeof value.amount === 'number' &&
+      Number.isFinite(value.amount)
+    );
+  }
+
+  if (value.type === 'logicIf') {
+    return isLogicCondition(value.condition);
+  }
+
+  if (value.type === 'logicElse' || value.type === 'logicEndIf') {
+    return typeof value.ifNodeId === 'string';
+  }
+
+  if (value.type === 'logicRepeat') {
+    return (
+      Number.isInteger(value.count) &&
+      (value.count as number) >= 1 &&
+      (value.count as number) <= MAX_REPEAT_COUNT
+    );
+  }
+
+  if (value.type === 'logicEndRepeat') {
+    return typeof value.repeatNodeId === 'string';
+  }
+
   return value.assetId === null || typeof value.assetId === 'string';
+}
+
+function hasValidLogicStructure(nodes: unknown[]): boolean {
+  const stack: Array<{
+    kind: 'if' | 'repeat';
+    rootId: string;
+    sawElse: boolean;
+  }> = [];
+  let openCgDisplayId: string | null = null;
+  for (const rawNode of nodes) {
+    const node = rawNode as Record<string, unknown>;
+    if (openCgDisplayId !== null) {
+      if (node.type === 'dialogue') {
+        continue;
+      }
+      if (
+        node.type === 'cgEndDisplay' &&
+        node.cgDisplayNodeId === openCgDisplayId
+      ) {
+        openCgDisplayId = null;
+        continue;
+      }
+      return false;
+    }
+    if (node.type === 'cgDisplay') {
+      openCgDisplayId = node.id as string;
+      continue;
+    }
+    if (node.type === 'cgEndDisplay') {
+      return false;
+    }
+    if (node.type === 'storyExtension' && stack.length > 0) {
+      return false;
+    }
+    if (node.type === 'logicIf') {
+      if (stack.length >= 16) {
+        return false;
+      }
+      stack.push({ kind: 'if', rootId: node.id as string, sawElse: false });
+    } else if (node.type === 'logicElse') {
+      const frame = stack.at(-1);
+      if (
+        !frame ||
+        frame.kind !== 'if' ||
+        frame.rootId !== node.ifNodeId ||
+        frame.sawElse
+      ) {
+        return false;
+      }
+      frame.sawElse = true;
+    } else if (node.type === 'logicEndIf') {
+      const frame = stack.at(-1);
+      if (
+        !frame ||
+        frame.kind !== 'if' ||
+        frame.rootId !== node.ifNodeId ||
+        !frame.sawElse
+      ) {
+        return false;
+      }
+      stack.pop();
+    } else if (node.type === 'logicRepeat') {
+      if (stack.length >= 16) {
+        return false;
+      }
+      stack.push({
+        kind: 'repeat',
+        rootId: node.id as string,
+        sawElse: false,
+      });
+    } else if (node.type === 'logicEndRepeat') {
+      const frame = stack.at(-1);
+      if (
+        !frame ||
+        frame.kind !== 'repeat' ||
+        frame.rootId !== node.repeatNodeId
+      ) {
+        return false;
+      }
+      stack.pop();
+    }
+  }
+  return stack.length === 0 && openCgDisplayId === null;
 }
 
 function isSceneDocument(value: unknown): boolean {
@@ -106,7 +267,8 @@ function isSceneDocument(value: unknown): boolean {
     (value.backgroundAssetId === null ||
       typeof value.backgroundAssetId === 'string') &&
     Array.isArray(value.nodes) &&
-    value.nodes.every(isSceneNode)
+    value.nodes.every(isSceneNode) &&
+    hasValidLogicStructure(value.nodes)
   );
 }
 
@@ -114,6 +276,7 @@ function isStartScreenDocument(value: unknown): boolean {
   return (
     isObject(value) &&
     typeof value.title === 'string' &&
+    typeof value.eyebrow === 'string' &&
     (value.backgroundAssetId === null ||
       typeof value.backgroundAssetId === 'string') &&
     (value.musicAssetId === null ||
@@ -153,7 +316,7 @@ function isCgGalleryDocument(value: unknown): boolean {
 }
 
 function isProjectDocument(value: unknown): boolean {
-  return (
+  if (!(
     isObject(value) &&
     value.schemaVersion === 1 &&
     typeof value.id === 'string' &&
@@ -163,7 +326,26 @@ function isProjectDocument(value: unknown): boolean {
     isCgGalleryDocument(value.cgGallery) &&
     Array.isArray(value.scenes) &&
     value.scenes.every(isSceneDocument)
-  );
+  )) {
+    return false;
+  }
+  const variableNames = new Set<string>();
+  for (const scene of value.scenes as Array<Record<string, unknown>>) {
+    for (const node of scene.nodes as Array<Record<string, unknown>>) {
+      if (node.type === 'variableSet' || node.type === 'variableChange') {
+        variableNames.add(node.variableName as string);
+      } else if (node.type === 'logicIf') {
+        const condition = node.condition as Record<string, unknown>;
+        for (const operand of [condition.left, condition.right]) {
+          const candidate = operand as Record<string, unknown>;
+          if (candidate.kind === 'variable') {
+            variableNames.add(candidate.name as string);
+          }
+        }
+      }
+    }
+  }
+  return variableNames.size <= MAX_RUNTIME_VARIABLES;
 }
 
 function toPublicAssetDocument(
@@ -195,13 +377,39 @@ function toPublicSceneNode(
   }
 
   if (value.type === 'character') {
+    if (value.mode === 'clear') {
+      return {
+        id: value.id as string,
+        type: 'character',
+        mode: 'clear',
+        assetId: null,
+        slot: value.slot as CharacterSlot,
+        layer: value.layer as number,
+        position: null,
+        effect: null,
+      };
+    }
+    if (value.assetId === null) {
+      return {
+        id: value.id as string,
+        type: 'character',
+        mode: 'show',
+        assetId: null,
+        slot: value.slot as CharacterSlot,
+        layer: value.layer as number,
+        position: value.position as { x: number; y: number } | null,
+        effect: null,
+      };
+    }
     return {
       id: value.id as string,
       type: 'character',
-      assetId: value.assetId as string | null,
+      mode: 'show',
+      assetId: value.assetId as string,
       slot: value.slot as CharacterSlot,
       layer: value.layer as number,
       position: value.position as { x: number; y: number } | null,
+      effect: value.effect as CharacterEffect | null,
     };
   }
 
@@ -229,6 +437,23 @@ function toPublicSceneNode(
     };
   }
 
+  if (value.type === 'cgDisplay') {
+    return {
+      id: value.id as string,
+      type: 'cgDisplay',
+      assetId: value.assetId as string,
+      leadInMs: value.leadInMs as number,
+    };
+  }
+
+  if (value.type === 'cgEndDisplay') {
+    return {
+      id: value.id as string,
+      type: 'cgEndDisplay',
+      cgDisplayNodeId: value.cgDisplayNodeId as string,
+    };
+  }
+
   if (value.type === 'choice') {
     return {
       id: value.id as string,
@@ -240,6 +465,67 @@ function toPublicSceneNode(
           targetSceneId: option.targetSceneId as string,
         }),
       ),
+    };
+  }
+
+  if (value.type === 'variableSet') {
+    return {
+      id: value.id as string,
+      type: 'variableSet',
+      variableName: value.variableName as string,
+      value: value.value as boolean | number | string,
+    };
+  }
+
+  if (value.type === 'variableChange') {
+    return {
+      id: value.id as string,
+      type: 'variableChange',
+      variableName: value.variableName as string,
+      amount: value.amount as number,
+    };
+  }
+
+  if (value.type === 'logicIf') {
+    return {
+      id: value.id as string,
+      type: 'logicIf',
+      condition: value.condition as Extract<
+        SceneNode,
+        { type: 'logicIf' }
+      >['condition'],
+    };
+  }
+
+  if (value.type === 'logicElse') {
+    return {
+      id: value.id as string,
+      type: 'logicElse',
+      ifNodeId: value.ifNodeId as string,
+    };
+  }
+
+  if (value.type === 'logicEndIf') {
+    return {
+      id: value.id as string,
+      type: 'logicEndIf',
+      ifNodeId: value.ifNodeId as string,
+    };
+  }
+
+  if (value.type === 'logicRepeat') {
+    return {
+      id: value.id as string,
+      type: 'logicRepeat',
+      count: value.count as number,
+    };
+  }
+
+  if (value.type === 'logicEndRepeat') {
+    return {
+      id: value.id as string,
+      type: 'logicEndRepeat',
+      repeatNodeId: value.repeatNodeId as string,
     };
   }
 
@@ -276,6 +562,7 @@ function toPublicProjectDocument(
     entrySceneId: value.entrySceneId as string,
     startScreen: {
       title: (value.startScreen as Record<string, unknown>).title as string,
+      eyebrow: (value.startScreen as Record<string, unknown>).eyebrow as string,
       backgroundAssetId: (value.startScreen as Record<string, unknown>)
         .backgroundAssetId as string | null,
       musicAssetId: (value.startScreen as Record<string, unknown>)

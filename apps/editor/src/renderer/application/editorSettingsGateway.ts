@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：封装编辑器设置的读取、更新、订阅和重启错误处理。
+ * 包含实现：`EditorSettingsRestartRequiredError`、`isEditorSettingsRestartRequiredError`、`readEditorSettings`、`updateEditorSettings`、`subscribeEditorSettings`。
+ */
+
 import type {
   EditorSettings,
   EditorSettingsPatch,

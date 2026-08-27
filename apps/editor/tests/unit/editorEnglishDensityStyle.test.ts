@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 English Editor density style contract 的行为。
+ * 测试覆盖：`English Editor density style contract`。
+ */
+
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
@@ -55,7 +60,7 @@ describe('English Editor density style contract', () => {
       inspectorSource.match(
         /className="panel-heading timeline-panel-heading"/g,
       ),
-    ).toHaveLength(7);
+    ).toHaveLength(8);
     expect(
       rule(
         css,

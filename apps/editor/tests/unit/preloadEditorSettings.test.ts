@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 preload Editor settings API 的行为。
+ * 测试覆盖：`preload Editor settings API`。
+ */
+
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { VnEditorSettingsApi } from '../../src/shared/editorSettingsProtocol';

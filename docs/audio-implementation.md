@@ -1,3 +1,5 @@
+<!-- 文件职责：记录语音与背景音乐链路；关键内容：导入、节点模型、预览、Player 播放和安全边界。 -->
+
 # 语音与背景音乐实现技术栈
 
 > 本文描述音频功能的当前实现契约。总体架构与面试回答见
@@ -27,7 +29,7 @@
 | 部分 | 技术栈 | 作用 |
 | --- | --- | --- |
 | 领域模型 | C++20、`std::variant`、`std::optional` | Dialogue 绑定语音，BgmNode 成为强类型时间线节点 |
-| 持久化 | nlohmann/json、音频引入于 fileVersion v7 | 严格保存 `voiceAssetId` 和 BGM 节点；当前 Writer 为 v15 |
+| 持久化 | nlohmann/json、音频引入于 fileVersion v7 | 严格保存 `voiceAssetId` 和 BGM 节点；当前 Writer 为 v20 |
 | 安全导入 | C++ OS 文件句柄、magic bytes、流式复制 | 验证 MP3/WAV/Ogg，拒绝链接、伪格式和覆盖 |
 | 项目目录 | `assets/audio/`、Main 私有临时工作区 | 未保存项目也可导入，首次保存安全迁移 |
 | 跨进程 | Electron IPC、contextBridge、JSONL | Renderer 只表达导入/绑定意图，不传路径 |
@@ -125,7 +127,7 @@ BGM 节点：
 }
 ```
 
-音频在 v7 引入；当前 Writer 固定写 v15，Reader 读取 v1–v15。Reader 会把
+音频在 v7 引入；当前 Writer 固定写 v20，Reader 读取 v1–v20。Reader 会把
 v1–v6 Dialogue 迁移为 `voiceAssetId:null`；早期项目没有 BGM 节点。
 
 ## 5. C++ 命令与事务边界

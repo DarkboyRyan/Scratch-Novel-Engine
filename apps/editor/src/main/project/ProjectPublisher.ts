@@ -1,3 +1,5 @@
+// 主要作用：把后端保存快照安全发布为项目目录中的正式清单。
+// 关键实现：publishProjectSnapshot 验证快照并使用临时文件和原子替换提交。
 import { randomUUID } from 'node:crypto';
 import { constants, type Stats } from 'node:fs';
 import {

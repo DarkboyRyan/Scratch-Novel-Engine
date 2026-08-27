@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：通过 contextBridge 向 Editor Renderer 暴露最小类型化 API。
+ * 包含实现：Engine、资产、项目、导出和设置 IPC 的参数封装与事件订阅。
+ */
+
 import { contextBridge, ipcRenderer } from 'electron';
 
 import {
@@ -184,6 +189,16 @@ const vnEngine: VnEngineApi = {
       method: 'character.update',
       params,
     }),
+  updateCharacterEffect: (params) =>
+    invokeEngine({
+      method: 'characterEffect.update',
+      params,
+    }),
+  moveCharacterEffect: (params) =>
+    invokeEngine({
+      method: 'characterEffect.move',
+      params,
+    }),
   addSceneJump: (params) =>
     invokeEngine({
       method: 'sceneJump.add',
@@ -214,6 +229,26 @@ const vnEngine: VnEngineApi = {
       method: 'video.update',
       params,
     }),
+  addCgDisplay: (params) =>
+    invokeEngine({
+      method: 'cgDisplay.add',
+      params,
+    }),
+  updateCgDisplay: (params) =>
+    invokeEngine({
+      method: 'cgDisplay.update',
+      params,
+    }),
+  deleteCgDisplay: (params) =>
+    invokeEngine({
+      method: 'cgDisplay.delete',
+      params,
+    }),
+  reorderCgDisplay: (params) =>
+    invokeEngine({
+      method: 'cgDisplay.reorder',
+      params,
+    }),
   addChoice: (params) =>
     invokeEngine({
       method: 'choice.add',
@@ -242,6 +277,56 @@ const vnEngine: VnEngineApi = {
   addStoryExtension: (params) =>
     invokeEngine({
       method: 'storyExtension.add',
+      params,
+    }),
+  addVariableSet: (params) =>
+    invokeEngine({
+      method: 'variableSet.add',
+      params,
+    }),
+  updateVariableSet: (params) =>
+    invokeEngine({
+      method: 'variableSet.update',
+      params,
+    }),
+  addVariableChange: (params) =>
+    invokeEngine({
+      method: 'variableChange.add',
+      params,
+    }),
+  updateVariableChange: (params) =>
+    invokeEngine({
+      method: 'variableChange.update',
+      params,
+    }),
+  addLogicIf: (params) =>
+    invokeEngine({
+      method: 'logicIf.add',
+      params,
+    }),
+  updateLogicIf: (params) =>
+    invokeEngine({
+      method: 'logicIf.update',
+      params,
+    }),
+  addLogicRepeat: (params) =>
+    invokeEngine({
+      method: 'logicRepeat.add',
+      params,
+    }),
+  updateLogicRepeat: (params) =>
+    invokeEngine({
+      method: 'logicRepeat.update',
+      params,
+    }),
+  deleteLogicControl: (params) =>
+    invokeEngine({
+      method: 'logicControl.delete',
+      params,
+    }),
+  reorderLogicControl: (params) =>
+    invokeEngine({
+      method: 'logicControl.reorder',
       params,
     }),
   deleteTimelineNodes: (params) =>

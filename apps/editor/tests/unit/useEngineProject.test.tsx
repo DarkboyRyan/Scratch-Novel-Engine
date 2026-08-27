@@ -1,5 +1,10 @@
 /** @vitest-environment jsdom */
 
+/**
+ * 文件主要作用：验证 useEngineProject asset state 的行为。
+ * 测试覆盖：`useEngineProject asset state`。
+ */
+
 import { act, StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -20,6 +25,7 @@ const initialResult: EngineMutationResult = {
     entrySceneId: 'scene-1',
     startScreen: {
       title: 'Initial story',
+      eyebrow: 'A VN ENGINE STORY',
       backgroundAssetId: null,
       musicAssetId: null,
     },
@@ -147,6 +153,12 @@ describe('useEngineProject asset state', () => {
   let deleteChoiceOption: ReturnType<typeof vi.fn>;
   let reorderChoiceOption: ReturnType<typeof vi.fn>;
   let addStoryExtension: ReturnType<typeof vi.fn>;
+  let addLogicIf: ReturnType<typeof vi.fn>;
+  let reorderLogicControl: ReturnType<typeof vi.fn>;
+  let addCgDisplay: ReturnType<typeof vi.fn>;
+  let addCharacter: ReturnType<typeof vi.fn>;
+  let updateCharacterEffect: ReturnType<typeof vi.fn>;
+  let moveCharacterEffect: ReturnType<typeof vi.fn>;
   let saveProject: ReturnType<typeof vi.fn>;
   let exportGame: ReturnType<typeof vi.fn>;
   let platform: EditorPlatformGateway;
@@ -185,6 +197,7 @@ describe('useEngineProject asset state', () => {
         ...initialResult.project,
         startScreen: {
           title: 'Custom title',
+          eyebrow: 'A CUSTOM STORY',
           backgroundAssetId: 'asset-1',
           musicAssetId: 'audio-1',
         },
@@ -227,6 +240,12 @@ describe('useEngineProject asset state', () => {
     deleteChoiceOption = vi.fn().mockResolvedValue(backgroundResult);
     reorderChoiceOption = vi.fn().mockResolvedValue(backgroundResult);
     addStoryExtension = vi.fn().mockResolvedValue(backgroundResult);
+    addLogicIf = vi.fn().mockResolvedValue(backgroundResult);
+    reorderLogicControl = vi.fn().mockResolvedValue(backgroundResult);
+    addCgDisplay = vi.fn().mockResolvedValue(backgroundResult);
+    addCharacter = vi.fn().mockResolvedValue(backgroundResult);
+    updateCharacterEffect = vi.fn().mockResolvedValue(backgroundResult);
+    moveCharacterEffect = vi.fn().mockResolvedValue(backgroundResult);
     saveProject = vi.fn().mockResolvedValue({
       cancelled: false,
       result: initialResult,
@@ -264,6 +283,12 @@ describe('useEngineProject asset state', () => {
         deleteChoiceOption,
         reorderChoiceOption,
         addStoryExtension,
+        addLogicIf,
+        reorderLogicControl,
+        addCgDisplay,
+        addCharacter,
+        updateCharacterEffect,
+        moveCharacterEffect,
       } as unknown as EditorPlatformGateway['engine'],
       projectFiles: {
         getSession: vi.fn().mockResolvedValue({
@@ -322,8 +347,13 @@ describe('useEngineProject asset state', () => {
   });
 
   it('projects a pre-CG live snapshot as an empty gallery instead of crashing', async () => {
-    const legacyProject = { ...initialResult.project };
+    const legacyProject = structuredClone(initialResult.project);
     delete (legacyProject as Partial<typeof legacyProject>).cgGallery;
+    delete (
+      legacyProject.startScreen as Partial<
+        typeof legacyProject.startScreen
+      >
+    ).eyebrow;
     const legacyResult = {
       ...initialResult,
       project: legacyProject,
@@ -344,6 +374,9 @@ describe('useEngineProject asset state', () => {
     expect(current?.project?.cgGallery).toEqual({
       pages: [{ imageAssetIds: Array(9).fill(null) }],
     });
+    expect(current?.project?.startScreen.eyebrow).toBe(
+      'A VN ENGINE STORY',
+    );
     expect(current?.engineMessage).toBe('');
 
     let snapshot: Awaited<ReturnType<EngineProjectState['getProjectSnapshot']>>;
@@ -352,6 +385,56 @@ describe('useEngineProject asset state', () => {
     });
     expect(snapshot!.cgGallery).toEqual({
       pages: [{ imageAssetIds: Array(9).fill(null) }],
+    });
+    expect(snapshot!.startScreen.eyebrow).toBe('A VN ENGINE STORY');
+  });
+
+  it('projects a pre-v19 HMR portrait with show mode and effect null', async () => {
+    const legacyProject = structuredClone(initialResult.project) as unknown as {
+      scenes: Array<{ nodes: unknown[] }>;
+    };
+    legacyProject.scenes[0]!.nodes = [{
+      id: 'legacy-character',
+      type: 'character',
+      assetId: 'asset-1',
+      slot: 'center',
+      layer: 1,
+      position: null,
+    }];
+    const legacyResult = {
+      ...initialResult,
+      project: legacyProject,
+    } as unknown as EngineMutationResult;
+    platform = {
+      ...platform,
+      engine: {
+        ...platform.engine,
+        ensureProject: vi.fn().mockResolvedValue(legacyResult),
+        getProject: vi.fn().mockResolvedValue(legacyResult),
+      },
+    };
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    expect(current?.project?.scenes[0]!.nodes).toEqual([{
+      id: 'legacy-character',
+      type: 'character',
+      mode: 'show',
+      assetId: 'asset-1',
+      slot: 'center',
+      layer: 1,
+      position: null,
+      effect: null,
+    }]);
+    let snapshot: Awaited<ReturnType<EngineProjectState['getProjectSnapshot']>>;
+    await act(async () => {
+      snapshot = await current!.getProjectSnapshot();
+    });
+    expect(snapshot!.scenes[0]!.nodes[0]).toMatchObject({
+      mode: 'show',
+      effect: null,
     });
   });
 
@@ -437,6 +520,7 @@ describe('useEngineProject asset state', () => {
       expect(
         await current!.updateStartScreen(
           'Custom title',
+          'A CUSTOM STORY',
           'asset-1',
           'audio-1',
         ),
@@ -445,14 +529,91 @@ describe('useEngineProject asset state', () => {
 
     expect(updateStartScreen).toHaveBeenCalledWith({
       title: 'Custom title',
+      eyebrow: 'A CUSTOM STORY',
       backgroundAssetId: 'asset-1',
       musicAssetId: 'audio-1',
     });
     expect(current?.project?.startScreen).toEqual({
       title: 'Custom title',
+      eyebrow: 'A CUSTOM STORY',
       backgroundAssetId: 'asset-1',
       musicAssetId: 'audio-1',
     });
+  });
+
+  it.each([
+    'Renderer 发来了无效的引擎请求',
+    'unknown method: startScreen.update',
+  ])('requires a full restart when stale Main rejects the title-screen update: %s', async (message) => {
+    updateStartScreen.mockRejectedValue(new Error(message));
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(
+        await current!.updateStartScreen(
+          'Unsaved title',
+          '未保存标语',
+          null,
+          null,
+        ),
+      ).toBe(false);
+    });
+
+    expect(current?.engineMessage).toBe(
+      '主界面模块已更新，请完全退出并重新启动编辑器后再保存标题界面',
+    );
+    expect(current?.project?.startScreen).toEqual(
+      initialResult.project.startScreen,
+    );
+    expect(current?.session.isDirty).toBe(false);
+  });
+
+  it('requires a full restart when stale Preload has no title-screen command', async () => {
+    platform = {
+      ...platform,
+      engine: {
+        ...platform.engine,
+        updateStartScreen: undefined,
+      } as unknown as EditorPlatformGateway['engine'],
+    };
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(
+        await current!.updateStartScreen('Title', '', null, null),
+      ).toBe(false);
+    });
+
+    expect(current?.engineMessage).toBe(
+      '主界面模块已更新，请完全退出并重新启动编辑器后再保存标题界面',
+    );
+    expect(updateStartScreen).not.toHaveBeenCalled();
+  });
+
+  it('localizes stale title-screen restart guidance in English', async () => {
+    updateStartScreen.mockRejectedValue(
+      new Error('Renderer 发来了无效的引擎请求'),
+    );
+    await act(async () => {
+      root.render(
+        <EditorI18nProvider language="en-US">
+          <Harness />
+        </EditorI18nProvider>,
+      );
+    });
+
+    await act(async () => {
+      expect(
+        await current!.updateStartScreen('Title', 'Story', null, null),
+      ).toBe(false);
+    });
+    expect(current?.engineMessage).toBe(
+      'The title-screen module was updated. Fully quit and restart the Editor before saving the title screen.',
+    );
   });
 
   it('updates fixed CG pages in one queued mutation', async () => {
@@ -927,6 +1088,145 @@ describe('useEngineProject asset state', () => {
 
     expect(current!.engineMessage).toBe(
       '延伸模块尚未加载，请完全退出并重新启动编辑器',
+    );
+  });
+
+  it.each([
+    "No handler registered for 'vn-engine:request'",
+    'unknown method: logicIf.add',
+  ])('reports a restart message for a stale logic backend: %s', async (message) => {
+    addLogicIf.mockRejectedValue(new Error(message));
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(await current!.addLogicIf({
+        sceneId: 'scene-1',
+        beforeNodeId: null,
+        condition: {
+          left: { kind: 'variable', name: 'route' },
+          operator: 'eq',
+          right: { kind: 'literal', value: 'A' },
+        },
+      })).toBe(false);
+    });
+
+    expect(current!.engineMessage).toBe(
+      '逻辑积木模块尚未加载，请完全退出并重新启动编辑器',
+    );
+  });
+
+  it('reports restart guidance when stale Main rejects a logic invocation shape', async () => {
+    reorderLogicControl.mockRejectedValue(
+      new Error('Renderer 发来了无效的引擎请求'),
+    );
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(await current!.reorderLogicControl({
+        sceneId: 'scene-1',
+        nodeId: 'if-1',
+        beforeNodeId: null,
+      })).toBe(false);
+    });
+
+    expect(current!.engineMessage).toBe(
+      '逻辑积木模块尚未加载，请完全退出并重新启动编辑器',
+    );
+  });
+
+  it('reports restart guidance when stale Main rejects a CG invocation shape', async () => {
+    addCgDisplay.mockRejectedValue(
+      new Error('Renderer 发来了无效的引擎请求'),
+    );
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(await current!.addCgDisplay({
+        sceneId: 'scene-1',
+        assetId: 'asset-1',
+        leadInMs: 750,
+        afterNodeId: null,
+        beforeNodeId: null,
+      })).toBe(false);
+    });
+
+    expect(current!.engineMessage).toBe(
+      'CG 显示积木模块尚未加载，请完全退出并重新启动编辑器',
+    );
+  });
+
+  it('reports restart guidance when stale Main rejects a portrait-effect command', async () => {
+    updateCharacterEffect.mockRejectedValue(
+      new Error('Renderer 发来了无效的引擎请求'),
+    );
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(await current!.updateCharacterEffect({
+        sceneId: 'scene-1',
+        nodeId: 'character-1',
+        effect: { type: 'fadeIn', durationMs: 500 },
+      })).toBe(false);
+    });
+
+    expect(current!.engineMessage).toBe(
+      '人物特效模块尚未加载，请完全退出并重新启动编辑器',
+    );
+  });
+
+  it('reports restart guidance when stale Main rejects character mode', async () => {
+    addCharacter.mockRejectedValue(
+      new Error('Renderer 发来了无效的引擎请求'),
+    );
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(await current!.addCharacter({
+        sceneId: 'scene-1',
+        mode: 'show',
+        assetId: null,
+      })).toBe(false);
+    });
+
+    expect(current!.engineMessage).toBe(
+      '人物立绘模块已更新，请完全退出并重新启动编辑器',
+    );
+  });
+
+  it('keeps logic business errors distinct from stale-module failures', async () => {
+    const variableLimit = new Error(
+      'project cannot contain more than 32 logic variables',
+    );
+    variableLimit.name = 'VnEngineError:logic_variable_limit';
+    addLogicIf.mockRejectedValue(variableLimit);
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(await current!.addLogicIf({
+        sceneId: 'scene-1',
+        beforeNodeId: null,
+        condition: {
+          left: { kind: 'variable', name: 'route' },
+          operator: 'eq',
+          right: { kind: 'literal', value: 'A' },
+        },
+      })).toBe(false);
+    });
+
+    expect(current!.engineMessage).toBe(
+      '一个项目最多可使用 32 个不同的逻辑变量',
     );
   });
 });

@@ -1,3 +1,7 @@
+/**
+ * 主要作用：以原子写入、备份和迁移方式持久化 Player 设置。
+ * 关键函数与实现：`PlayerSettingsStore`；基于 Electron Main 与 Node.js 安全文件/协议边界实现。
+ */
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import {

@@ -1,3 +1,7 @@
+/**
+ * 主要作用：验证 Web 运行包加载、大小限制、哈希与安全路径。
+ * 关键函数与实现：测试套件“Web runtime bundle loader”、`game`、`manifest`、`descriptor`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 import { createHash, webcrypto } from 'node:crypto';
 
 import { describe, expect, it, vi } from 'vitest';

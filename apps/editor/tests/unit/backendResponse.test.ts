@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 backend response validation 的行为。
+ * 测试覆盖：`backend response validation`。
+ */
+
 import { describe, expect, it } from 'vitest';
 
 import { parseBackendResponse } from '../../src/main/backend/backendResponse';
@@ -9,6 +14,7 @@ const validProject = {
   entrySceneId: 'scene-1',
   startScreen: {
     title: 'Custom story title',
+    eyebrow: 'A CUSTOM STORY',
     backgroundAssetId: 'asset-1',
     musicAssetId: null,
   },
@@ -39,10 +45,12 @@ const validProject = {
         {
           id: 'character-1',
           type: 'character',
+          mode: 'show',
           assetId: 'asset-1',
           slot: 'right',
           layer: 3,
           position: { x: 73, y: 92 },
+          effect: null,
         },
         {
           id: 'jump-1',
@@ -195,11 +203,13 @@ describe('backend response validation', () => {
 
   it.each([
     undefined,
-    { title: 'Story', backgroundAssetId: null },
-    { backgroundAssetId: null, musicAssetId: null },
-    { title: 7, backgroundAssetId: null, musicAssetId: null },
-    { title: 'Story', backgroundAssetId: 7, musicAssetId: null },
-    { title: 'Story', backgroundAssetId: null, musicAssetId: false },
+    { title: 'Story', eyebrow: 'STORY', backgroundAssetId: null },
+    { title: 'Story', backgroundAssetId: null, musicAssetId: null },
+    { eyebrow: 'STORY', backgroundAssetId: null, musicAssetId: null },
+    { title: 7, eyebrow: 'STORY', backgroundAssetId: null, musicAssetId: null },
+    { title: 'Story', eyebrow: 7, backgroundAssetId: null, musicAssetId: null },
+    { title: 'Story', eyebrow: 'STORY', backgroundAssetId: 7, musicAssetId: null },
+    { title: 'Story', eyebrow: 'STORY', backgroundAssetId: null, musicAssetId: false },
   ])('rejects a malformed project start screen: %j', (startScreen) => {
     expect(() =>
       parseBackendResponse(
@@ -282,10 +292,12 @@ describe('backend response validation', () => {
                 { type: 'background', assetId: 'asset-1' },
                 {
                   type: 'character',
+                  mode: 'show',
                   assetId: 'asset-1',
                   slot: 'right',
                   layer: 3,
                   position: { x: 73, y: 92 },
+                  effect: null,
                 },
                 { type: 'sceneJump', targetSceneId: 'scene-2' },
                 { type: 'bgm', assetId: null },
@@ -312,6 +324,128 @@ describe('backend response validation', () => {
     expect(JSON.stringify(parsed)).not.toContain('privateChoiceMetadata');
     expect(JSON.stringify(parsed)).not.toContain('privateTargetPath');
     expect(JSON.stringify(parsed)).not.toContain('privateLayoutPath');
+  });
+
+  it('accepts strict portrait effects and rejects malformed character payloads', () => {
+    const character = validProject.scenes[0].nodes[2];
+    const withEffect = {
+      ...character,
+      effect: {
+        type: 'slideIn',
+        durationMs: 750,
+        intensity: 'normal',
+        direction: 'left',
+      },
+    };
+    const parsed = parseBackendResponse(successResponse({
+      project: {
+        ...validProject,
+        scenes: [{ ...validProject.scenes[0], nodes: [withEffect] }],
+      },
+    }));
+    expect(parsed).toMatchObject({
+      ok: true,
+      result: {
+        project: {
+          scenes: [{ nodes: [withEffect] }],
+        },
+      },
+    });
+
+    for (const characterMode of [
+      {
+        ...character,
+        mode: 'show',
+        assetId: null,
+        effect: null,
+      },
+      {
+        ...character,
+        mode: 'clear',
+        assetId: null,
+        position: null,
+        effect: null,
+      },
+    ]) {
+      expect(parseBackendResponse(successResponse({
+        project: {
+          ...validProject,
+          scenes: [{ ...validProject.scenes[0], nodes: [characterMode] }],
+        },
+      }))).toMatchObject({
+        ok: true,
+        result: {
+          project: {
+            scenes: [{ nodes: [characterMode] }],
+          },
+        },
+      });
+    }
+
+    const withoutEffect: Record<string, unknown> = { ...character };
+    delete withoutEffect.effect;
+    const withoutMode: Record<string, unknown> = { ...character };
+    delete withoutMode.mode;
+    for (const malformed of [
+      withoutEffect,
+      withoutMode,
+      {
+        ...character,
+        assetId: null,
+        effect: { type: 'fadeOut', durationMs: 500 },
+      },
+      {
+        ...character,
+        effect: { type: 'shake', durationMs: 99, intensity: 'normal' },
+      },
+      {
+        ...character,
+        effect: {
+          type: 'fadeIn',
+          durationMs: 500,
+          intensity: 'normal',
+        },
+      },
+      {
+        ...character,
+        effect: {
+          type: 'slideIn',
+          durationMs: 500,
+          intensity: 'normal',
+          direction: 'down',
+          privateField: true,
+        },
+      },
+      {
+        ...character,
+        mode: 'clear',
+      },
+      {
+        ...character,
+        mode: 'clear',
+        assetId: null,
+        position: { x: 50, y: 90 },
+        effect: null,
+      },
+      {
+        ...character,
+        mode: 'clear',
+        assetId: null,
+        position: null,
+        effect: { type: 'fadeOut', durationMs: 500 },
+      },
+      {
+        ...character,
+        mode: 'placeholder',
+      },
+    ]) {
+      expect(() => parseBackendResponse(successResponse({
+        project: {
+          ...validProject,
+          scenes: [{ ...validProject.scenes[0], nodes: [malformed] }],
+        },
+      }))).toThrow('project');
+    }
   });
 
   it('accepts an explicit no-background timeline node', () => {
@@ -487,5 +621,167 @@ describe('backend response validation', () => {
     expect(() =>
       parseBackendResponse(successResponse(overrides)),
     ).toThrow('session');
+  });
+
+  it('accepts, sanitizes, and structurally validates logic markers', () => {
+    const logicNodes = [
+      {
+        id: 'if-1',
+        type: 'logicIf',
+        condition: {
+          left: { kind: 'variable', name: 'route' },
+          operator: 'eq',
+          right: { kind: 'literal', value: 'good' },
+        },
+        privateSource: 'never expose',
+      },
+      {
+        id: 'set-1',
+        type: 'variableSet',
+        variableName: 'route',
+        value: 'good',
+      },
+      { id: 'else-1', type: 'logicElse', ifNodeId: 'if-1' },
+      { id: 'repeat-1', type: 'logicRepeat', count: 3 },
+      {
+        id: 'change-1',
+        type: 'variableChange',
+        variableName: 'score',
+        amount: 1,
+      },
+      {
+        id: 'repeat-end-1',
+        type: 'logicEndRepeat',
+        repeatNodeId: 'repeat-1',
+      },
+      { id: 'if-end-1', type: 'logicEndIf', ifNodeId: 'if-1' },
+    ];
+    const parsed = parseBackendResponse(successResponse({
+      project: {
+        ...validProject,
+        scenes: [{ ...validProject.scenes[0], nodes: logicNodes }],
+      },
+    }));
+
+    expect(parsed).toMatchObject({ ok: true });
+    if (!parsed.ok) {
+      throw new Error('expected a successful response');
+    }
+    expect(parsed.result.project.scenes[0]?.nodes.map((node) => node.type))
+      .toEqual([
+        'logicIf',
+        'variableSet',
+        'logicElse',
+        'logicRepeat',
+        'variableChange',
+        'logicEndRepeat',
+        'logicEndIf',
+      ]);
+    expect(JSON.stringify(parsed)).not.toContain('privateSource');
+
+    for (const nodes of [
+      logicNodes.filter((node) => node.type !== 'logicElse'),
+      [logicNodes[0], { id: 'extension-1', type: 'storyExtension' }, ...logicNodes.slice(1)],
+      logicNodes.map((node) => node.type === 'logicEndIf'
+        ? { ...node, ifNodeId: 'another-if' }
+        : node),
+      logicNodes.map((node) => node.type === 'logicRepeat'
+        ? { ...node, count: 1001 }
+        : node),
+    ]) {
+      expect(() => parseBackendResponse(successResponse({
+        project: {
+          ...validProject,
+          scenes: [{ ...validProject.scenes[0], nodes }],
+        },
+      }))).toThrow('project');
+    }
+  });
+
+  it('sanitizes paired CG displays and rejects malformed bodies', () => {
+    const condition = {
+      left: { kind: 'literal', value: true },
+      operator: 'eq',
+      right: { kind: 'literal', value: true },
+    };
+    const cgNodes = [
+      { id: 'if-1', type: 'logicIf', condition },
+      {
+        id: 'cg-1',
+        type: 'cgDisplay',
+        assetId: 'asset-1',
+        leadInMs: 1250,
+        privatePath: '/never/expose.png',
+      },
+      {
+        id: 'cg-dialogue-1',
+        type: 'dialogue',
+        speaker: 'Ryan',
+        text: 'CG dialogue',
+        voiceAssetId: null,
+      },
+      { id: 'cg-end-1', type: 'cgEndDisplay', cgDisplayNodeId: 'cg-1' },
+      { id: 'else-1', type: 'logicElse', ifNodeId: 'if-1' },
+      { id: 'if-end-1', type: 'logicEndIf', ifNodeId: 'if-1' },
+    ];
+    const response = successResponse({
+      project: {
+        ...validProject,
+        scenes: [{ ...validProject.scenes[0], nodes: cgNodes }],
+      },
+    });
+    const parsed = parseBackendResponse(response);
+    expect(parsed).toMatchObject({ ok: true });
+    if (!parsed.ok) {
+      throw new Error('expected a successful response');
+    }
+    expect(parsed.result.project.scenes[0]?.nodes).toEqual([
+      { id: 'if-1', type: 'logicIf', condition },
+      {
+        id: 'cg-1',
+        type: 'cgDisplay',
+        assetId: 'asset-1',
+        leadInMs: 1250,
+      },
+      cgNodes[2],
+      { id: 'cg-end-1', type: 'cgEndDisplay', cgDisplayNodeId: 'cg-1' },
+      { id: 'else-1', type: 'logicElse', ifNodeId: 'if-1' },
+      { id: 'if-end-1', type: 'logicEndIf', ifNodeId: 'if-1' },
+    ]);
+    expect(JSON.stringify(parsed)).not.toContain('privatePath');
+
+    for (const nodes of [
+      cgNodes.filter((node) => node.type !== 'cgEndDisplay'),
+      cgNodes.map((node) => node.type === 'cgEndDisplay'
+        ? { ...node, cgDisplayNodeId: 'another-cg' }
+        : node),
+      cgNodes.map((node) => node.type === 'cgDisplay'
+        ? { ...node, leadInMs: 60001 }
+        : node),
+      [
+        cgNodes[0],
+        cgNodes[1],
+        { id: 'background-inside', type: 'background', assetId: null },
+        ...cgNodes.slice(2),
+      ],
+      [
+        cgNodes[0],
+        cgNodes[1],
+        {
+          id: 'nested-cg',
+          type: 'cgDisplay',
+          assetId: 'asset-1',
+          leadInMs: 0,
+        },
+        ...cgNodes.slice(2),
+      ],
+    ]) {
+      expect(() => parseBackendResponse(successResponse({
+        project: {
+          ...validProject,
+          scenes: [{ ...validProject.scenes[0], nodes }],
+        },
+      }))).toThrow('project');
+    }
   });
 });

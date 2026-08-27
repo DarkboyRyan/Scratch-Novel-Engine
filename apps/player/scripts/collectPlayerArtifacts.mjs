@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+/**
+ * 主要作用：汇总 Player 平台产物并生成可审计的制品清单。
+ * 关键函数与实现：`main`；基于 Node.js ESM、文件系统和受限子进程完成确定性 CLI 流程。
+ */
 
 import path from 'node:path';
 

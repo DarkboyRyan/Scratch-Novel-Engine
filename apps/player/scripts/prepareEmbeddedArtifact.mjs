@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+/**
+ * 主要作用：从导出制品中发现并准备单游戏嵌入包。
+ * 关键函数与实现：`discoverBundles`、`main`；基于 Node.js ESM、文件系统和受限子进程完成确定性 CLI 流程。
+ */
 
 import { lstat, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';

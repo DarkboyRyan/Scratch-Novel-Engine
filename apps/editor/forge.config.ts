@@ -1,3 +1,5 @@
+// 主要作用：定义 Electron Forge 的打包、平台安装包与运行资源配置。
+// 关键实现：校验模板路径，装配 Vite、Maker 与 Electron Fuses。
 import type { ForgeConfig } from '@electron-forge/shared-types';
 import { MakerSquirrel } from '@electron-forge/maker-squirrel';
 import { MakerZIP } from '@electron-forge/maker-zip';

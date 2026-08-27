@@ -1,3 +1,7 @@
+/**
+ * 主要作用：安全读取、校验运行包文档与媒体资源并生成加载结果。
+ * 关键函数与实现：`LoadedPlayerAsset`、`LoadedRuntimeBundle`、`PlayerBundleIdentity`、`loadRuntimeBundle`；基于 Electron Main 与 Node.js 安全文件/协议边界实现。
+ */
 import type { Stats } from 'node:fs';
 import { createHash } from 'node:crypto';
 

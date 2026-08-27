@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 ProjectFileSession logical save boundary 的行为。
+ * 测试覆盖：`ProjectFileSession logical save boundary`。
+ */
+
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 

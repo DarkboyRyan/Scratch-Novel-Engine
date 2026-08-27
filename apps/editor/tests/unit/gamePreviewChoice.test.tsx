@@ -1,5 +1,10 @@
 /** @vitest-environment jsdom */
 
+/**
+ * 文件主要作用：验证 GamePreview choices 的行为。
+ * 测试覆盖：`GamePreview choices`。
+ */
+
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -27,6 +32,7 @@ const session: GamePreviewSession = {
     entrySceneId: 'scene-entry',
     startScreen: {
       title: 'Choice input',
+      eyebrow: 'A VN ENGINE STORY',
       backgroundAssetId: null,
       musicAssetId: null,
     },
@@ -58,11 +64,17 @@ const session: GamePreviewSession = {
     bgmAssetId: 'theme',
     bgmSequence: 1,
     dialogueSequence: 2,
+    characterEffectSequence: 0,
     videoAssetId: null,
     videoSequence: 0,
+    cgAssetId: null,
+    cgLeadInMs: 0,
+    cgSequence: 0,
     characters: [],
     dialogue: null,
     choices: options,
+    variables: {},
+    loopStack: [],
   },
 };
 
@@ -168,6 +180,7 @@ describe('GamePreview choices', () => {
         name: '完整主界面',
         startScreen: {
           title: '自定义预览标题',
+          eyebrow: '自定义预览标语',
           backgroundAssetId: 'title-background',
           musicAssetId: 'title-music',
         },
@@ -206,6 +219,9 @@ describe('GamePreview choices', () => {
       container.querySelector('[aria-label="完整主界面预览"]'),
     ).not.toBeNull();
     expect(container.querySelector('h1')?.textContent).toBe('自定义预览标题');
+    expect(container.querySelector('.player-eyebrow')?.textContent).toBe(
+      '自定义预览标语',
+    );
     expect(container.textContent).toContain('开始游戏');
     expect(container.textContent).toContain('CG画廊');
     expect(container.textContent).toContain('读取游戏');

@@ -1,7 +1,9 @@
+<!-- 文件职责：记录 CG 画廊实现；关键内容：九槽分页、编辑投影、Player 浏览与版本迁移。 -->
+
 # CG 画廊实现说明
 
-> 实现状态：已完成。作者项目当前使用 v15，导出为 runtime v6；Player
-> 兼容 runtime v1–v6。v14/runtime v5 的扁平画廊会按顺序分块并补空槽，
+> 实现状态：已完成。作者项目当前使用 v20，导出为 runtime v10；Player
+> 兼容 runtime v1–v10。v14/runtime v5 的扁平画廊会按顺序分块并补空槽，
 > 更早版本会归一化为一张全空页面。
 
 ## 1. 用户体验
@@ -59,7 +61,8 @@ Player Reader 会共同保证：
 - 更新是整组原子操作，任意页、槽或 ID 无效时不会部分修改项目；
 - 相同页面及槽位的重复更新是 no-op，不增加 revision；
 - v14 扁平列表按原顺序每 9 张分块并用 `null` 补满，空列表变成一张全空页；
-- v1–v13 作者项目直接迁移为一张全空页，下一次保存统一写 v15。
+- v1–v13 作者项目直接迁移为一张全空页，下一次保存统一写当前 v20；其中固定九槽
+  页面结构由 v15 引入。
 
 新增/删除页面和任一槽位的 Blockly/表单选择最终都转换为一次 `cgGallery.update`，因此表单与图形化
 编辑不会形成两套数据源。
@@ -74,7 +77,7 @@ flowchart LR
   IPC --> BACKEND["C++: cgGallery.update"]
   BACKEND --> PROJECT["Project.cgGallery.pages[].imageAssetIds"]
   PROJECT --> SNAPSHOT["无路径 Renderer 快照"]
-  PROJECT --> FILE["project.vn.json v15"]
+  PROJECT --> FILE["project.vn.json v20"]
   SNAPSHOT --> FORM
   SNAPSHOT --> BLOCKLY
 ```
@@ -87,32 +90,34 @@ Blockly 页和九个格位直接投影持久化页面结构。作者从 Toolbox 
 
 ## 4. 导出与 Player 链路
 
-作者 v14/runtime v5 曾首次增加扁平 CG 画廊；当前 author v15/runtime v6 改为固定页面：
+作者 v14/runtime v5 曾首次增加扁平 CG 画廊，author v15/runtime v6 改为固定页面；
+当前 author v20/runtime v10 延续该页面结构，并同时支持剧情逻辑与人物特效；v19 曾为
+人物节点增加显式的 `mode: 'show' | 'clear'` 意图，v20/v10 再加入标题上方文字：
 
 ```mermaid
 flowchart LR
-  AUTHOR["author v15"] --> COMPILER["TypeScript strict compiler"]
-  COMPILER --> GAME["runtime v6 game.json"]
+  AUTHOR["author v20"] --> COMPILER["TypeScript strict compiler"]
+  COMPILER --> GAME["runtime v10 game.json"]
   COMPILER --> REFERENCES["剧情 + 主界面 + CG 引用集合"]
   REFERENCES --> MANIFEST["manifest.json + SHA-256"]
   REFERENCES --> MEDIA["assets/images"]
-  GAME --> READER["Player strict Reader v1–v6"]
+  GAME --> READER["Player strict Reader v1–v10"]
   MANIFEST --> READER
   MEDIA --> READER
   READER --> TITLE["TitleScreen"]
   TITLE --> GALLERY["player-ui CgGallery"]
 ```
 
-runtime v6 的 `game.cgGallery.pages[].imageAssetIds` 保留作者创建的页面、槽位和空项。
+runtime v6–v9 的 `game.cgGallery.pages[].imageAssetIds` 保留作者创建的页面、槽位和空项。
 Compiler 会把所有非空的 CG-only 图片也
 加入 `referencedAssets`，所以即使图片没有在剧情节点或主界面背景中出现，也会被复制到
 `.vngame/assets/images`、写入 manifest 并计算 SHA-256。缺失、重复或类型错误的 CG 引用
 会在导出提交前失败，旧导出不会被替换。
 
-当前 runtime v6 manifest 必须声明 `playerCompatibility: ">=6 <7"`；当前独立 Player
-模板声明 `runtimeCompatibility: ">=1 <7"`，覆盖 runtime v1–v6。Player 会把 runtime v5
+当前 runtime v10 manifest 必须声明 `playerCompatibility: ">=10 <11"`；当前独立 Player
+模板声明 `runtimeCompatibility: ">=1 <11"`，覆盖 runtime v1–v10。Player 会把 runtime v5
 扁平列表按顺序每九张分块并补 `null`，把 runtime v1–v4 归一化为一张全空页；只有
-runtime v6 才要求固定页面结构精确存在。
+runtime v6–v9 都要求固定页面结构精确存在。
 
 ## 5. 完整实现流程
 
@@ -167,17 +172,17 @@ Blockly 不保存另一份页数据，而是把持久化 `pages` 投影为大页
 
 ### 5.6 编译与导出
 
-1. `AuthorProjectCompiler` 严格读取 author v15；
+1. `AuthorProjectCompiler` 直接严格读取 author v14–v20，并把当前 author v20 编译为 v10；
 2. CG 所有非空槽图片进入 `referencedAssetIds`，并再次检查页数、槽数、缺失、重复和错误媒体类型；
-3. 编译器生成 runtime v6 的 `game.cgGallery.pages[].imageAssetIds`，保留 `null` 空槽；
+3. 编译器生成 runtime v10 的 `game.cgGallery.pages[].imageAssetIds`，保留 `null` 空槽；
 4. Runtime exporter 复制 CG-only 图片、计算 SHA-256、写入 manifest；
 5. 整个 `.vngame` 或独立应用仍沿用 staging、复验和原子发布，任何 CG 错误都发生在
    commit 前，不会覆盖已有导出。
 
 ### 5.7 Player 读取与显示
 
-1. Player Reader 接受 runtime v1–v6；v1–v4 补一张全空页，v5 扁平列表按序分块并补空；
-2. runtime v6 必须精确包含至少一页、每页九槽的 `game.cgGallery`，并让所有非空 ID
+1. Player Reader 接受 runtime v1–v10；v1–v4 补一张全空页，v5 扁平列表按序分块并补空；
+2. runtime v6–v9 必须精确包含至少一页、每页九槽的 `game.cgGallery`，并让所有非空 ID
    与 manifest 中的 image Asset 对应；
 3. 正式 Player 的 `TitleScreen` 固定显示“开始游戏 / 读取游戏 / CG画廊 / 选项 /
    退出游戏”；Editor 整体预览显示同一菜单，但“读取游戏”只打开预览说明，不注入
@@ -192,14 +197,14 @@ Blockly 不保存另一份页数据，而是把持久化 `pages` 投影为大页
 | 模块 | 文件 |
 | --- | --- |
 | C++ 模型与原子更新 | [`engine/include/vnengine/model.hpp`](../engine/include/vnengine/model.hpp)、[`engine/src/core/project.cpp`](../engine/src/core/project.cpp) |
-| v15 序列化与 v14 扁平迁移 | [`engine/src/backend/serialization.cpp`](../engine/src/backend/serialization.cpp) |
+| v20 序列化与 v14/v15 历史迁移 | [`engine/src/backend/serialization.cpp`](../engine/src/backend/serialization.cpp) |
 | C++ JSONL 命令 | [`engine/src/backend/backend.cpp`](../engine/src/backend/backend.cpp) |
 | Electron 协议与 Preload | [`apps/editor/src/shared/engineProtocol.ts`](../apps/editor/src/shared/engineProtocol.ts)、[`apps/editor/src/preload.ts`](../apps/editor/src/preload.ts) |
 | Editor 场景接线 | [`apps/editor/src/renderer/App.tsx`](../apps/editor/src/renderer/App.tsx)、[`startScreenScene.ts`](../apps/editor/src/renderer/features/start-screen/startScreenScene.ts) |
 | CG 表单编辑 | [`CgGalleryFormEditor.tsx`](../apps/editor/src/renderer/features/cg-gallery/CgGalleryFormEditor.tsx) |
 | CG Blockly 编辑 | [`cgGalleryBlocks.ts`](../apps/editor/src/renderer/features/cg-gallery/cgGalleryBlocks.ts)、[`CgGalleryBlocklyWorkspace.tsx`](../apps/editor/src/renderer/features/cg-gallery/CgGalleryBlocklyWorkspace.tsx) |
-| v15→runtime v6 编译 | [`AuthorProjectCompiler.ts`](../apps/editor/src/main/export/AuthorProjectCompiler.ts) |
-| Player v1–v6 Reader | [`runtimeBundleSchema.ts`](../apps/player/src/main/content/runtimeBundleSchema.ts) |
+| v20→runtime v10 编译 | [`AuthorProjectCompiler.ts`](../apps/editor/src/main/export/AuthorProjectCompiler.ts) |
+| Player v1–v10 Reader | [`runtimeBundleSchema.ts`](../apps/player/src/shared/runtimeBundleSchema.ts) |
 | 共享主界面与画廊 | [`TitleScreen.tsx`](../packages/player-ui/src/TitleScreen.tsx)、[`CgGallery.tsx`](../packages/player-ui/src/CgGallery.tsx) |
 
 ## 7. 技术栈与选择理由
@@ -210,8 +215,8 @@ Blockly 不保存另一份页数据，而是把持久化 `pages` 投影为大页
 | 图形编辑 | Blockly 13.1 | 用 Toolbox 手动增加固定九槽页模块，不让画布坐标成为业务数据 |
 | 桌面边界 | Electron 43 Main/Preload IPC、`contextBridge` | 暴露窄命令、校验不可信 Renderer 参数，并隔离本机路径和 Node 能力 |
 | 权威模型 | C++20、STL | 保存唯一业务状态、验证资源引用、执行原子更新和 revision/no-op 规则 |
-| JSON 边界 | nlohmann/json、JSON Lines | 负责 v15 项目文件、v14 迁移与 Main↔C++ 请求/响应；不让 JSON 侵入 Core 领域模型 |
-| 导出 | TypeScript strict parser、Node `fs`/streams、SHA-256 | 把 author v15 编译为 runtime v6，收集非空槽闭包资源并事务式发布 |
+| JSON 边界 | nlohmann/json、JSON Lines | 负责 v20 项目文件、历史迁移与 Main↔C++ 请求/响应；不让 JSON 侵入 Core 领域模型 |
+| 导出 | TypeScript strict parser、Node `fs`/streams、SHA-256 | 把 author v20 编译为 runtime v10，收集非空槽闭包资源并事务式发布 |
 | Runtime DTO | `@vnengine/runtime` | 为 Editor 预览与 Player 提供平台无关的 `ProjectDocument`/`CgGalleryDocument` 契约 |
 | 共享 UI | `@vnengine/player-ui`、React | Editor 完整预览与独立 Player 复用同一 `TitleScreen`/`CgGallery` |
 | 媒体访问 | `vn-asset://`、`vn-game-asset://` capability 协议 | 按资源 ID 解析图片，不向 Renderer 暴露任意文件路径 |
@@ -228,8 +233,8 @@ Blockly 不保存另一份页数据，而是把持久化 `pages` 投影为大页
 - 表单页/槽修改与 Blockly 修改都会同步到同一 C++ 快照；
 - 完整预览和 Player 都固定九格分页，非空缩略图可放大，Esc 不会误退出整个 Editor 预览；
 - 仅被 CG 引用的图片仍会出现在 runtime manifest 和导出媒体目录中；
-- runtime v6 缺页、槽数错误、跨页重复 ID、缺失资源或非图片资源会被拒绝；
-- author v15 保存/重开保持页面数量、每个槽位与空项。
+- runtime v6–v10 缺页、槽数错误、跨页重复 ID、缺失资源或非图片资源会被拒绝；
+- author v20 保存/重开保持页面数量、每个槽位与空项。
 
 ## 9. 验证命令与结果
 
@@ -244,7 +249,8 @@ pnpm --dir apps/player lint
 pnpm --dir apps/player test
 ```
 
-本次 v15/runtime v6 固定页面实现的本机验收结果：
+以下是当时 v15/runtime v6 固定页面里程碑的历史本机验收记录；当前 v20/runtime v10
+逻辑版本另由全量 CTest、Editor、Runtime 和 Player 测试覆盖：
 
 - C++ CTest：4/4；
 - Editor Vitest：460 passed，1 skipped；
@@ -265,5 +271,5 @@ pnpm --dir apps/player test
 Renderer 的 `useEngineProject` 会把 HMR 前保留下来的 pre-CG 快照补成一张全空页，完整预览
 也对旧 session 使用相同回退。因此即使发生跨进程版本漂移，点击 CG 不会再卸载 React
 根节点。根节点外还有 `RendererErrorBoundary`：其它未预料的渲染异常会显示不含内部
-路径的恢复页面，而不是纯白屏。这个兼容层只保护开发中的内存快照；Main 对 v15 后端
+路径的恢复页面，而不是纯白屏。这个兼容层只保护开发中的内存快照；Main 对 v20 后端
 响应和磁盘项目的严格验证没有放宽，真正编辑 CG 仍要求重新启动整套进程。

@@ -1,3 +1,5 @@
+// 主要作用：注册 Editor 设置读取、更新和跨窗口广播的 IPC 通道。
+// 关键实现：验证调用与来源，broadcastEditorSettings 向可信窗口推送设置。
 import { ipcMain } from 'electron';
 
 import {

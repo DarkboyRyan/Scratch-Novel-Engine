@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：组合场景表单、属性检查器、资源面板和预览面板。
+ * 包含实现：`FormEditor`。
+ */
+
 import { PreviewPanel } from '../../components/PreviewPanel';
 import type { PreviewCharacter } from '../../components/PreviewPanel';
 import type { AssetDocument } from '../../../shared/projectTypes';
@@ -10,7 +15,11 @@ type FormEditorProps = {
   assets: AssetDocument[];
   backgroundUrl: string | null;
   backgroundName: string | null;
+  cgUrl: string | null;
+  cgName: string | null;
   showDialogue: boolean;
+  logicPreviewUncertain: boolean;
+  cgPreviewUncertain: boolean;
   characters: PreviewCharacter[];
   isStartPreviewDisabled: boolean;
   onStartPreview: () => void;
@@ -23,7 +32,11 @@ export function FormEditor({
   assets,
   backgroundUrl,
   backgroundName,
+  cgUrl,
+  cgName,
   showDialogue,
+  logicPreviewUncertain,
+  cgPreviewUncertain,
   characters,
   isStartPreviewDisabled,
   onStartPreview,
@@ -60,7 +73,11 @@ export function FormEditor({
         text={editor.previewText}
         backgroundUrl={backgroundUrl}
         backgroundName={backgroundName}
+        cgUrl={cgUrl}
+        cgName={cgName}
         showDialogue={showDialogue}
+        logicPreviewUncertain={logicPreviewUncertain}
+        cgPreviewUncertain={cgPreviewUncertain}
         characters={characters}
         isStartDisabled={isStartPreviewDisabled}
         onStartPreview={onStartPreview}

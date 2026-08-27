@@ -1,3 +1,7 @@
+/**
+ * 主要作用：验证媒体令牌、Range 响应、MIME 与会话失效。
+ * 关键函数与实现：测试套件“Player media capability service”、`temporaryDirectories`、`makeBundle`、`makeService`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

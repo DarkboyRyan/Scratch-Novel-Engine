@@ -1,3 +1,7 @@
+/**
+ * 主要作用：定义中英文标签、错误消息和语言规范化规则。
+ * 关键函数与实现：`PLAYER_LANGUAGES`、`PlayerLanguage`、`PlayerUiErrorCode`、`PlayerUiLabels`；以 TypeScript 类型边界和可组合函数实现。
+ */
 export const PLAYER_LANGUAGES = ['zh-CN', 'en-US'] as const;
 
 export type PlayerLanguage = typeof PLAYER_LANGUAGES[number];
@@ -178,6 +182,9 @@ export type PlayerUiLabels = {
     runtimeErrorEyebrow: string;
     runtimeErrorTitle: string;
     runtimeErrorFallback: string;
+    cgLoading: string;
+    cgLoadFailed: string;
+    cgAria: string;
     pauseAria: string;
     pauseTitle: string;
   };
@@ -374,6 +381,9 @@ const ZH_CN_LABELS: PlayerUiLabels = {
     runtimeErrorEyebrow: 'RUNTIME ERROR',
     runtimeErrorTitle: '游戏无法继续',
     runtimeErrorFallback: '剧情数据发生错误。',
+    cgLoading: '正在载入 CG…',
+    cgLoadFailed: 'CG 图片无法读取，剧情已暂停。',
+    cgAria: '剧情 CG',
     pauseAria: '暂停游戏',
     pauseTitle: '暂停游戏（Esc）',
   },
@@ -570,6 +580,9 @@ const EN_US_LABELS: PlayerUiLabels = {
     runtimeErrorEyebrow: 'RUNTIME ERROR',
     runtimeErrorTitle: 'The Game Cannot Continue',
     runtimeErrorFallback: 'The story data contains an error.',
+    cgLoading: 'Loading CG…',
+    cgLoadFailed: 'The CG image could not be loaded. Story playback is paused.',
+    cgAria: 'Story CG',
     pauseAria: 'Pause game',
     pauseTitle: 'Pause game (Esc)',
   },

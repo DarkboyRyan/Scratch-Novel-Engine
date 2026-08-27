@@ -1,3 +1,5 @@
+// 文件职责：验证 Author 项目结构、资源引用、控制配对和安全路径。
+// 关键实现：validate_scene_logic_structure、validate_project 与 validate_project_aggregate。
 #include "vnengine/project.hpp"
 
 #include <cmath>
@@ -26,6 +28,204 @@ std::optional<std::string_view> asset_directory(const AssetType type) {
 
 }  // namespace
 
+std::optional<std::string> validate_logic_value(const LogicValue& value) {
+  if (const auto* number = std::get_if<double>(&value);
+      number != nullptr && !std::isfinite(*number)) {
+    return "logic number must be finite";
+  }
+  if (const auto* text = std::get_if<std::string>(&value);
+      text != nullptr &&
+      (text->size() > kMaximumLogicStringBytes ||
+       text->find('\0') != std::string::npos)) {
+    return "logic string is invalid";
+  }
+  return std::nullopt;
+}
+
+std::optional<std::string> validate_logic_operand(
+    const LogicOperand& operand) {
+  if (const auto* variable = std::get_if<LogicVariableOperand>(&operand);
+      variable != nullptr) {
+    const std::string normalized =
+        project_detail::trim_ascii_whitespace(variable->name);
+    if (normalized.empty() || normalized != variable->name ||
+        variable->name.size() > kMaximumLogicVariableNameBytes ||
+        variable->name.find('\0') != std::string::npos) {
+      return "logic variable name is invalid";
+    }
+    return std::nullopt;
+  }
+  return validate_logic_value(std::get<LogicLiteralOperand>(operand).value);
+}
+
+std::optional<std::string> validate_logic_condition(
+    const LogicCondition& condition) {
+  switch (condition.comparison) {
+    case LogicComparisonOperator::equal:
+    case LogicComparisonOperator::not_equal:
+    case LogicComparisonOperator::greater:
+    case LogicComparisonOperator::greater_or_equal:
+    case LogicComparisonOperator::less:
+    case LogicComparisonOperator::less_or_equal:
+      break;
+    default:
+      return "logic comparison operator is invalid";
+  }
+  if (const auto violation = validate_logic_operand(condition.left);
+      violation.has_value()) {
+    return violation;
+  }
+  return validate_logic_operand(condition.right);
+}
+
+std::optional<std::string> validate_scene_logic_structure(
+    const Scene& scene) {
+  enum class FrameKind { condition, repeat };
+  struct Frame {
+    FrameKind kind;
+    std::string root_id;
+    bool saw_else = false;
+  };
+  std::vector<Frame> stack;
+  std::optional<std::string> open_cg_display_id;
+
+  for (const SceneNode& node : scene.nodes) {
+    if (open_cg_display_id.has_value()) {
+      if (std::holds_alternative<Dialogue>(node)) {
+        continue;
+      }
+      if (const auto* marker = std::get_if<CgEndDisplayNode>(&node);
+          marker != nullptr) {
+        if (marker->cg_display_node_id != *open_cg_display_id) {
+          return "CG end-display marker is orphaned or mismatched";
+        }
+        open_cg_display_id.reset();
+        continue;
+      }
+      return "CG display body may contain only dialogue nodes";
+    }
+    if (const auto* display = std::get_if<CgDisplayNode>(&node);
+        display != nullptr) {
+      if (display->asset_id.empty()) {
+        return "CG display Asset ID must not be empty";
+      }
+      if (display->lead_in_ms < 0 ||
+          display->lead_in_ms > kMaximumCgLeadInMs) {
+        return "CG display lead-in is outside the supported range";
+      }
+      open_cg_display_id = display->id;
+      continue;
+    }
+    if (std::holds_alternative<CgEndDisplayNode>(node)) {
+      return "CG end-display marker is orphaned or mismatched";
+    }
+    if (const auto* variable_set = std::get_if<VariableSetNode>(&node);
+        variable_set != nullptr) {
+      const std::string normalized = project_detail::trim_ascii_whitespace(
+          variable_set->variable_name);
+      if (normalized.empty() || normalized != variable_set->variable_name ||
+          variable_set->variable_name.size() >
+              kMaximumLogicVariableNameBytes ||
+          variable_set->variable_name.find('\0') != std::string::npos) {
+        return "variable-set name is invalid";
+      }
+      if (const auto violation = validate_logic_value(variable_set->value);
+          violation.has_value()) {
+        return violation;
+      }
+      continue;
+    }
+    if (const auto* variable_change = std::get_if<VariableChangeNode>(&node);
+        variable_change != nullptr) {
+      const std::string normalized = project_detail::trim_ascii_whitespace(
+          variable_change->variable_name);
+      if (normalized.empty() || normalized != variable_change->variable_name ||
+          variable_change->variable_name.size() >
+              kMaximumLogicVariableNameBytes ||
+          variable_change->variable_name.find('\0') != std::string::npos) {
+        return "variable-change name is invalid";
+      }
+      if (!std::isfinite(variable_change->amount)) {
+        return "variable-change amount must be finite";
+      }
+      continue;
+    }
+    if (std::holds_alternative<StoryExtensionNode>(node)) {
+      if (!stack.empty()) {
+        return "story extension must not split a logic control";
+      }
+      continue;
+    }
+    if (const auto* condition = std::get_if<LogicIfNode>(&node);
+        condition != nullptr) {
+      if (const auto violation = validate_logic_condition(condition->condition);
+          violation.has_value()) {
+        return violation;
+      }
+      if (stack.size() >=
+          static_cast<std::size_t>(kMaximumLogicNestingDepth)) {
+        return "logic nesting exceeds the supported depth";
+      }
+      stack.push_back(Frame{
+          .kind = FrameKind::condition,
+          .root_id = condition->id,
+      });
+      continue;
+    }
+    if (const auto* marker = std::get_if<LogicElseNode>(&node);
+        marker != nullptr) {
+      if (stack.empty() || stack.back().kind != FrameKind::condition ||
+          stack.back().root_id != marker->if_node_id ||
+          stack.back().saw_else) {
+        return "logic else marker is orphaned or mismatched";
+      }
+      stack.back().saw_else = true;
+      continue;
+    }
+    if (const auto* marker = std::get_if<LogicEndIfNode>(&node);
+        marker != nullptr) {
+      if (stack.empty() || stack.back().kind != FrameKind::condition ||
+          stack.back().root_id != marker->if_node_id ||
+          !stack.back().saw_else) {
+        return "logic end-if marker is orphaned or mismatched";
+      }
+      stack.pop_back();
+      continue;
+    }
+    if (const auto* repeat = std::get_if<LogicRepeatNode>(&node);
+        repeat != nullptr) {
+      if (repeat->count < 1 || repeat->count > kMaximumLogicRepeatCount) {
+        return "logic repeat count is outside the supported range";
+      }
+      if (stack.size() >=
+          static_cast<std::size_t>(kMaximumLogicNestingDepth)) {
+        return "logic nesting exceeds the supported depth";
+      }
+      stack.push_back(Frame{
+          .kind = FrameKind::repeat,
+          .root_id = repeat->id,
+      });
+      continue;
+    }
+    if (const auto* marker = std::get_if<LogicEndRepeatNode>(&node);
+        marker != nullptr) {
+      if (stack.empty() || stack.back().kind != FrameKind::repeat ||
+          stack.back().root_id != marker->repeat_node_id) {
+        return "logic end-repeat marker is orphaned or mismatched";
+      }
+      stack.pop_back();
+    }
+  }
+
+  if (!stack.empty()) {
+    return "logic control is missing a paired end marker";
+  }
+  if (open_cg_display_id.has_value()) {
+    return "CG display is missing a paired end marker";
+  }
+  return std::nullopt;
+}
+
 std::optional<std::string> validate_project(const Project& project) {
   if (project.schema_version != kSchemaVersion) {
     return "project schema version is unsupported";
@@ -47,6 +247,14 @@ std::optional<std::string> validate_project(const Project& project) {
   }
   if (*normalized_title != project.start_screen.title) {
     return "start screen title must not have surrounding whitespace";
+  }
+  const auto normalized_eyebrow =
+      normalize_start_screen_eyebrow(project.start_screen.eyebrow);
+  if (!normalized_eyebrow.has_value()) {
+    return "start screen eyebrow must be valid UTF-8 text up to 256 bytes";
+  }
+  if (*normalized_eyebrow != project.start_screen.eyebrow) {
+    return "start screen eyebrow must not have surrounding whitespace";
   }
   if (project.start_screen.background_asset_id.has_value() &&
       project.start_screen.background_asset_id->empty()) {
@@ -80,6 +288,7 @@ std::optional<std::string> validate_project(const Project& project) {
   // Project, Scene, timeline-node, Choice-option, and visual-instance IDs
   // share one namespace. Assets join it in validate_project_aggregate().
   std::unordered_set<std::string> ids{project.id};
+  std::unordered_set<std::string> logic_variable_names;
   bool found_entry_scene = false;
 
   for (const Scene& scene : project.scenes) {
@@ -93,6 +302,11 @@ std::optional<std::string> validate_project(const Project& project) {
       return "entity IDs must be unique";
     }
     found_entry_scene = found_entry_scene || scene.id == project.entry_scene_id;
+
+    if (const auto violation = validate_scene_logic_structure(scene);
+        violation.has_value()) {
+      return violation;
+    }
 
     if (scene.visuals.background_asset_id.has_value() &&
         scene.visuals.background_asset_id->empty()) {
@@ -141,6 +355,18 @@ std::optional<std::string> validate_project(const Project& project) {
         if (!project_detail::is_valid_character_slot(character->slot)) {
           return "character node slot is invalid";
         }
+        if (character->mode != CharacterNodeMode::show &&
+            character->mode != CharacterNodeMode::clear) {
+          return "character node mode is invalid";
+        }
+        if (character->mode == CharacterNodeMode::clear &&
+            character->asset_id.has_value()) {
+          return "clear character node must not reference an Asset";
+        }
+        if (character->mode == CharacterNodeMode::clear &&
+            character->position.has_value()) {
+          return "clear character node must not have a position";
+        }
         if (character->layer < 1 || character->layer > 10) {
           return "character node layer must be between 1 and 10";
         }
@@ -152,6 +378,15 @@ std::optional<std::string> validate_project(const Project& project) {
              character->position->y < 0.0 ||
              character->position->y > 100.0)) {
           return "character node position must be between 0 and 100";
+        }
+        if (character->effect.has_value() &&
+            !project_detail::is_valid_character_effect(*character->effect)) {
+          return "character node effect is invalid";
+        }
+        if ((!character->asset_id.has_value() ||
+             character->mode == CharacterNodeMode::clear) &&
+            character->effect.has_value()) {
+          return "character node without an Asset must not have an effect";
         }
       }
       if (const auto* jump = std::get_if<SceneJumpNode>(&node);
@@ -167,6 +402,16 @@ std::optional<std::string> validate_project(const Project& project) {
           video != nullptr && video->asset_id.has_value() &&
           video->asset_id->empty()) {
         return "video node Asset ID must not be empty";
+      }
+      if (const auto* display = std::get_if<CgDisplayNode>(&node);
+          display != nullptr) {
+        if (display->asset_id.empty()) {
+          return "CG display Asset ID must not be empty";
+        }
+        if (display->lead_in_ms < 0 ||
+            display->lead_in_ms > kMaximumCgLeadInMs) {
+          return "CG display lead-in is outside the supported range";
+        }
       }
       if (const auto* choice = std::get_if<ChoiceNode>(&node);
           choice != nullptr) {
@@ -192,6 +437,29 @@ std::optional<std::string> validate_project(const Project& project) {
             return "choice option must reference an existing Scene";
           }
         }
+      }
+      if (const auto* variable_set = std::get_if<VariableSetNode>(&node);
+          variable_set != nullptr) {
+        logic_variable_names.insert(variable_set->variable_name);
+      }
+      if (const auto* variable_change = std::get_if<VariableChangeNode>(&node);
+          variable_change != nullptr) {
+        logic_variable_names.insert(variable_change->variable_name);
+      }
+      if (const auto* condition = std::get_if<LogicIfNode>(&node);
+          condition != nullptr) {
+        for (const LogicOperand* operand : {
+                 &condition->condition.left,
+                 &condition->condition.right}) {
+          if (const auto* variable =
+                  std::get_if<LogicVariableOperand>(operand);
+              variable != nullptr) {
+            logic_variable_names.insert(variable->name);
+          }
+        }
+      }
+      if (logic_variable_names.size() > kMaximumLogicVariableCount) {
+        return "project contains too many logic variables";
       }
     }
   }
@@ -402,6 +670,16 @@ std::optional<std::string> validate_project_aggregate(
         }
         if (asset->type != AssetType::video) {
           return "video node Asset must be video";
+        }
+      }
+      if (const auto* display = std::get_if<CgDisplayNode>(&node);
+          display != nullptr) {
+        const Asset* asset = find_asset(aggregate, display->asset_id);
+        if (asset == nullptr) {
+          return "CG display must reference an existing Asset";
+        }
+        if (asset->type != AssetType::image) {
+          return "CG display Asset must be an image";
         }
       }
       if (const auto* choice = std::get_if<ChoiceNode>(&node);

@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 EditorSettingsManager 的行为。
+ * 测试覆盖：`EditorSettingsManager`。
+ */
+
 import { describe, expect, it, vi } from 'vitest';
 
 import { EditorSettingsManager } from '../../src/main/settings/EditorSettingsManager';

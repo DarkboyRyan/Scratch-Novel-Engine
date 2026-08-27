@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：读取、订阅并更新编辑器语言等持久化设置。
+ * 包含实现：`EditorSettingsState`、`useEditorSettings`。
+ */
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {

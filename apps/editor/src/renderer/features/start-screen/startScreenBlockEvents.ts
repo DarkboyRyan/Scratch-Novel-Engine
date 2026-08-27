@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：把标题界面积木字段变化转换为项目补丁。
+ * 包含实现：`getStartScreenFieldUpdate`。
+ */
+
 import * as Blockly from 'blockly';
 
 import type { ProjectDocument } from '../../../shared/projectTypes';
@@ -8,6 +13,10 @@ import {
   START_SCREEN_MUSIC_BLOCK_TYPE,
   START_SCREEN_ROOT_BLOCK_TYPE,
 } from './startScreenBlocks';
+import {
+  normalizeStartScreenEyebrowInput,
+  trimStartScreenAsciiWhitespace,
+} from './startScreenScene';
 
 type StartScreenDocument = ProjectDocument['startScreen'];
 
@@ -22,6 +31,9 @@ export function getStartScreenFieldUpdate(
   const isTitleChange =
     change.blockId === START_SCREEN_BLOCK_IDS.root &&
     change.name === START_SCREEN_BLOCK_FIELDS.title;
+  const isEyebrowChange =
+    change.blockId === START_SCREEN_BLOCK_IDS.root &&
+    change.name === START_SCREEN_BLOCK_FIELDS.eyebrow;
   const isBackgroundChange =
     change.blockId === START_SCREEN_BLOCK_IDS.background &&
     change.name === START_SCREEN_BLOCK_FIELDS.backgroundAssetId;
@@ -30,7 +42,10 @@ export function getStartScreenFieldUpdate(
     change.name === START_SCREEN_BLOCK_FIELDS.musicAssetId;
   if (
     change.element !== 'field' ||
-    (!isTitleChange && !isBackgroundChange && !isMusicChange)
+    (!isTitleChange &&
+      !isEyebrowChange &&
+      !isBackgroundChange &&
+      !isMusicChange)
   ) {
     return null;
   }
@@ -57,9 +72,12 @@ export function getStartScreenFieldUpdate(
     music.getFieldValue(START_SCREEN_BLOCK_FIELDS.musicAssetId) ?? '',
   );
   return {
-    title: String(
+    title: trimStartScreenAsciiWhitespace(String(
       root.getFieldValue(START_SCREEN_BLOCK_FIELDS.title) ?? '',
-    ),
+    )),
+    eyebrow: normalizeStartScreenEyebrowInput(String(
+      root.getFieldValue(START_SCREEN_BLOCK_FIELDS.eyebrow) ?? '',
+    )),
     backgroundAssetId: backgroundAssetId || null,
     musicAssetId: musicAssetId || null,
   };

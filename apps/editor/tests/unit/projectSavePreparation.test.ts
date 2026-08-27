@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 prepareProjectSave 的行为。
+ * 测试覆盖：`prepareProjectSave`。
+ */
+
 import { describe, expect, it, vi } from 'vitest';
 
 import { prepareProjectSave } from '../../src/renderer/projectSavePreparation';

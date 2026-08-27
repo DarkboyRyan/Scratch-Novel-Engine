@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 preview audio controller 的行为。
+ * 测试覆盖：`preview audio controller`。
+ */
+
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -44,8 +49,12 @@ function runtime(
     bgmAssetId: 'bgm-1',
     bgmSequence,
     dialogueSequence,
+    characterEffectSequence: 0,
     videoAssetId: null,
     videoSequence: 0,
+    cgAssetId: null,
+    cgLeadInMs: 0,
+    cgSequence: 0,
     characters: [],
     dialogue: {
       id: dialogueId,
@@ -55,6 +64,8 @@ function runtime(
       voiceAssetId,
     },
     choices: [],
+    variables: {},
+    loopStack: [],
   };
 }
 
@@ -234,6 +245,44 @@ describe('preview audio controller', () => {
     expect(bgm.pause).toHaveBeenCalledTimes(1);
     expect(bgm.src).toBe('vn-asset://audio/bgm-1');
     expect(voice.pause).toHaveBeenCalledTimes(2);
+    expect(voice.src).toBe('');
+  });
+
+  it('keeps the same BGM playback position through a CG lead-in', async () => {
+    const bgm = createMockAudio();
+    const voice = createMockAudio();
+    const channels = [bgm, voice];
+    const resolveMediaUrl = vi.fn(
+      async (assetId: string) => `vn-asset://audio/${assetId}`,
+    );
+    const controller = createPreviewAudioController({
+      createAudio: () => channels.shift()!,
+      resolveMediaUrl,
+    });
+
+    controller.sync(runtime('before-cg', null));
+    await flushPromises();
+    bgm.currentTime = 31;
+    controller.sync({
+      ...runtime('before-cg', null),
+      status: 'waitingCgLeadIn',
+      cgAssetId: 'cg-image',
+      cgLeadInMs: 1000,
+      cgSequence: 1,
+      dialogue: null,
+    });
+    controller.sync({
+      ...runtime('inside-cg', null, 2),
+      cgAssetId: 'cg-image',
+      cgSequence: 1,
+    });
+    await flushPromises();
+
+    expect(bgm.src).toBe('vn-asset://audio/bgm-1');
+    expect(bgm.currentTime).toBe(31);
+    expect(bgm.play).toHaveBeenCalledTimes(1);
+    expect(resolveMediaUrl.mock.calls.filter(([id]) => id === 'bgm-1'))
+      .toHaveLength(1);
     expect(voice.src).toBe('');
   });
 

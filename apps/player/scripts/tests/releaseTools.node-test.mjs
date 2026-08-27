@@ -1,3 +1,7 @@
+/**
+ * 主要作用：验证 releaseTools 的运行包、模板、制品、发布集及防篡改规则。
+ * 关键函数与实现：测试套件“verifies a runtime bundle and rejects post-manifest tampering”、`temporaryDirectories`、`testDirectory`、`playerDirectory`；使用 node:test、临时目录与真实文件制品覆盖发布工具。
+ */
 import { createPackage as createAsarPackage } from '@electron/asar';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -68,7 +72,7 @@ function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-async function writeMediaBundle(root, runtimeVersion = 6) {
+async function writeMediaBundle(root, runtimeVersion = 10) {
   const png = Buffer.from([
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
     0x00, 0x00, 0x00, 0x0d,
@@ -90,6 +94,9 @@ async function writeMediaBundle(root, runtimeVersion = 6) {
           ? {
               startScreen: {
                 ...(runtimeVersion >= 3 ? { title: 'Custom Title' } : {}),
+                ...(runtimeVersion >= 10
+                  ? { eyebrow: 'A VN ENGINE STORY' }
+                  : {}),
                 backgroundAssetId: 'background',
                 musicAssetId: null,
               },
@@ -129,17 +136,7 @@ async function writeMediaBundle(root, runtimeVersion = 6) {
       projectId: 'project',
       sourceRevision: 1,
       runtimeVersion,
-      playerCompatibility: runtimeVersion === 1
-        ? '>=1 <2'
-        : runtimeVersion === 2
-          ? '>=2 <3'
-          : runtimeVersion === 3
-            ? '>=3 <4'
-            : runtimeVersion === 4
-              ? '>=4 <5'
-              : runtimeVersion === 5
-                ? '>=5 <6'
-                : '>=6 <7',
+      playerCompatibility: `>=${runtimeVersion} <${runtimeVersion + 1}`,
       createdAt: '2026-08-18T00:00:00.000Z',
       files: [{
         assetId: 'background',
@@ -180,6 +177,44 @@ test('keeps release verification compatible with legacy runtime v1/v2/v5 bundles
   await assert.doesNotReject(verifyRuntimeBundle(v1Root));
   await assert.doesNotReject(verifyRuntimeBundle(v2Root));
   await assert.doesNotReject(verifyRuntimeBundle(v5Root));
+});
+
+test('enforces the exact runtime v10 start-screen eyebrow contract', async () => {
+  const root = await temporaryDirectory();
+  await writeMediaBundle(root, 10);
+  const gamePath = path.join(root, 'game.json');
+  const original = JSON.parse(await readFile(gamePath, 'utf8'));
+
+  original.game.startScreen.eyebrow = '';
+  await writeFile(gamePath, `${JSON.stringify(original, null, 2)}\n`);
+  await assert.doesNotReject(verifyRuntimeBundle(root));
+
+  original.game.startScreen.eyebrow = '😀'.repeat(64);
+  await writeFile(gamePath, `${JSON.stringify(original, null, 2)}\n`);
+  await assert.doesNotReject(verifyRuntimeBundle(root));
+
+  for (const eyebrow of [
+    ' leading',
+    'trailing ',
+    '\0',
+    'x'.repeat(257),
+    '界'.repeat(86),
+    '😀'.repeat(65),
+    '\ud800',
+    '\udc00',
+  ]) {
+    original.game.startScreen.eyebrow = eyebrow;
+    await writeFile(gamePath, `${JSON.stringify(original, null, 2)}\n`);
+    await assert.rejects(verifyRuntimeBundle(root), /eyebrow/u);
+  }
+
+  const legacyRoot = await temporaryDirectory();
+  await writeMediaBundle(legacyRoot, 9);
+  const legacyGamePath = path.join(legacyRoot, 'game.json');
+  const legacyGame = JSON.parse(await readFile(legacyGamePath, 'utf8'));
+  legacyGame.game.startScreen.eyebrow = 'Legacy must reject this';
+  await writeFile(legacyGamePath, `${JSON.stringify(legacyGame, null, 2)}\n`);
+  await assert.rejects(verifyRuntimeBundle(legacyRoot), /startScreen.*字段不符合/u);
 });
 
 test('uses the production Player schema for scenes and references', async () => {

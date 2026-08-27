@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 Vite Renderer dependency optimization 的行为。
+ * 测试覆盖：`Vite Renderer dependency optimization`。
+ */
+
 import { describe, expect, it } from 'vitest';
 
 import rendererConfig from '../../vite.renderer.config';

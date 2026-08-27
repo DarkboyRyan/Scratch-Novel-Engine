@@ -1,3 +1,5 @@
+// 主要作用：计算新 Editor 窗口在可用显示区域内的级联位置。
+// 关键实现：cascadedEditorWindowPosition 比较四个方向并钳制窗口坐标。
 export type WindowRectangle = {
   x: number;
   y: number;

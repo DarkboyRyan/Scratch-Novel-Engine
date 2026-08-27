@@ -1,3 +1,5 @@
+// 主要作用：为项目媒体资产提供受约束的 vn-asset 预览协议服务。
+// 关键实现：AssetPreviewService 校验路径、文件身份、媒体内容和字节范围。
 import { randomUUID } from 'node:crypto';
 import { constants, type Stats } from 'node:fs';
 import {

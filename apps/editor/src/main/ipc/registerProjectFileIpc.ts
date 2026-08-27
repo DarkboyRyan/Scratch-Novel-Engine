@@ -1,3 +1,5 @@
+// 主要作用：注册项目新建、打开、保存和会话查询的 IPC 入口。
+// 关键实现：registerProjectFileIpc 校验 Frame 并调用窗口级文件工作流。
 import { ipcMain } from 'electron';
 
 import { PROJECT_FILE_IPC_CHANNEL } from '../../shared/projectFileProtocol';

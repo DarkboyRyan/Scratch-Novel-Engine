@@ -1,3 +1,7 @@
+/**
+ * 主要作用：把 React 生命周期桥接到预览音频控制器。
+ * 关键函数与实现：`usePreviewAudio`；以 TypeScript 类型边界和可组合函数实现。
+ */
 import { useEffect, useRef } from 'react';
 import type { GameRuntime } from '@vnengine/runtime';
 

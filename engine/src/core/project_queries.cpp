@@ -1,3 +1,5 @@
+// 文件职责：实现对项目聚合、场景和各类时间线节点的只读查询。
+// 关键实现：find_scene、scene_node_id、find_scene_node 及节点专用 find_* 函数。
 #include "vnengine/project.hpp"
 
 #include <algorithm>

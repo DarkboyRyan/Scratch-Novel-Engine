@@ -1,3 +1,5 @@
+// 文件职责：将精确校验后的 JSONL 命令映射到 C++ Core 原子操作。
+// 关键实现：Backend::handle、参数解析、业务错误码、revision 与项目快照提交。
 #include "backend.hpp"
 
 #include <algorithm>
@@ -66,6 +68,31 @@ void require_exact_params(
   for (const auto& [field, unused] : params.items()) {
     static_cast<void>(unused);
     if (!expected.contains(field)) {
+      throw ProtocolError(
+          "invalid_params", "params contains unknown field: " + field);
+    }
+  }
+}
+
+void require_params_with_optional(
+    const Json& params,
+    const std::initializer_list<std::string_view> required_fields,
+    const std::initializer_list<std::string_view> optional_fields) {
+  std::unordered_set<std::string> allowed;
+  for (const std::string_view field : required_fields) {
+    allowed.emplace(field);
+    if (!params.contains(std::string(field))) {
+      throw ProtocolError(
+          "invalid_params",
+          "params." + std::string(field) + " is required");
+    }
+  }
+  for (const std::string_view field : optional_fields) {
+    allowed.emplace(field);
+  }
+  for (const auto& [field, unused] : params.items()) {
+    static_cast<void>(unused);
+    if (!allowed.contains(field)) {
       throw ProtocolError(
           "invalid_params", "params contains unknown field: " + field);
     }
@@ -175,6 +202,174 @@ std::vector<CgGalleryPage> required_cg_gallery_pages(const Json& object) {
   return pages;
 }
 
+LogicValue required_logic_value(
+    const Json& object,
+    const std::string_view field_name) {
+  const std::string key(field_name);
+  if (!object.contains(key)) {
+    throw ProtocolError(
+        "invalid_params", "params." + key + " is required");
+  }
+  const Json& value = object.at(key);
+  LogicValue parsed;
+  if (value.is_boolean()) {
+    parsed = value.get<bool>();
+  } else if (value.is_number()) {
+    const double number = value.get<double>();
+    if (!std::isfinite(number)) {
+      throw ProtocolError(
+          "invalid_params", "params." + key + " must be finite");
+    }
+    parsed = number;
+  } else if (value.is_string()) {
+    parsed = value.get<std::string>();
+  } else {
+    throw ProtocolError(
+        "invalid_params",
+        "params." + key + " must be a boolean, number, or string");
+  }
+  if (const auto violation = validate_logic_value(parsed);
+      violation.has_value()) {
+    throw ProtocolError("invalid_params", "params." + key + " is invalid");
+  }
+  return parsed;
+}
+
+LogicOperand required_logic_operand(
+    const Json& value,
+    const std::string& context) {
+  if (!value.is_object() || !value.contains("kind") ||
+      !value.at("kind").is_string()) {
+    throw ProtocolError("invalid_params", context + ".kind must be a string");
+  }
+  const std::string kind = value.at("kind").get<std::string>();
+  LogicOperand operand;
+  if (kind == "variable") {
+    if (value.size() != 2U || !value.contains("name") ||
+        !value.at("name").is_string()) {
+      throw ProtocolError(
+          "invalid_params", context + " must contain only kind and name");
+    }
+    operand = LogicVariableOperand{
+        .name = value.at("name").get<std::string>(),
+    };
+  } else if (kind == "literal") {
+    if (value.size() != 2U || !value.contains("value")) {
+      throw ProtocolError(
+          "invalid_params", context + " must contain only kind and value");
+    }
+    Json wrapper{{"value", value.at("value")}};
+    operand = LogicLiteralOperand{
+        .value = required_logic_value(wrapper, "value"),
+    };
+  } else {
+    throw ProtocolError(
+        "invalid_params", context + ".kind is not supported");
+  }
+  if (const auto violation = validate_logic_operand(operand);
+      violation.has_value()) {
+    throw ProtocolError("invalid_params", context + " is invalid");
+  }
+  return operand;
+}
+
+LogicComparisonOperator required_logic_comparison(const Json& value) {
+  if (!value.is_string()) {
+    throw ProtocolError(
+        "invalid_params", "params.condition.operator must be a string");
+  }
+  const std::string comparison = value.get<std::string>();
+  if (comparison == "eq") {
+    return LogicComparisonOperator::equal;
+  }
+  if (comparison == "neq") {
+    return LogicComparisonOperator::not_equal;
+  }
+  if (comparison == "gt") {
+    return LogicComparisonOperator::greater;
+  }
+  if (comparison == "gte") {
+    return LogicComparisonOperator::greater_or_equal;
+  }
+  if (comparison == "lt") {
+    return LogicComparisonOperator::less;
+  }
+  if (comparison == "lte") {
+    return LogicComparisonOperator::less_or_equal;
+  }
+  throw ProtocolError(
+      "invalid_params", "params.condition.operator is not supported");
+}
+
+LogicCondition required_logic_condition(const Json& params) {
+  if (!params.contains("condition") || !params.at("condition").is_object()) {
+    throw ProtocolError(
+        "invalid_params", "params.condition must be an object");
+  }
+  const Json& value = params.at("condition");
+  if (value.size() != 3U || !value.contains("left") ||
+      !value.contains("operator") || !value.contains("right")) {
+    throw ProtocolError(
+        "invalid_params",
+        "params.condition must contain only left, operator, and right");
+  }
+  LogicCondition condition{
+      .left = required_logic_operand(value.at("left"), "params.condition.left"),
+      .comparison = required_logic_comparison(value.at("operator")),
+      .right = required_logic_operand(
+          value.at("right"), "params.condition.right"),
+  };
+  if (validate_logic_condition(condition).has_value()) {
+    throw ProtocolError("invalid_params", "params.condition is invalid");
+  }
+  return condition;
+}
+
+int required_logic_repeat_count(const Json& params) {
+  if (!params.contains("count") || !params.at("count").is_number_integer()) {
+    throw ProtocolError(
+        "invalid_params", "params.count must be an integer between 1 and 1000");
+  }
+  try {
+    const int count = params.at("count").get<int>();
+    if (count >= 1 && count <= kMaximumLogicRepeatCount) {
+      return count;
+    }
+  } catch (const Json::exception&) {
+  }
+  throw ProtocolError(
+      "invalid_params", "params.count must be an integer between 1 and 1000");
+}
+
+int required_cg_lead_in_ms(const Json& params) {
+  if (!params.contains("leadInMs") ||
+      !params.at("leadInMs").is_number_integer()) {
+    throw ProtocolError(
+        "invalid_params",
+        "params.leadInMs must be an integer between 0 and 60000");
+  }
+  try {
+    const int lead_in_ms = params.at("leadInMs").get<int>();
+    if (lead_in_ms >= 0 && lead_in_ms <= kMaximumCgLeadInMs) {
+      return lead_in_ms;
+    }
+  } catch (const Json::exception&) {
+  }
+  throw ProtocolError(
+      "invalid_params",
+      "params.leadInMs must be an integer between 0 and 60000");
+}
+
+std::optional<std::string> optional_timeline_anchor(
+    const Json& params,
+    const std::string_view field_name) {
+  const std::string key(field_name);
+  if (!params.contains(key) || params.at(key).is_null()) {
+    return std::nullopt;
+  }
+  return required_string(params, key);
+}
+
 CharacterSlot required_character_slot(const Json& object) {
   const std::string slot = required_string(object, "slot");
   if (slot == "left") {
@@ -229,6 +424,144 @@ std::optional<CharacterPosition> required_character_position(
         "invalid_params", "params.position coordinates must be between 0 and 100");
   }
   return CharacterPosition{.x = x, .y = y};
+}
+
+CharacterNodeMode required_character_node_mode(const Json& object) {
+  const std::string mode = required_string(object, "mode");
+  if (mode == "show") {
+    return CharacterNodeMode::show;
+  }
+  if (mode == "clear") {
+    return CharacterNodeMode::clear;
+  }
+  throw ProtocolError(
+      "invalid_params", "params.mode must be show or clear");
+}
+
+CharacterEffectIntensity required_character_effect_intensity(
+    const Json& value,
+    const std::string& context) {
+  if (!value.is_string()) {
+    throw ProtocolError("invalid_params", context + " must be a string");
+  }
+  const std::string intensity = value.get<std::string>();
+  if (intensity == "subtle") {
+    return CharacterEffectIntensity::subtle;
+  }
+  if (intensity == "normal") {
+    return CharacterEffectIntensity::normal;
+  }
+  if (intensity == "strong") {
+    return CharacterEffectIntensity::strong;
+  }
+  throw ProtocolError(
+      "invalid_params", context + " must be subtle, normal, or strong");
+}
+
+CharacterEffectDirection required_character_effect_direction(
+    const Json& value,
+    const std::string& context) {
+  if (!value.is_string()) {
+    throw ProtocolError("invalid_params", context + " must be a string");
+  }
+  const std::string direction = value.get<std::string>();
+  if (direction == "left") {
+    return CharacterEffectDirection::left;
+  }
+  if (direction == "right") {
+    return CharacterEffectDirection::right;
+  }
+  if (direction == "up") {
+    return CharacterEffectDirection::up;
+  }
+  if (direction == "down") {
+    return CharacterEffectDirection::down;
+  }
+  throw ProtocolError(
+      "invalid_params", context + " must be left, right, up, or down");
+}
+
+std::optional<CharacterEffect> required_character_effect(
+    const Json& object,
+    const std::string_view field_name,
+    const bool nullable) {
+  const std::string key(field_name);
+  if (!object.contains(key)) {
+    throw ProtocolError("invalid_params", "params." + key + " is required");
+  }
+  const Json& value = object.at(key);
+  if (nullable && value.is_null()) {
+    return std::nullopt;
+  }
+  const std::string context = "params." + key;
+  if (!value.is_object() || !value.contains("type") ||
+      !value.at("type").is_string()) {
+    throw ProtocolError("invalid_params", context + ".type must be a string");
+  }
+  const auto require_shape = [&value, &context](
+                                 const std::initializer_list<std::string_view>
+                                     fields) {
+    if (value.size() != fields.size()) {
+      throw ProtocolError(
+          "invalid_params", context + " contains missing or unknown fields");
+    }
+    for (const std::string_view field : fields) {
+      if (!value.contains(std::string(field))) {
+        throw ProtocolError(
+            "invalid_params",
+            context + "." + std::string(field) + " is required");
+      }
+    }
+  };
+
+  const std::string type = value.at("type").get<std::string>();
+  CharacterEffect effect;
+  if (type == "shake" || type == "jump" || type == "breathe" ||
+      type == "flash") {
+    require_shape({"type", "durationMs", "intensity"});
+    effect.type = type == "shake"
+        ? CharacterEffectType::shake
+        : type == "jump"
+            ? CharacterEffectType::jump
+            : type == "breathe"
+                ? CharacterEffectType::breathe
+                : CharacterEffectType::flash;
+    effect.intensity = required_character_effect_intensity(
+        value.at("intensity"), context + ".intensity");
+  } else if (type == "fadeIn" || type == "fadeOut") {
+    require_shape({"type", "durationMs"});
+    effect.type = type == "fadeIn"
+        ? CharacterEffectType::fade_in
+        : CharacterEffectType::fade_out;
+  } else if (type == "slideIn") {
+    require_shape({"type", "durationMs", "intensity", "direction"});
+    effect.type = CharacterEffectType::slide_in;
+    effect.intensity = required_character_effect_intensity(
+        value.at("intensity"), context + ".intensity");
+    effect.direction = required_character_effect_direction(
+        value.at("direction"), context + ".direction");
+  } else {
+    throw ProtocolError(
+        "invalid_params", context + ".type is not supported");
+  }
+  if (!value.at("durationMs").is_number_integer()) {
+    throw ProtocolError(
+        "invalid_params",
+        context + ".durationMs must be an integer between 100 and 10000");
+  }
+  try {
+    effect.duration_ms = value.at("durationMs").get<int>();
+  } catch (const Json::exception&) {
+    throw ProtocolError(
+        "invalid_params",
+        context + ".durationMs must be an integer between 100 and 10000");
+  }
+  if (effect.duration_ms < 100 || effect.duration_ms > 10000) {
+    throw ProtocolError(
+        "invalid_params",
+        context + ".durationMs must be an integer between 100 and 10000");
+  }
+  return effect;
 }
 
 std::filesystem::path project_file_path(const std::string& file_path) {
@@ -531,10 +864,12 @@ Json Backend::handle(const Json& request) {
     changed = vnengine::rename_project(project, *name);
   } else if (method == "startScreen.update") {
     require_exact_params(
-        params, {"title", "backgroundAssetId", "musicAssetId"});
+        params,
+        {"title", "eyebrow", "backgroundAssetId", "musicAssetId"});
     switch (vnengine::update_start_screen(
         require_aggregate(),
         required_string(params, "title"),
+        required_string(params, "eyebrow"),
         required_nullable_string(params, "backgroundAssetId"),
         required_nullable_string(params, "musicAssetId"))) {
       case vnengine::UpdateStartScreenResult::changed:
@@ -547,6 +882,10 @@ Json Backend::handle(const Json& request) {
         throw ProtocolError(
             "start_screen_title_required",
             "start screen title must not be empty");
+      case vnengine::UpdateStartScreenResult::eyebrow_invalid:
+        throw ProtocolError(
+            "start_screen_eyebrow_invalid",
+            "start screen eyebrow must be valid UTF-8 up to 256 bytes and contain no NUL");
       case vnengine::UpdateStartScreenResult::background_asset_not_found:
       case vnengine::UpdateStartScreenResult::music_asset_not_found:
         throw ProtocolError("asset_not_found", "asset does not exist");
@@ -706,6 +1045,10 @@ Json Backend::handle(const Json& request) {
             "afterNodeId and beforeNodeId cannot both be provided");
       case vnengine::AddBackgroundNodeStatus::anchor_not_found:
         throw ProtocolError("node_not_found", "timeline anchor does not exist");
+      case vnengine::AddBackgroundNodeStatus::control_boundary_conflict:
+        throw ProtocolError(
+            "cg_display_body_invalid",
+            "CG display body may contain only dialogue nodes");
     }
     if (const auto violation = vnengine::validate_project_aggregate(candidate);
         violation.has_value()) {
@@ -798,12 +1141,17 @@ Json Backend::handle(const Json& request) {
     changed = vnengine::reorder_scene_node(
         project, scene_id, node_id, std::move(before_node_id));
   } else if (method == "character.add") {
+    require_params_with_optional(
+        params,
+        {"sceneId"},
+        {"mode", "assetId", "afterNodeId", "beforeNodeId"});
     const std::string scene_id = required_string(params, "sceneId");
-    if (params.contains("assetId") || params.contains("slot") ||
-        params.contains("layer") || params.contains("position")) {
-      throw ProtocolError(
-          "invalid_params",
-          "character.add always creates an empty centered layer-1 node");
+    const CharacterNodeMode mode = params.contains("mode")
+        ? required_character_node_mode(params)
+        : CharacterNodeMode::show;
+    std::optional<std::string> initial_asset_id;
+    if (params.contains("assetId")) {
+      initial_asset_id = required_nullable_string(params, "assetId");
     }
     std::optional<std::string> after_node_id;
     if (params.contains("afterNodeId") &&
@@ -817,13 +1165,29 @@ Json Backend::handle(const Json& request) {
     }
 
     ProjectAggregate candidate = require_aggregate();
+    if (mode == CharacterNodeMode::clear && initial_asset_id.has_value()) {
+      throw ProtocolError(
+          "invalid_params", "params.assetId must be null when mode is clear");
+    }
+    if (initial_asset_id.has_value()) {
+      const vnengine::Asset* asset =
+          vnengine::find_asset(candidate, *initial_asset_id);
+      if (asset == nullptr) {
+        throw ProtocolError("asset_not_found", "asset does not exist");
+      }
+      if (asset->type != vnengine::AssetType::image) {
+        throw ProtocolError(
+            "asset_not_image", "character node asset must be an image");
+      }
+    }
     const vnengine::AddCharacterNodeResult result =
         vnengine::add_character_node(
             candidate,
             ids_,
             scene_id,
             std::move(after_node_id),
-            std::move(before_node_id));
+            std::move(before_node_id),
+            mode);
     switch (result.status) {
       case vnengine::AddCharacterNodeStatus::added:
         break;
@@ -835,6 +1199,43 @@ Json Backend::handle(const Json& request) {
             "afterNodeId and beforeNodeId cannot both be provided");
       case vnengine::AddCharacterNodeStatus::anchor_not_found:
         throw ProtocolError("node_not_found", "timeline anchor does not exist");
+      case vnengine::AddCharacterNodeStatus::control_boundary_conflict:
+        throw ProtocolError(
+            "cg_display_body_invalid",
+            "CG display body may contain only dialogue nodes");
+      case vnengine::AddCharacterNodeStatus::invalid_mode:
+        throw ProtocolError("invalid_params", "character node mode is invalid");
+    }
+    if (initial_asset_id.has_value()) {
+      if (!result.node_id.has_value()) {
+        throw ProtocolError(
+            "internal_error", "character.add did not return a node ID");
+      }
+      switch (vnengine::update_character_node(
+          candidate,
+          scene_id,
+          *result.node_id,
+          std::move(initial_asset_id),
+          vnengine::CharacterSlot::center,
+          1,
+          std::nullopt)) {
+        case vnengine::UpdateCharacterNodeResult::changed:
+          break;
+        case vnengine::UpdateCharacterNodeResult::asset_not_found:
+          throw ProtocolError("asset_not_found", "asset does not exist");
+        case vnengine::UpdateCharacterNodeResult::asset_not_image:
+          throw ProtocolError(
+              "asset_not_image", "character node asset must be an image");
+        case vnengine::UpdateCharacterNodeResult::unchanged:
+        case vnengine::UpdateCharacterNodeResult::scene_not_found:
+        case vnengine::UpdateCharacterNodeResult::node_not_found:
+        case vnengine::UpdateCharacterNodeResult::invalid_slot:
+        case vnengine::UpdateCharacterNodeResult::invalid_layer:
+        case vnengine::UpdateCharacterNodeResult::invalid_position:
+        case vnengine::UpdateCharacterNodeResult::invalid_mode:
+          throw ProtocolError(
+              "internal_error", "character.add initial asset update failed");
+      }
     }
     if (const auto violation = vnengine::validate_project_aggregate(candidate);
         violation.has_value()) {
@@ -850,6 +1251,10 @@ Json Backend::handle(const Json& request) {
         scene_id,
         result.node_id);
   } else if (method == "character.update") {
+    require_params_with_optional(
+        params,
+        {"sceneId", "nodeId", "assetId", "slot", "layer", "position"},
+        {"mode"});
     const std::string scene_id = required_string(params, "sceneId");
     const std::string node_id = required_string(params, "nodeId");
     if (!params.contains("assetId") ||
@@ -869,7 +1274,11 @@ Json Backend::handle(const Json& request) {
         std::move(asset_id),
         required_character_slot(params),
         required_character_layer(params),
-        required_character_position(params))) {
+        required_character_position(params),
+        params.contains("mode")
+            ? std::optional<CharacterNodeMode>(
+                  required_character_node_mode(params))
+            : std::nullopt)) {
       case vnengine::UpdateCharacterNodeResult::changed:
         changed = true;
         break;
@@ -889,7 +1298,80 @@ Json Backend::handle(const Json& request) {
       case vnengine::UpdateCharacterNodeResult::invalid_slot:
       case vnengine::UpdateCharacterNodeResult::invalid_layer:
       case vnengine::UpdateCharacterNodeResult::invalid_position:
+      case vnengine::UpdateCharacterNodeResult::invalid_mode:
         throw ProtocolError("invalid_params", "character node fields are invalid");
+    }
+  } else if (method == "characterEffect.update") {
+    require_exact_params(params, {"sceneId", "nodeId", "effect"});
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::string node_id = required_string(params, "nodeId");
+    switch (vnengine::update_character_effect(
+        require_aggregate(),
+        scene_id,
+        node_id,
+        required_character_effect(params, "effect", true))) {
+      case vnengine::UpdateCharacterEffectResult::changed:
+        changed = true;
+        break;
+      case vnengine::UpdateCharacterEffectResult::unchanged:
+        changed = false;
+        break;
+      case vnengine::UpdateCharacterEffectResult::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case vnengine::UpdateCharacterEffectResult::node_not_found:
+        throw ProtocolError(
+            "character_node_not_found", "character node does not exist");
+      case vnengine::UpdateCharacterEffectResult::character_cleared:
+        throw ProtocolError(
+            "character_effect_requires_asset",
+            "a character effect requires a selected portrait image");
+      case vnengine::UpdateCharacterEffectResult::invalid_effect:
+        throw ProtocolError("invalid_params", "character effect is invalid");
+    }
+  } else if (method == "characterEffect.move") {
+    require_exact_params(
+        params, {"sceneId", "fromNodeId", "toNodeId", "effect"});
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::string from_node_id = required_string(params, "fromNodeId");
+    const std::string to_node_id = required_string(params, "toNodeId");
+    const std::optional<CharacterEffect> effect =
+        required_character_effect(params, "effect", false);
+    switch (vnengine::move_character_effect(
+        require_aggregate(),
+        scene_id,
+        from_node_id,
+        to_node_id,
+        *effect)) {
+      case vnengine::MoveCharacterEffectResult::changed:
+        changed = true;
+        break;
+      case vnengine::MoveCharacterEffectResult::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case vnengine::MoveCharacterEffectResult::source_node_not_found:
+        throw ProtocolError(
+            "character_effect_source_not_found",
+            "source character node does not exist");
+      case vnengine::MoveCharacterEffectResult::target_node_not_found:
+        throw ProtocolError(
+            "character_effect_target_not_found",
+            "target character node does not exist");
+      case vnengine::MoveCharacterEffectResult::same_node:
+        throw ProtocolError(
+            "invalid_params", "fromNodeId and toNodeId must differ");
+      case vnengine::MoveCharacterEffectResult::source_effect_missing:
+        throw ProtocolError(
+            "character_effect_source_missing",
+            "source character node has no effect");
+      case vnengine::MoveCharacterEffectResult::source_effect_mismatch:
+        throw ProtocolError(
+            "character_effect_source_mismatch",
+            "source character effect does not match the request");
+      case vnengine::MoveCharacterEffectResult::target_character_cleared:
+        throw ProtocolError(
+            "character_effect_requires_asset",
+            "target character node has no selected portrait image");
+      case vnengine::MoveCharacterEffectResult::invalid_effect:
+        throw ProtocolError("invalid_params", "character effect is invalid");
     }
   } else if (method == "bgm.add") {
     const std::string scene_id = required_string(params, "sceneId");
@@ -927,6 +1409,10 @@ Json Backend::handle(const Json& request) {
             "afterNodeId and beforeNodeId cannot both be provided");
       case vnengine::AddBgmNodeStatus::anchor_not_found:
         throw ProtocolError("node_not_found", "timeline anchor does not exist");
+      case vnengine::AddBgmNodeStatus::control_boundary_conflict:
+        throw ProtocolError(
+            "cg_display_body_invalid",
+            "CG display body may contain only dialogue nodes");
     }
     if (const auto violation = vnengine::validate_project_aggregate(candidate);
         violation.has_value()) {
@@ -1009,6 +1495,10 @@ Json Backend::handle(const Json& request) {
             "afterNodeId and beforeNodeId cannot both be provided");
       case vnengine::AddVideoNodeStatus::anchor_not_found:
         throw ProtocolError("node_not_found", "timeline anchor does not exist");
+      case vnengine::AddVideoNodeStatus::control_boundary_conflict:
+        throw ProtocolError(
+            "cg_display_body_invalid",
+            "CG display body may contain only dialogue nodes");
     }
     if (const auto violation = vnengine::validate_project_aggregate(candidate);
         violation.has_value()) {
@@ -1092,6 +1582,10 @@ Json Backend::handle(const Json& request) {
             "afterNodeId and beforeNodeId cannot both be provided");
       case vnengine::AddChoiceNodeStatus::anchor_not_found:
         throw ProtocolError("node_not_found", "timeline anchor does not exist");
+      case vnengine::AddChoiceNodeStatus::control_boundary_conflict:
+        throw ProtocolError(
+            "cg_display_body_invalid",
+            "CG display body may contain only dialogue nodes");
     }
     if (const auto violation = vnengine::validate_project_aggregate(candidate);
         violation.has_value()) {
@@ -1325,6 +1819,10 @@ Json Backend::handle(const Json& request) {
             "afterNodeId and beforeNodeId cannot both be provided");
       case vnengine::AddStoryExtensionNodeStatus::anchor_not_found:
         throw ProtocolError("node_not_found", "timeline anchor does not exist");
+      case vnengine::AddStoryExtensionNodeStatus::logic_boundary_conflict:
+        throw ProtocolError(
+            "story_extension_logic_boundary",
+            "story extension cannot split a control");
     }
     if (const auto violation = vnengine::validate_project_aggregate(candidate);
         violation.has_value()) {
@@ -1339,6 +1837,387 @@ Json Backend::handle(const Json& request) {
         saved_revision_,
         scene_id,
         result.node_id);
+  } else if (method == "cgDisplay.add") {
+    require_params_with_optional(
+        params,
+        {"sceneId", "assetId", "leadInMs"},
+        {"afterNodeId", "beforeNodeId"});
+    const std::string scene_id = required_string(params, "sceneId");
+    ProjectAggregate candidate = require_aggregate();
+    const AddCgDisplayResult result = add_cg_display_node(
+        candidate,
+        ids_,
+        scene_id,
+        required_string(params, "assetId"),
+        required_cg_lead_in_ms(params),
+        optional_timeline_anchor(params, "afterNodeId"),
+        optional_timeline_anchor(params, "beforeNodeId"));
+    switch (result.status) {
+      case AddCgDisplayStatus::added:
+        break;
+      case AddCgDisplayStatus::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case AddCgDisplayStatus::placement_conflict:
+        throw ProtocolError(
+            "cg_display_placement_conflict",
+            "afterNodeId and beforeNodeId cannot both be provided");
+      case AddCgDisplayStatus::anchor_not_found:
+        throw ProtocolError("node_not_found", "timeline anchor does not exist");
+      case AddCgDisplayStatus::asset_not_found:
+        throw ProtocolError("asset_not_found", "asset does not exist");
+      case AddCgDisplayStatus::asset_not_image:
+        throw ProtocolError(
+            "asset_not_image", "CG display asset must be an image");
+      case AddCgDisplayStatus::invalid_lead_in:
+        throw ProtocolError(
+            "invalid_params", "CG display lead-in is outside the supported range");
+      case AddCgDisplayStatus::boundary_conflict:
+        throw ProtocolError(
+            "cg_display_boundary_conflict",
+            "CG display cannot cross or break another control boundary");
+    }
+    if (const auto violation = validate_project_aggregate(candidate);
+        violation.has_value()) {
+      throw ProtocolError("internal_error", *violation);
+    }
+    require_aggregate() = std::move(candidate);
+    record_mutation(true);
+    return success_response(
+        request_id(request),
+        aggregate_,
+        revision_,
+        saved_revision_,
+        scene_id,
+        result.node_id);
+  } else if (method == "cgDisplay.update") {
+    require_exact_params(
+        params, {"sceneId", "nodeId", "assetId", "leadInMs"});
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::string node_id = required_string(params, "nodeId");
+    ProjectAggregate candidate = require_aggregate();
+    const UpdateCgDisplayResult result = update_cg_display_node(
+        candidate,
+        scene_id,
+        node_id,
+        required_string(params, "assetId"),
+        required_cg_lead_in_ms(params));
+    switch (result) {
+      case UpdateCgDisplayResult::changed:
+        changed = true;
+        break;
+      case UpdateCgDisplayResult::unchanged:
+        changed = false;
+        break;
+      case UpdateCgDisplayResult::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case UpdateCgDisplayResult::node_not_found:
+        throw ProtocolError(
+            "cg_display_node_not_found", "CG display node does not exist");
+      case UpdateCgDisplayResult::asset_not_found:
+        throw ProtocolError("asset_not_found", "asset does not exist");
+      case UpdateCgDisplayResult::asset_not_image:
+        throw ProtocolError(
+            "asset_not_image", "CG display asset must be an image");
+      case UpdateCgDisplayResult::invalid_lead_in:
+        throw ProtocolError(
+            "invalid_params", "CG display lead-in is outside the supported range");
+    }
+    if (changed) {
+      if (const auto violation = validate_project_aggregate(candidate);
+          violation.has_value()) {
+        throw ProtocolError("internal_error", *violation);
+      }
+      require_aggregate() = std::move(candidate);
+    }
+  } else if (method == "cgDisplay.delete" ||
+             method == "cgDisplay.reorder") {
+    if (method == "cgDisplay.delete") {
+      require_exact_params(params, {"sceneId", "nodeId"});
+    } else {
+      require_exact_params(params, {"sceneId", "nodeId", "beforeNodeId"});
+    }
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::string node_id = required_string(params, "nodeId");
+    ProjectAggregate candidate = require_aggregate();
+    const CgDisplayMutationResult result = method == "cgDisplay.delete"
+        ? delete_cg_display(candidate.project, scene_id, node_id)
+        : reorder_cg_display(
+              candidate.project,
+              scene_id,
+              node_id,
+              required_nullable_string(params, "beforeNodeId"));
+    switch (result) {
+      case CgDisplayMutationResult::changed:
+        changed = true;
+        break;
+      case CgDisplayMutationResult::unchanged:
+        changed = false;
+        break;
+      case CgDisplayMutationResult::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case CgDisplayMutationResult::node_not_found:
+        throw ProtocolError(
+            "cg_display_node_not_found", "CG display node does not exist");
+      case CgDisplayMutationResult::not_display_root:
+        throw ProtocolError(
+            "cg_display_root_required",
+            "nodeId must identify a CG display root");
+      case CgDisplayMutationResult::anchor_not_found:
+        throw ProtocolError("node_not_found", "timeline anchor does not exist");
+      case CgDisplayMutationResult::anchor_inside_display:
+        throw ProtocolError(
+            "invalid_params",
+            "beforeNodeId must not be inside the moved CG display");
+      case CgDisplayMutationResult::boundary_conflict:
+        throw ProtocolError(
+            "cg_display_boundary_conflict",
+            "CG display cannot cross or break another control boundary");
+    }
+    if (changed) {
+      if (const auto violation = validate_project_aggregate(candidate);
+          violation.has_value()) {
+        throw ProtocolError("internal_error", *violation);
+      }
+      require_aggregate() = std::move(candidate);
+    }
+  } else if (method == "variableSet.add" ||
+             method == "variableChange.add" ||
+             method == "logicIf.add" ||
+             method == "logicRepeat.add") {
+    if (method == "variableSet.add") {
+      require_params_with_optional(
+          params,
+          {"sceneId", "variableName", "value"},
+          {"afterNodeId", "beforeNodeId"});
+    } else if (method == "variableChange.add") {
+      require_params_with_optional(
+          params,
+          {"sceneId", "variableName", "amount"},
+          {"afterNodeId", "beforeNodeId"});
+    } else if (method == "logicIf.add") {
+      require_params_with_optional(
+          params,
+          {"sceneId", "condition"},
+          {"afterNodeId", "beforeNodeId"});
+    } else {
+      require_params_with_optional(
+          params,
+          {"sceneId", "count"},
+          {"afterNodeId", "beforeNodeId"});
+    }
+    const std::string scene_id = required_string(params, "sceneId");
+    std::optional<std::string> after_node_id =
+        optional_timeline_anchor(params, "afterNodeId");
+    std::optional<std::string> before_node_id =
+        optional_timeline_anchor(params, "beforeNodeId");
+    ProjectAggregate candidate = require_aggregate();
+    AddLogicNodeResult result{
+        .status = AddLogicNodeStatus::invalid_logic,
+        .node_id = std::nullopt,
+    };
+    if (method == "variableSet.add") {
+      result = add_variable_set_node(
+          candidate.project,
+          ids_,
+          scene_id,
+          required_string(params, "variableName"),
+          required_logic_value(params, "value"),
+          std::move(after_node_id),
+          std::move(before_node_id));
+    } else if (method == "variableChange.add") {
+      if (!params.contains("amount") || !params.at("amount").is_number()) {
+        throw ProtocolError(
+            "invalid_params", "params.amount must be a finite number");
+      }
+      const double amount = params.at("amount").get<double>();
+      result = add_variable_change_node(
+          candidate.project,
+          ids_,
+          scene_id,
+          required_string(params, "variableName"),
+          amount,
+          std::move(after_node_id),
+          std::move(before_node_id));
+    } else if (method == "logicIf.add") {
+      result = add_logic_if_node(
+          candidate.project,
+          ids_,
+          scene_id,
+          required_logic_condition(params),
+          std::move(after_node_id),
+          std::move(before_node_id));
+    } else {
+      result = add_logic_repeat_node(
+          candidate.project,
+          ids_,
+          scene_id,
+          required_logic_repeat_count(params),
+          std::move(after_node_id),
+          std::move(before_node_id));
+    }
+    switch (result.status) {
+      case AddLogicNodeStatus::added:
+        break;
+      case AddLogicNodeStatus::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case AddLogicNodeStatus::placement_conflict:
+        throw ProtocolError(
+            "logic_placement_conflict",
+            "afterNodeId and beforeNodeId cannot both be provided");
+      case AddLogicNodeStatus::anchor_not_found:
+        throw ProtocolError("node_not_found", "timeline anchor does not exist");
+      case AddLogicNodeStatus::invalid_logic:
+        throw ProtocolError("invalid_params", "logic node data is invalid");
+      case AddLogicNodeStatus::variable_limit:
+        throw ProtocolError(
+            "logic_variable_limit",
+            "project cannot contain more than 32 logic variables");
+    }
+    if (const auto violation = validate_project_aggregate(candidate);
+        violation.has_value()) {
+      throw ProtocolError("internal_error", *violation);
+    }
+    require_aggregate() = std::move(candidate);
+    record_mutation(true);
+    return success_response(
+        request_id(request),
+        aggregate_,
+        revision_,
+        saved_revision_,
+        scene_id,
+        result.node_id);
+  } else if (method == "variableSet.update" ||
+             method == "variableChange.update" ||
+             method == "logicIf.update" ||
+             method == "logicRepeat.update") {
+    if (method == "variableSet.update") {
+      require_exact_params(
+          params, {"sceneId", "nodeId", "variableName", "value"});
+    } else if (method == "variableChange.update") {
+      require_exact_params(
+          params, {"sceneId", "nodeId", "variableName", "amount"});
+    } else if (method == "logicIf.update") {
+      require_exact_params(
+          params, {"sceneId", "nodeId", "condition"});
+    } else {
+      require_exact_params(params, {"sceneId", "nodeId", "count"});
+    }
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::string node_id = required_string(params, "nodeId");
+    ProjectAggregate candidate = require_aggregate();
+    UpdateLogicNodeResult result = UpdateLogicNodeResult::invalid_logic;
+    if (method == "variableSet.update") {
+      result = update_variable_set_node(
+          candidate.project,
+          scene_id,
+          node_id,
+          required_string(params, "variableName"),
+          required_logic_value(params, "value"));
+    } else if (method == "variableChange.update") {
+      if (!params.contains("amount") || !params.at("amount").is_number()) {
+        throw ProtocolError(
+            "invalid_params", "params.amount must be a finite number");
+      }
+      result = update_variable_change_node(
+          candidate.project,
+          scene_id,
+          node_id,
+          required_string(params, "variableName"),
+          params.at("amount").get<double>());
+    } else if (method == "logicIf.update") {
+      result = update_logic_if_node(
+          candidate.project,
+          scene_id,
+          node_id,
+          required_logic_condition(params));
+    } else {
+      result = update_logic_repeat_node(
+          candidate.project,
+          scene_id,
+          node_id,
+          required_logic_repeat_count(params));
+    }
+    switch (result) {
+      case UpdateLogicNodeResult::changed:
+        changed = true;
+        break;
+      case UpdateLogicNodeResult::unchanged:
+        changed = false;
+        break;
+      case UpdateLogicNodeResult::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case UpdateLogicNodeResult::node_not_found:
+        throw ProtocolError("logic_node_not_found", "logic node does not exist");
+      case UpdateLogicNodeResult::invalid_logic:
+        throw ProtocolError("invalid_params", "logic node data is invalid");
+      case UpdateLogicNodeResult::variable_limit:
+        throw ProtocolError(
+            "logic_variable_limit",
+            "project cannot contain more than 32 logic variables");
+    }
+    if (changed) {
+      if (const auto violation = validate_project_aggregate(candidate);
+          violation.has_value()) {
+        throw ProtocolError("internal_error", *violation);
+      }
+      require_aggregate() = std::move(candidate);
+    }
+  } else if (method == "logicControl.delete" ||
+             method == "logicControl.reorder") {
+    if (method == "logicControl.delete") {
+      require_exact_params(params, {"sceneId", "nodeId"});
+    } else {
+      require_exact_params(
+          params, {"sceneId", "nodeId", "beforeNodeId"});
+    }
+    const std::string scene_id = required_string(params, "sceneId");
+    const std::string node_id = required_string(params, "nodeId");
+    ProjectAggregate candidate = require_aggregate();
+    LogicControlMutationResult result;
+    if (method == "logicControl.delete") {
+      result = delete_logic_control(candidate.project, scene_id, node_id);
+    } else {
+      if (!params.contains("beforeNodeId") ||
+          (!params.at("beforeNodeId").is_null() &&
+           !params.at("beforeNodeId").is_string())) {
+        throw ProtocolError(
+            "invalid_params", "params.beforeNodeId must be a string or null");
+      }
+      result = reorder_logic_control(
+          candidate.project,
+          scene_id,
+          node_id,
+          required_nullable_string(params, "beforeNodeId"));
+    }
+    switch (result) {
+      case LogicControlMutationResult::changed:
+        changed = true;
+        break;
+      case LogicControlMutationResult::unchanged:
+        changed = false;
+        break;
+      case LogicControlMutationResult::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case LogicControlMutationResult::node_not_found:
+        throw ProtocolError("logic_node_not_found", "logic node does not exist");
+      case LogicControlMutationResult::not_control_root:
+        throw ProtocolError(
+            "logic_control_root_required",
+            "nodeId must identify an if or repeat root");
+      case LogicControlMutationResult::anchor_not_found:
+        throw ProtocolError("node_not_found", "timeline anchor does not exist");
+      case LogicControlMutationResult::anchor_inside_control:
+        throw ProtocolError(
+            "invalid_params",
+            "beforeNodeId must not be inside the moved control");
+    }
+    if (changed) {
+      if (const auto violation = validate_project_aggregate(candidate);
+          violation.has_value()) {
+        throw ProtocolError("internal_error", *violation);
+      }
+      require_aggregate() = std::move(candidate);
+    }
   } else if (method == "sceneJump.add") {
     const std::string scene_id = required_string(params, "sceneId");
     const std::string target_scene_id =
@@ -1380,6 +2259,10 @@ Json Backend::handle(const Json& request) {
             "afterNodeId and beforeNodeId cannot both be provided");
       case vnengine::AddSceneJumpNodeStatus::anchor_not_found:
         throw ProtocolError("node_not_found", "timeline anchor does not exist");
+      case vnengine::AddSceneJumpNodeStatus::control_boundary_conflict:
+        throw ProtocolError(
+            "cg_display_body_invalid",
+            "CG display body may contain only dialogue nodes");
     }
     if (const auto violation = vnengine::validate_project_aggregate(candidate);
         violation.has_value()) {
@@ -1428,8 +2311,20 @@ Json Backend::handle(const Json& request) {
       throw ProtocolError("scene_not_found", "scene does not exist");
     }
     for (const std::string& node_id : node_ids) {
-      if (vnengine::find_scene_node(*scene, node_id) == nullptr) {
+      const vnengine::SceneNode* node =
+          vnengine::find_scene_node(*scene, node_id);
+      if (node == nullptr) {
         throw ProtocolError("node_not_found", "timeline node does not exist");
+      }
+      if (vnengine::is_logic_control_marker(*node)) {
+        throw ProtocolError(
+            "logic_control_atomic_required",
+            "logic control markers require logicControl.delete");
+      }
+      if (vnengine::is_cg_display_control_marker(*node)) {
+        throw ProtocolError(
+            "cg_display_atomic_required",
+            "CG display markers require cgDisplay.delete");
       }
     }
     changed = vnengine::delete_scene_nodes(project, scene_id, node_ids);
@@ -1457,9 +2352,17 @@ Json Backend::handle(const Json& request) {
     const std::unordered_set<std::string> selected_ids(
         node_ids.begin(), node_ids.end());
     for (const std::string& node_id : node_ids) {
-      if (vnengine::find_scene_node(*scene, node_id) == nullptr) {
+      const vnengine::SceneNode* node =
+          vnengine::find_scene_node(*scene, node_id);
+      if (node == nullptr) {
         throw ProtocolError("node_not_found", "timeline node does not exist");
       }
+    }
+    if (!vnengine::scene_node_selection_respects_logic_boundaries(
+            *scene, node_ids)) {
+      throw ProtocolError(
+          "logic_control_atomic_required",
+          "timeline selection must contain complete controls");
     }
 
     std::optional<std::string> before_node_id;

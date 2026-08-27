@@ -1,3 +1,5 @@
+// 主要作用：定义游戏导出请求、结果和独立应用元数据的共享契约。
+// 关键实现：校验可移植文件名并暴露 window.vnGameExport API 类型。
 // Use filenamify's browser entry here. This shared contract is imported by the
 // sandboxed Electron Preload, where the package's default Node entry would
 // eagerly load `node:path` and prevent the entire contextBridge from starting.

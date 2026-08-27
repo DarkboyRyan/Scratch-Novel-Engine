@@ -1,3 +1,7 @@
+/**
+ * 主要作用：构建可独立部署的 Web Player 模板及其固定输出结构。
+ * 关键函数与实现：defineConfig、固定 base、模板输出；以 TypeScript 类型边界和可组合函数实现。
+ */
 import path from 'node:path';
 
 import react from '@vitejs/plugin-react';

@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：捕获 Renderer 渲染异常并提供可恢复的错误界面。
+ * 包含实现：`RendererErrorBoundary`。
+ */
+
 import {
   Component,
   type ErrorInfo,

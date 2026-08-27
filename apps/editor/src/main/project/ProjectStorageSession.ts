@@ -1,3 +1,5 @@
+// 主要作用：维护当前项目目录并将导入资产复制到受管 assets 区域。
+// 关键实现：ProjectStorageSession 绑定根目录、规范资源路径并原子写入。
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';

@@ -1,3 +1,5 @@
+// 主要作用：安装符合当前语言的 Electron 应用菜单和项目命令。
+// 关键实现：installApplicationMenu 构建菜单模板并向聚焦窗口发送命令。
 import {
   app,
   BrowserWindow,

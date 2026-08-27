@@ -1,3 +1,7 @@
+/**
+ * 主要作用：批量异步解析资源 ID，并维护可取消的媒体 URL 状态。
+ * 关键函数与实现：`useResolvedMediaUrls`；以 TypeScript 类型边界和可组合函数实现。
+ */
 import { useEffect, useMemo, useState } from 'react';
 import type { MediaUrlResolver } from '@vnengine/player-ui';
 

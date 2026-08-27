@@ -1,3 +1,5 @@
+// 主要作用：定义 Editor 语言设置的版本模型、校验器和 IPC API。
+// 关键实现：提供默认设置及 isEditorSettings、isEditorSettingsPatch 守卫。
 export const EDITOR_SETTINGS_IPC_CHANNEL = 'vn-editor-settings:request';
 export const EDITOR_SETTINGS_CHANGED_CHANNEL = 'vn-editor-settings:changed';
 export const EDITOR_SETTINGS_VERSION = 1 as const;
@@ -84,4 +86,3 @@ export type VnEditorSettingsApi = {
   ): Promise<EditorSettingsWriteResult>;
   onChanged(listener: (settings: EditorSettings) => void): () => void;
 };
-

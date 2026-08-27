@@ -1,3 +1,5 @@
+// 主要作用：将 Editor 设置安全持久化到用户配置目录。
+// 关键实现：EditorSettingsStore 校验版本并通过临时文件、同步和原子重命名写入。
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import {
@@ -316,4 +318,3 @@ export class EditorSettingsStore {
     }
   }
 }
-

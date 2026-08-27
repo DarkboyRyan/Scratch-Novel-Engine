@@ -1,14 +1,22 @@
+/**
+ * 文件主要作用：注册并投影可编辑标语与游戏名的标题界面根积木、背景和音乐积木。
+ * 包含实现：`START_SCREEN_ROOT_BLOCK_TYPE`、`START_SCREEN_BACKGROUND_BLOCK_TYPE`、`START_SCREEN_MUSIC_BLOCK_TYPE`、`START_SCREEN_BLOCK_IDS`、`START_SCREEN_BLOCK_FIELDS`、`StartScreenAssetLabels` 等 13 项。
+ */
+
 import * as Blockly from 'blockly';
 
 import type {
   AssetDocument,
   ProjectDocument,
 } from '../../../shared/projectTypes';
+import { DEFAULT_START_SCREEN_EYEBROW } from '../../../shared/projectTypes';
 import {
   DEFAULT_EDITOR_LANGUAGE,
   getEditorLabels,
   type EditorLabels,
 } from '../../i18n/editorLocalization';
+import { limitAssetFieldDisplay } from '../block-editor/blocks/assetNameField';
+import { constrainStartScreenEyebrowInput } from './startScreenScene';
 
 export const START_SCREEN_ROOT_BLOCK_TYPE = 'vn_start_screen';
 export const START_SCREEN_BACKGROUND_BLOCK_TYPE =
@@ -23,16 +31,19 @@ export const START_SCREEN_BLOCK_IDS = {
 
 export const START_SCREEN_BLOCK_FIELDS = {
   title: 'TITLE',
+  eyebrow: 'EYEBROW',
   backgroundAssetId: 'BACKGROUND_ASSET_ID',
   musicAssetId: 'MUSIC_ASSET_ID',
 } as const;
 
 const START_SCREEN_LABEL_FIELDS = {
   title: 'VN_LABEL_START_SCREEN_TITLE',
+  eyebrow: 'VN_LABEL_START_SCREEN_EYEBROW',
   contents: 'VN_LABEL_START_SCREEN_CONTENTS',
   background: 'VN_LABEL_START_SCREEN_BACKGROUND',
   music: 'VN_LABEL_START_SCREEN_MUSIC',
 } as const;
+const START_SCREEN_EYEBROW_INPUT = 'VN_START_SCREEN_EYEBROW_INPUT';
 let currentLabels = getEditorLabels(DEFAULT_EDITOR_LANGUAGE);
 
 type StartScreenDocument = ProjectDocument['startScreen'];
@@ -142,10 +153,8 @@ export function createStartScreenMusicOptions(
 }
 
 function registerRootBlock(): void {
-  if (Blockly.Blocks[START_SCREEN_ROOT_BLOCK_TYPE]) {
-    return;
-  }
-
+  // Blockly's global registry survives Renderer HMR. Always replace this
+  // managed definition so a pre-eyebrow version cannot create stale blocks.
   Blockly.Blocks[START_SCREEN_ROOT_BLOCK_TYPE] = {
     init(): void {
       this.appendDummyInput()
@@ -153,6 +162,18 @@ function registerRootBlock(): void {
         .appendField(
           new Blockly.FieldTextInput(currentLabels.blockly.startScreenDefaultTitle),
           START_SCREEN_BLOCK_FIELDS.title,
+        );
+      this.appendDummyInput(START_SCREEN_EYEBROW_INPUT)
+        .appendField(
+          currentLabels.blockly.startScreenEyebrow,
+          START_SCREEN_LABEL_FIELDS.eyebrow,
+        )
+        .appendField(
+          new Blockly.FieldTextInput(
+            DEFAULT_START_SCREEN_EYEBROW,
+            constrainStartScreenEyebrowInput,
+          ),
+          START_SCREEN_BLOCK_FIELDS.eyebrow,
         );
       this.appendStatementInput('CONTENTS').appendField(currentLabels.blockly.startScreenContents, START_SCREEN_LABEL_FIELDS.contents);
       this.setColour(260);
@@ -162,6 +183,39 @@ function registerRootBlock(): void {
   };
 }
 
+function ensureRootEyebrowField(
+  root: Blockly.Block,
+  initialValue: string,
+): Blockly.FieldTextInput {
+  let field = root.getField(START_SCREEN_BLOCK_FIELDS.eyebrow);
+  if (field === null) {
+    const input = root.getInput(START_SCREEN_EYEBROW_INPUT) ??
+      root.appendDummyInput(START_SCREEN_EYEBROW_INPUT);
+    if (root.getField(START_SCREEN_LABEL_FIELDS.eyebrow) === null) {
+      input.appendField(
+        currentLabels.blockly.startScreenEyebrow,
+        START_SCREEN_LABEL_FIELDS.eyebrow,
+      );
+    }
+    input.appendField(
+      new Blockly.FieldTextInput(
+        initialValue,
+        constrainStartScreenEyebrowInput,
+      ),
+      START_SCREEN_BLOCK_FIELDS.eyebrow,
+    );
+    if (root.getInput('CONTENTS') !== null) {
+      root.moveInputBefore(START_SCREEN_EYEBROW_INPUT, 'CONTENTS');
+    }
+    field = root.getField(START_SCREEN_BLOCK_FIELDS.eyebrow);
+  }
+  if (!(field instanceof Blockly.FieldTextInput)) {
+    throw new Error('start screen eyebrow field is not a text input');
+  }
+  field.setValidator(constrainStartScreenEyebrowInput);
+  return field;
+}
+
 function registerBackgroundBlock(): void {
   if (Blockly.Blocks[START_SCREEN_BACKGROUND_BLOCK_TYPE]) {
     return;
@@ -169,10 +223,14 @@ function registerBackgroundBlock(): void {
 
   Blockly.Blocks[START_SCREEN_BACKGROUND_BLOCK_TYPE] = {
     init(): void {
+      const assetField = new Blockly.FieldDropdown([
+        [currentLabels.common.none, ''],
+      ]);
+      limitAssetFieldDisplay(assetField);
       this.appendDummyInput()
         .appendField(currentLabels.blockly.startScreenBackground, START_SCREEN_LABEL_FIELDS.background)
         .appendField(
-          new Blockly.FieldDropdown([[currentLabels.common.none, '']]),
+          assetField,
           START_SCREEN_BLOCK_FIELDS.backgroundAssetId,
         );
       this.setPreviousStatement(true);
@@ -225,7 +283,14 @@ export function applyStartScreenBlocksLocalization(
   const music = workspace.getBlockById(START_SCREEN_BLOCK_IDS.music);
   Blockly.Events.disable();
   try {
+    if (root?.type === START_SCREEN_ROOT_BLOCK_TYPE) {
+      ensureRootEyebrowField(root, startScreen.eyebrow);
+    }
     root?.setFieldValue(labels.blockly.startScreenTitle, START_SCREEN_LABEL_FIELDS.title);
+    root?.setFieldValue(
+      labels.blockly.startScreenEyebrow,
+      START_SCREEN_LABEL_FIELDS.eyebrow,
+    );
     root?.setFieldValue(labels.blockly.startScreenContents, START_SCREEN_LABEL_FIELDS.contents);
     root?.setTooltip(labels.blockly.startScreenTooltip);
 
@@ -321,9 +386,15 @@ export function renderStartScreenBlocks(
       START_SCREEN_BLOCK_IDS.music,
     );
 
+    ensureRootEyebrowField(root, startScreen.eyebrow);
+
     root.setFieldValue(
       startScreen.title,
       START_SCREEN_BLOCK_FIELDS.title,
+    );
+    root.setFieldValue(
+      startScreen.eyebrow,
+      START_SCREEN_BLOCK_FIELDS.eyebrow,
     );
 
     configureDropdown(

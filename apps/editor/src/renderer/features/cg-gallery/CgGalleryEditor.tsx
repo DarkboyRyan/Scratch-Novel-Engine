@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：在表单与积木模式间切换并统一提交 CG 画廊变更。
+ * 包含实现：`CgGalleryEditor`。
+ */
+
 import {
   forwardRef,
   useEffect,

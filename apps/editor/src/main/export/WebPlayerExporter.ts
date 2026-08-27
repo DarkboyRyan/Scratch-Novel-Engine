@@ -1,3 +1,5 @@
+// 主要作用：将 Runtime Bundle 与 Web Player 模板导出为目录或 WebGL.zip。
+// 关键实现：稳定复制模板、生成确定性 ZIP、验证归档并原子发布目标。
 import { createHash, randomUUID } from 'node:crypto';
 import {
   close as closeDescriptor,

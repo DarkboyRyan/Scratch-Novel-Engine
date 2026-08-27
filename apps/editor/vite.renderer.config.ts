@@ -1,3 +1,5 @@
+// 主要作用：配置 React Renderer 的 Vite 编译和依赖预构建边界。
+// 关键实现：启用 React 插件，并排除工作区运行时包以防陈旧缓存。
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 

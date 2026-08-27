@@ -1,3 +1,7 @@
+/**
+ * 主要作用：渲染可缩放标题页并组合开始、读档、CG、选项和退出入口。
+ * 关键函数与实现：`TitleScreenProps`、`TitleScreen`；基于 React 组件、Hooks、可访问交互与受控状态实现。
+ */
 import { useEffect, useRef, useState } from 'react';
 import type { StartScreenDocument } from '@vnengine/runtime';
 
@@ -191,7 +195,9 @@ export function TitleScreen({
         inert={titleActionsBlocked}
       >
         <section ref={titleFit.contentRef} className="player-title-card">
-          <p className="player-eyebrow">{labels.eyebrow}</p>
+          {startScreen.eyebrow ? (
+            <p className="player-eyebrow">{startScreen.eyebrow}</p>
+          ) : null}
           <h1>{startScreen.title || labels.untitledGame}</h1>
           <div className="player-title-actions player-title-actions-vertical">
             <button

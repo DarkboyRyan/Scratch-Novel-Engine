@@ -1,3 +1,7 @@
+/**
+ * 主要作用：以浏览器能力实现 PlayerGateway，并协调全屏、存储和媒体 URL。
+ * 关键函数与实现：`WebPlayerGatewayOptions`、`WebPlayerGateway`、`webPlayerGateway`；基于浏览器 Fetch、IndexedDB、Fullscreen 与 React 边界实现。
+ */
 import type { GameRuntimeSnapshot } from '@vnengine/runtime';
 
 import type {

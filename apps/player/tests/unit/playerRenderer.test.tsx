@@ -1,4 +1,8 @@
 /** @vitest-environment jsdom */
+/**
+ * 主要作用：覆盖标题页、游戏、存读档、选项、快进和返回标题主流程。
+ * 关键函数与实现：测试套件“Player Renderer”、`project`、`game`、`button`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -12,6 +16,7 @@ import type { PlayerGateway } from '../../src/renderer/playerGateway';
 import {
   createDefaultPlayerSettings,
   type PlayerErrorCode,
+  type PlayerMode,
   type PlayerSaveSummaryContent,
 } from '../../src/shared/playerProtocol';
 
@@ -27,6 +32,7 @@ const project: ProjectDocument = {
   entrySceneId: 'entry',
   startScreen: {
     title: '自定义星光标题',
+    eyebrow: 'A VN ENGINE STORY',
     backgroundAssetId: null,
     musicAssetId: null,
   },
@@ -46,6 +52,7 @@ const project: ProjectDocument = {
           slot: 'center',
           layer: 2,
           position: { x: 37, y: 89 },
+          effect: null,
         },
         { id: 'bgm', type: 'bgm', assetId: 'bgm-1' },
         {
@@ -352,6 +359,7 @@ describe('Player Renderer', () => {
         ...project,
         startScreen: {
           title: '媒体标题页',
+          eyebrow: project.startScreen.eyebrow,
           backgroundAssetId: 'title-background',
           musicAssetId: 'title-music',
         },
@@ -464,6 +472,10 @@ describe('Player Renderer', () => {
 
     await act(async () => root.render(<App gateway={gateway} />));
     expect(container.textContent).toContain('正在载入游戏');
+    expect(container.querySelector('.player-loading')?.getAttribute('aria-busy'))
+      .toBe('true');
+    expect(container.querySelector('[role="status"]')?.className)
+      .toContain('player-loading-status');
     expect(resolveMediaUrl).not.toHaveBeenCalledWith('title-music');
 
     await act(async () => settingsRequest.resolve({
@@ -502,6 +514,38 @@ describe('Player Renderer', () => {
     expect(vi.mocked(HTMLMediaElement.prototype.pause)).toHaveBeenCalledTimes(
       pauseCalls,
     );
+  });
+
+  it('keeps the localized loading shell visible while the bundle is pending', async () => {
+    const gameRequest = deferred<{
+      status: 'loaded';
+      mode: PlayerMode;
+      game: typeof game;
+    }>();
+    getSettings.mockResolvedValue({
+      status: 'ready',
+      settings: {
+        ...createDefaultPlayerSettings(),
+        language: 'en-US',
+      },
+    });
+    gateway.loadGame = vi.fn().mockReturnValue(gameRequest.promise);
+
+    await act(async () => root.render(<App gateway={gateway} />));
+    await act(async () => undefined);
+
+    const loadingStatus = container.querySelector('[role="status"]');
+    expect(loadingStatus?.className).toContain('player-loading-status');
+    expect(loadingStatus?.textContent).toContain('Loading game');
+    expect(document.documentElement.lang).toBe('en-US');
+
+    await act(async () => gameRequest.resolve({
+      status: 'loaded',
+      mode: 'generic',
+      game,
+    }));
+    expect(container.querySelector('[role="status"]')).toBeNull();
+    expect(container.querySelector('h1')?.textContent).toBe('自定义星光标题');
   });
 
   it('commits keyboard volume changes one at a time and restores focus', async () => {
@@ -1042,6 +1086,43 @@ describe('Player Renderer', () => {
     expect(listSaveSlots).not.toHaveBeenCalled();
   });
 
+  it('does not advance while the reader scrolls overflowing dialogue', async () => {
+    await act(async () => root.render(<App gateway={gateway} />));
+    await act(async () => button(container, '开始游戏').click());
+
+    const dialogue = container.querySelector<HTMLElement>('.dialogue-box')!;
+    const dialogueText = dialogue.querySelector('p')!;
+    Object.defineProperties(dialogue, {
+      clientHeight: { configurable: true, value: 120 },
+      scrollHeight: { configurable: true, value: 320 },
+    });
+
+    dialogueText.dispatchEvent(new MouseEvent('pointerdown', {
+      bubbles: true,
+      button: 0,
+      clientY: 120,
+    }));
+    dialogue.scrollTop = 80;
+    await act(async () => dialogueText.dispatchEvent(new MouseEvent(
+      'pointerup',
+      { bubbles: true, button: 0, clientY: 40 },
+    )));
+
+    expect(container.textContent).toContain('欢迎来到故事。');
+    expect(container.textContent).not.toContain('继续前进');
+
+    dialogueText.dispatchEvent(new MouseEvent('pointerdown', {
+      bubbles: true,
+      button: 0,
+      clientY: 40,
+    }));
+    await act(async () => dialogueText.dispatchEvent(new MouseEvent(
+      'pointerup',
+      { bubbles: true, button: 0, clientY: 40 },
+    )));
+    expect(exactButton(container, '继续前进')).toBeTruthy();
+  });
+
   it('toggles timed fast-forward from the action bar and stops immediately', async () => {
     vi.useFakeTimers();
     gateway.loadGame = vi.fn().mockResolvedValue({
@@ -1347,7 +1428,7 @@ describe('Player Renderer', () => {
     expect(saveGame).toHaveBeenCalledOnce();
     expect(saveGame.mock.calls[0]?.[0]).toBe(1);
     expect(saveGame.mock.calls[0]?.[1]).toMatchObject({
-      snapshotVersion: 1,
+      snapshotVersion: 4,
       sceneId: 'entry',
       status: 'playing',
     });
@@ -1502,6 +1583,9 @@ describe('Player Renderer', () => {
     }));
     expect(container.textContent).toContain('快速保存完成');
 
+    expect(container.querySelector('.player-save-toast')
+      ?.getAttribute('aria-atomic')).toBe('true');
+
     const gameBeforeLoad = container.querySelector('.player-game');
     quickLoad.mockResolvedValue({
       status: 'loaded',
@@ -1528,6 +1612,7 @@ describe('Player Renderer', () => {
           ...project,
           startScreen: {
             title: project.startScreen.title,
+            eyebrow: project.startScreen.eyebrow,
             backgroundAssetId: null,
             musicAssetId: 'title-music',
           },
@@ -1678,6 +1763,7 @@ describe('Player Renderer', () => {
         ...project,
         startScreen: {
           title: project.startScreen.title,
+          eyebrow: project.startScreen.eyebrow,
           backgroundAssetId: 'same-title',
           musicAssetId: null,
         },
@@ -1726,6 +1812,8 @@ describe('Player Renderer', () => {
     const pauseMenu = container.querySelector<HTMLElement>(
       '[aria-label="暂停菜单"]',
     );
+    expect(exactButton(pauseMenu!, '重新开始').classList)
+      .toContain('secondary');
     const pauseOptions = exactButton(pauseMenu!, '选项');
     pauseOptions.focus();
     await act(async () => pauseOptions.click());
@@ -1811,6 +1899,10 @@ describe('Player Renderer', () => {
     await act(async () => root.render(<App gateway={gateway} />));
 
     expect(container.textContent).toContain('.vngame');
+    const emptyCard = container.querySelector<HTMLElement>('.player-shell-card');
+    expect(emptyCard?.getAttribute('aria-labelledby')).toBe('player-empty-title');
+    expect(emptyCard?.getAttribute('aria-describedby'))
+      .toBe('player-empty-description');
     await act(async () => button(container, '选择游戏包').click());
     expect(gateway.openGame).toHaveBeenCalledOnce();
     expect(container.querySelector('h1')?.textContent).toBe('自定义星光标题');
@@ -1903,6 +1995,10 @@ describe('Player Renderer', () => {
     expect(container.querySelector('[role="alert"]')?.textContent).toContain(
       '无法读取游戏内容包',
     );
+    const errorCard = container.querySelector<HTMLElement>('[role="alert"]');
+    expect(errorCard?.getAttribute('aria-labelledby')).toBe('player-error-title');
+    expect(errorCard?.getAttribute('aria-describedby'))
+      .toBe('player-error-description');
     gateway.openGame = vi.fn().mockRejectedValueOnce(new Error('read failed'));
     await act(async () => button(container, '选择其他游戏包').click());
     expect(container.querySelector('[role="alert"]')?.textContent).toContain(

@@ -1,3 +1,7 @@
+/**
+ * 主要作用：验证标题页等比缩放算法、边界与 CSS 接线。
+ * 关键函数与实现：测试套件“title screen auto-fit contract”；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 

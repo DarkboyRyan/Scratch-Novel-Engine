@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：组织编辑器主界面的项目会话、编辑模式、预览与全局对话框状态。
+ * 包含实现：`App`。
+ */
+
 import { useEffect, useReducer, useRef, useState } from 'react';
 
 import {
@@ -490,6 +495,18 @@ function EditorApplication({
   const backgroundUrl = backgroundAsset
     ? assetPreviewUrls[backgroundAsset.id] ?? null
     : null;
+  const cgAsset = timelinePreview.cgAssetId
+    ? engine.assets.find(
+        (asset) =>
+          asset.id === timelinePreview.cgAssetId && asset.type === 'image',
+      ) ?? null
+    : null;
+  const cgUrl = cgAsset
+    ? assetPreviewUrls[cgAsset.id] ?? null
+    : null;
+  const cgName = timelinePreview.cgAssetId === null
+    ? null
+    : (cgAsset?.displayName ?? labels.common.missingImage);
   const previewCharacters = timelinePreview.characters.map((character) => {
     const asset = engine.assets.find(
       (item) => item.id === character.assetId,
@@ -501,6 +518,9 @@ function EditorApplication({
       slot: character.slot,
       layer: character.layer,
       position: character.position,
+      opacity: character.opacity,
+      effect: null,
+      effectSequence: character.effectSequence,
     };
   });
 
@@ -628,7 +648,15 @@ function EditorApplication({
           assets={engine.assets}
           backgroundUrl={backgroundUrl}
           backgroundName={backgroundAsset?.displayName ?? null}
+          cgUrl={cgUrl}
+          cgName={cgName}
           showDialogue={timelinePreview.showDialogue}
+          logicPreviewUncertain={
+            timelinePreview.logicPreviewUncertain === true
+          }
+          cgPreviewUncertain={
+            timelinePreview.cgPreviewUncertain === true
+          }
           characters={previewCharacters}
           isStartPreviewDisabled={engine.isBusy}
           onStartPreview={() => void handleStartPreview()}
@@ -660,6 +688,8 @@ function EditorApplication({
           onBackgroundUpdate={engine.updateBackground}
           onCharacterAdd={engine.addCharacter}
           onCharacterUpdate={engine.updateCharacter}
+          onCharacterEffectUpdate={engine.updateCharacterEffect}
+          onCharacterEffectMove={engine.moveCharacterEffect}
           onSceneJumpAdd={engine.addSceneJump}
           onSceneJumpUpdate={engine.updateSceneJump}
           onBgmAdd={engine.addBgm}
@@ -669,6 +699,20 @@ function EditorApplication({
           onChoiceAdd={engine.addChoice}
           onChoiceOptionAdd={engine.addChoiceOption}
           onStoryExtensionAdd={engine.addStoryExtension}
+          onVariableSetAdd={engine.addVariableSet}
+          onVariableSetUpdate={engine.updateVariableSet}
+          onVariableChangeAdd={engine.addVariableChange}
+          onVariableChangeUpdate={engine.updateVariableChange}
+          onLogicIfAdd={engine.addLogicIf}
+          onLogicIfUpdate={engine.updateLogicIf}
+          onLogicRepeatAdd={engine.addLogicRepeat}
+          onLogicRepeatUpdate={engine.updateLogicRepeat}
+          onLogicControlDelete={engine.deleteLogicControl}
+          onLogicControlReorder={engine.reorderLogicControl}
+          onCgDisplayAdd={engine.addCgDisplay}
+          onCgDisplayUpdate={engine.updateCgDisplay}
+          onCgDisplayDelete={engine.deleteCgDisplay}
+          onCgDisplayReorder={engine.reorderCgDisplay}
           onChoiceOptionUpdate={engine.updateChoiceOption}
           onChoiceOptionDelete={engine.deleteChoiceOption}
           onChoiceOptionReorder={engine.reorderChoiceOption}
@@ -703,6 +747,7 @@ function EditorApplication({
           previewUrls={assetPreviewUrls}
           resolveMediaUrl={resolveEditorMediaUrl}
           onAdvance={gamePreview.advance}
+          onCgLeadInComplete={gamePreview.completeCgLeadIn}
           onVideoComplete={gamePreview.completeVideo}
           onChoiceSelect={gamePreview.selectChoice}
           onEnterStory={gamePreview.enterStory}

@@ -1,3 +1,7 @@
+/**
+ * 主要作用：验证 Web 导出描述文件的严格字段和版本兼容范围。
+ * 关键函数与实现：测试套件“Web export descriptor”、`validDescriptor`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 import { describe, expect, it } from 'vitest';
 
 import { parseWebExportDescriptor } from '../../src/shared/webExportProtocol';
@@ -15,6 +19,14 @@ describe('Web export descriptor', () => {
     expect(parseWebExportDescriptor(JSON.stringify(validDescriptor))).toEqual(
       validDescriptor,
     );
+    expect(parseWebExportDescriptor(JSON.stringify({
+      ...validDescriptor,
+      runtimeVersion: 10,
+      playerCompatibility: '>=10 <11',
+    }))).toMatchObject({
+      runtimeVersion: 10,
+      playerCompatibility: '>=10 <11',
+    });
   });
 
   it('rejects unknown fields, mismatched compatibility, and unsafe roots', () => {
@@ -26,6 +38,11 @@ describe('Web export descriptor', () => {
       ...validDescriptor,
       playerCompatibility: '>=1',
     }))).toThrow('兼容范围无效');
+    expect(() => parseWebExportDescriptor(JSON.stringify({
+      ...validDescriptor,
+      runtimeVersion: 11,
+      playerCompatibility: '>=11 <12',
+    }))).toThrow('版本或格式不受支持');
     for (const gameRoot of [
       '/game/build',
       'game/../build',

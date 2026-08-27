@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 Editor settings protocol 的行为。
+ * 测试覆盖：`Editor settings protocol`。
+ */
+
 import { describe, expect, it } from 'vitest';
 
 import {

@@ -1,3 +1,10 @@
+/**
+ * 文件主要作用：组合场景预览舞台、播放器状态与预览控制提示。
+ * 包含实现：`PreviewPanel`。
+ */
+
+import { useEffect, useState } from 'react';
+
 import {
   VisualStage,
   type PreviewCharacter,
@@ -9,7 +16,11 @@ type PreviewPanelProps = {
   text: string;
   backgroundUrl: string | null;
   backgroundName: string | null;
+  cgUrl?: string | null;
+  cgName?: string | null;
   showDialogue?: boolean;
+  logicPreviewUncertain?: boolean;
+  cgPreviewUncertain?: boolean;
   characters?: PreviewCharacter[];
   isStartDisabled?: boolean;
   onStartPreview?: () => void;
@@ -22,12 +33,22 @@ export function PreviewPanel({
   text,
   backgroundUrl,
   backgroundName,
+  cgUrl = null,
+  cgName = null,
   showDialogue = true,
+  logicPreviewUncertain = false,
+  cgPreviewUncertain = false,
   characters = [],
   isStartDisabled = false,
   onStartPreview,
 }: PreviewPanelProps) {
   const labels = useEditorLabels();
+  const [cgImageFailed, setCgImageFailed] = useState(false);
+
+  useEffect(() => {
+    setCgImageFailed(false);
+  }, [cgUrl]);
+
   return (
     <main className="preview-panel">
       {onStartPreview ? (
@@ -45,6 +66,17 @@ export function PreviewPanel({
         </div>
       ) : null}
 
+      {logicPreviewUncertain ? (
+        <p className="preview-logic-notice" role="note">
+          {labels.preview.logicPreviewUncertain}
+        </p>
+      ) : null}
+      {cgPreviewUncertain ? (
+        <p className="preview-logic-notice" role="note">
+          {labels.preview.cgPreviewUncertain}
+        </p>
+      ) : null}
+
       <VisualStage
         speaker={speaker}
         text={text}
@@ -52,7 +84,24 @@ export function PreviewPanel({
         backgroundName={backgroundName}
         showDialogue={showDialogue}
         characters={characters}
-      />
+      >
+        {cgName !== null ? (
+          <div
+            className="static-preview-cg-layer"
+            aria-label={cgName}
+          >
+            {cgUrl && !cgImageFailed ? (
+              <img
+                src={cgUrl}
+                alt={cgName}
+                onError={() => setCgImageFailed(true)}
+              />
+            ) : (
+              <p>{cgName}</p>
+            )}
+          </div>
+        ) : null}
+      </VisualStage>
     </main>
   );
 }

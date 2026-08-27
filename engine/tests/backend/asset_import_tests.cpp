@@ -1,3 +1,5 @@
+// 文件职责：验证媒体导入的类型识别、路径隔离和无覆盖发布。
+// 关键覆盖：图片/视频/音频 magic bytes、符号链接、源文件竞态与故障恢复。
 #include <array>
 #include <chrono>
 #include <filesystem>

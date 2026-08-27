@@ -1,3 +1,5 @@
+// 主要作用：在 Main 边界严格校验资源导入 IPC 的动作和参数。
+// 关键实现：isAssetInvocation 仅接受白名单动作及精确空参数对象。
 import type { AssetInvocation } from '../../shared/assetProtocol';
 
 function isObject(value: unknown): value is Record<string, unknown> {

@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：管理 CG 画廊 Blockly 工作区、投影与字段事件同步。
+ * 包含实现：`CgGalleryEditorHandle`、`CgGalleryBlocklyWorkspace`。
+ */
+
 import {
   forwardRef,
   useEffect,

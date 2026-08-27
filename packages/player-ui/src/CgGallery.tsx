@@ -1,3 +1,7 @@
+/**
+ * 主要作用：提供九宫格分页 CG 画廊、资源解析和灯箱预览。
+ * 关键函数与实现：`CgGalleryProps`、`CgGallery`；基于 React 组件、Hooks、可访问交互与受控状态实现。
+ */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { PlayerUiLocalizationProps } from './localization';

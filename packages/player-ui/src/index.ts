@@ -1,3 +1,7 @@
+/**
+ * 主要作用：集中导出 Player UI 的公共组件、Hooks、类型和工具。
+ * 关键函数与实现：Player UI 公共 API 转发；以 TypeScript 类型边界和可组合函数实现。
+ */
 export {
   CgGallery,
   type CgGalleryProps,

@@ -1,4 +1,8 @@
 /** @vitest-environment jsdom */
+/**
+ * 主要作用：验证中英文组件文本、ARIA、错误消息和交互切换。
+ * 关键函数与实现：测试套件“Player UI localization”、`setSelectValue`、`referencedIds`、`referencedText`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
+ */
 
 import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -104,6 +108,7 @@ describe('Player UI localization', () => {
         <TitleScreen
           startScreen={{
             title: '',
+            eyebrow: '作者自定义标语',
             backgroundAssetId: null,
             musicAssetId: null,
           }}
@@ -116,10 +121,30 @@ describe('Player UI localization', () => {
     ));
 
     expect(container.querySelector('h1')?.textContent).toBe('Untitled Game');
+    expect(container.querySelector('.player-eyebrow')?.textContent).toBe(
+      '作者自定义标语',
+    );
     expect(container.textContent).toContain('Start Game');
     expect(container.textContent).toContain('Load Game');
     expect(container.textContent).toContain('CG Gallery');
     expect(container.textContent).toContain('Quit Game');
+
+    await act(async () => root.render(
+      <PlayerUiProvider language="en-US">
+        <TitleScreen
+          startScreen={{
+            title: 'No eyebrow',
+            eyebrow: '',
+            backgroundAssetId: null,
+            musicAssetId: null,
+          }}
+          resolveMediaUrl={resolveMediaUrl}
+          onStart={vi.fn()}
+          onExit={vi.fn()}
+        />
+      </PlayerUiProvider>,
+    ));
+    expect(container.querySelector('.player-eyebrow')).toBeNull();
 
     await act(async () => root.render(
       <PlayerUiProvider language="en-US">

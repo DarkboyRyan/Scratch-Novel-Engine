@@ -1,3 +1,8 @@
+/**
+ * 文件主要作用：验证 captureSceneWorkspaceLayout、restoreSceneWorkspaceViewport 的行为。
+ * 测试覆盖：`captureSceneWorkspaceLayout`、`restoreSceneWorkspaceViewport`。
+ */
+
 import type * as Blockly from 'blockly';
 import { describe, expect, it, vi } from 'vitest';
 
