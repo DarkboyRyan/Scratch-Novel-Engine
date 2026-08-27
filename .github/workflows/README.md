@@ -1,6 +1,6 @@
 # GitHub Actions 工作流
 
-[返回 GitHub 自动化](../README.md)
+[返回 GitHub 自动化](../AUTOMATION.md)
 
 这里定义 Scratch Novel Engine 的跨平台质量门禁与正式发布流水线。三个工作流共享同一原则：先验证源码、依赖和输入，再生成制品；内部构建、独立游戏与正式 Player 的签名等级和发布权限彼此隔离。
 
