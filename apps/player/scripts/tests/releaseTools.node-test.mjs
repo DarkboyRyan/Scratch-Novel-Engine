@@ -36,6 +36,7 @@ import {
 import {
   windowsArchiveInvocation,
   windowsMetadataVerificationInvocation,
+  windowsStandardZipArchiveInvocation,
   windowsSignatureVerificationInvocation,
 } from '../lib/windowsPowerShellPolicy.mjs';
 import { assertExactMacosArchitecture } from '../lib/macosPlayerTemplate.mjs';
@@ -573,7 +574,7 @@ test('never interpolates untrusted workflow expressions into shell source', asyn
   assert.match(editorCiWorkflow, /id:\s+archive_editor/u);
   assert.match(
     editorCiWorkflow,
-    /input\|create\|zip-verify\|extract-verify\|cleanup/u,
+    /input\|create\|zip-verify\|extract-verify\|cleanup\|zip-open\|limits\|path\|duplicate\|unexpected\|type\|mode\|content\|missing\|finalize/u,
   );
   assert.match(editorCiWorkflow, /SAFE_ARCHIVE_PHASE="unknown"/u);
   assert.doesNotMatch(
@@ -625,6 +626,11 @@ test('passes Windows paths only through environment variables, never PowerShell 
   const destination = 'C:\\Artifact Root\\Player Output.zip';
   const verification = windowsSignatureVerificationInvocation(source, {});
   const archive = windowsArchiveInvocation(source, destination, {});
+  const standardZipArchive = windowsStandardZipArchiveInvocation(
+    source,
+    destination,
+    {},
+  );
   const metadata = windowsMetadataVerificationInvocation(
     source,
     "Game$(injected)`whoami`",
@@ -639,10 +645,23 @@ test('passes Windows paths only through environment variables, never PowerShell 
     assert.equal(invocation.args.at(-2), '-Command');
     assert.equal(invocation.args.at(-1).includes('$args'), false);
   }
+  assert.equal(standardZipArchive.command, 'pwsh.exe');
+  assert.equal(standardZipArchive.args.includes(source), false);
+  assert.equal(standardZipArchive.args.includes(destination), false);
+  assert.equal(standardZipArchive.args.at(-2), '-Command');
+  assert.equal(standardZipArchive.args.at(-1).includes('$args'), false);
   assert.equal(verification.environment.VN_PLAYER_WINDOWS_VERIFY_ROOT, source);
   assert.equal(archive.environment.VN_PLAYER_WINDOWS_ARCHIVE_SOURCE, source);
   assert.equal(
     archive.environment.VN_PLAYER_WINDOWS_ARCHIVE_DESTINATION,
+    destination,
+  );
+  assert.equal(
+    standardZipArchive.environment.VN_PLAYER_WINDOWS_ARCHIVE_SOURCE,
+    source,
+  );
+  assert.equal(
+    standardZipArchive.environment.VN_PLAYER_WINDOWS_ARCHIVE_DESTINATION,
     destination,
   );
   assert.equal(

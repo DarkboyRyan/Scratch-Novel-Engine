@@ -30,7 +30,7 @@ import {
   verifyGenericMacosPlayerTemplate,
 } from '../../../player/scripts/lib/macosPlayerTemplate.mjs';
 import {
-  windowsArchiveInvocation,
+  windowsStandardZipArchiveInvocation,
   windowsMetadataVerificationInvocation,
   windowsSignatureVerificationInvocation,
 } from '../../../player/scripts/lib/windowsPowerShellPolicy.mjs';
@@ -1131,15 +1131,38 @@ export function validateEditorReceipt(receipt) {
   return receipt;
 }
 
-export async function verifyEditorArchive(archivePath, receiptInput) {
+export async function verifyEditorArchive(
+  archivePath,
+  receiptInput,
+  recordFailure = () => {},
+) {
   const receipt = validateEditorReceipt(receiptInput);
-  const archiveStatus = await regularFile(archivePath, 'Editor ZIP');
+  let failureReported = false;
+  const reportFailureOnce = (code) => {
+    if (failureReported) {
+      return;
+    }
+    failureReported = true;
+    try {
+      recordFailure(code);
+    } catch {
+      // Failure diagnostics must not replace the original archive error.
+    }
+  };
+  let archiveStatus;
+  try {
+    archiveStatus = await regularFile(archivePath, 'Editor ZIP');
+  } catch (error) {
+    reportFailureOnce('zip-open');
+    throw error;
+  }
   const expectedName = expectedEditorArtifactName(
     receipt.platform,
     receipt.arch,
     receipt.version,
   );
   if (path.basename(archivePath) !== expectedName) {
+    reportFailureOnce('unexpected');
     throw new Error(`Editor ZIP 必须命名为 ${expectedName}`);
   }
   const expectedEntries = new Map(
@@ -1152,84 +1175,131 @@ export async function verifyEditorArchive(archivePath, receiptInput) {
   const seenCaseFolded = new Set();
   let entryCount = 0;
   let totalBytes = 0;
-  const zip = await openZip(archivePath);
+  let zip;
   try {
-    await new Promise((resolve, reject) => {
-      zip.on('error', reject);
-      zip.on('end', resolve);
-      zip.on('entry', (entry) => {
-        void (async () => {
-          entryCount += 1;
-          totalBytes += entry.uncompressedSize;
-          if (entryCount > 200_000 || totalBytes > 8 * 1024 * 1024 * 1024) {
-            throw new Error('Editor ZIP 文件数或展开大小超过安全上限');
-          }
-          const name = entry.fileName;
-          const normalizedName = name.endsWith('/')
-            ? name.slice(0, -1)
-            : name;
+    zip = await openZip(archivePath);
+  } catch (error) {
+    reportFailureOnce('zip-open');
+    throw error;
+  }
+  try {
+    try {
+      await new Promise((resolve, reject) => {
+        zip.on('error', (error) => {
           if (
-            name.includes('\0') ||
-            name.includes('\\') ||
-            name.startsWith('/') ||
-            name.split('/').some((segment) => segment === '..') ||
-            !(name === `${receipt.applicationRootName}/` ||
-              name.startsWith(`${receipt.applicationRootName}/`))
+            error instanceof Error &&
+            [
+              'invalid characters in fileName:',
+              'absolute path:',
+              'invalid relative path:',
+            ].some((prefix) => error.message.startsWith(prefix))
           ) {
-            throw new Error(`Editor ZIP 包含不安全或意外路径：${name}`);
+            reportFailureOnce('path');
           }
-          const folded = name.toLocaleLowerCase('en-US');
-          if (seenCaseFolded.has(folded)) {
-            throw new Error(`Editor ZIP 包含重复路径：${name}`);
-          }
-          seenCaseFolded.add(folded);
-          if (name === `${receipt.applicationRootName}/`) {
-            return;
-          }
-          const expected = expectedEntries.get(normalizedName);
-          if (expected === undefined) {
-            throw new Error(`Editor ZIP 包含回执未声明的条目：${name}`);
-          }
-          const unixMode = (entry.externalFileAttributes >>> 16) & 0xffff;
-          const unixType = unixMode & 0o170000;
-          const archiveType = name.endsWith('/') || unixType === 0o040000
-            ? 'directory'
-            : unixType === 0o120000
-              ? 'symlink'
-              : 'file';
-          if (archiveType !== expected.type) {
-            throw new Error(`Editor ZIP 条目类型与回执不一致：${name}`);
-          }
-          if (
-            receipt.platform === 'darwin' &&
-            (unixMode & 0o777) !== expected.mode
-          ) {
-            throw new Error(`Editor ZIP 条目权限与回执不一致：${name}`);
-          }
-          if (archiveType !== 'directory') {
-            const actual = await hashZipEntry(zip, entry);
-            if (actual.bytes !== expected.bytes || actual.sha256 !== expected.sha256) {
-              throw new Error(`Editor ZIP 文件与完整树回执不一致：${name}`);
+          reject(error);
+        });
+        zip.on('end', resolve);
+        zip.on('entry', (entry) => {
+          void (async () => {
+            entryCount += 1;
+            totalBytes += entry.uncompressedSize;
+            if (entryCount > 200_000 || totalBytes > 8 * 1024 * 1024 * 1024) {
+              reportFailureOnce('limits');
+              throw new Error('Editor ZIP 文件数或展开大小超过安全上限');
             }
-            seen.add(name);
-          }
-        })().then(() => zip.readEntry(), reject);
+            const name = entry.fileName;
+            const normalizedName = name.endsWith('/')
+              ? name.slice(0, -1)
+              : name;
+            if (
+              name.includes('\0') ||
+              name.includes('\\') ||
+              name.startsWith('/') ||
+              name.split('/').some((segment) => segment === '..') ||
+              !(name === `${receipt.applicationRootName}/` ||
+                name.startsWith(`${receipt.applicationRootName}/`))
+            ) {
+              reportFailureOnce('path');
+              throw new Error(`Editor ZIP 包含不安全或意外路径：${name}`);
+            }
+            const folded = name.toLocaleLowerCase('en-US');
+            if (seenCaseFolded.has(folded)) {
+              reportFailureOnce('duplicate');
+              throw new Error(`Editor ZIP 包含重复路径：${name}`);
+            }
+            seenCaseFolded.add(folded);
+            if (name === `${receipt.applicationRootName}/`) {
+              return;
+            }
+            const expected = expectedEntries.get(normalizedName);
+            if (expected === undefined) {
+              reportFailureOnce('unexpected');
+              throw new Error(`Editor ZIP 包含回执未声明的条目：${name}`);
+            }
+            const unixMode = (entry.externalFileAttributes >>> 16) & 0xffff;
+            const unixType = unixMode & 0o170000;
+            const archiveType = name.endsWith('/') || unixType === 0o040000
+              ? 'directory'
+              : unixType === 0o120000
+                ? 'symlink'
+                : 'file';
+            if (archiveType !== expected.type) {
+              reportFailureOnce('type');
+              throw new Error(`Editor ZIP 条目类型与回执不一致：${name}`);
+            }
+            if (
+              receipt.platform === 'darwin' &&
+              (unixMode & 0o777) !== expected.mode
+            ) {
+              reportFailureOnce('mode');
+              throw new Error(`Editor ZIP 条目权限与回执不一致：${name}`);
+            }
+            if (archiveType !== 'directory') {
+              let actual;
+              try {
+                actual = await hashZipEntry(zip, entry);
+              } catch (error) {
+                reportFailureOnce('content');
+                throw error;
+              }
+              if (
+                actual.bytes !== expected.bytes ||
+                actual.sha256 !== expected.sha256
+              ) {
+                reportFailureOnce('content');
+                throw new Error(`Editor ZIP 文件与完整树回执不一致：${name}`);
+              }
+              seen.add(name);
+            }
+          })().then(() => zip.readEntry(), reject);
+        });
+        zip.readEntry();
       });
-      zip.readEntry();
-    });
-  } finally {
-    zip.close();
+    } finally {
+      zip.close();
+    }
+  } catch (error) {
+    reportFailureOnce('finalize');
+    throw error;
   }
   const expectedMaterialEntries = receipt.applicationEntries.filter(
     (entry) => entry.type !== 'directory',
   ).length;
   if (entryCount === 0 || seen.size !== expectedMaterialEntries) {
+    reportFailureOnce('missing');
     throw new Error('Editor ZIP 缺少完整应用树中的文件或符号链接');
+  }
+  let archiveSha256;
+  try {
+    archiveSha256 = await hashFile(archivePath);
+  } catch (error) {
+    reportFailureOnce('finalize');
+    throw error;
   }
   return {
     name: expectedName,
     bytes: archiveStatus.size,
-    sha256: await hashFile(archivePath),
+    sha256: archiveSha256,
     entryCount,
   };
 }
@@ -1351,14 +1421,18 @@ export async function archiveEditorApplication({
       output,
     ]);
   } else {
-    const invocation = windowsArchiveInvocation(source, output);
+    const invocation = windowsStandardZipArchiveInvocation(source, output);
     runChecked(invocation.command, invocation.args, invocation.environment);
   }
   if ((await stat(output)).size <= 0) {
     throw new Error('Editor ZIP 是空文件');
   }
   recordPhase('zip-verify');
-  const artifact = await verifyEditorArchive(output, validatedReceipt);
+  const artifact = await verifyEditorArchive(
+    output,
+    validatedReceipt,
+    recordPhase,
+  );
   recordPhase('extract-verify');
   await verifyExtractedArchive(output, validatedReceipt, recordPhase);
   return artifact;

@@ -1,5 +1,5 @@
 /**
- * 主要作用：仅在受控 GitHub Actions Editor 内部归档流程中记录固定失败阶段。
+ * 主要作用：仅在受控 GitHub Actions Editor 内部归档流程中记录固定阶段或失败码。
  * 关键函数与实现：`recordEditorArchivePhase`；只允许固定枚举并向 GITHUB_OUTPUT 写入单行标记。
  */
 import { appendFileSync } from 'node:fs';
@@ -15,10 +15,26 @@ export const EDITOR_ARCHIVE_PHASES = Object.freeze([
   'cleanup',
 ]);
 
-const archivePhaseSet = new Set(EDITOR_ARCHIVE_PHASES);
+export const EDITOR_ARCHIVE_FAILURE_CODES = Object.freeze([
+  'zip-open',
+  'limits',
+  'path',
+  'duplicate',
+  'unexpected',
+  'type',
+  'mode',
+  'content',
+  'missing',
+  'finalize',
+]);
+
+const archiveDiagnosticSet = new Set([
+  ...EDITOR_ARCHIVE_PHASES,
+  ...EDITOR_ARCHIVE_FAILURE_CODES,
+]);
 
 export function recordEditorArchivePhase(phase, environment = process.env) {
-  if (!archivePhaseSet.has(phase)) {
+  if (!archiveDiagnosticSet.has(phase)) {
     throw new Error('无效的 Editor 归档阶段');
   }
   if (

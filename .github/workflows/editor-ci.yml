@@ -195,14 +195,14 @@ jobs:
             --output "${{ runner.temp }}/editor-internal-input/VN-Engine-Editor-${{ matrix.platform }}-${{ matrix.arch }}-$EDITOR_RELEASE_VERSION.zip" \
             --receipt "${{ runner.temp }}/editor-internal-receipt.json"
 
-      - name: Record the fixed Editor archive failure phase
+      - name: Record the fixed Editor archive failure phase or code
         if: failure() && steps.archive_editor.outcome == 'failure'
         shell: bash
         env:
           EDITOR_ARCHIVE_PHASE: ${{ steps.archive_editor.outputs.editor_archive_phase }}
         run: |
           case "$EDITOR_ARCHIVE_PHASE" in
-            input|create|zip-verify|extract-verify|cleanup)
+            input|create|zip-verify|extract-verify|cleanup|zip-open|limits|path|duplicate|unexpected|type|mode|content|missing|finalize)
               SAFE_ARCHIVE_PHASE="$EDITOR_ARCHIVE_PHASE"
               ;;
             *)
@@ -213,7 +213,7 @@ jobs:
           {
             echo "## Internal Editor archive failed"
             echo ""
-            echo "Fixed diagnostic phase: \`$SAFE_ARCHIVE_PHASE\`."
+            echo "Fixed diagnostic phase/code: \`$SAFE_ARCHIVE_PHASE\`."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Collect and verify the internal ZIP and SHA-256

@@ -1,6 +1,6 @@
 /**
  * 主要作用：生成固定参数的 Windows 签名验证、归档和元数据检查命令。
- * 关键函数与实现：`windowsSignatureVerificationInvocation`、`windowsArchiveInvocation`、`windowsMetadataVerificationInvocation`；基于 Node.js ESM、文件系统和受限子进程完成确定性 CLI 流程。
+ * 关键函数与实现：`windowsSignatureVerificationInvocation`、`windowsArchiveInvocation`、`windowsStandardZipArchiveInvocation`、`windowsMetadataVerificationInvocation`；基于 Node.js ESM、文件系统和受限子进程完成确定性 CLI 流程。
  */
 const VERIFY_SIGNATURES_SCRIPT = [
   "$ErrorActionPreference = 'Stop'",
@@ -35,9 +35,13 @@ const VERIFY_METADATA_SCRIPT = [
   'if ($productVersion -cne $version -and $productVersion -cne ($version + ".0")) { throw "Windows ProductVersion mismatch" }',
 ].join('; ');
 
-function fixedPowerShellInvocation(script, environment) {
+function fixedPowerShellInvocation(
+  script,
+  environment,
+  command = 'powershell.exe',
+) {
   return {
-    command: 'powershell.exe',
+    command,
     args: [
       '-NoLogo',
       '-NoProfile',
@@ -69,6 +73,22 @@ export function windowsArchiveInvocation(
     VN_PLAYER_WINDOWS_ARCHIVE_SOURCE: source,
     VN_PLAYER_WINDOWS_ARCHIVE_DESTINATION: destination,
   });
+}
+
+export function windowsStandardZipArchiveInvocation(
+  source,
+  destination,
+  parentEnvironment = process.env,
+) {
+  return fixedPowerShellInvocation(
+    ARCHIVE_SCRIPT,
+    {
+      ...parentEnvironment,
+      VN_PLAYER_WINDOWS_ARCHIVE_SOURCE: source,
+      VN_PLAYER_WINDOWS_ARCHIVE_DESTINATION: destination,
+    },
+    'pwsh.exe',
+  );
 }
 
 export function windowsMetadataVerificationInvocation(

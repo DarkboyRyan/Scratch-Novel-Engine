@@ -37,6 +37,7 @@ import {
   validateEditorReleasePrerequisites,
 } from '../verifyEditorReleasePrerequisites.mjs';
 import {
+  EDITOR_ARCHIVE_FAILURE_CODES,
   EDITOR_ARCHIVE_PHASES,
   recordEditorArchivePhase,
 } from '../lib/archivePhaseReporter.mjs';
@@ -212,6 +213,22 @@ async function writeArchive(output, rootName, contents) {
   });
 }
 
+async function rewriteZipEntryWithBackslashes(output, entryName) {
+  const bytes = await readFile(output);
+  const original = Buffer.from(entryName, 'utf8');
+  const replacement = Buffer.from(entryName.replaceAll('/', '\\'), 'utf8');
+  assert.equal(replacement.length, original.length);
+  let cursor = 0;
+  let replacements = 0;
+  while ((cursor = bytes.indexOf(original, cursor)) !== -1) {
+    replacement.copy(bytes, cursor);
+    cursor += original.length;
+    replacements += 1;
+  }
+  assert.equal(replacements, 2);
+  await writeFile(output, bytes);
+}
+
 test('sorts the complete application tree across directory and file prefixes', async () => {
   const root = await temporaryDirectory();
   await mkdir(path.join(root, 'resources'));
@@ -226,7 +243,7 @@ test('sorts the complete application tree across directory and file prefixes', a
   ]);
 });
 
-test('reports only fixed Editor archive phases to GitHub output', async () => {
+test('reports only fixed Editor archive phases and failure codes to GitHub output', async () => {
   const root = await temporaryDirectory();
   const output = path.join(root, 'github-output');
   const environment = {
@@ -241,12 +258,28 @@ test('reports only fixed Editor archive phases to GitHub output', async () => {
     'extract-verify',
     'cleanup',
   ]);
-  for (const phase of EDITOR_ARCHIVE_PHASES) {
+  assert.deepEqual(EDITOR_ARCHIVE_FAILURE_CODES, [
+    'zip-open',
+    'limits',
+    'path',
+    'duplicate',
+    'unexpected',
+    'type',
+    'mode',
+    'content',
+    'missing',
+    'finalize',
+  ]);
+  const allowedDiagnostics = [
+    ...EDITOR_ARCHIVE_PHASES,
+    ...EDITOR_ARCHIVE_FAILURE_CODES,
+  ];
+  for (const phase of allowedDiagnostics) {
     assert.equal(recordEditorArchivePhase(phase, environment), true);
   }
   assert.equal(
     await readFile(output, 'utf8'),
-    EDITOR_ARCHIVE_PHASES
+    allowedDiagnostics
       .map((phase) => `editor_archive_phase=${phase}\n`)
       .join(''),
   );
@@ -413,9 +446,15 @@ test('verifies the complete ZIP tree and rejects non-critical tampering', async 
     expectedEditorArtifactName('win32', 'x64', VERSION),
   );
   await writeArchive(archive, receipt.applicationRootName, contents);
-  const verified = await verifyEditorArchive(archive, receipt);
+  const successfulFailureCodes = [];
+  const verified = await verifyEditorArchive(
+    archive,
+    receipt,
+    (code) => successfulFailureCodes.push(code),
+  );
   assert.equal(verified.name, path.basename(archive));
   assert.equal(verified.entryCount, 6);
+  assert.deepEqual(successfulFailureCodes, []);
 
   const tampered = new Map(contents);
   tampered.set('resources/licenses/NOTICE.txt', Buffer.from('tampered'));
@@ -428,10 +467,16 @@ test('verifies the complete ZIP tree and rejects non-critical tampering', async 
   const expectedTamperedName = path.join(root, path.basename(archive));
   await rm(archive);
   await cp(tamperedArchive, expectedTamperedName);
+  const tamperedFailureCodes = [];
   await assert.rejects(
-    verifyEditorArchive(expectedTamperedName, receipt),
+    verifyEditorArchive(
+      expectedTamperedName,
+      receipt,
+      (code) => tamperedFailureCodes.push(code),
+    ),
     /文件与完整树回执不一致/u,
   );
+  assert.deepEqual(tamperedFailureCodes, ['content']);
 
   await rm(expectedTamperedName);
   const withUnexpectedFile = new Map(contents);
@@ -441,10 +486,59 @@ test('verifies the complete ZIP tree and rejects non-critical tampering', async 
     receipt.applicationRootName,
     withUnexpectedFile,
   );
+  const unexpectedFailureCodes = [];
   await assert.rejects(
-    verifyEditorArchive(expectedTamperedName, receipt),
+    verifyEditorArchive(
+      expectedTamperedName,
+      receipt,
+      (code) => unexpectedFailureCodes.push(code),
+    ),
     /回执未声明的条目/u,
   );
+  assert.deepEqual(unexpectedFailureCodes, ['unexpected']);
+
+  await rm(expectedTamperedName);
+  const missingFile = new Map(contents);
+  missingFile.delete('resources/licenses/NOTICE.txt');
+  await writeArchive(
+    expectedTamperedName,
+    receipt.applicationRootName,
+    missingFile,
+  );
+  const missingFailureCodes = [];
+  await assert.rejects(
+    verifyEditorArchive(
+      expectedTamperedName,
+      receipt,
+      (code) => missingFailureCodes.push(code),
+    ),
+    /缺少完整应用树/u,
+  );
+  assert.deepEqual(missingFailureCodes, ['missing']);
+
+  await rm(expectedTamperedName);
+  await writeFile(expectedTamperedName, 'not-a-zip');
+  const openFailureCodes = [];
+  await assert.rejects(verifyEditorArchive(
+    expectedTamperedName,
+    receipt,
+    (code) => openFailureCodes.push(code),
+  ));
+  assert.deepEqual(openFailureCodes, ['zip-open']);
+
+  await rm(expectedTamperedName);
+  await writeArchive(expectedTamperedName, receipt.applicationRootName, contents);
+  await rewriteZipEntryWithBackslashes(
+    expectedTamperedName,
+    `${receipt.applicationRootName}/VN Engine Editor.exe`,
+  );
+  const pathFailureCodes = [];
+  await assert.rejects(verifyEditorArchive(
+    expectedTamperedName,
+    receipt,
+    (code) => pathFailureCodes.push(code),
+  ), /invalid characters in fileName/u);
+  assert.deepEqual(pathFailureCodes, ['path']);
 });
 
 test('rejects a symlink whose normalized target is exactly the parent root', async () => {

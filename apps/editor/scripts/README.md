@@ -22,7 +22,7 @@ internal 构建使用 macOS ad-hoc 签名和未正式签名的 Windows 包，适
 | `locateEditorBuild.mjs` | 定位唯一的 Forge 应用目录，可写入 `GITHUB_OUTPUT` |
 | `signEditorBuild.mjs` | 调用 Developer ID 或 Authenticode 签名入口 |
 | `verifyEditorBuild.mjs` | 严格验证平台、架构、版本、资源模板及签名并写入 JSON 回执 |
-| `archiveEditorBuild.mjs` | 以 `ditto` 或受限 PowerShell 生成并验证 ZIP |
+| `archiveEditorBuild.mjs` | 以 `ditto` 或受限的现代 PowerShell 生成标准 ZIP，再完整回读验证 |
 | `collectEditorArtifacts.mjs` | 收集一个平台 ZIP、回执和 artifact manifest |
 | `verifyEditorReleaseSet.mjs` | 汇总两个平台 ZIP，生成 `release-set.json` 和 `SHA256SUMS` |
 | `lib/` | 可复用的发布契约和文件校验实现 |
