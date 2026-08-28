@@ -521,21 +521,6 @@ button.secondary {
   filter: drop-shadow(0 18px 24px rgb(0 0 0 / 42%));
 }
 
-.preview-character-left {
-  left: 2%;
-  transform: translateX(-8%);
-}
-
-.preview-character-center {
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-.preview-character-right {
-  right: 2%;
-  transform: translateX(8%);
-}
-
 .preview-character-effect {
   animation-duration: var(--character-effect-duration, 500ms);
   animation-fill-mode: both;

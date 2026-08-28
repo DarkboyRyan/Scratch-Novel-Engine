@@ -18,6 +18,7 @@ export {
   type SaveSlotSummary,
 } from './SaveSlotDialog';
 export {
+  DEFAULT_CHARACTER_SLOT_POSITIONS,
   VisualStage,
   type PreviewCharacter,
   type VisualStageProps,

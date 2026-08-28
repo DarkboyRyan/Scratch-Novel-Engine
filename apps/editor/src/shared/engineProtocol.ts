@@ -32,6 +32,7 @@ export type AddDialogueParams = {
   sceneId: string;
   afterNodeId?: string | null;
   beforeNodeId?: string | null;
+  // Omitted and empty author fields are equivalent; neither gains defaults.
   speaker?: string;
   text?: string;
 };

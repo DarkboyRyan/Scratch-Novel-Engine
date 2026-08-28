@@ -527,19 +527,11 @@ std::string next_scene_name(const Project& project) {
   }
 }
 
-std::optional<DialogueContent> normalize_dialogue_content(
+DialogueContent normalize_dialogue_content(
     std::string speaker,
     std::string text) {
   speaker = trim_ascii_whitespace(std::move(speaker));
   text = trim_ascii_whitespace(std::move(text));
-
-  if (text.empty()) {
-    return std::nullopt;
-  }
-
-  if (speaker.empty()) {
-    speaker = "旁白";
-  }
 
   return DialogueContent{
       .speaker = std::move(speaker),
@@ -548,6 +540,14 @@ std::optional<DialogueContent> normalize_dialogue_content(
 }
 
 std::optional<std::string> normalize_project_name(std::string name) {
+  name = trim_ascii_whitespace(std::move(name));
+  if (name.empty()) {
+    return std::nullopt;
+  }
+  return name;
+}
+
+std::optional<std::string> normalize_scene_name(std::string name) {
   name = trim_ascii_whitespace(std::move(name));
   if (name.empty()) {
     return std::nullopt;
@@ -585,9 +585,17 @@ std::string add_scene(
     Project& project,
     IdGenerator& ids,
     std::optional<std::string> name) {
-  Scene scene = create_empty_scene(
-      ids,
-      name.has_value() ? std::move(*name) : next_scene_name(project));
+  std::string scene_name;
+  if (name.has_value()) {
+    auto normalized_name = normalize_scene_name(std::move(*name));
+    scene_name = normalized_name.has_value()
+        ? std::move(*normalized_name)
+        : next_scene_name(project);
+  } else {
+    scene_name = next_scene_name(project);
+  }
+
+  Scene scene = create_empty_scene(ids, std::move(scene_name));
   std::string created_id = scene.id;
   project.scenes.push_back(std::move(scene));
   return created_id;
@@ -597,12 +605,17 @@ bool rename_scene(
     Project& project,
     const std::string_view scene_id,
     std::string name) {
-  Scene* scene = find_scene(project, scene_id);
-  if (scene == nullptr || scene->name == name) {
+  const auto normalized_name = normalize_scene_name(std::move(name));
+  if (!normalized_name.has_value()) {
     return false;
   }
 
-  scene->name = std::move(name);
+  Scene* scene = find_scene(project, scene_id);
+  if (scene == nullptr || scene->name == *normalized_name) {
+    return false;
+  }
+
+  scene->name = *normalized_name;
   return true;
 }
 

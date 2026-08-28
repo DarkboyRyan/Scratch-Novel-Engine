@@ -154,10 +154,10 @@ SetSceneBackgroundResult set_scene_background(
 
 std::string next_scene_name(const Project& project);
 
-// A committed dialogue must contain text. Whitespace is trimmed and an empty
-// speaker becomes “旁白”. Empty placeholder nodes created by the "+" command
-// bypass this function while the user is still editing their draft fields.
-std::optional<DialogueContent> normalize_dialogue_content(
+// Speaker and text are both optional author content. Surrounding ASCII
+// whitespace is normalized, while an empty value remains empty instead of
+// being rejected or replaced with a narrator name.
+DialogueContent normalize_dialogue_content(
     std::string speaker,
     std::string text);
 
@@ -170,6 +170,10 @@ bool rename_project(Project& project, std::string name);
 
 // Scene names are generated as 场景 1, 场景 2, ... when name is omitted.
 // The created entity's ID is returned so the UI can select it if needed.
+// Explicit names use the same surrounding ASCII-whitespace rule as project
+// names. Backend commands reject all-whitespace input before mutation, while
+// a direct Core add safely falls back to the next generated name.
+std::optional<std::string> normalize_scene_name(std::string name);
 std::string add_scene(
     Project& project,
     IdGenerator& ids,

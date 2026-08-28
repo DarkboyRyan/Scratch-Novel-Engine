@@ -1,6 +1,6 @@
 /**
  * 主要作用：渲染背景、人物立绘、对白和人物动画特效。
- * 关键函数与实现：`PreviewCharacter`、`VisualStageProps`、`VisualStage`；基于 React 组件、Hooks、可访问交互与受控状态实现。
+ * 关键函数与实现：`DEFAULT_CHARACTER_SLOT_POSITIONS`、`PreviewCharacter`、`VisualStageProps`、`VisualStage`；基于统一锚点、React Hooks 与受控状态实现。
  */
 import {
   useCallback,
@@ -27,6 +27,14 @@ export type PreviewCharacter = {
   effect: CharacterEffect | null;
   effectSequence: number;
 };
+
+export const DEFAULT_CHARACTER_SLOT_POSITIONS = {
+  left: { x: 20, y: 100 },
+  center: { x: 50, y: 100 },
+  right: { x: 80, y: 100 },
+} as const satisfies Readonly<
+  Record<PreviewCharacter['slot'], Readonly<{ x: number; y: number }>>
+>;
 
 export type VisualStageProps = PlayerUiLocalizationProps & {
   speaker: string;
@@ -165,16 +173,16 @@ function CharacterPortrait({
     return null;
   }
 
-  const anchorStyle: CSSProperties = character.position
-    ? {
-        zIndex: 10 + character.layer,
-        left: `${character.position.x}%`,
-        top: `${character.position.y}%`,
-        right: 'auto',
-        bottom: 'auto',
-        transform: 'translate(-50%, -100%)',
-      }
-    : { zIndex: 10 + character.layer };
+  const position =
+    character.position ?? DEFAULT_CHARACTER_SLOT_POSITIONS[character.slot];
+  const anchorStyle: CSSProperties = {
+    zIndex: 10 + character.layer,
+    left: `${position.x}%`,
+    top: `${position.y}%`,
+    right: 'auto',
+    bottom: 'auto',
+    transform: 'translate(-50%, -100%)',
+  };
 
   return (
     <div
@@ -264,7 +272,7 @@ export function VisualStage({
 
       {showDialogue ? (
         <div className="dialogue-box">
-          <strong>{speaker}</strong>
+          {speaker ? <strong>{speaker}</strong> : null}
           <p>{text}</p>
         </div>
       ) : null}

@@ -186,6 +186,7 @@ export type EngineMutationRunner = (
 export type FormEditorCommands = Pick<
   VnEngineApi,
   | 'addScene'
+  | 'renameScene'
   | 'addDialogue'
   | 'updateDialogue'
   | 'addBackground'
@@ -202,13 +203,13 @@ export type FormEditorCommands = Pick<
   | 'setDialogueVoice'
   | 'deleteTimelineNodes'
   | 'reorderTimelineNode'
+  | 'reorderCgDisplay'
 >;
 
 export type FormEditorPort = {
   project: ProjectDocument | null;
   isBusy: boolean;
   engineMessage: string;
-  setEngineMessage(message: string): void;
   runEngineAction: EngineMutationRunner;
   authoringCommands: FormEditorCommands;
 };

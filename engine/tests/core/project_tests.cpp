@@ -140,18 +140,32 @@ void adds_and_renames_scenes_without_changing_entry() {
   vnengine::Project project = vnengine::create_empty_project(ids);
   const std::string original_entry = project.entry_scene_id;
 
+  CHECK(vnengine::normalize_scene_name("  序章\t") == "序章");
+  CHECK(!vnengine::normalize_scene_name(" \n\t ").has_value());
+
   const std::string second_id = vnengine::add_scene(project, ids);
   CHECK(project.scenes.size() == 2);
   CHECK(project.scenes[1].id == second_id);
   CHECK(project.scenes[1].name == "场景 2");
   CHECK(project.entry_scene_id == original_entry);
 
-  CHECK(vnengine::rename_scene(project, second_id, "序章"));
+  CHECK(vnengine::rename_scene(project, second_id, "  序章\t"));
+  CHECK(project.scenes[1].name == "序章");
+  CHECK(!vnengine::rename_scene(project, second_id, " 序章 "));
+  CHECK(!vnengine::rename_scene(project, second_id, " \n\t "));
   CHECK(project.scenes[1].name == "序章");
   CHECK(!vnengine::rename_scene(project, "missing", "不存在"));
 
   const std::string generated_id = vnengine::add_scene(project, ids);
   CHECK(vnengine::find_scene(project, generated_id)->name == "场景 2");
+
+  const std::string custom_id =
+      vnengine::add_scene(project, ids, "  尾声\t");
+  CHECK(vnengine::find_scene(project, custom_id)->name == "尾声");
+
+  const std::string blank_fallback_id =
+      vnengine::add_scene(project, ids, " \n\t ");
+  CHECK(vnengine::find_scene(project, blank_fallback_id)->name == "场景 3");
   CHECK(!vnengine::validate_project(project).has_value());
 }
 
@@ -1134,16 +1148,17 @@ void rejects_invalid_scene_visuals_atomically() {
   CHECK(valid.project.scenes[0].visuals.characters[1].id == "instance-front");
 }
 
-void normalizes_committed_dialogue_content() {
-  const auto normalized = vnengine::normalize_dialogue_content(
-      "   ", "  一段旁白  \n");
-  CHECK(normalized.has_value());
-  CHECK(normalized->speaker == "旁白");
-  CHECK(normalized->text == "一段旁白");
+void normalizes_optional_dialogue_content_without_defaults() {
+  const vnengine::DialogueContent normalized =
+      vnengine::normalize_dialogue_content(
+          "   ", "  一段旁白  \n");
+  CHECK(normalized.speaker.empty());
+  CHECK(normalized.text == "一段旁白");
 
-  CHECK(!vnengine::normalize_dialogue_content(
-             "Alice", "  \n\t")
-             .has_value());
+  const vnengine::DialogueContent empty_text =
+      vnengine::normalize_dialogue_content("  Alice  ", "  \n\t");
+  CHECK(empty_text.speaker == "Alice");
+  CHECK(empty_text.text.empty());
 }
 
 void manages_character_timeline_nodes_atomically() {
@@ -2418,8 +2433,8 @@ int main() {
       {"rejects invalid asset manifests", rejects_invalid_asset_manifests},
       {"rejects invalid scene visuals atomically",
        rejects_invalid_scene_visuals_atomically},
-      {"normalizes committed dialogue content",
-       normalizes_committed_dialogue_content},
+      {"normalizes optional dialogue content without defaults",
+       normalizes_optional_dialogue_content_without_defaults},
       {"manages character timeline nodes atomically",
        manages_character_timeline_nodes_atomically},
       {"manages character effects atomically",

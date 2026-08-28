@@ -8,7 +8,9 @@
 export type DialogueNode = {
   id: string;
   type: 'dialogue';
+  /** Empty means the dialogue is intentionally shown without a name label. */
   speaker: string;
+  /** Empty dialogue remains a valid timeline pause and can still own voice. */
   text: string;
   voiceAssetId: string | null;
 };

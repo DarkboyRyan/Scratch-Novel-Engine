@@ -100,6 +100,7 @@ describe('Editor localization', () => {
     registerDialogueBlock(zh);
     const workspace = new Blockly.Workspace();
     const block = workspace.newBlock(DIALOGUE_BLOCK_TYPE);
+    expect(block.getFieldValue(DIALOGUE_BLOCK_FIELDS.speaker)).toBe('');
     block.setFieldValue('Alice', DIALOGUE_BLOCK_FIELDS.speaker);
     block.setFieldValue('作者对白', DIALOGUE_BLOCK_FIELDS.text);
     const clear = vi.spyOn(workspace, 'clear');

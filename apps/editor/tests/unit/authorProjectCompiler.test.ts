@@ -170,6 +170,27 @@ function downgradeTo(
 }
 
 describe('author project v20 compiler', () => {
+  it('preserves empty speaker and text fields in the runtime projection', () => {
+    const document = authorProject() as {
+      project: { scenes: Array<{ nodes: Array<Record<string, unknown>> }> };
+    };
+    document.project.scenes[0]!.nodes[0] = {
+      id: 'dialogue-1',
+      type: 'dialogue',
+      speaker: '',
+      text: '',
+      voiceAssetId: 'audio-1',
+    };
+
+    expect(compile(document).game.scenes[0]!.nodes[0]).toEqual({
+      id: 'dialogue-1',
+      type: 'dialogue',
+      speaker: '',
+      text: '',
+      voiceAssetId: 'audio-1',
+    });
+  });
+
   it('builds exact runtime v10 data and includes fixed CG pages and CG-only assets', () => {
     const result = compile(authorProject());
 

@@ -2543,6 +2543,181 @@ void tracks_real_mutations_and_normalizes_project_names() {
   expect_session(still_dirty, 3, 2, true);
 }
 
+void normalizes_scene_names_and_rejects_blank_commands_atomically() {
+  vnengine::backend::Backend backend;
+
+  const Json created = request(
+      backend, 1, "project.create", {{"name", "Scene rename project"}});
+  expect_session(created, 0, std::nullopt, true);
+  const std::string first_scene_id =
+      created.at("result").at("project").at("entrySceneId");
+
+  const Json added = request(
+      backend, 2, "scene.add", {{"name", "  支线\t"}});
+  expect_session(added, 1, std::nullopt, true);
+  CHECK(added.at("result").at("project").at("scenes")[1].at("name") ==
+        "支线");
+  const std::string second_scene_id =
+      added.at("result").at("project").at("scenes")[1].at("id");
+
+  const Json blank_add = request(
+      backend, 3, "scene.add", {{"name", " \n\t "}});
+  CHECK(blank_add.at("ok") == false);
+  CHECK(blank_add.at("error").at("code") == "scene_name_required");
+
+  const Json after_blank_add = request(backend, 4, "project.get");
+  expect_session(after_blank_add, 1, std::nullopt, true);
+  CHECK(after_blank_add.at("result").at("project") ==
+        added.at("result").at("project"));
+
+  const Json renamed = request(
+      backend,
+      5,
+      "scene.rename",
+      {{"sceneId", first_scene_id}, {"name", "  序章\t"}});
+  expect_session(renamed, 2, std::nullopt, true);
+  CHECK(renamed.at("result").at("project").at("scenes")[0].at("name") ==
+        "序章");
+
+  const Json normalized_no_op = request(
+      backend,
+      6,
+      "scene.rename",
+      {{"sceneId", first_scene_id}, {"name", " 序章 "}});
+  expect_session(normalized_no_op, 2, std::nullopt, true);
+
+  const Json duplicate_name = request(
+      backend,
+      7,
+      "scene.rename",
+      {{"sceneId", second_scene_id}, {"name", "  序章  "}});
+  expect_session(duplicate_name, 3, std::nullopt, true);
+  CHECK(duplicate_name.at("result")
+            .at("project")
+            .at("scenes")[1]
+            .at("name") == "序章");
+
+  const Json blank_name = request(
+      backend,
+      8,
+      "scene.rename",
+      {{"sceneId", first_scene_id}, {"name", " \n\t "}});
+  CHECK(blank_name.at("ok") == false);
+  CHECK(blank_name.at("error").at("code") == "scene_name_required");
+
+  const Json after_failure = request(backend, 9, "project.get");
+  expect_session(after_failure, 3, std::nullopt, true);
+  CHECK(after_failure.at("result").at("project") ==
+        duplicate_name.at("result").at("project"));
+}
+
+void accepts_and_persists_empty_dialogue_fields() {
+  TemporaryDirectory temporary;
+  const std::filesystem::path target =
+      temporary.path("project.vn.json");
+  vnengine::backend::Backend backend;
+
+  const Json created = request(
+      backend, 1, "project.create", {{"name", "Empty dialogue fields"}});
+  expect_session(created, 0, std::nullopt, true);
+  const std::string scene_id =
+      created.at("result").at("project").at("entrySceneId");
+
+  const Json added = request(
+      backend,
+      2,
+      "dialogue.add",
+      {{"sceneId", scene_id}, {"speaker", "  "}, {"text", " \n\t "}});
+  expect_session(added, 1, std::nullopt, true);
+  const std::string empty_id =
+      added.at("result").at("nodeId").get<std::string>();
+  const Json& empty_node =
+      added.at("result").at("project").at("scenes")[0].at("nodes")[0];
+  CHECK(empty_node.at("speaker") == "");
+  CHECK(empty_node.at("text") == "");
+
+  const Json committed = request(
+      backend,
+      3,
+      "dialogue.update",
+      {{"sceneId", scene_id},
+       {"nodeId", empty_id},
+       {"speaker", " Alice "},
+       {"text", " Hello "}});
+  expect_session(committed, 2, std::nullopt, true);
+  CHECK(committed.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[0]
+            .at("speaker") == "Alice");
+
+  const Json cleared = request(
+      backend,
+      4,
+      "dialogue.update",
+      {{"sceneId", scene_id},
+       {"nodeId", empty_id},
+       {"speaker", ""},
+       {"text", ""}});
+  expect_session(cleared, 3, std::nullopt, true);
+  CHECK(cleared.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[0]
+            .at("speaker") == "");
+  CHECK(cleared.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[0]
+            .at("text") == "");
+
+  const Json following = request(
+      backend,
+      5,
+      "dialogue.add",
+      {{"sceneId", scene_id},
+       {"speaker", ""},
+       {"text", "Following line"},
+       {"afterNodeId", empty_id}});
+  expect_session(following, 4, std::nullopt, true);
+  CHECK(following.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[1]
+            .at("speaker") == "");
+  CHECK(following.at("result")
+            .at("project")
+            .at("scenes")[0]
+            .at("nodes")[1]
+            .at("text") == "Following line");
+
+  const Json saved = request(
+      backend, 6, "project.save", {{"filePath", target.string()}});
+  expect_session(saved, 4, 4, false);
+  const Json persisted = Json::parse(read_file(target));
+  CHECK(persisted.at("project")
+            .at("scenes")[0]
+            .at("nodes")[0]
+            .at("speaker") == "");
+  CHECK(persisted.at("project")
+            .at("scenes")[0]
+            .at("nodes")[0]
+            .at("text") == "");
+
+  vnengine::backend::Backend reopened_backend;
+  const Json reopened = request(
+      reopened_backend, 1, "project.open", open_params(target));
+  expect_session(reopened, 0, 0, false);
+  const Json& reopened_nodes = reopened.at("result")
+                                   .at("project")
+                                   .at("scenes")[0]
+                                   .at("nodes");
+  CHECK(reopened_nodes.size() == 2);
+  CHECK(reopened_nodes[0].at("speaker") == "");
+  CHECK(reopened_nodes[0].at("text") == "");
+  CHECK(reopened_nodes[1].at("text") == "Following line");
+}
+
 void saves_atomically_and_round_trips_assets() {
   TemporaryDirectory temporary;
   const std::filesystem::path source = temporary.write(
@@ -4888,6 +5063,10 @@ int main() {
        migrates_legacy_character_nulls_and_round_trips_v19_modes_strictly},
       {"tracks real mutations and normalizes project names",
        tracks_real_mutations_and_normalizes_project_names},
+      {"normalizes scene names and rejects blank commands atomically",
+       normalizes_scene_names_and_rejects_blank_commands_atomically},
+      {"accepts and persists empty dialogue fields",
+       accepts_and_persists_empty_dialogue_fields},
       {"imports an image without exposing paths or autosaving manifest",
        imports_an_image_without_exposing_paths_or_autosaving_manifest},
       {"imports a video transactionally without exposing paths",

@@ -289,13 +289,6 @@ function readableError(error: unknown, labels: EditorLabels): string {
 
   if (
     error instanceof Error &&
-    error.message.includes('dialogue text must not be empty')
-  ) {
-    return labels.messages.emptyDialogue;
-  }
-
-  if (
-    error instanceof Error &&
     error.message.includes('project name must not be empty')
   ) {
     return labels.messages.projectNameRequired;

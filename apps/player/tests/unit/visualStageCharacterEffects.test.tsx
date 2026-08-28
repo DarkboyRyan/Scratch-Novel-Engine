@@ -103,6 +103,48 @@ describe('VisualStage character effects', () => {
     expect(image.getAttribute('data-effect-sequence')).toBe('3');
   });
 
+  it.each([
+    ['left', 20],
+    ['center', 50],
+    ['right', 80],
+  ] as const)(
+    'renders the %s preset at the same anchor as its custom coordinates',
+    (slot, x) => {
+      const preset = { ...character, slot, position: null };
+      render(preset);
+      const anchor = container.querySelector<HTMLElement>(
+        '.preview-character-anchor',
+      )!;
+      const presetStyle = {
+        left: anchor.style.left,
+        top: anchor.style.top,
+        right: anchor.style.right,
+        bottom: anchor.style.bottom,
+        transform: anchor.style.transform,
+      };
+
+      render({ ...preset, position: { x, y: 100 } });
+      const customAnchor = container.querySelector<HTMLElement>(
+        '.preview-character-anchor',
+      )!;
+
+      expect(presetStyle).toEqual({
+        left: `${x}%`,
+        top: '100%',
+        right: 'auto',
+        bottom: 'auto',
+        transform: 'translate(-50%, -100%)',
+      });
+      expect({
+        left: customAnchor.style.left,
+        top: customAnchor.style.top,
+        right: customAnchor.style.right,
+        bottom: customAnchor.style.bottom,
+        transform: customAnchor.style.transform,
+      }).toEqual(presetStyle);
+    },
+  );
+
   it('remounts and reload-gates the animation image for a replay sequence', async () => {
     render(character, { animate: true });
     const first = container.querySelector<HTMLImageElement>(

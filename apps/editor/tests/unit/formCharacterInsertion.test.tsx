@@ -105,17 +105,25 @@ describe('form character insertion', () => {
   let activeProject: ProjectDocument;
   let addCharacter: ReturnType<typeof vi.fn>;
   let addDialogue: ReturnType<typeof vi.fn>;
+  let updateDialogue: ReturnType<typeof vi.fn>;
+  let renameScene: ReturnType<typeof vi.fn>;
+  let reorderTimelineNode: ReturnType<typeof vi.fn>;
+  let reorderCgDisplay: ReturnType<typeof vi.fn>;
+  let runEngineAction: ReturnType<typeof vi.fn>;
 
   function Harness() {
     current = useFormEditor({
       project: activeProject,
       isBusy: false,
       engineMessage: '',
-      setEngineMessage: vi.fn(),
-      runEngineAction: async (action) => action(),
+      runEngineAction,
       authoringCommands: {
         addCharacter,
         addDialogue,
+        updateDialogue,
+        renameScene,
+        reorderTimelineNode,
+        reorderCgDisplay,
       } as unknown as FormEditorCommands,
     });
     return null;
@@ -132,6 +140,13 @@ describe('form character insertion', () => {
     root = createRoot(container);
     current = null;
     activeProject = project;
+    runEngineAction = vi.fn(async (action: () => Promise<EngineMutationResult>) => {
+      try {
+        return await action();
+      } catch {
+        return null;
+      }
+    });
     addCharacter = vi.fn().mockResolvedValue(addCharacterResult);
     addDialogue = vi.fn().mockResolvedValue({
       ...addCharacterResult,
@@ -155,6 +170,43 @@ describe('form character insertion', () => {
       },
       nodeId: 'dialogue-created',
     });
+    updateDialogue = vi.fn().mockImplementation(
+      async (
+        sceneId: string,
+        nodeId: string,
+        speaker: string,
+        text: string,
+      ) => ({
+        ...addCharacterResult,
+        project: {
+          ...project,
+          scenes: project.scenes.map((scene) => ({
+            ...scene,
+            nodes: scene.nodes.map((node) =>
+              node.id === nodeId && node.type === 'dialogue'
+                ? { ...node, speaker, text }
+                : node,
+            ),
+          })),
+        },
+        sceneId,
+        nodeId,
+      }),
+    );
+    renameScene = vi.fn().mockImplementation(
+      async (sceneId: string, name: string) => ({
+        ...addCharacterResult,
+        project: {
+          ...project,
+          scenes: project.scenes.map((scene) =>
+            scene.id === sceneId ? { ...scene, name } : scene,
+          ),
+        },
+        sceneId,
+      }),
+    );
+    reorderTimelineNode = vi.fn().mockResolvedValue(addCharacterResult);
+    reorderCgDisplay = vi.fn().mockResolvedValue(addCharacterResult);
     await act(async () => root.render(<Harness key={activeProject.id} />));
   });
 
@@ -179,6 +231,113 @@ describe('form character insertion', () => {
       assetId: null,
       beforeNodeId: 'dialogue-current',
     });
+  });
+
+  it('routes CG-aware form moves through atomic structural commands', async () => {
+    activeProject = {
+      ...project,
+      id: 'portrait-form-project-with-cg',
+      scenes: [
+        {
+          ...project.scenes[0],
+          nodes: [
+            {
+              id: 'before-cg',
+              type: 'dialogue',
+              speaker: '',
+              text: 'Before',
+              voiceAssetId: null,
+            },
+            {
+              id: 'cg-root',
+              type: 'cgDisplay',
+              assetId: 'cg-image',
+              leadInMs: 0,
+            },
+            {
+              id: 'cg-line-a',
+              type: 'dialogue',
+              speaker: '',
+              text: 'A',
+              voiceAssetId: null,
+            },
+            {
+              id: 'cg-line-b',
+              type: 'dialogue',
+              speaker: '',
+              text: 'B',
+              voiceAssetId: null,
+            },
+            {
+              id: 'cg-end',
+              type: 'cgEndDisplay',
+              cgDisplayNodeId: 'cg-root',
+            },
+            {
+              id: 'after-cg',
+              type: 'dialogue',
+              speaker: '',
+              text: 'After',
+              voiceAssetId: null,
+            },
+          ],
+        },
+      ],
+    };
+    await act(async () => {
+      root.render(<Harness key={activeProject.id} />);
+    });
+
+    await act(async () => current?.moveNode('before-cg', 1));
+    expect(reorderTimelineNode).toHaveBeenLastCalledWith({
+      sceneId: 'scene-1',
+      nodeId: 'before-cg',
+      beforeNodeId: 'after-cg',
+    });
+
+    await act(async () => current?.moveNode('cg-root', 1));
+    expect(reorderCgDisplay).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      nodeId: 'cg-root',
+      beforeNodeId: null,
+    });
+
+    await act(async () => current?.moveNode('cg-line-a', 1));
+    expect(reorderTimelineNode).toHaveBeenLastCalledWith({
+      sceneId: 'scene-1',
+      nodeId: 'cg-line-a',
+      beforeNodeId: 'cg-end',
+    });
+  });
+
+  it('does not reorder from a stale scene while an empty dialogue is being created', async () => {
+    let finishAdd: ((result: EngineMutationResult) => void) | undefined;
+    addDialogue.mockImplementationOnce(
+      () =>
+        new Promise<EngineMutationResult>((resolve) => {
+          finishAdd = resolve;
+        }),
+    );
+    let submit!: Promise<void>;
+    let move!: Promise<void>;
+
+    await act(async () => {
+      submit = current!.submitDialogue();
+      await Promise.resolve();
+      move = current!.moveNode('dialogue-current', 1);
+      await Promise.resolve();
+    });
+    expect(addDialogue).toHaveBeenCalledOnce();
+    expect(reorderTimelineNode).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishAdd?.({
+        ...addCharacterResult,
+        nodeId: 'dialogue-created',
+      });
+      await Promise.all([submit, move]);
+    });
+    expect(reorderTimelineNode).not.toHaveBeenCalled();
   });
 
   it('keeps additional portraits in the same group before the following dialogue', async () => {
@@ -216,6 +375,201 @@ describe('form character insertion', () => {
       assetId: null,
       beforeNodeId: 'dialogue-created',
     });
+  });
+
+  it('creates a completely empty dialogue after an explicit form submit', async () => {
+    await act(async () => current?.submitDialogue());
+
+    expect(addDialogue).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      afterNodeId: null,
+      speaker: '',
+      text: '',
+    });
+  });
+
+  it('does not create an empty node during an ordinary draft flush', async () => {
+    await act(async () => {
+      expect(await current?.commitPendingDraft()).toBe(true);
+    });
+
+    expect(addDialogue).not.toHaveBeenCalled();
+  });
+
+  it('keeps an empty-dialogue submit single-flight', async () => {
+    let finishAdd: ((result: EngineMutationResult) => void) | undefined;
+    addDialogue.mockReturnValueOnce(
+      new Promise<EngineMutationResult>((resolve) => {
+        finishAdd = resolve;
+      }),
+    );
+
+    await act(async () => {
+      const first = current!.submitDialogue();
+      const second = current!.submitDialogue();
+      expect(addDialogue).toHaveBeenCalledTimes(1);
+      finishAdd?.({
+        ...addCharacterResult,
+        nodeId: 'dialogue-empty',
+      });
+      await Promise.all([first, second]);
+    });
+
+    expect(addDialogue).toHaveBeenCalledTimes(1);
+  });
+
+  it('saves a cleared dialogue before continuing with another insertion', async () => {
+    const dialogue = project.scenes[0].nodes[1];
+    if (dialogue.type !== 'dialogue') {
+      throw new Error('fixture dialogue is invalid');
+    }
+
+    await act(async () => current?.selectNode(dialogue));
+    await act(async () => {
+      current?.setSpeaker('');
+      current?.setText('');
+    });
+    await act(async () => current?.insertCharacter());
+
+    expect(updateDialogue).toHaveBeenCalledWith(
+      'scene-1',
+      'dialogue-current',
+      '',
+      '',
+    );
+    expect(addCharacter).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      mode: 'show',
+      assetId: null,
+      beforeNodeId: 'dialogue-current',
+    });
+  });
+
+  it('commits the current dialogue draft before renaming a scene', async () => {
+    const dialogue = project.scenes[0].nodes[1];
+    if (dialogue.type !== 'dialogue') {
+      throw new Error('fixture dialogue is invalid');
+    }
+
+    await act(async () => current?.selectNode(dialogue));
+    await act(async () => current?.setText('重命名前保存'));
+    await act(async () => current?.beginSceneRename('scene-1'));
+    await act(async () => current?.setSceneNameDraft('序章'));
+
+    let renamed = false;
+    await act(async () => {
+      renamed = (await current?.commitPendingDraft()) ?? false;
+    });
+
+    expect(renamed).toBe(true);
+    expect(updateDialogue).toHaveBeenCalledWith(
+      'scene-1',
+      'dialogue-current',
+      'A',
+      '重命名前保存',
+    );
+    expect(renameScene).toHaveBeenCalledWith('scene-1', '序章');
+    expect(updateDialogue.mock.invocationCallOrder[0]).toBeLessThan(
+      renameScene.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('does not invoke scene.rename when the current draft cannot be saved', async () => {
+    const dialogue = project.scenes[0].nodes[1];
+    if (dialogue.type !== 'dialogue') {
+      throw new Error('fixture dialogue is invalid');
+    }
+
+    await act(async () => current?.selectNode(dialogue));
+    await act(async () => current?.setText('尚未保存'));
+    await act(async () => current?.beginSceneRename('scene-1'));
+    await act(async () => current?.setSceneNameDraft('不会生效'));
+    updateDialogue.mockRejectedValueOnce(new Error('save failed'));
+
+    let renamed = true;
+    await act(async () => {
+      renamed = (await current?.commitPendingDraft()) ?? true;
+    });
+
+    expect(renamed).toBe(false);
+    expect(renameScene).not.toHaveBeenCalled();
+    expect(current?.scene?.id).toBe('scene-1');
+    expect(current?.scene?.name).toBe('Scene 1');
+  });
+
+  it('keeps the scene-name draft when scene.rename fails', async () => {
+    await act(async () => current?.beginSceneRename('scene-1'));
+    await act(async () => current?.setSceneNameDraft('不会生效'));
+    renameScene.mockRejectedValueOnce(new Error('rename failed'));
+
+    let renamed = true;
+    await act(async () => {
+      renamed = (await current?.commitSceneRename()) ?? true;
+    });
+
+    expect(renamed).toBe(false);
+    expect(current?.scene?.id).toBe('scene-1');
+    expect(current?.scene?.name).toBe('Scene 1');
+    expect(current?.editingSceneId).toBe('scene-1');
+    expect(current?.sceneNameDraft).toBe('不会生效');
+    expect(current?.sceneRenameError).toBe('场景重命名失败，请重试');
+    expect(current?.draftDirty).toBe(true);
+  });
+
+  it('keeps Enter and blur scene-name commits single-flight', async () => {
+    let finishRename: ((result: EngineMutationResult) => void) | undefined;
+    renameScene.mockReturnValueOnce(
+      new Promise<EngineMutationResult>((resolve) => {
+        finishRename = resolve;
+      }),
+    );
+    await act(async () => current?.beginSceneRename('scene-1'));
+    await act(async () => current?.setSceneNameDraft('序章'));
+
+    await act(async () => {
+      const enterCommit = current!.commitSceneRename();
+      const blurCommit = current!.commitSceneRename();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(renameScene).toHaveBeenCalledTimes(1);
+      finishRename?.({
+        ...addCharacterResult,
+        project: {
+          ...project,
+          scenes: [{ ...project.scenes[0], name: '序章' }],
+        },
+      });
+      await Promise.all([enterCommit, blurCommit]);
+    });
+
+    expect(renameScene).toHaveBeenCalledTimes(1);
+    expect(current?.editingSceneId).toBeNull();
+  });
+
+  it('flushes a scene-name draft without creating an empty dialogue', async () => {
+    await act(async () => current?.beginSceneRename('scene-1'));
+    await act(async () => current?.setSceneNameDraft('序章'));
+
+    await act(async () => {
+      expect(await current?.commitPendingDraft()).toBe(true);
+    });
+
+    expect(addDialogue).not.toHaveBeenCalled();
+    expect(renameScene).toHaveBeenCalledWith('scene-1', '序章');
+  });
+
+  it('still force-creates an empty dialogue on explicit submit with a scene draft', async () => {
+    await act(async () => current?.beginSceneRename('scene-1'));
+    await act(async () => current?.setSceneNameDraft('序章'));
+
+    await act(async () => current?.submitDialogue());
+
+    expect(addDialogue).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      afterNodeId: null,
+      speaker: '',
+      text: '',
+    });
+    expect(renameScene).toHaveBeenCalledWith('scene-1', '序章');
   });
 
   async function renderLogicProject(
@@ -370,23 +724,6 @@ describe('form character insertion', () => {
   });
 
   it('creates an unresolved show portrait when no image has been imported', async () => {
-    const setEngineMessage = vi.fn();
-    function UnresolvedCharacterHarness() {
-      current = useFormEditor({
-        project: activeProject,
-        isBusy: false,
-        engineMessage: '',
-        setEngineMessage,
-        runEngineAction: async (action) => action(),
-        authoringCommands: {
-          addCharacter,
-          addDialogue,
-        } as unknown as FormEditorCommands,
-      });
-      return null;
-    }
-    await act(async () => root.render(<UnresolvedCharacterHarness />));
-
     await act(async () => current?.insertCharacter());
 
     expect(addCharacter).toHaveBeenCalledWith({
@@ -395,6 +732,5 @@ describe('form character insertion', () => {
       assetId: null,
       afterNodeId: null,
     });
-    expect(setEngineMessage).not.toHaveBeenCalled();
   });
 });

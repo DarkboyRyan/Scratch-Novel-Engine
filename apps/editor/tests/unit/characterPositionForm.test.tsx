@@ -118,6 +118,33 @@ describe('character position form controls', () => {
     });
   });
 
+  it('uses the same 80/100 anchor for the right preset and custom position', async () => {
+    await renderInspector({
+      ...character,
+      slot: 'right',
+      position: null,
+    });
+    const xInput = container.querySelector<HTMLInputElement>(
+      '[aria-label="立绘 X 坐标"]',
+    );
+    const yInput = container.querySelector<HTMLInputElement>(
+      '[aria-label="立绘 Y 坐标"]',
+    );
+
+    expect(xInput?.value).toBe('80');
+    expect(yInput?.value).toBe('100');
+
+    await act(async () => {
+      xInput?.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    });
+    expect(onCharacterChange).toHaveBeenCalledWith({
+      assetId: 'portrait-1',
+      slot: 'right',
+      layer: 2,
+      position: { x: 80, y: 100 },
+    });
+  });
+
   it('keeps an unresolved show portrait editable and selects its image as show', async () => {
     await renderInspector({
       ...character,

@@ -33,6 +33,51 @@ function emptyCgGallery(): ProjectDocument['cgGallery'] {
 }
 
 describe('shared runtime execution contract', () => {
+  it('keeps empty dialogue fields and advances to following nodes normally', () => {
+    const project: ProjectDocument = {
+      schemaVersion: 1,
+      id: 'empty-dialogue',
+      name: 'Empty dialogue',
+      entrySceneId: 'entry',
+      startScreen: {
+        title: '', eyebrow: '',
+        backgroundAssetId: null,
+        musicAssetId: null,
+      },
+      cgGallery: emptyCgGallery(),
+      scenes: [{
+        schemaVersion: 1,
+        id: 'entry',
+        name: 'Entry',
+        backgroundAssetId: null,
+        nodes: [
+          {
+            id: 'empty-line',
+            type: 'dialogue',
+            speaker: '',
+            text: '',
+            voiceAssetId: null,
+          },
+          { id: 'next-background', type: 'background', assetId: 'room' },
+          dialogue('following-line'),
+        ],
+      }],
+    };
+
+    const empty = startGame(project);
+    expect(empty).not.toBeNull();
+    if (!empty) {
+      throw new Error('empty dialogue project did not start');
+    }
+    expect(empty).toMatchObject({
+      dialogue: { id: 'empty-line', speaker: '', text: '' },
+    });
+    expect(advanceGame(project, empty)).toMatchObject({
+      backgroundAssetId: 'room',
+      dialogue: { id: 'following-line' },
+    });
+  });
+
   it('applies background, character and BGM nodes before stopping at dialogue', () => {
     const project: ProjectDocument = {
       schemaVersion: 1,

@@ -1,9 +1,15 @@
 /**
- * 文件主要作用：管理场景列表、时间线节点选择及新增删除操作。
+ * 文件主要作用：管理场景选择与重命名、时间线节点选择及新增、排序、删除操作。
  * 包含实现：`ScenePanel`。
  */
 
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 
 import type {
   AssetDocument,
@@ -16,7 +22,10 @@ import {
   START_SCREEN_SCENE_ID,
 } from '../start-screen/startScreenScene';
 import { useEditorLabels } from '../../i18n/editorLocalization';
-import { createFormLogicTree } from './formLogicTree';
+import {
+  createFormLogicTree,
+  createFormNodeMovePlans,
+} from './formLogicTree';
 import { formatCharacterEffect } from '../block-editor/blocks/characterEffectBlock';
 
 type ScenePanelProps = {
@@ -26,6 +35,14 @@ type ScenePanelProps = {
   selectedNodeId: string | null;
   isBusy: boolean;
   onAddScene: () => Promise<void>;
+  editingSceneId: string | null;
+  sceneNameDraft: string;
+  sceneRenameError: string | null;
+  isRenamingScene: boolean;
+  onBeginSceneRename: (sceneId: string) => void;
+  onSceneNameDraftChange: (name: string) => void;
+  onCancelSceneRename: () => void;
+  onCommitSceneRename: () => Promise<boolean>;
   onSelectScene: (sceneId: string) => Promise<void>;
   onSelectStartScreen?: () => Promise<void>;
   onSelectCgGallery?: () => Promise<void>;
@@ -43,6 +60,14 @@ export function ScenePanel({
   selectedNodeId,
   isBusy,
   onAddScene,
+  editingSceneId,
+  sceneNameDraft,
+  sceneRenameError,
+  isRenamingScene,
+  onBeginSceneRename,
+  onSceneNameDraftChange,
+  onCancelSceneRename,
+  onCommitSceneRename,
   onSelectScene,
   onSelectStartScreen,
   onSelectCgGallery,
@@ -55,25 +80,60 @@ export function ScenePanel({
   const labels = useEditorLabels();
   const [isSceneMenuOpen, setIsSceneMenuOpen] = useState(false);
   const sceneMenuRef = useRef<HTMLDivElement>(null);
+  const sceneMenuTriggerRef = useRef<HTMLButtonElement>(null);
+  const sceneRenameInputRef = useRef<HTMLInputElement>(null);
+  const cancelSceneRenameBlurRef = useRef(false);
+  const pendingSceneRenameBlurTimerRef = useRef<number | null>(null);
+  const activeSceneRenamePointersRef = useRef(new Set<number>());
+  const pendingPointerBlurSubmitRef = useRef(false);
+  const scheduleSceneRenameSubmitAfterBlurRef = useRef<() => void>(() => {});
+  const latestSceneRenameContextRef = useRef({
+    projectId: project.id,
+    sceneId: scene.id,
+    editingSceneId,
+  });
+  const previousSceneRenameRenderRef = useRef({
+    projectId: project.id,
+    sceneId: scene.id,
+    editingSceneId,
+  });
+  const suppressSceneTriggerFocusRef = useRef(false);
+  const pendingSceneTriggerFocusRef = useRef<{
+    projectId: string;
+    sceneId: string;
+  } | null>(null);
+  latestSceneRenameContextRef.current = {
+    projectId: project.id,
+    sceneId: scene.id,
+    editingSceneId,
+  };
   const imageAssets = assets.filter((asset) => asset.type === 'image');
   const audioAssets = assets.filter((asset) => asset.type === 'audio');
   const videoAssets = assets.filter((asset) => asset.type === 'video');
-  const treeEntries = createFormLogicTree(scene);
-  const storyNodes = treeEntries.flatMap((entry) =>
-    entry.kind === 'node' ? [entry.node] : [],
-  );
+  const { treeEntries, storyNodes, nodeMovePlans } = useMemo(() => {
+    const entries = createFormLogicTree(scene);
+    const nodes = entries.flatMap((entry) =>
+      entry.kind === 'node' ? [entry.node] : [],
+    );
+    return {
+      treeEntries: entries,
+      storyNodes: nodes,
+      nodeMovePlans: createFormNodeMovePlans(scene),
+    };
+  }, [scene]);
   const nodeNumbers = new Map(
     storyNodes.map((node, index) => [node.id, index + 1]),
   );
-  const hasStructuredControls = storyNodes.some(
-    (node) =>
-      node.type === 'logicIf' ||
-      node.type === 'logicRepeat' ||
-      node.type === 'cgDisplay',
+  const hasLogicControls = storyNodes.some(
+    (node) => node.type === 'logicIf' || node.type === 'logicRepeat',
   );
   const currentSceneNumber =
     project.scenes.findIndex((projectScene) => projectScene.id === scene.id) +
     1;
+  const currentSceneLabel = `${labels.common.scene} ${currentSceneNumber}`;
+  const showsSeparateSceneName =
+    scene.name !== currentSceneLabel &&
+    scene.name !== `场景 ${currentSceneNumber}`;
   const assetName = (assetId: string | null) =>
     assetId === null
       ? labels.resource.noBackground
@@ -92,7 +152,118 @@ export function ScenePanel({
 
   useEffect(() => {
     setIsSceneMenuOpen(false);
-  }, [scene.id]);
+    cancelSceneRenameBlurRef.current = true;
+  }, [project.id, scene.id]);
+
+  useEffect(
+    () => () => {
+      if (pendingSceneRenameBlurTimerRef.current !== null) {
+        window.clearTimeout(pendingSceneRenameBlurTimerRef.current);
+        pendingSceneRenameBlurTimerRef.current = null;
+      }
+      activeSceneRenamePointersRef.current.clear();
+      pendingPointerBlurSubmitRef.current = false;
+    },
+    [editingSceneId, project.id, scene.id],
+  );
+
+  useEffect(() => {
+    if (editingSceneId !== scene.id) {
+      return;
+    }
+
+    const trackPointerDown = (event: PointerEvent) => {
+      activeSceneRenamePointersRef.current.add(event.pointerId);
+    };
+    const releasePointer = (event: PointerEvent) => {
+      activeSceneRenamePointersRef.current.delete(event.pointerId);
+      if (
+        activeSceneRenamePointersRef.current.size === 0 &&
+        pendingPointerBlurSubmitRef.current
+      ) {
+        pendingPointerBlurSubmitRef.current = false;
+        scheduleSceneRenameSubmitAfterBlurRef.current();
+      }
+    };
+
+    window.addEventListener('pointerdown', trackPointerDown, true);
+    window.addEventListener('pointerup', releasePointer, true);
+    window.addEventListener('pointercancel', releasePointer, true);
+    return () => {
+      window.removeEventListener('pointerdown', trackPointerDown, true);
+      window.removeEventListener('pointerup', releasePointer, true);
+      window.removeEventListener('pointercancel', releasePointer, true);
+      activeSceneRenamePointersRef.current.clear();
+      pendingPointerBlurSubmitRef.current = false;
+    };
+  }, [editingSceneId, project.id, scene.id]);
+
+  useEffect(() => {
+    if (editingSceneId !== scene.id) {
+      return;
+    }
+
+    sceneRenameInputRef.current?.focus();
+    sceneRenameInputRef.current?.select();
+  }, [editingSceneId, scene.id]);
+
+  useEffect(() => {
+    const previous = previousSceneRenameRenderRef.current;
+    const contextChanged =
+      previous.projectId !== project.id || previous.sceneId !== scene.id;
+
+    if (contextChanged) {
+      pendingSceneTriggerFocusRef.current = null;
+      suppressSceneTriggerFocusRef.current =
+        previous.editingSceneId !== null || editingSceneId !== null;
+    } else if (
+      previous.editingSceneId !== scene.id &&
+      editingSceneId === scene.id
+    ) {
+      suppressSceneTriggerFocusRef.current = false;
+    } else if (
+      previous.editingSceneId === scene.id &&
+      editingSceneId !== scene.id
+    ) {
+      if (!suppressSceneTriggerFocusRef.current) {
+        pendingSceneTriggerFocusRef.current = {
+          projectId: project.id,
+          sceneId: scene.id,
+        };
+      }
+      suppressSceneTriggerFocusRef.current = false;
+    } else if (editingSceneId === null) {
+      suppressSceneTriggerFocusRef.current = false;
+    }
+
+    previousSceneRenameRenderRef.current = {
+      projectId: project.id,
+      sceneId: scene.id,
+      editingSceneId,
+    };
+
+    const pendingFocus = pendingSceneTriggerFocusRef.current;
+    if (
+      pendingFocus?.projectId === project.id &&
+      pendingFocus.sceneId === scene.id &&
+      editingSceneId !== scene.id &&
+      !isBusy
+    ) {
+      sceneMenuTriggerRef.current?.focus();
+      pendingSceneTriggerFocusRef.current = null;
+    }
+  }, [editingSceneId, isBusy, project.id, scene.id]);
+
+  useEffect(() => {
+    if (!sceneRenameError || editingSceneId !== scene.id) {
+      return;
+    }
+
+    window.queueMicrotask(() => {
+      sceneRenameInputRef.current?.focus();
+      sceneRenameInputRef.current?.select();
+    });
+  }, [editingSceneId, scene.id, sceneRenameError]);
 
   useEffect(() => {
     if (!isSceneMenuOpen) {
@@ -113,31 +284,210 @@ export function ScenePanel({
     };
   }, [isSceneMenuOpen]);
 
+  const startSceneRename = () => {
+    if (isBusy || isRenamingScene) {
+      return;
+    }
+
+    cancelSceneRenameBlurRef.current = false;
+    if (pendingSceneRenameBlurTimerRef.current !== null) {
+      window.clearTimeout(pendingSceneRenameBlurTimerRef.current);
+      pendingSceneRenameBlurTimerRef.current = null;
+    }
+    activeSceneRenamePointersRef.current.clear();
+    pendingPointerBlurSubmitRef.current = false;
+    setIsSceneMenuOpen(false);
+    onBeginSceneRename(scene.id);
+  };
+
+  const cancelSceneRenameFromPanel = () => {
+    cancelSceneRenameBlurRef.current = true;
+    if (pendingSceneRenameBlurTimerRef.current !== null) {
+      window.clearTimeout(pendingSceneRenameBlurTimerRef.current);
+      pendingSceneRenameBlurTimerRef.current = null;
+    }
+    activeSceneRenamePointersRef.current.clear();
+    pendingPointerBlurSubmitRef.current = false;
+    suppressSceneTriggerFocusRef.current = false;
+    onCancelSceneRename();
+  };
+
+  const submitSceneRename = async () => {
+    if (
+      isBusy ||
+      editingSceneId !== scene.id ||
+      isRenamingScene
+    ) {
+      return;
+    }
+    await onCommitSceneRename();
+  };
+
+  const scheduleSceneRenameSubmitAfterBlur = () => {
+    pendingPointerBlurSubmitRef.current = false;
+    if (pendingSceneRenameBlurTimerRef.current !== null) {
+      window.clearTimeout(pendingSceneRenameBlurTimerRef.current);
+    }
+
+    const scheduledContext = {
+      projectId: project.id,
+      sceneId: scene.id,
+      editingSceneId,
+    };
+    pendingSceneRenameBlurTimerRef.current = window.setTimeout(() => {
+      pendingSceneRenameBlurTimerRef.current = null;
+      const latestContext = latestSceneRenameContextRef.current;
+      if (
+        latestContext.projectId !== scheduledContext.projectId ||
+        latestContext.sceneId !== scheduledContext.sceneId ||
+        latestContext.editingSceneId !== scheduledContext.editingSceneId
+      ) {
+        return;
+      }
+      void submitSceneRename();
+    }, 0);
+  };
+  scheduleSceneRenameSubmitAfterBlurRef.current =
+    scheduleSceneRenameSubmitAfterBlur;
+
   return (
     <aside className="panel scene-panel">
       <div className="scene-switcher">
         <div className="scene-menu" ref={sceneMenuRef}>
-          <button
-            type="button"
-            className="scene-menu-trigger"
-            aria-label={labels.scenes.selectCurrentScene}
-            aria-haspopup="listbox"
-            aria-expanded={isSceneMenuOpen}
-            disabled={isBusy}
-            onClick={() => setIsSceneMenuOpen((open) => !open)}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                setIsSceneMenuOpen(false);
-              }
-            }}
-          >
-            <span>
-              {labels.common.scene} {currentSceneNumber}
-            </span>
-            <span aria-hidden="true" className="scene-menu-chevron">
-              ▾
-            </span>
-          </button>
+          {editingSceneId === scene.id ? (
+            <div className="scene-rename-field">
+              <input
+                ref={sceneRenameInputRef}
+                className="scene-rename-input"
+                value={sceneNameDraft}
+                aria-label={`${labels.scenes.sceneName}: ${labels.common.scene} ${currentSceneNumber}`}
+                aria-describedby={
+                  sceneRenameError ? 'scene-rename-error' : undefined
+                }
+                aria-invalid={sceneRenameError ? true : undefined}
+                aria-busy={isRenamingScene}
+                disabled={isBusy || isRenamingScene}
+                onFocus={() => {
+                  if (
+                    activeSceneRenamePointersRef.current.size === 0 &&
+                    !pendingPointerBlurSubmitRef.current
+                  ) {
+                    suppressSceneTriggerFocusRef.current = false;
+                  }
+                }}
+                onChange={(event) => {
+                  onSceneNameDraftChange(event.target.value);
+                }}
+                onBlur={() => {
+                  if (cancelSceneRenameBlurRef.current) {
+                    cancelSceneRenameBlurRef.current = false;
+                    return;
+                  }
+                  if (isBusy || isRenamingScene) {
+                    pendingPointerBlurSubmitRef.current = false;
+                    if (pendingSceneRenameBlurTimerRef.current !== null) {
+                      window.clearTimeout(
+                        pendingSceneRenameBlurTimerRef.current,
+                      );
+                      pendingSceneRenameBlurTimerRef.current = null;
+                    }
+                    suppressSceneTriggerFocusRef.current = false;
+                    return;
+                  }
+                  suppressSceneTriggerFocusRef.current = true;
+                  if (activeSceneRenamePointersRef.current.size > 0) {
+                    pendingPointerBlurSubmitRef.current = true;
+                    return;
+                  }
+                  scheduleSceneRenameSubmitAfterBlur();
+                }}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === 'Enter' &&
+                    !event.nativeEvent.isComposing
+                  ) {
+                    event.preventDefault();
+                    suppressSceneTriggerFocusRef.current = false;
+                    pendingPointerBlurSubmitRef.current = false;
+                    cancelSceneRenameBlurRef.current = true;
+                    if (pendingSceneRenameBlurTimerRef.current !== null) {
+                      window.clearTimeout(
+                        pendingSceneRenameBlurTimerRef.current,
+                      );
+                      pendingSceneRenameBlurTimerRef.current = null;
+                    }
+                    void submitSceneRename().finally(() => {
+                      cancelSceneRenameBlurRef.current = false;
+                    });
+                  } else if (event.key === 'Escape') {
+                    event.preventDefault();
+                    cancelSceneRenameFromPanel();
+                  }
+                }}
+              />
+              {sceneRenameError ? (
+                <span
+                  id="scene-rename-error"
+                  className="scene-rename-error"
+                  role="alert"
+                >
+                  {sceneRenameError}
+                </span>
+              ) : null}
+            </div>
+          ) : (
+            <button
+              ref={sceneMenuTriggerRef}
+              type="button"
+              className="scene-menu-trigger"
+              aria-label={labels.scenes.selectCurrentScene}
+              aria-haspopup="listbox"
+              aria-expanded={isSceneMenuOpen}
+              aria-keyshortcuts="F2"
+              disabled={isBusy}
+              title={`${scene.name} — ${labels.scenes.renameSceneHint}`}
+              onClick={(event) => {
+                if (event.detail > 1) {
+                  return;
+                }
+                setIsSceneMenuOpen((open) => !open);
+              }}
+              onDoubleClick={(event) => {
+                event.preventDefault();
+                startSceneRename();
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'F2') {
+                  event.preventDefault();
+                  startSceneRename();
+                } else if (event.key === 'Escape') {
+                  setIsSceneMenuOpen(false);
+                }
+              }}
+            >
+              <span className="scene-menu-current-label">
+                <span className="scene-menu-current-number">
+                  {currentSceneLabel}
+                </span>
+                {showsSeparateSceneName ? (
+                  <>
+                    <span
+                      aria-hidden="true"
+                      className="scene-menu-name-separator"
+                    >
+                      ·
+                    </span>
+                    <span className="scene-menu-current-name">
+                      {scene.name}
+                    </span>
+                  </>
+                ) : null}
+              </span>
+              <span aria-hidden="true" className="scene-menu-chevron">
+                ▾
+              </span>
+            </button>
+          )}
 
           {isSceneMenuOpen ? (
             <div className="scene-menu-list" role="listbox">
@@ -272,6 +622,7 @@ export function ScenePanel({
 
           const { node } = entry;
           const index = (nodeNumbers.get(node.id) ?? 1) - 1;
+          const movePlans = nodeMovePlans.get(node.id);
           const isStructuredControl =
             node.type === 'logicIf' ||
             node.type === 'logicRepeat' ||
@@ -318,7 +669,7 @@ export function ScenePanel({
                 <div>
                   {node.type === 'dialogue' ? (
                     <>
-                      <strong>{node.speaker || labels.scenes.narrator}</strong>
+                      {node.speaker ? <strong>{node.speaker}</strong> : null}
                       <p>{node.text || labels.scenes.emptyDialogue}</p>
                     </>
                   ) : node.type === 'background' ? (
@@ -432,7 +783,7 @@ export function ScenePanel({
                 <button
                   type="button"
                   className="dialogue-move-button"
-                  disabled={isBusy || index === 0 || hasStructuredControls}
+                  disabled={isBusy || hasLogicControls || !movePlans?.up}
                   aria-label={`${labels.scenes.moveUp}${labels.common.wordSeparator}${labels.scenes.nodeAriaPrefix}${index + 1}${labels.scenes.nodeAriaSuffix}`}
                   title={labels.scenes.moveUp}
                   onClick={() => void onMoveNode(node.id, -1)}
@@ -443,11 +794,7 @@ export function ScenePanel({
                 <button
                   type="button"
                   className="dialogue-move-button"
-                  disabled={
-                    isBusy ||
-                    index === storyNodes.length - 1 ||
-                    hasStructuredControls
-                  }
+                  disabled={isBusy || hasLogicControls || !movePlans?.down}
                   aria-label={`${labels.scenes.moveDown}${labels.common.wordSeparator}${labels.scenes.nodeAriaPrefix}${index + 1}${labels.scenes.nodeAriaSuffix}`}
                   title={labels.scenes.moveDown}
                   onClick={() => void onMoveNode(node.id, 1)}

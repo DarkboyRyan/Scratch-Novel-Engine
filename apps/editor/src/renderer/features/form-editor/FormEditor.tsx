@@ -58,6 +58,14 @@ export function FormEditor({
         selectedNodeId={editor.selectedNodeId}
         isBusy={editor.isBusy}
         onAddScene={editor.addScene}
+        editingSceneId={editor.editingSceneId}
+        sceneNameDraft={editor.sceneNameDraft}
+        sceneRenameError={editor.sceneRenameError}
+        isRenamingScene={editor.isRenamingScene}
+        onBeginSceneRename={editor.beginSceneRename}
+        onSceneNameDraftChange={editor.setSceneNameDraft}
+        onCancelSceneRename={editor.cancelSceneRename}
+        onCommitSceneRename={editor.commitSceneRename}
         onSelectScene={editor.selectScene}
         onSelectStartScreen={onSelectStartScreen}
         onSelectCgGallery={onSelectCgGallery}

@@ -120,7 +120,7 @@ describe('C++ JSONL backend', () => {
     });
   }
 
-  it('creates authoritative entities and normalizes committed dialogue', async () => {
+  it('normalizes dialogue whitespace without inventing author content', async () => {
     const projectResponse = await request('project.ensure', {});
     expect(projectResponse.ok).toBe(true);
 
@@ -159,20 +159,35 @@ describe('C++ JSONL backend', () => {
 
     expect(createdDialogue).toMatchObject({
       type: 'dialogue',
-      speaker: '旁白',
+      speaker: '',
       text: '来自 C++ 的对白',
     });
 
-    const invalidUpdate = await request('dialogue.update', {
+    const emptyTextUpdate = await request('dialogue.update', {
       sceneId: sceneResponse.result.sceneId,
       nodeId: dialogueResponse.result.nodeId,
       speaker: 'Alice',
       text: '   ',
     });
 
-    expect(invalidUpdate).toMatchObject({
-      ok: false,
-      error: { code: 'dialogue_text_required' },
+    expect(emptyTextUpdate).toMatchObject({
+      ok: true,
+      result: {
+        project: {
+          scenes: expect.arrayContaining([
+            expect.objectContaining({
+              id: sceneResponse.result.sceneId,
+              nodes: expect.arrayContaining([
+                expect.objectContaining({
+                  id: dialogueResponse.result.nodeId,
+                  speaker: 'Alice',
+                  text: '',
+                }),
+              ]),
+            }),
+          ]),
+        },
+      },
     });
   });
 
@@ -246,13 +261,19 @@ describe('C++ JSONL backend', () => {
     const clearingCommittedText = await request('dialogue.update', {
       sceneId,
       nodeId,
-      speaker: 'Alice',
+      speaker: '',
       text: '',
     });
 
     expect(clearingCommittedText).toMatchObject({
-      ok: false,
-      error: { code: 'dialogue_text_required' },
+      ok: true,
+      result: {
+        project: {
+          scenes: [{
+            nodes: [{ id: nodeId, speaker: '', text: '' }],
+          }],
+        },
+      },
     });
 
     const speakerOnlyDraft = await request('dialogue.add', {

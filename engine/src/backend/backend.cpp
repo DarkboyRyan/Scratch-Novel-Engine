@@ -924,7 +924,12 @@ Json Backend::handle(const Json& request) {
   } else if (method == "scene.add") {
     std::optional<std::string> name;
     if (params.contains("name")) {
-      name = required_string(params, "name");
+      name = vnengine::normalize_scene_name(
+          required_string(params, "name"));
+      if (!name.has_value()) {
+        throw ProtocolError(
+            "scene_name_required", "scene name must not be empty");
+      }
     }
     const std::string scene_id =
         vnengine::add_scene(project, ids_, std::move(name));
@@ -945,10 +950,13 @@ Json Backend::handle(const Json& request) {
     if (vnengine::find_scene(project, scene_id) == nullptr) {
       throw ProtocolError("scene_not_found", "scene does not exist");
     }
-    changed = vnengine::rename_scene(
-        project,
-        scene_id,
+    const auto name = vnengine::normalize_scene_name(
         required_string(params, "name"));
+    if (!name.has_value()) {
+      throw ProtocolError(
+          "scene_name_required", "scene name must not be empty");
+    }
+    changed = vnengine::rename_scene(project, scene_id, *name);
   } else if (method == "scene.setBackground") {
     const std::string scene_id = required_string(params, "sceneId");
     if (!params.contains("assetId") ||
@@ -2408,35 +2416,22 @@ Json Backend::handle(const Json& request) {
           "dialogue_not_found", "before timeline node does not exist");
     }
 
-    const bool has_speaker = params.contains("speaker");
-    const bool has_text = params.contains("text");
-    std::string speaker = has_speaker
+    std::string speaker = params.contains("speaker")
         ? required_string(params, "speaker")
         : std::string{};
-    std::string text = has_text
+    std::string text = params.contains("text")
         ? required_string(params, "text")
         : std::string{};
-
-    // text 存在表示表单正在提交完整对白，必须通过内容校验。
-    // 只有 speaker 而没有 text 表示尚未连接的新积木草稿：保留角色名，
-    // 但仍允许空文本，连接后用户可以继续编辑。
-    if (has_text) {
-      const auto content = vnengine::normalize_dialogue_content(
-          std::move(speaker), std::move(text));
-      if (!content.has_value()) {
-        throw ProtocolError(
-            "dialogue_text_required", "dialogue text must not be empty");
-      }
-      speaker = content->speaker;
-      text = content->text;
-    }
+    const vnengine::DialogueContent content =
+        vnengine::normalize_dialogue_content(
+            std::move(speaker), std::move(text));
 
     const std::optional<std::string> node_id = vnengine::add_dialogue(
         project,
         ids_,
         scene_id,
-        speaker,
-        text,
+        content.speaker,
+        content.text,
         std::move(after_dialogue_id),
         std::move(before_dialogue_id));
     if (!node_id.has_value()) {
@@ -2463,40 +2458,20 @@ Json Backend::handle(const Json& request) {
     if (scene == nullptr) {
       throw ProtocolError("scene_not_found", "scene does not exist");
     }
-    vnengine::Dialogue* dialogue = vnengine::find_dialogue(*scene, node_id);
-    if (dialogue == nullptr) {
+    if (vnengine::find_dialogue(*scene, node_id) == nullptr) {
       throw ProtocolError("dialogue_not_found", "dialogue does not exist");
     }
 
-    std::string speaker = required_string(params, "speaker");
-    std::string text = required_string(params, "text");
-    const auto content = vnengine::normalize_dialogue_content(
-        speaker,
-        text);
-    if (!content.has_value()) {
-      // An empty node created by "+" is an editing placeholder. Persisting a
-      // speaker-first edit keeps Blockly and C++ in sync without turning the
-      // placeholder into committed dialogue. Once text has been committed,
-      // clearing it is still rejected.
-      if (!dialogue->text.empty()) {
-        throw ProtocolError(
-            "dialogue_text_required", "dialogue text must not be empty");
-      }
-
-      changed = vnengine::update_dialogue(
-          project,
-          scene_id,
-          node_id,
-          std::move(speaker),
-          {});
-    } else {
-      changed = vnengine::update_dialogue(
-          project,
-          scene_id,
-          node_id,
-          content->speaker,
-          content->text);
-    }
+    const vnengine::DialogueContent content =
+        vnengine::normalize_dialogue_content(
+            required_string(params, "speaker"),
+            required_string(params, "text"));
+    changed = vnengine::update_dialogue(
+        project,
+        scene_id,
+        node_id,
+        content.speaker,
+        content.text);
   } else if (method == "dialogue.setVoice") {
     const std::string scene_id = required_string(params, "sceneId");
     const std::string node_id = required_string(params, "nodeId");

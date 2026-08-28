@@ -4,6 +4,7 @@
  */
 
 import type { FormEvent } from 'react';
+import { DEFAULT_CHARACTER_SLOT_POSITIONS } from '@vnengine/player-ui';
 
 import type {
   AssetDocument,
@@ -113,6 +114,8 @@ export function InspectorPanel({
 
   if (selectedNode?.type === 'character') {
     const imageAssets = assets.filter((asset) => asset.type === 'image');
+    const defaultPosition =
+      DEFAULT_CHARACTER_SLOT_POSITIONS[selectedNode.slot];
     const update = (
       next: Partial<{
         mode: CharacterMode;
@@ -202,12 +205,7 @@ export function InspectorPanel({
                   max="100"
                   step="0.1"
                   defaultValue={
-                    selectedNode.position?.x ??
-                    (selectedNode.slot === 'left'
-                      ? 20
-                      : selectedNode.slot === 'right'
-                        ? 80
-                        : 50)
+                    selectedNode.position?.x ?? defaultPosition.x
                   }
                   disabled={isBusy}
                   aria-label={labels.inspector.portraitX}
@@ -221,7 +219,7 @@ export function InspectorPanel({
                           '[data-coordinate="y"]',
                         )?.value ??
                         selectedNode.position?.y ??
-                        100,
+                        defaultPosition.y,
                     );
                     if (
                       Number.isFinite(x) &&
@@ -236,12 +234,7 @@ export function InspectorPanel({
                       });
                     } else {
                       event.currentTarget.value = String(
-                        selectedNode.position?.x ??
-                          (selectedNode.slot === 'left'
-                            ? 20
-                            : selectedNode.slot === 'right'
-                              ? 80
-                              : 50),
+                        selectedNode.position?.x ?? defaultPosition.x,
                       );
                     }
                   }}
@@ -255,7 +248,9 @@ export function InspectorPanel({
                   min="0"
                   max="100"
                   step="0.1"
-                  defaultValue={selectedNode.position?.y ?? 100}
+                  defaultValue={
+                    selectedNode.position?.y ?? defaultPosition.y
+                  }
                   disabled={isBusy}
                   aria-label={labels.inspector.portraitY}
                   data-coordinate="y"
@@ -268,11 +263,7 @@ export function InspectorPanel({
                           '[data-coordinate="x"]',
                         )?.value ??
                         selectedNode.position?.x ??
-                        (selectedNode.slot === 'left'
-                          ? 20
-                          : selectedNode.slot === 'right'
-                            ? 80
-                            : 50),
+                        defaultPosition.x,
                     );
                     if (
                       Number.isFinite(x) &&
@@ -287,7 +278,7 @@ export function InspectorPanel({
                       });
                     } else {
                       event.currentTarget.value = String(
-                        selectedNode.position?.y ?? 100,
+                        selectedNode.position?.y ?? defaultPosition.y,
                       );
                     }
                   }}

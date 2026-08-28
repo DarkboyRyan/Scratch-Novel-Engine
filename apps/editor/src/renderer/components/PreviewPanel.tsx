@@ -9,7 +9,7 @@ import {
   VisualStage,
   type PreviewCharacter,
 } from './VisualStage';
-import { useEditorLabels } from '../i18n/editorLocalization';
+import { useEditorI18n } from '../i18n/editorLocalization';
 
 type PreviewPanelProps = {
   speaker: string;
@@ -42,7 +42,7 @@ export function PreviewPanel({
   isStartDisabled = false,
   onStartPreview,
 }: PreviewPanelProps) {
-  const labels = useEditorLabels();
+  const { labels, language } = useEditorI18n();
   const [cgImageFailed, setCgImageFailed] = useState(false);
 
   useEffect(() => {
@@ -78,10 +78,12 @@ export function PreviewPanel({
       ) : null}
 
       <VisualStage
+        language={language}
         speaker={speaker}
         text={text}
         backgroundUrl={backgroundUrl}
         backgroundName={backgroundName}
+        placeholder={labels.preview.stagePlaceholder}
         showDialogue={showDialogue}
         characters={characters}
       >

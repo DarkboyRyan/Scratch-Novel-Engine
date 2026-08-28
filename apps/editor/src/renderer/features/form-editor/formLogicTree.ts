@@ -1,6 +1,6 @@
 /**
  * 文件主要作用：把逻辑时间线节点转换为表单编辑器可展示的树结构。
- * 包含实现：`FormLogicTreeEntry`、`createFormLogicTree`、`getCharacterGroupDialogueAnchorId`。
+ * 包含实现：`FormLogicTreeEntry`、`createFormLogicTree`、`createFormNodeMovePlans`、`getFormNodeMovePlan`、`getCharacterGroupDialogueAnchorId`。
  */
 
 import type {
@@ -25,6 +25,16 @@ export type FormLogicTreeEntry =
       branch: 'then' | 'else' | 'body' | 'cgBody';
       depth: number;
     };
+
+export type FormNodeMovePlan = {
+  kind: 'timeline' | 'logicControl' | 'cgDisplay';
+  beforeNodeId: string | null;
+};
+
+export type FormNodeMovePlans = {
+  up: FormNodeMovePlan | null;
+  down: FormNodeMovePlan | null;
+};
 
 function appendItems(
   entries: FormLogicTreeEntry[],
@@ -92,6 +102,107 @@ export function createFormLogicTree(
   const entries: FormLogicTreeEntry[] = [];
   appendItems(entries, parseLogicStructure(scene), 0, 'root');
   return entries;
+}
+
+function isFormVisibleItem(item: LogicStructureItem): boolean {
+  return item.kind !== 'node' || item.node.type !== 'storyExtension';
+}
+
+function moveKindForItem(
+  item: LogicStructureItem,
+): FormNodeMovePlan['kind'] {
+  if (item.kind === 'cg') {
+    return 'cgDisplay';
+  }
+  if (item.kind === 'if' || item.kind === 'repeat') {
+    return 'logicControl';
+  }
+  return 'timeline';
+}
+
+function createMovePlan(
+  item: LogicStructureItem,
+  beforeNodeId: string | null,
+): FormNodeMovePlan {
+  return {
+    kind: moveKindForItem(item),
+    beforeNodeId,
+  };
+}
+
+function appendFormNodeMovePlans(
+  plans: Map<string, FormNodeMovePlans>,
+  items: LogicStructureItem[],
+  branchEndNodeId: string | null,
+): void {
+  // Arrows reorder one sibling at a time inside the current branch. Paired
+  // markers are not visible rows, but remain the insertion anchor after the
+  // final sibling so a leaf cannot accidentally escape its owning control.
+  const visibleItems = items.flatMap((item, rawIndex) =>
+    isFormVisibleItem(item) ? [{ item, rawIndex }] : [],
+  );
+  visibleItems.forEach(({ item }, index) => {
+    const previous = visibleItems[index - 1]?.item;
+    const next = visibleItems[index + 1];
+    // Down means inserting after the next visible sibling. Use the item that
+    // immediately follows that sibling in the original structure, including
+    // an invisible StoryExtension, so a one-step move cannot silently cross a
+    // page boundary.
+    const afterNext = next ? items[next.rawIndex + 1] : undefined;
+    plans.set(item.node.id, {
+      up: previous ? createMovePlan(item, previous.node.id) : null,
+      down: next
+        ? createMovePlan(
+            item,
+            afterNext?.node.id ?? branchEndNodeId,
+          )
+        : null,
+    });
+  });
+
+  for (const item of items) {
+    if (item.kind === 'node') {
+      continue;
+    }
+    if (item.kind === 'if') {
+      appendFormNodeMovePlans(
+        plans,
+        item.thenItems,
+        item.elseNode.id,
+      );
+      appendFormNodeMovePlans(
+        plans,
+        item.elseItems,
+        item.endNode.id,
+      );
+      continue;
+    }
+
+    appendFormNodeMovePlans(
+      plans,
+      item.bodyItems,
+      item.endNode.id,
+    );
+  }
+}
+
+// Form 列表隐藏 Else/End 标记，也不显示分页用的 StoryExtension。
+// 移动计划因此必须由结构树生成，不能用扁平可见列表猜测原始锚点。
+export function createFormNodeMovePlans(
+  scene: SceneDocument,
+): ReadonlyMap<string, FormNodeMovePlans> {
+  const plans = new Map<string, FormNodeMovePlans>();
+  appendFormNodeMovePlans(plans, parseLogicStructure(scene), null);
+  return plans;
+}
+
+export function getFormNodeMovePlan(
+  scene: SceneDocument,
+  nodeId: string,
+  direction: -1 | 1,
+): FormNodeMovePlan | null {
+  const plans = createFormNodeMovePlans(scene).get(nodeId);
+  return direction === -1 ? (plans?.up ?? null) : (plans?.down ?? null);
 }
 
 type CharacterGroupAnchorSearch = {

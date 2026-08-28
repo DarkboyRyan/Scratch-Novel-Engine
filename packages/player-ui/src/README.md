@@ -8,7 +8,7 @@
 
 `PlayerUiProvider` 在顶层提供中英文标签和错误本地化，标题页、选项、CG 画廊、存档对话框与操作栏从 Context 读取相同文案。`TitleScreen` 组合作者配置的标题上方文字、游戏名、背景/BGM、开始或读取入口、选项和 CG Modal；`startScreen.eyebrow` 为空时不会渲染该行。Player 应用也可以把 Dialog 单独用于游戏内界面。
 
-`VisualStage` 是纯舞台层，接收已经解析的背景、人物、对白与特效状态。人物资源为空时仍保留合法的“无立绘”状态；图片加载失败只影响对应视觉层。`PreviewVideo`、`usePreviewAudio` 和 `previewAudioController` 分别管理视频与 BGM/语音生命周期，并使用 `mediaVolume` 将主音量和通道音量合成。
+`VisualStage` 是纯舞台层，接收已经解析的背景、人物、对白与特效状态。默认左、中、右位置通过 `DEFAULT_CHARACTER_SLOT_POSITIONS` 固定为 `(20,100)`、`(50,100)`、`(80,100)`，与自定义坐标共用同一个底部中心锚点。人物资源为空时仍保留合法的“无立绘”状态；图片加载失败只影响对应视觉层。`PreviewVideo`、`usePreviewAudio` 和 `previewAudioController` 分别管理视频与 BGM/语音生命周期，并使用 `mediaVolume` 将主音量和通道音量合成。
 
 ## 交互与媒体约束
 
@@ -37,7 +37,7 @@ pnpm --dir apps/player exec vitest run \
 | [`PreviewVideo.tsx`](./PreviewVideo.tsx) | React、HTMLMediaElement | 解析播放视频并处理状态 | `PreviewVideo`、结束/错误/暂停回调 |
 | [`SaveSlotDialog.tsx`](./SaveSlotDialog.tsx) | React | 展示和选择手动/快速存档槽 | `SaveSlotDialog`、`formatSaveTimestamp` |
 | [`TitleScreen.tsx`](./TitleScreen.tsx) | React | 标题页入口、背景音乐和功能 Modal | `TitleScreen`、`useResolvedTitleAsset` |
-| [`VisualStage.tsx`](./VisualStage.tsx) | React、CSS Animation | 背景、人物、对白和特效舞台 | `VisualStage`、`CharacterPortrait`、`effectStyle` |
+| [`VisualStage.tsx`](./VisualStage.tsx) | React、CSS Animation | 背景、人物、对白和特效舞台 | `DEFAULT_CHARACTER_SLOT_POSITIONS`、`VisualStage`、`CharacterPortrait`、`effectStyle` |
 | [`index.ts`](./index.ts) | TypeScript | 公共 API 聚合入口 | 组件、Hooks、类型再导出 |
 | [`localization.ts`](./localization.ts) | TypeScript | 中英文标签和错误消息 | `PLAYER_UI_LABELS`、`normalizePlayerLanguage` |
 | [`mediaPort.ts`](./mediaPort.ts) | TypeScript | 宿主无关媒体解析接口 | `MediaUrlResolver` |

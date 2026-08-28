@@ -26,7 +26,6 @@ Renderer 是 Electron Editor 的 React 界面层，负责界面组合、项目�
 | 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
 | --- | --- | --- | --- |
 | [App.tsx](./App.tsx) | React + TypeScript | 组织编辑器主界面的项目会话、编辑模式、预览与全局对话框状态 | `App` |
-| [editorMessages.ts](./editorMessages.ts) | TypeScript | 集中声明 Renderer 层复用的用户提示文本 | `EMPTY_DIALOGUE_MESSAGE` |
 | [index.tsx](./index.tsx) | React + TypeScript | 创建 React 根节点并挂载编辑器应用与国际化上下文 | 模块内部类型与实现 |
 | [projectSavePreparation.ts](./projectSavePreparation.ts) | TypeScript | 在保存前同步当前编辑模式中的草稿并返回可保存状态 | `prepareProjectSave` |
 | [projectSessionPresentation.ts](./projectSessionPresentation.ts) | TypeScript | 根据项目会话状态生成窗口标题与未保存标记 | `projectWindowTitle`、`projectSaveStatus` |

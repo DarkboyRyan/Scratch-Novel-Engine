@@ -105,8 +105,8 @@ describe('Editor export to Player compatibility', () => {
               {
                 id: 'dialogue-1',
                 type: 'dialogue',
-                speaker: 'Narrator',
-                text: 'Export contract',
+                speaker: '',
+                text: '',
                 voiceAssetId: null,
               },
               { id: 'else-route', type: 'logicElse', ifNodeId: 'if-route' },
@@ -162,7 +162,7 @@ describe('Editor export to Player compatibility', () => {
       expect.objectContaining({ type: 'storyExtension' }),
     );
     expect(startGame(loaded.game.project)).toMatchObject({
-      dialogue: { id: 'dialogue-1' },
+      dialogue: { id: 'dialogue-1', speaker: '', text: '' },
       variables: { route: 'open' },
       characters: [{
         nodeId: 'portrait-1',
