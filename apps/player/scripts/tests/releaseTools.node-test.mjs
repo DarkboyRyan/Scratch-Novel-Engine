@@ -264,7 +264,7 @@ test('invokes Forge through Node instead of relying on package bin execute bits'
   assert.doesNotMatch(editorTemplateRunner, /pnpm\.cmd|shell:\s*true/u);
 });
 
-test('executes pnpm JavaScript through Node without invoking a Windows cmd shim', () => {
+test('uses a verified pnpm entry without invoking a Windows cmd shim', () => {
   const windows = resolvePnpmLauncher({
     platform: 'win32',
     nodeExecutable: 'C:\\Program Files\\nodejs\\node.exe',
@@ -276,6 +276,17 @@ test('executes pnpm JavaScript through Node without invoking a Windows cmd shim'
     command: 'C:\\Program Files\\nodejs\\node.exe',
     args: ['C:\\pnpm\\pnpm.cjs'],
   });
+  const nativeWindows = resolvePnpmLauncher({
+    platform: 'win32',
+    nodeExecutable: 'C:\\Program Files\\nodejs\\node.exe',
+    npmExecPath: 'C:\\setup-pnpm\\pnpm.exe',
+    repositoryRoot: 'C:\\repository',
+    fileExists: (candidate) => candidate === 'C:\\setup-pnpm\\pnpm.exe',
+  });
+  assert.deepEqual(nativeWindows, {
+    command: 'C:\\setup-pnpm\\pnpm.exe',
+    args: [],
+  });
   assert.equal(windows.command.endsWith('.cmd'), false);
   assert.equal(windows.args.some((argument) => argument.endsWith('.cmd')), false);
 
@@ -284,7 +295,7 @@ test('executes pnpm JavaScript through Node without invoking a Windows cmd shim'
     npmExecPath: 'C:\\pnpm\\pnpm.cmd',
     repositoryRoot: 'C:\\repository',
     fileExists: () => false,
-  }), /无法定位安全的 pnpm JavaScript 入口/u);
+  }), /无法定位安全的 pnpm 入口/u);
 
   assert.deepEqual(resolvePnpmLauncher({
     platform: 'linux',

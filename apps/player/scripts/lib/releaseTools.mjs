@@ -154,6 +154,19 @@ function safePnpmJavaScriptPath(candidate, platform, fileExists) {
   return fileExists(candidate) ? candidate : null;
 }
 
+function safePnpmNativePath(candidate, platform, fileExists) {
+  if (
+    platform !== 'win32' ||
+    typeof candidate !== 'string' ||
+    candidate.includes('\0') ||
+    !path.win32.isAbsolute(candidate) ||
+    path.win32.basename(candidate).toLowerCase() !== 'pnpm.exe'
+  ) {
+    return null;
+  }
+  return fileExists(candidate) ? candidate : null;
+}
+
 export function resolvePnpmLauncher({
   platform = process.platform,
   nodeExecutable = process.execPath,
@@ -168,6 +181,14 @@ export function resolvePnpmLauncher({
   );
   if (lifecycleCli !== null) {
     return { command: nodeExecutable, args: [lifecycleCli] };
+  }
+  const lifecycleNative = safePnpmNativePath(
+    npmExecPath,
+    platform,
+    fileExists,
+  );
+  if (lifecycleNative !== null) {
+    return { command: lifecycleNative, args: [] };
   }
 
   if (typeof repositoryRoot === 'string' && repositoryRoot.length > 0) {
@@ -200,7 +221,7 @@ export function resolvePnpmLauncher({
 
   if (platform === 'win32') {
     throw new Error(
-      '无法定位安全的 pnpm JavaScript 入口；请通过 pnpm 运行 Editor 命令',
+      '无法定位安全的 pnpm 入口；请通过 pnpm 运行 Editor 命令',
     );
   }
   return { command: 'pnpm', args: [] };
