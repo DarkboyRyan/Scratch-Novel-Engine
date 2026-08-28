@@ -1143,7 +1143,14 @@ async function syncApplicationTree(
     if (!status.isFile()) {
       throw new Error("独立应用 staging 包含非常规文件");
     }
-    const file = await open(entryPath, constants.O_RDONLY);
+    // Windows FlushFileBuffers rejects read-only handles with EPERM. These are
+    // private staging files created by this export, so request write access
+    // there while keeping the narrower read-only handle on POSIX systems.
+    const file = await open(
+      entryPath,
+      (process.platform === "win32" ? constants.O_RDWR : constants.O_RDONLY) |
+        (constants.O_NOFOLLOW ?? 0),
+    );
     try {
       await file.sync();
     } finally {
