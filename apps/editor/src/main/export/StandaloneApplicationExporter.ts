@@ -435,7 +435,9 @@ async function removeOwnedDirectoryTree(
     ) {
       throw new Error("独立应用私有工作区在清理时发生了变化");
     }
-    await directory.chmod((opened.mode & 0o777) | 0o700);
+    if (process.platform !== "win32") {
+      await directory.chmod((opened.mode & 0o777) | 0o700);
+    }
   } finally {
     await directory.close();
   }
@@ -1938,7 +1940,12 @@ export async function exportStandaloneApplication(
       ) {
         throw new Error("独立应用 ZIP 发布暂存目录在创建时发生了变化");
       }
-      await publishingDirectory.chmod(0o700);
+      // Win32 directory handles do not implement fchmod. POSIX keeps the
+      // owner-only mode hardening; Windows relies on the freshly-created,
+      // identity-pinned private directory checked above and below.
+      if (process.platform !== "win32") {
+        await publishingDirectory.chmod(0o700);
+      }
     } finally {
       await publishingDirectory.close();
     }
