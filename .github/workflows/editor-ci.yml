@@ -127,13 +127,10 @@ jobs:
 
       - name: Package the internal Editor application
         id: package_editor
-        shell: bash
         env:
           VN_EDITOR_OUT_DIR: ${{ runner.temp }}/editor-internal-out
           VN_EDITOR_PACKAGE_PHASE_REPORT: github-output
-        run: >-
-          node apps/player/scripts/runEditorWithPlayerTemplate.mjs
-          --command package
+        run: pnpm --dir apps/editor package:application
 
       - name: Record the fixed Editor package failure phase
         if: failure() && steps.package_editor.outcome == 'failure'

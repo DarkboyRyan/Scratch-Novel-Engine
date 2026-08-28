@@ -14,6 +14,7 @@
     "engine:stage:release": "pnpm run engine:build:release && cmake --install ../../engine/build-release --config Release --prefix ../../engine/stage/backend",
     "start": "pnpm run engine:build && node ../player/scripts/runEditorWithPlayerTemplate.mjs --command start",
     "package": "pnpm run engine:stage:release && node ../player/scripts/runEditorWithPlayerTemplate.mjs --command package",
+    "package:application": "node ../player/scripts/runEditorWithPlayerTemplate.mjs --command package",
     "make": "pnpm run engine:stage:release && node ../player/scripts/runEditorWithPlayerTemplate.mjs --command make",
     "publish": "pnpm run engine:stage:release && node ../player/scripts/runEditorWithPlayerTemplate.mjs --command publish",
     "test:release-tools": "node --test scripts/tests/*.node-test.mjs",

@@ -234,12 +234,22 @@ test('invokes Forge through Node instead of relying on package bin execute bits'
   const playerPackage = JSON.parse(
     await readFile(path.join(playerDirectory, 'package.json'), 'utf8'),
   );
+  const editorPackage = JSON.parse(
+    await readFile(
+      path.join(repositoryDirectory, 'apps', 'editor', 'package.json'),
+      'utf8',
+    ),
+  );
   for (const scriptName of ['start', 'package', 'make']) {
     assert.match(
       playerPackage.scripts[scriptName],
       /^node \.\.\/\.\.\/node_modules\/@electron-forge\/cli\/dist\/electron-forge\.js /u,
     );
   }
+  assert.equal(
+    editorPackage.scripts['package:application'],
+    'node ../player/scripts/runEditorWithPlayerTemplate.mjs --command package',
+  );
 
   const editorTemplateRunner = await readFile(
     path.join(playerDirectory, 'scripts', 'runEditorWithPlayerTemplate.mjs'),
@@ -523,7 +533,7 @@ test('never interpolates untrusted workflow expressions into shell source', asyn
   assert.match(editorCiWorkflow, /name:\s+Configure the release Editor backend/u);
   assert.match(editorCiWorkflow, /name:\s+Build the release Editor backend/u);
   assert.match(editorCiWorkflow, /name:\s+Install the release Editor backend/u);
-  assert.match(editorCiWorkflow, /runEditorWithPlayerTemplate\.mjs[\s\S]*--command package/u);
+  assert.match(editorCiWorkflow, /pnpm --dir apps\/editor package:application/u);
   assert.match(editorCiWorkflow, /SAFE_PACKAGE_PHASE="unknown"/u);
   assert.doesNotMatch(editorCiWorkflow, /tee[^\n]*editor-package|tail[^\n]*editor-package/u);
   assert.doesNotMatch(editorCiWorkflow, /actions\/upload-release-asset|softprops\/action-gh-release/u);
