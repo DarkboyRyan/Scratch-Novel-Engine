@@ -3,7 +3,14 @@
  * 测试覆盖：x64 Player 模板复验、内容注入、PowerShell 归档/解压和根目录保留。
  */
 
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -216,8 +223,9 @@ describe.runIf(process.platform === 'win32')(
         buildId: 'windows-runtime-build',
       });
 
-      const inspectionRoot = path.join(root, 'inspection');
-      await mkdir(inspectionRoot);
+      const inspectionRootPath = path.join(root, 'inspection');
+      await mkdir(inspectionRootPath);
+      const inspectionRoot = await realpath(inspectionRootPath);
       await extractStandaloneApplicationArchive(target, inspectionRoot);
       const exportedApplication = path.join(
         inspectionRoot,
