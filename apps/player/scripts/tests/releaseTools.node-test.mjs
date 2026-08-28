@@ -276,6 +276,17 @@ test('uses a verified pnpm entry without invoking a Windows cmd shim', () => {
     command: 'C:\\Program Files\\nodejs\\node.exe',
     args: ['C:\\pnpm\\pnpm.cjs'],
   });
+  const moduleWindows = resolvePnpmLauncher({
+    platform: 'win32',
+    nodeExecutable: 'C:\\Program Files\\nodejs\\node.exe',
+    npmExecPath: 'C:\\setup-pnpm\\pnpm.mjs',
+    repositoryRoot: 'C:\\repository',
+    fileExists: (candidate) => candidate === 'C:\\setup-pnpm\\pnpm.mjs',
+  });
+  assert.deepEqual(moduleWindows, {
+    command: 'C:\\Program Files\\nodejs\\node.exe',
+    args: ['C:\\setup-pnpm\\pnpm.mjs'],
+  });
   const nativeWindows = resolvePnpmLauncher({
     platform: 'win32',
     nodeExecutable: 'C:\\Program Files\\nodejs\\node.exe',
@@ -287,6 +298,18 @@ test('uses a verified pnpm entry without invoking a Windows cmd shim', () => {
     command: 'C:\\setup-pnpm\\pnpm.exe',
     args: [],
   });
+  assert.throws(() => resolvePnpmLauncher({
+    platform: 'win32',
+    npmExecPath: 'pnpm.mjs',
+    repositoryRoot: 'C:\\repository',
+    fileExists: () => false,
+  }), /无法定位安全的 pnpm 入口/u);
+  assert.throws(() => resolvePnpmLauncher({
+    platform: 'win32',
+    npmExecPath: 'C:\\setup-pnpm\\pnpm.mjs',
+    repositoryRoot: 'C:\\repository',
+    fileExists: () => false,
+  }), /无法定位安全的 pnpm 入口/u);
   assert.equal(windows.command.endsWith('.cmd'), false);
   assert.equal(windows.args.some((argument) => argument.endsWith('.cmd')), false);
 

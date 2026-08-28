@@ -148,7 +148,11 @@ function safePnpmJavaScriptPath(candidate, platform, fileExists) {
     return null;
   }
   const baseName = pathApi.basename(candidate).toLowerCase();
-  if (baseName !== 'pnpm.cjs' && baseName !== 'pnpm.js') {
+  if (
+    baseName !== 'pnpm.cjs' &&
+    baseName !== 'pnpm.js' &&
+    baseName !== 'pnpm.mjs'
+  ) {
     return null;
   }
   return fileExists(candidate) ? candidate : null;
@@ -195,6 +199,7 @@ export function resolvePnpmLauncher({
     const candidates = [
       path.join(repositoryRoot, 'node_modules', 'pnpm', 'bin', 'pnpm.cjs'),
       path.join(repositoryRoot, 'node_modules', 'pnpm', 'bin', 'pnpm.js'),
+      path.join(repositoryRoot, 'node_modules', 'pnpm', 'bin', 'pnpm.mjs'),
     ];
     try {
       const packagePath = require.resolve('pnpm/package.json', {
@@ -203,6 +208,7 @@ export function resolvePnpmLauncher({
       candidates.unshift(
         path.join(path.dirname(packagePath), 'bin', 'pnpm.cjs'),
         path.join(path.dirname(packagePath), 'bin', 'pnpm.js'),
+        path.join(path.dirname(packagePath), 'bin', 'pnpm.mjs'),
       );
     } catch {
       // pnpm is commonly supplied by Corepack or a user-level installation.
