@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
  * 主要作用：以指定 Player 模板启动 Editor 的端到端导出验证。
- * 关键函数与实现：`runChecked`、`main`；基于 Node.js ESM、文件系统和受限子进程完成确定性 CLI 流程。
+ * 关键函数与实现：`runChecked`、`recordPackagePhase`、`main`；基于 Node.js ESM、文件系统和受限子进程完成确定性 CLI 流程。
  */
 
 import { spawnSync } from 'node:child_process';
+import { appendFileSync } from 'node:fs';
 import {
   mkdir,
   mkdtemp,
@@ -20,6 +21,40 @@ import {
   enumOption,
   resolvePnpmLauncher,
 } from './lib/releaseTools.mjs';
+
+const PACKAGE_PHASE_REPORT_MODE = 'github-output';
+const PACKAGE_PHASE_OUTPUT_NAME = 'editor_package_phase';
+const PACKAGE_PHASES = new Set([
+  'web-template',
+  'native-template-setup',
+  'player-package',
+  'player-template-stage',
+  'editor-forge',
+  'temporary-cleanup',
+]);
+
+function recordPackagePhase(phase) {
+  if (!PACKAGE_PHASES.has(phase)) {
+    throw new Error('无效的 Editor 打包阶段');
+  }
+  if (
+    process.env.VN_EDITOR_PACKAGE_PHASE_REPORT !== PACKAGE_PHASE_REPORT_MODE ||
+    process.env.GITHUB_ACTIONS !== 'true' ||
+    typeof process.env.GITHUB_OUTPUT !== 'string' ||
+    process.env.GITHUB_OUTPUT.length === 0
+  ) {
+    return;
+  }
+  try {
+    appendFileSync(
+      process.env.GITHUB_OUTPUT,
+      `${PACKAGE_PHASE_OUTPUT_NAME}=${phase}\n`,
+      { encoding: 'utf8' },
+    );
+  } catch {
+    // Diagnostics must never turn a valid package operation into a failure.
+  }
+}
 
 function runChecked(command, args, options) {
   const result = spawnSync(command, args, {
@@ -55,6 +90,7 @@ async function main() {
   // Web exports consume an immutable, pre-built template. Build and stage it
   // before Forge starts so clicking Export never invokes Vite at runtime.
   const pnpmLauncher = resolvePnpmLauncher({ repositoryRoot });
+  recordPackagePhase('web-template');
   runChecked(pnpmLauncher.command, [
     ...pnpmLauncher.args,
     '--dir',
@@ -66,12 +102,14 @@ async function main() {
   });
 
   if (process.platform !== 'darwin' && process.platform !== 'win32') {
+    recordPackagePhase('editor-forge');
     runChecked(process.execPath, editorForgeArguments, {
       cwd: editorDirectory,
       env: process.env,
     });
     return;
   }
+  recordPackagePhase('native-template-setup');
   if (
     (process.platform === 'darwin' &&
       process.arch !== 'arm64' &&
@@ -116,7 +154,9 @@ async function main() {
     VN_PLAYER_EMBEDDED_GAME_DIR: '',
     VN_PLAYER_OUT_DIR: packageOut,
   };
+  let packageOperationFailed = false;
   try {
+    recordPackagePhase('player-package');
     runChecked(pnpmLauncher.command, [
       ...pnpmLauncher.args,
       '--dir',
@@ -126,6 +166,7 @@ async function main() {
       cwd: repositoryRoot,
       env: playerEnvironment,
     });
+    recordPackagePhase('player-template-stage');
     runChecked(
       process.execPath,
       [
@@ -141,6 +182,7 @@ async function main() {
       ],
       { cwd: repositoryRoot, env: process.env },
     );
+    recordPackagePhase('editor-forge');
     runChecked(process.execPath, editorForgeArguments, {
       cwd: editorDirectory,
       env: {
@@ -152,7 +194,13 @@ async function main() {
         VN_PLAYER_TEMPLATE_ROOT: templateRoot,
       },
     });
+  } catch (error) {
+    packageOperationFailed = true;
+    throw error;
   } finally {
+    if (!packageOperationFailed) {
+      recordPackagePhase('temporary-cleanup');
+    }
     await rm(temporaryRoot, { recursive: true, force: true });
   }
 }

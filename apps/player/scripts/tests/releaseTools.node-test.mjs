@@ -247,6 +247,9 @@ test('invokes Forge through Node instead of relying on package bin execute bits'
   );
   assert.match(editorTemplateRunner, /runChecked\(process\.execPath, editorForgeArguments/u);
   assert.match(editorTemplateRunner, /resolvePnpmLauncher\(\{ repositoryRoot \}\)/u);
+  assert.match(editorTemplateRunner, /PACKAGE_PHASE_OUTPUT_NAME = 'editor_package_phase'/u);
+  assert.match(editorTemplateRunner, /recordPackagePhase\('player-package'\)/u);
+  assert.match(editorTemplateRunner, /recordPackagePhase\('editor-forge'\)/u);
   assert.doesNotMatch(editorTemplateRunner, /exec['"],\s*['"]electron-forge/u);
   assert.doesNotMatch(editorTemplateRunner, /pnpm\.cmd|shell:\s*true/u);
 });
@@ -516,6 +519,10 @@ test('never interpolates untrusted workflow expressions into shell source', asyn
   assert.match(editorCiWorkflow, /if-no-files-found:\s+error/u);
   assert.match(editorCiWorkflow, /compression-level:\s+0/u);
   assert.match(editorCiWorkflow, /retention-days:\s+7/u);
+  assert.match(editorCiWorkflow, /id:\s+package_editor/u);
+  assert.match(editorCiWorkflow, /editor_package_phase=editor-engine-stage/u);
+  assert.match(editorCiWorkflow, /SAFE_PACKAGE_PHASE="unknown"/u);
+  assert.doesNotMatch(editorCiWorkflow, /tee[^\n]*editor-package|tail[^\n]*editor-package/u);
   assert.doesNotMatch(editorCiWorkflow, /actions\/upload-release-asset|softprops\/action-gh-release/u);
 
   const gameWorkflow = await readWorkflowSource(

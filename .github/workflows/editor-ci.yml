@@ -110,9 +110,35 @@ jobs:
         run: pnpm --dir apps/editor exec vitest run
 
       - name: Package the internal Editor application
+        id: package_editor
+        shell: bash
         env:
           VN_EDITOR_OUT_DIR: ${{ runner.temp }}/editor-internal-out
-        run: pnpm --dir apps/editor package
+          VN_EDITOR_PACKAGE_PHASE_REPORT: github-output
+        run: |
+          echo "editor_package_phase=editor-engine-stage" >> "$GITHUB_OUTPUT"
+          pnpm --dir apps/editor package
+
+      - name: Record the fixed Editor package failure phase
+        if: failure() && steps.package_editor.outcome == 'failure'
+        shell: bash
+        env:
+          EDITOR_PACKAGE_PHASE: ${{ steps.package_editor.outputs.editor_package_phase }}
+        run: |
+          case "$EDITOR_PACKAGE_PHASE" in
+            editor-engine-stage|web-template|native-template-setup|player-package|player-template-stage|editor-forge|temporary-cleanup)
+              SAFE_PACKAGE_PHASE="$EDITOR_PACKAGE_PHASE"
+              ;;
+            *)
+              SAFE_PACKAGE_PHASE="unknown"
+              ;;
+          esac
+          echo "::error title=Internal Editor packaging failed::phase=$SAFE_PACKAGE_PHASE"
+          {
+            echo "## Internal Editor packaging failed"
+            echo ""
+            echo "Fixed diagnostic phase: \`$SAFE_PACKAGE_PHASE\`."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Locate the one packaged Editor application
         id: application
