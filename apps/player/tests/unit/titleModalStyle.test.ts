@@ -8,8 +8,11 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 function rule(css: string, selector: string): string {
+  const normalizedCss = css.replace(/\r\n?/g, '\n');
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, 's'))?.[1] ?? '';
+  return normalizedCss.match(
+    new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, 's'),
+  )?.[1] ?? '';
 }
 
 describe('Player surface visual style contract', () => {
@@ -91,7 +94,12 @@ describe('Player surface visual style contract', () => {
       'utf8',
     );
 
-    const stage = rule(css, '.player-game,\n.preview-stage,\n.player-stage');
+    const stageSelector = '.player-game,\n.preview-stage,\n.player-stage';
+    const stage = rule(css, stageSelector);
+    const stageFromWindowsCheckout = rule(
+      css.replace(/\r\n?|\n/g, '\r\n'),
+      stageSelector,
+    );
     const dialogue = rule(css, '.dialogue-box');
     const dialogueText = rule(css, '.dialogue-box p');
     const choiceList = rule(css, '.player-choice-list');
@@ -104,6 +112,7 @@ describe('Player surface visual style contract', () => {
     const actionBar = rule(css, '.player-game-action-bar');
 
     expect(stage).toContain('background: #0b0c0f');
+    expect(stageFromWindowsCheckout).toContain('background: #0b0c0f');
     expect(dialogue).toContain('background: rgb(12 15 20 / 92%)');
     expect(dialogue).toContain('overflow-y: auto');
     expect(dialogueText).toContain('overflow-wrap: anywhere');
