@@ -493,8 +493,10 @@ test('never interpolates untrusted workflow expressions into shell source', asyn
     workflowDirectory,
     'editor-ci.yml',
   );
-  assert.match(editorCiWorkflow, /^on:\n  workflow_dispatch:\n/mu);
-  assert.doesNotMatch(editorCiWorkflow, /^\s+push:\s*$/mu);
+  assert.match(
+    editorCiWorkflow,
+    /^on:\n {2}push:\n {4}branches:\n {6}- feature\/editor-release\n {2}workflow_dispatch:\n/mu,
+  );
   assert.doesNotMatch(editorCiWorkflow, /^\s+pull_request:\s*$/mu);
   assert.equal((editorCiWorkflow.match(/runner: macos-15/gu) ?? []).length, 1);
   assert.equal((editorCiWorkflow.match(/runner: windows-latest/gu) ?? []).length, 1);
@@ -506,11 +508,15 @@ test('never interpolates untrusted workflow expressions into shell source', asyn
   assert.match(editorCiWorkflow, /collectEditorArtifacts\.mjs/u);
   assert.doesNotMatch(editorCiWorkflow, /\bsecrets\./u);
   assert.doesNotMatch(editorCiWorkflow, /^\s+contents: write\s*$/mu);
-  assert.doesNotMatch(
+  assert.match(
     editorCiWorkflow,
-    /uses:\s+actions\/upload-artifact@/u,
-    '未获明确授权前，内部 Editor 工作流不得向 GitHub 上传仓库制品',
+    /uses:\s+actions\/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a\s+#\s+v7/u,
   );
+  assert.match(editorCiWorkflow, /path:\s+\$\{\{ runner\.temp \}\}\/editor-internal-artifact/u);
+  assert.match(editorCiWorkflow, /if-no-files-found:\s+error/u);
+  assert.match(editorCiWorkflow, /compression-level:\s+0/u);
+  assert.match(editorCiWorkflow, /retention-days:\s+7/u);
+  assert.doesNotMatch(editorCiWorkflow, /actions\/upload-release-asset|softprops\/action-gh-release/u);
 
   const gameWorkflow = await readWorkflowSource(
     workflowDirectory,
