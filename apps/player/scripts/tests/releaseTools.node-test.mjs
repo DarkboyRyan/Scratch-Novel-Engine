@@ -520,7 +520,10 @@ test('never interpolates untrusted workflow expressions into shell source', asyn
   assert.match(editorCiWorkflow, /compression-level:\s+0/u);
   assert.match(editorCiWorkflow, /retention-days:\s+7/u);
   assert.match(editorCiWorkflow, /id:\s+package_editor/u);
-  assert.match(editorCiWorkflow, /editor_package_phase=editor-engine-stage/u);
+  assert.match(editorCiWorkflow, /name:\s+Configure the release Editor backend/u);
+  assert.match(editorCiWorkflow, /name:\s+Build the release Editor backend/u);
+  assert.match(editorCiWorkflow, /name:\s+Install the release Editor backend/u);
+  assert.match(editorCiWorkflow, /runEditorWithPlayerTemplate\.mjs[\s\S]*--command package/u);
   assert.match(editorCiWorkflow, /SAFE_PACKAGE_PHASE="unknown"/u);
   assert.doesNotMatch(editorCiWorkflow, /tee[^\n]*editor-package|tail[^\n]*editor-package/u);
   assert.doesNotMatch(editorCiWorkflow, /actions\/upload-release-asset|softprops\/action-gh-release/u);

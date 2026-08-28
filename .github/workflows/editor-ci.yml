@@ -109,15 +109,31 @@ jobs:
       - name: Test Editor TypeScript and export integration
         run: pnpm --dir apps/editor exec vitest run
 
+      - name: Configure the release Editor backend
+        run: pnpm --dir apps/editor engine:configure:release
+
+      - name: Build the release Editor backend
+        run: >-
+          cmake --build engine/build-release
+          --config Release
+          --target vn_engine_backend
+          --parallel
+
+      - name: Install the release Editor backend
+        run: >-
+          cmake --install engine/build-release
+          --config Release
+          --prefix engine/stage/backend
+
       - name: Package the internal Editor application
         id: package_editor
         shell: bash
         env:
           VN_EDITOR_OUT_DIR: ${{ runner.temp }}/editor-internal-out
           VN_EDITOR_PACKAGE_PHASE_REPORT: github-output
-        run: |
-          echo "editor_package_phase=editor-engine-stage" >> "$GITHUB_OUTPUT"
-          pnpm --dir apps/editor package
+        run: >-
+          node apps/player/scripts/runEditorWithPlayerTemplate.mjs
+          --command package
 
       - name: Record the fixed Editor package failure phase
         if: failure() && steps.package_editor.outcome == 'failure'
