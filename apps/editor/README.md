@@ -18,6 +18,7 @@ VN Engine Editor 是基于 Electron、React、Blockly 与 C++20 后端的视觉�
 | [`src/main/`](./src/main/README.md) | Electron Main、Node.js | 窗口、IPC、项目文件、媒体和导出。 |
 | [`src/renderer/`](./src/renderer/README.md) | React、Blockly | 可视化编辑界面与游戏预览。 |
 | [`src/shared/`](./src/shared/README.md) | TypeScript DTO | Main、Preload、Renderer 共用协议。 |
+| [`scripts/`](./scripts/README.md) | Node.js、Electron 签名工具 | 双平台 Editor 定位、签名、验证、归档与发布集门禁。 |
 | [`tests/`](./tests/README.md) | Vitest | 单元测试和跨组件集成测试。 |
 
 ## 根文件
@@ -42,10 +43,19 @@ VN Engine Editor 是基于 Electron、React、Blockly 与 C++20 后端的视觉�
 | `pnpm --dir apps/editor typecheck` | 执行严格 TypeScript 检查。 |
 | `pnpm --dir apps/editor lint` | 检查 Editor 源码规范和依赖边界。 |
 | `pnpm --dir apps/editor test` | 运行 C++ 与 Vitest 测试。 |
+| `pnpm --dir apps/editor test:release-tools` | 运行无需真实证书的发布工具契约测试。 |
+| `pnpm --dir apps/editor package` | 构建 Release C++ 后端、同平台 Player 模板与当前平台 Editor 应用目录。 |
 | `pnpm --dir apps/editor make` | 构建后端并生成平台安装包。 |
+
+## 内部打包验证
+
+[`editor-ci.yml`](../../.github/workflows/editor-ci.yml) 提供仅限人工调度的原生双平台门禁：macOS 15 arm64 与 Windows x64 分别执行 Runtime、Player、Editor、C++ 和发布工具测试，再构建当前平台 Editor，验证应用身份、原生后端、Web Player 模板、同平台桌面 Player 模板、签名分类以及 ZIP 解包后的完整文件树。
+
+该工作流不读取签名 Secrets，也不上传或发布仓库制品。macOS 结果仅为 ad-hoc 签名，Windows 结果为 unsigned-or-unverified；ZIP 只存在于 Runner 临时目录并在任务结束后销毁，因此成功结果不能替代正式签名发行。完整的本地工具顺序与正式签名要求见 [`scripts/README.md`](./scripts/README.md)。
 
 ## 开发提示
 
 - 修改跨进程能力时，应同步检查 [`src/shared/`](./src/shared/README.md)、Preload 和对应 Main IPC，避免让 Renderer 直接依赖 Node.js。
 - `.vite/`、`out/`、`dist/`、`node_modules/` 与 CMake 构建目录都是生成内容，不属于手写源码索引。
 - 日常提交至少运行 `pnpm --dir apps/editor typecheck`、`pnpm --dir apps/editor lint` 和与改动最相关的 Vitest；涉及真实后端或导出契约时再运行完整 `test`。
+- 分发构建必须经过 [`scripts/`](./scripts/README.md) 的应用身份、内置后端、Web/桌面 Player 模板、签名、ZIP 回读与发布集校验，不能把 Forge 的原始输出直接当作正式发行包。

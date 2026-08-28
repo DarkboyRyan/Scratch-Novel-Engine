@@ -65,15 +65,22 @@ async function main() {
     env: process.env,
   });
 
-  if (process.platform !== 'darwin') {
+  if (process.platform !== 'darwin' && process.platform !== 'win32') {
     runChecked(process.execPath, editorForgeArguments, {
       cwd: editorDirectory,
       env: process.env,
     });
     return;
   }
-  if (process.arch !== 'arm64' && process.arch !== 'x64') {
-    throw new Error(`不支持为 ${process.arch} 生成 macOS Player 模板`);
+  if (
+    (process.platform === 'darwin' &&
+      process.arch !== 'arm64' &&
+      process.arch !== 'x64') ||
+    (process.platform === 'win32' && process.arch !== 'x64')
+  ) {
+    throw new Error(
+      `不支持为 ${process.platform}-${process.arch} 生成 Player 模板`,
+    );
   }
 
   const playerPackage = JSON.parse(
@@ -86,15 +93,18 @@ async function main() {
     throw new Error('Player package version 无效');
   }
 
-  // Desktop/FileProvider folders can attach xattrs that invalidate an app
-  // signature. Keep the unsigned template build and template staging in the
-  // native temporary directory until Forge has copied it into the Editor.
+  // Keep template build and staging in the native temporary directory. On
+  // macOS this avoids FileProvider xattrs invalidating the app signature; on
+  // Windows it also keeps the large package tree out of the source checkout.
   const temporaryRoot = await mkdtemp(
     path.join(os.tmpdir(), 'vn-editor-player-template-'),
   );
   const packageOut = path.join(temporaryRoot, 'player-out');
   const templatesRoot = path.join(temporaryRoot, 'player-templates');
-  const templateRoot = path.join(templatesRoot, `darwin-${process.arch}`);
+  const templateRoot = path.join(
+    templatesRoot,
+    `${process.platform}-${process.arch}`,
+  );
   await mkdir(templatesRoot, { recursive: true });
 
   const playerEnvironment = {
@@ -107,7 +117,12 @@ async function main() {
     VN_PLAYER_OUT_DIR: packageOut,
   };
   try {
-    runChecked('pnpm', ['--dir', 'apps/player', 'package'], {
+    runChecked(pnpmLauncher.command, [
+      ...pnpmLauncher.args,
+      '--dir',
+      'apps/player',
+      'package',
+    ], {
       cwd: repositoryRoot,
       env: playerEnvironment,
     });

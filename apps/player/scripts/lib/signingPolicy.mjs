@@ -20,12 +20,13 @@ export function windowsSignOptions({
   appDirectory,
   certificateFile,
   certificatePassword,
+  description = 'VN Engine Player',
 }) {
   return {
     appDirectory,
     certificateFile,
     certificatePassword,
     hashes: ['sha256'],
-    description: 'VN Engine Player',
+    description,
   };
 }

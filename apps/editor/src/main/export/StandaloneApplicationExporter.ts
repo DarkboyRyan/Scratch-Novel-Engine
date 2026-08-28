@@ -156,6 +156,7 @@ export type StandaloneApplicationFinalizer = (
 export type PlatformCommandRunner = (
   executablePath: string,
   arguments_: readonly string[],
+  environment?: NodeJS.ProcessEnv,
 ) => Promise<void>;
 
 type CopyBudget = {
@@ -169,10 +170,88 @@ type TreeSnapshotRecord = {
   sha256: string;
 };
 
+const WINDOWS_ARCHIVE_SCRIPT = [
+  "$ErrorActionPreference = 'Stop'",
+  "$source = $env:VN_PLAYER_WINDOWS_ARCHIVE_SOURCE",
+  "$destination = $env:VN_PLAYER_WINDOWS_ARCHIVE_DESTINATION",
+  'if ([string]::IsNullOrWhiteSpace($source) -or [string]::IsNullOrWhiteSpace($destination)) { throw "Missing archive path" }',
+  'if (Test-Path -LiteralPath $destination) { throw "Archive destination already exists" }',
+  'Compress-Archive -LiteralPath $source -DestinationPath $destination -CompressionLevel Optimal',
+].join("; ");
+
+const WINDOWS_EXTRACT_SCRIPT = [
+  "$ErrorActionPreference = 'Stop'",
+  "$source = $env:VN_EDITOR_WINDOWS_ARCHIVE_SOURCE",
+  "$destination = $env:VN_EDITOR_WINDOWS_ARCHIVE_DESTINATION",
+  'if ([string]::IsNullOrWhiteSpace($source) -or [string]::IsNullOrWhiteSpace($destination)) { throw "Missing extraction path" }',
+  'if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "Archive source is missing" }',
+  'if (-not (Test-Path -LiteralPath $destination -PathType Container)) { throw "Extraction destination is missing" }',
+  'if ((Get-ChildItem -LiteralPath $destination -Force | Measure-Object).Count -ne 0) { throw "Extraction destination is not empty" }',
+  'Expand-Archive -LiteralPath $source -DestinationPath $destination',
+].join("; ");
+
 type FileIdentity = {
   dev: number;
   ino: number;
 };
+
+export type WindowsStandalonePowerShellInvocation = Readonly<{
+  command: "powershell.exe";
+  arguments: readonly string[];
+  environment: NodeJS.ProcessEnv;
+}>;
+
+function assertWindowsAbsoluteCommandPath(
+  value: string,
+  context: string,
+): void {
+  if (
+    value.length === 0 ||
+    value.includes("\0") ||
+    !path.win32.isAbsolute(value)
+  ) {
+    throw new Error(`${context}必须是 Windows 绝对路径`);
+  }
+}
+
+export function windowsStandaloneArchiveInvocation(
+  sourcePath: string,
+  archivePath: string,
+  parentEnvironment: NodeJS.ProcessEnv = process.env,
+): WindowsStandalonePowerShellInvocation {
+  assertWindowsAbsoluteCommandPath(sourcePath, "Windows 独立应用目录");
+  assertWindowsAbsoluteCommandPath(archivePath, "Windows 独立应用 ZIP");
+  return {
+    command: "powershell.exe",
+    arguments: windowsPowerShellArguments(WINDOWS_ARCHIVE_SCRIPT),
+    environment: {
+      ...parentEnvironment,
+      VN_PLAYER_WINDOWS_ARCHIVE_SOURCE: sourcePath,
+      VN_PLAYER_WINDOWS_ARCHIVE_DESTINATION: archivePath,
+    },
+  };
+}
+
+export function windowsStandaloneExtractionInvocation(
+  archivePath: string,
+  extractionRootPath: string,
+  parentEnvironment: NodeJS.ProcessEnv = process.env,
+): WindowsStandalonePowerShellInvocation {
+  assertWindowsAbsoluteCommandPath(archivePath, "Windows 独立应用 ZIP");
+  assertWindowsAbsoluteCommandPath(
+    extractionRootPath,
+    "Windows ZIP 解压复验目录",
+  );
+  return {
+    command: "powershell.exe",
+    arguments: windowsPowerShellArguments(WINDOWS_EXTRACT_SCRIPT),
+    environment: {
+      ...parentEnvironment,
+      VN_EDITOR_WINDOWS_ARCHIVE_SOURCE: archivePath,
+      VN_EDITOR_WINDOWS_ARCHIVE_DESTINATION: extractionRootPath,
+    },
+  };
+}
 
 type CompletedStableFileOperation<T> = {
   value: T;
@@ -517,13 +596,22 @@ function validateTargetName(
   ) {
     throw new Error("macOS 独立应用归档名称必须以 -macOS.zip 结尾");
   }
+  if (
+    template.manifest.platform === "win32" &&
+    !artifactName.endsWith("-Windows.zip")
+  ) {
+    throw new Error("Windows 独立应用归档名称必须以 -Windows.zip 结尾");
+  }
   return artifactName;
 }
 
 function applicationArtifactName(
   application: StandaloneApplicationMetadata,
+  template: LoadedStandalonePlayerTemplate,
 ): string {
-  const name = `${application.name}.app`;
+  const name = template.manifest.platform === "darwin"
+    ? `${application.name}.app`
+    : `${application.name}-Windows`;
   if (
     application.name.length === 0 ||
     application.name !== application.name.normalize("NFC") ||
@@ -540,7 +628,7 @@ function applicationArtifactName(
     /[<>:"/\\|?*]/u.test(application.name) ||
     /[. ]$/u.test(application.name)
   ) {
-    throw new Error("macOS 独立应用名称无效");
+    throw new Error("独立应用目录名称无效");
   }
   return name;
 }
@@ -1147,9 +1235,95 @@ async function assertSafeApplicationTree(rootPath: string): Promise<void> {
 const runPlatformCommand: PlatformCommandRunner = async (
   executablePath,
   arguments_,
+  environment,
 ) => {
-  await execFileAsync(executablePath, [...arguments_]);
+  await execFileAsync(executablePath, [...arguments_], {
+    ...(environment === undefined ? {} : { env: environment }),
+  });
 };
+
+function windowsPowerShellArguments(script: string): readonly string[] {
+  return [
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    script,
+  ];
+}
+
+async function requireWindowsPlayerFile(
+  filePath: string,
+  context: string,
+): Promise<Stats> {
+  const status = await lstat(filePath);
+  if (
+    status.isSymbolicLink() ||
+    !status.isFile() ||
+    status.nlink !== 1 ||
+    status.size <= 0 ||
+    status.size > MAX_TEMPLATE_FILE_BYTES
+  ) {
+    throw new Error(`${context}必须是安全的常规文件`);
+  }
+  return status;
+}
+
+async function verifyWindowsX64Executable(executablePath: string): Promise<void> {
+  const before = await requireWindowsPlayerFile(
+    executablePath,
+    "Windows Player 主程序",
+  );
+  const executable = await open(
+    executablePath,
+    constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+  );
+  try {
+    const opened = await executable.stat();
+    if (!sameFileSnapshot(before, opened)) {
+      throw new Error("Windows Player 主程序在打开前发生了变化");
+    }
+    const dosHeader = Buffer.alloc(64);
+    const dosRead = await executable.read(dosHeader, 0, dosHeader.length, 0);
+    if (
+      dosRead.bytesRead !== dosHeader.length ||
+      dosHeader.subarray(0, 2).toString("ascii") !== "MZ"
+    ) {
+      throw new Error("Windows Player 主程序不是有效 PE 文件");
+    }
+    const peOffset = dosHeader.readUInt32LE(0x3c);
+    if (peOffset < 64 || peOffset > opened.size - 6) {
+      throw new Error("Windows Player 主程序 PE 头偏移无效");
+    }
+    const peHeader = Buffer.alloc(6);
+    const peRead = await executable.read(peHeader, 0, peHeader.length, peOffset);
+    if (
+      peRead.bytesRead !== peHeader.length ||
+      peHeader.subarray(0, 4).toString("binary") !== "PE\0\0" ||
+      peHeader.readUInt16LE(4) !== 0x8664
+    ) {
+      throw new Error("Windows Player 主程序不是 x64 PE 文件");
+    }
+    if (!sameFileSnapshot(opened, await executable.stat())) {
+      throw new Error("Windows Player 主程序在复验时发生了变化");
+    }
+  } finally {
+    await executable.close();
+  }
+}
+
+async function verifyWindowsPlayerApplicationTree(
+  artifactPath: string,
+): Promise<void> {
+  await assertSafeApplicationTree(artifactPath);
+  await verifyWindowsX64Executable(
+    path.join(artifactPath, "VN Engine Player.exe"),
+  );
+  await requireWindowsPlayerFile(
+    path.join(artifactPath, "resources", "app.asar"),
+    "Windows Player app.asar",
+  );
+}
 
 async function removeCodeSignIncompatibleExtendedAttributes(
   artifactPath: string,
@@ -1170,8 +1344,13 @@ export async function sanitizeAndVerifyStandaloneApplication(
   artifactPath: string,
   commandRunner: PlatformCommandRunner = runPlatformCommand,
 ): Promise<void> {
+  if (process.platform === "win32") {
+    await verifyWindowsPlayerApplicationTree(artifactPath);
+    await syncApplicationTree(artifactPath);
+    return;
+  }
   if (process.platform !== "darwin") {
-    throw new Error("独立应用发布复验只支持 macOS");
+    throw new Error("独立应用发布复验只支持 macOS 和 Windows");
   }
   await assertSafeApplicationTree(artifactPath);
   // FileProvider can attach Finder metadata while a tree is traversed or
@@ -1209,8 +1388,12 @@ export async function verifyStandalonePlayerTemplateSignature(
   stagingArtifactPath: string,
   commandRunner: PlatformCommandRunner = runPlatformCommand,
 ): Promise<void> {
+  if (process.platform === "win32") {
+    await verifyWindowsPlayerApplicationTree(stagingArtifactPath);
+    return;
+  }
   if (process.platform !== "darwin") {
-    throw new Error("Player 模板签名复验只支持 macOS");
+    throw new Error("Player 模板复验只支持 macOS 和 Windows");
   }
   await commandRunner("/usr/bin/codesign", [
     "--verify",
@@ -1225,23 +1408,40 @@ export async function archiveStandaloneApplication(
   archivePath: string,
   commandRunner: PlatformCommandRunner = runPlatformCommand,
 ): Promise<void> {
-  if (process.platform !== "darwin") {
-    throw new Error("macOS 独立应用归档只支持 macOS");
-  }
   await assertSafeApplicationTree(applicationPath);
   await assertMissing(archivePath, "独立应用 ZIP 已存在");
-  await commandRunner("/usr/bin/ditto", [
-    "-c",
-    "-k",
-    "--keepParent",
-    "--norsrc",
-    "--noextattr",
-    "--noacl",
-    "--noqtn",
-    applicationPath,
+  if (process.platform === "darwin") {
+    await commandRunner("/usr/bin/ditto", [
+      "-c",
+      "-k",
+      "--keepParent",
+      "--norsrc",
+      "--noextattr",
+      "--noacl",
+      "--noqtn",
+      applicationPath,
+      archivePath,
+    ]);
+  } else if (process.platform === "win32") {
+    // Match the fixed, environment-only invocation used by the Player release
+    // archiver. No author-controlled path is interpolated into PowerShell.
+    const invocation = windowsStandaloneArchiveInvocation(
+      applicationPath,
+      archivePath,
+    );
+    await commandRunner(
+      invocation.command,
+      invocation.arguments,
+      invocation.environment,
+    );
+  } else {
+    throw new Error("独立应用归档只支持 macOS 和 Windows");
+  }
+  const archive = await open(
     archivePath,
-  ]);
-  const archive = await open(archivePath, constants.O_RDONLY);
+    (process.platform === "win32" ? constants.O_RDWR : constants.O_RDONLY) |
+      (constants.O_NOFOLLOW ?? 0),
+  );
   try {
     await archive.sync();
   } finally {
@@ -1255,9 +1455,6 @@ export async function extractStandaloneApplicationArchive(
   extractionRootPath: string,
   commandRunner: PlatformCommandRunner = runPlatformCommand,
 ): Promise<void> {
-  if (process.platform !== "darwin") {
-    throw new Error("macOS 独立应用 ZIP 复验只支持 macOS");
-  }
   const rootIdentity = await captureOwnedDirectoryIdentity(
     extractionRootPath,
     "ZIP 解压复验目录",
@@ -1266,16 +1463,30 @@ export async function extractStandaloneApplicationArchive(
     throw new Error("ZIP 解压复验目录必须为空");
   }
   await hashStableArchiveFile(archivePath);
-  await commandRunner("/usr/bin/ditto", [
-    "-x",
-    "-k",
-    "--norsrc",
-    "--noextattr",
-    "--noacl",
-    "--noqtn",
-    archivePath,
-    extractionRootPath,
-  ]);
+  if (process.platform === "darwin") {
+    await commandRunner("/usr/bin/ditto", [
+      "-x",
+      "-k",
+      "--norsrc",
+      "--noextattr",
+      "--noacl",
+      "--noqtn",
+      archivePath,
+      extractionRootPath,
+    ]);
+  } else if (process.platform === "win32") {
+    const invocation = windowsStandaloneExtractionInvocation(
+      archivePath,
+      extractionRootPath,
+    );
+    await commandRunner(
+      invocation.command,
+      invocation.arguments,
+      invocation.environment,
+    );
+  } else {
+    throw new Error("独立应用 ZIP 复验只支持 macOS 和 Windows");
+  }
   const after = await lstat(extractionRootPath);
   if (
     after.isSymbolicLink() ||
@@ -1290,8 +1501,12 @@ export async function verifyExtractedStandaloneApplication(
   applicationPath: string,
   commandRunner: PlatformCommandRunner = runPlatformCommand,
 ): Promise<void> {
+  if (process.platform === "win32") {
+    await verifyWindowsPlayerApplicationTree(applicationPath);
+    return;
+  }
   if (process.platform !== "darwin") {
-    throw new Error("macOS 独立应用复验只支持 macOS");
+    throw new Error("独立应用复验只支持 macOS 和 Windows");
   }
   // Verification deliberately performs no cleanup or re-signing. It proves
   // that the exact bytes restored from the ZIP already carry a valid signature.
@@ -1310,8 +1525,15 @@ export async function finalizeStandaloneApplication(
   application: StandaloneApplicationMetadata,
   commandRunner: PlatformCommandRunner = runPlatformCommand,
 ): Promise<void> {
+  if (template.manifest.platform === "win32") {
+    if (template.manifest.arch !== "x64") {
+      throw new Error("Windows 本地独立应用只支持 x64 Player 模板");
+    }
+    await verifyWindowsPlayerApplicationTree(stagingArtifactPath);
+    return;
+  }
   if (template.manifest.platform !== "darwin") {
-    throw new Error("Windows/Linux 独立应用必须由对应平台 CI 重新构建");
+    throw new Error("Linux 独立应用必须由对应平台 CI 重新构建");
   }
   const plistRelativePath = template.manifest.macosInfoPlistFile;
   if (plistRelativePath === null) {
@@ -1412,6 +1634,7 @@ async function verifyStandaloneApplicationArchive(
   template: LoadedStandalonePlayerTemplate,
   expectedMetadataContents: string,
   expectedEmbeddedRecords: readonly TreeSnapshotRecord[],
+  expectedApplicationRecords: readonly TreeSnapshotRecord[] | null,
   expectedArchiveSha256: string,
   extractArchive: (
     archivePath: string,
@@ -1438,7 +1661,7 @@ async function verifyStandaloneApplicationArchive(
     !extractedStatus.isDirectory() ||
     (await realpath(extractedApplicationPath)) !== extractedApplicationPath
   ) {
-    throw new Error("独立应用 ZIP 内的 .app 无效");
+    throw new Error("独立应用 ZIP 内的应用目录无效");
   }
   await assertSafeApplicationTree(extractedApplicationPath);
   await verifyEmbeddedApplicationContents(
@@ -1447,6 +1670,19 @@ async function verifyStandaloneApplicationArchive(
     expectedMetadataContents,
     expectedEmbeddedRecords,
   );
+  if (expectedApplicationRecords !== null) {
+    const extractedRecords = await snapshotRegularTree(
+      extractedApplicationPath,
+      extractedApplicationPath,
+      new Map(expectedApplicationRecords.map((record) => [record.path, record])),
+    );
+    if (
+      JSON.stringify(extractedRecords) !==
+      JSON.stringify(expectedApplicationRecords)
+    ) {
+      throw new Error("Windows 独立应用 ZIP 文件树与组装结果不一致");
+    }
+  }
   await verifyExtractedApplication(extractedApplicationPath);
   await hashStableArchiveFile(archivePath, expectedArchiveSha256);
 }
@@ -1455,8 +1691,11 @@ export async function exportStandaloneApplication(
   options: StandaloneApplicationExportOptions,
 ): Promise<StandaloneApplicationExportResult> {
   const template = await loadStandalonePlayerTemplate(options.templateRootPath);
-  if (template.manifest.platform !== "darwin") {
-    throw new Error("当前 Editor 只支持在 macOS 本地组装独立应用");
+  if (
+    template.manifest.platform !== "darwin" &&
+    template.manifest.platform !== "win32"
+  ) {
+    throw new Error("当前 Editor 只支持在 macOS 或 Windows 本地组装独立应用");
   }
   const sourceRootPath = await canonicalizeDirectory(
     options.sourceProjectRootPath,
@@ -1468,7 +1707,10 @@ export async function exportStandaloneApplication(
     "导出位置",
   );
   const artifactName = validateTargetName(requestedTargetPath, template);
-  const packagedApplicationName = applicationArtifactName(options.application);
+  const packagedApplicationName = applicationArtifactName(
+    options.application,
+    template,
+  );
   const targetPath = path.join(targetParentPath, artifactName);
   if (isInsideOrEqual(sourceRootPath, targetPath)) {
     throw new Error("独立应用不能导出到源项目内部");
@@ -1620,6 +1862,13 @@ export async function exportStandaloneApplication(
       embeddedBeforeFinalize,
     );
     await syncApplicationTree(stagingPath);
+    // Windows templates are unsigned for local/internal export, so a complete
+    // path/size/SHA-256 snapshot replaces macOS codesign as the post-archive
+    // exactness proof. Electron's physical app.asar is hashed as one file.
+    const expectedApplicationRecords =
+      template.manifest.platform === "win32"
+        ? await snapshotRegularTree(stagingPath)
+        : null;
 
     const privateArchivePath = path.join(
       transactionRootPath,
@@ -1646,6 +1895,7 @@ export async function exportStandaloneApplication(
       template,
       expectedMetadataContents,
       embeddedBeforeFinalize,
+      expectedApplicationRecords,
       expectedArchiveSha256,
       extractArchive,
       verifyExtracted,
@@ -1736,6 +1986,7 @@ export async function exportStandaloneApplication(
       template,
       expectedMetadataContents,
       embeddedBeforeFinalize,
+      expectedApplicationRecords,
       expectedArchiveSha256,
       extractArchive,
       verifyExtracted,

@@ -8,6 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import {
+  cp,
   mkdir,
   rename,
   rm,
@@ -20,6 +21,7 @@ import {
   enumOption,
   locatePackagedApplication,
   requiredOption,
+  verifyPackagedPlayer,
 } from './lib/releaseTools.mjs';
 import {
   APPLICATION_METADATA_FILE,
@@ -38,8 +40,8 @@ function runChecked(command, args) {
 }
 
 async function main() {
-  if (process.platform !== 'darwin') {
-    throw new Error('首版 Editor Player 模板只能在 macOS runner 生成');
+  if (process.platform !== 'darwin' && process.platform !== 'win32') {
+    throw new Error('Editor Player 模板只能在 macOS 或 Windows runner 生成');
   }
   const values = commandOptions({
     'out-dir': { type: 'string' },
@@ -48,6 +50,9 @@ async function main() {
     version: { type: 'string' },
   });
   const arch = enumOption(values, 'arch', ['arm64', 'x64']);
+  if (process.platform === 'win32' && arch !== 'x64') {
+    throw new Error('Windows Editor Player 模板当前只支持 x64');
+  }
   const version = requiredOption(values, 'version');
   if (!/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(version)) {
     throw new Error('--version 必须是 x.y.z 数字版本');
@@ -63,31 +68,77 @@ async function main() {
   );
   const sourceApp = await locatePackagedApplication(
     path.resolve(requiredOption(values, 'out-dir')),
-    'darwin',
+    process.platform,
   );
-  await verifyGenericMacosPlayerTemplate({ appPath: sourceApp, arch, version });
+  if (process.platform === 'darwin') {
+    await verifyGenericMacosPlayerTemplate({ appPath: sourceApp, arch, version });
+  } else {
+    await verifyPackagedPlayer({
+      outDirectory: path.resolve(requiredOption(values, 'out-dir')),
+      platform: 'win32',
+      arch,
+      mode: 'generic',
+      classification: 'internal',
+      productName: 'VN Engine Player',
+      version,
+      appBundleId: 'com.vnengine.player',
+      gitCommit: 'local',
+    });
+  }
 
   try {
     const payloadRoot = path.join(staging, 'payload');
-    const stagedApp = path.join(payloadRoot, GENERIC_PLAYER_ARTIFACT_ENTRY);
+    const artifactEntry = process.platform === 'darwin'
+      ? GENERIC_PLAYER_ARTIFACT_ENTRY
+      : 'VN Engine Player-win32-x64';
+    const stagedApp = path.join(payloadRoot, artifactEntry);
     await mkdir(payloadRoot, { recursive: true });
-    // `fs.cp` rewrites relative framework symlinks on macOS unless carefully
-    // configured, which changes the sealed bundle. `ditto` is Apple's
-    // bundle-aware byte-preserving copier and keeps the existing signature.
-    runChecked('ditto', [sourceApp, stagedApp]);
-    await verifyGenericMacosPlayerTemplate({ appPath: stagedApp, arch, version });
+    if (process.platform === 'darwin') {
+      // `fs.cp` rewrites relative framework symlinks on macOS unless carefully
+      // configured, which changes the sealed bundle. `ditto` is Apple's
+      // bundle-aware byte-preserving copier and keeps the existing signature.
+      runChecked('ditto', [sourceApp, stagedApp]);
+      await verifyGenericMacosPlayerTemplate({ appPath: stagedApp, arch, version });
+    } else {
+      await cp(sourceApp, stagedApp, {
+        recursive: true,
+        force: false,
+        errorOnExist: true,
+        preserveTimestamps: true,
+        verbatimSymlinks: true,
+      });
+      // Re-run the same packaged-Player contract from the staged payload. This
+      // catches incomplete copies before Forge embeds the template in Editor.
+      await verifyPackagedPlayer({
+        outDirectory: payloadRoot,
+        platform: 'win32',
+        arch,
+        mode: 'generic',
+        classification: 'internal',
+        productName: 'VN Engine Player',
+        version,
+        appBundleId: 'com.vnengine.player',
+        gitCommit: 'local',
+      });
+    }
     const manifest = {
       format: 'vn-engine-player-template',
       templateVersion: 1,
-      platform: 'darwin',
+      platform: process.platform,
       arch,
       playerVersion: version,
       runtimeCompatibility: '>=1 <11',
       payloadRoot: 'payload',
-      artifactEntry: GENERIC_PLAYER_ARTIFACT_ENTRY,
-      gameResourceDirectory: GAME_RESOURCE_DIRECTORY,
-      applicationMetadataFile: APPLICATION_METADATA_FILE,
-      macosInfoPlistFile: MACOS_INFO_PLIST_FILE,
+      artifactEntry,
+      gameResourceDirectory: process.platform === 'darwin'
+        ? GAME_RESOURCE_DIRECTORY
+        : 'resources/game',
+      applicationMetadataFile: process.platform === 'darwin'
+        ? APPLICATION_METADATA_FILE
+        : 'resources/vn-game-application.json',
+      macosInfoPlistFile: process.platform === 'darwin'
+        ? MACOS_INFO_PLIST_FILE
+        : null,
     };
     await writeFile(
       path.join(staging, 'player-template.json'),

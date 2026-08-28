@@ -438,6 +438,7 @@ test('normalizes workflow line endings before structural validation', () => {
 test('never interpolates untrusted workflow expressions into shell source', async () => {
   const workflowDirectory = path.join(repositoryDirectory, '.github', 'workflows');
   const workflowNames = [
+    'editor-ci.yml',
     'player-ci.yml',
     'player-game-build.yml',
     'player-release.yml',
@@ -487,6 +488,29 @@ test('never interpolates untrusted workflow expressions into shell source', asyn
     ).length;
     assert.equal(safeCheckoutCount, checkoutCount, `${workflowName} checkout 不得持久化 token`);
   }
+
+  const editorCiWorkflow = await readWorkflowSource(
+    workflowDirectory,
+    'editor-ci.yml',
+  );
+  assert.match(editorCiWorkflow, /^on:\n  workflow_dispatch:\n/mu);
+  assert.doesNotMatch(editorCiWorkflow, /^\s+push:\s*$/mu);
+  assert.doesNotMatch(editorCiWorkflow, /^\s+pull_request:\s*$/mu);
+  assert.equal((editorCiWorkflow.match(/runner: macos-15/gu) ?? []).length, 1);
+  assert.equal((editorCiWorkflow.match(/runner: windows-latest/gu) ?? []).length, 1);
+  assert.doesNotMatch(editorCiWorkflow, /runner: ubuntu-|platform: linux/u);
+  assert.match(editorCiWorkflow, /--classification internal/u);
+  assert.match(editorCiWorkflow, /verifyEditorReleasePrerequisites\.mjs/u);
+  assert.match(editorCiWorkflow, /verifyEditorBuild\.mjs/u);
+  assert.match(editorCiWorkflow, /archiveEditorBuild\.mjs/u);
+  assert.match(editorCiWorkflow, /collectEditorArtifacts\.mjs/u);
+  assert.doesNotMatch(editorCiWorkflow, /\bsecrets\./u);
+  assert.doesNotMatch(editorCiWorkflow, /^\s+contents: write\s*$/mu);
+  assert.doesNotMatch(
+    editorCiWorkflow,
+    /uses:\s+actions\/upload-artifact@/u,
+    '未获明确授权前，内部 Editor 工作流不得向 GitHub 上传仓库制品',
+  );
 
   const gameWorkflow = await readWorkflowSource(
     workflowDirectory,

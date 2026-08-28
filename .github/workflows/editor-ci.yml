@@ -1,0 +1,178 @@
+# 文件职责：手动构建并验证 Editor 内部 ZIP，不向 GitHub 上传或公开发布制品。
+# 关键实现：C++/TypeScript 测试、Editor 打包、内部签名分类、ZIP 回读与 SHA-256。
+name: Editor internal verification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: editor-internal-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: 'true'
+  PNPM_VERSION: 11.18.0
+
+jobs:
+  test-package:
+    name: Internal Editor ${{ matrix.platform }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            platform: darwin
+            arch: arm64
+          - runner: windows-latest
+            platform: win32
+            arch: x64
+
+    steps:
+      - name: Check out the exact commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Install Node.js from .node-version
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Verify runner architecture
+        shell: bash
+        run: >-
+          node -e "if (process.platform !== '${{ matrix.platform }}' || process.arch !== '${{ matrix.arch }}') throw new Error('Unexpected runner: ' + process.platform + '/' + process.arch)"
+
+      - name: Install the frozen workspace
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate internal Editor artifact metadata
+        id: preflight
+        shell: bash
+        env:
+          EDITOR_RELEASE_COMMIT: ${{ github.sha }}
+        run: >-
+          node apps/editor/scripts/verifyEditorReleasePrerequisites.mjs
+          --package apps/editor/package.json
+          --classification internal
+          --commit "$EDITOR_RELEASE_COMMIT"
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Read the embedded Player version
+        shell: bash
+        run: |
+          PLAYER_VERSION="$(node -p "require('./apps/player/package.json').version")"
+          echo "PLAYER_VERSION=$PLAYER_VERSION" >> "$GITHUB_ENV"
+
+      - name: Test shared Runtime and Player template producer
+        run: |
+          pnpm --dir packages/runtime test
+          pnpm --dir apps/player typecheck
+          pnpm --dir apps/player lint
+          pnpm --dir apps/player test
+
+      - name: Typecheck and lint Editor
+        run: |
+          pnpm --dir apps/editor typecheck
+          pnpm --dir apps/editor lint
+
+      - name: Test Editor release tooling
+        run: pnpm --dir apps/editor test:release-tools
+
+      - name: Build the Editor C++ engine and tests
+        run: pnpm --dir apps/editor engine:build
+
+      - name: Test the Editor C++ engine on Windows
+        if: matrix.platform == 'win32'
+        run: ctest --test-dir engine/build -C Debug --output-on-failure
+
+      - name: Test the Editor C++ engine on macOS
+        if: matrix.platform == 'darwin'
+        run: pnpm --dir apps/editor engine:test
+
+      - name: Test Editor TypeScript and export integration
+        run: pnpm --dir apps/editor exec vitest run
+
+      - name: Package the internal Editor application
+        env:
+          VN_EDITOR_OUT_DIR: ${{ runner.temp }}/editor-internal-out
+        run: pnpm --dir apps/editor package
+
+      - name: Locate the one packaged Editor application
+        id: application
+        shell: bash
+        run: >-
+          node apps/editor/scripts/locateEditorBuild.mjs
+          --out-dir "${{ runner.temp }}/editor-internal-out"
+          --platform "${{ matrix.platform }}"
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Verify internal package identity and signature classification
+        shell: bash
+        env:
+          EDITOR_RELEASE_VERSION: ${{ steps.preflight.outputs.version }}
+          EDITOR_RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          node apps/editor/scripts/verifyEditorBuild.mjs \
+            --out-dir "${{ runner.temp }}/editor-internal-out" \
+            --platform "${{ matrix.platform }}" \
+            --arch "${{ matrix.arch }}" \
+            --classification internal \
+            --product "VN Engine Editor" \
+            --version "$EDITOR_RELEASE_VERSION" \
+            --app-bundle-id com.vnengine.editor \
+            --player-version "$PLAYER_VERSION" \
+            --commit "$EDITOR_RELEASE_COMMIT" \
+            --receipt "${{ runner.temp }}/editor-internal-receipt.json"
+
+      - name: Archive and re-open the internal Editor ZIP
+        shell: bash
+        env:
+          EDITOR_APP_PATH: ${{ steps.application.outputs.app_path }}
+          EDITOR_RELEASE_VERSION: ${{ steps.preflight.outputs.version }}
+        run: |
+          mkdir -p "${{ runner.temp }}/editor-internal-input"
+          node apps/editor/scripts/archiveEditorBuild.mjs \
+            --platform "${{ matrix.platform }}" \
+            --source "$EDITOR_APP_PATH" \
+            --output "${{ runner.temp }}/editor-internal-input/VN-Engine-Editor-${{ matrix.platform }}-${{ matrix.arch }}-$EDITOR_RELEASE_VERSION.zip" \
+            --receipt "${{ runner.temp }}/editor-internal-receipt.json"
+
+      - name: Collect and verify the internal ZIP and SHA-256
+        shell: bash
+        env:
+          EDITOR_RELEASE_VERSION: ${{ steps.preflight.outputs.version }}
+          EDITOR_RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          node apps/editor/scripts/collectEditorArtifacts.mjs \
+            --input "${{ runner.temp }}/editor-internal-input" \
+            --output "${{ runner.temp }}/editor-internal-artifact" \
+            --receipt "${{ runner.temp }}/editor-internal-receipt.json" \
+            --classification internal \
+            --platform "${{ matrix.platform }}" \
+            --arch "${{ matrix.arch }}" \
+            --version "$EDITOR_RELEASE_VERSION" \
+            --commit "$EDITOR_RELEASE_COMMIT"
+
+      - name: Record the internal-only result
+        shell: bash
+        run: |
+          {
+            echo "## Internal Editor ZIP verified: ${{ matrix.platform }}-${{ matrix.arch }}"
+            echo ""
+            echo "This ZIP is not a public release. macOS is ad-hoc signed; Windows is unsigned or not platform-verified."
+            echo "This workflow intentionally performs no artifact upload; runner-temporary output is discarded after verification."
+          } >> "$GITHUB_STEP_SUMMARY"

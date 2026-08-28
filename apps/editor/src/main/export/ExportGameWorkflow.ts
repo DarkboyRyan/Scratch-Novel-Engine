@@ -29,7 +29,7 @@ import {
 export const STANDALONE_TEMPLATE_UNAVAILABLE_MESSAGE =
   '当前平台的独立 Player 模板不可用，请安装对应模板后重试';
 export const STANDALONE_LOCAL_PLATFORM_UNSUPPORTED_MESSAGE =
-  '当前 Editor 只支持在 macOS 本地组装独立应用；Windows/Linux 请使用对应平台 CI 构建';
+  '当前 Editor 只支持在 macOS 或 Windows x64 本地组装独立应用；其他平台请使用对应平台 CI 构建';
 export const WEB_PLAYER_TEMPLATE_UNAVAILABLE_MESSAGE =
   'Web Player 模板不可用，请重新安装 Editor 或生成开发模板后重试';
 
@@ -61,8 +61,15 @@ function truncateUtf8(value: string, maximumBytes: number): string {
   return result;
 }
 
-function safeStandaloneArchiveName(applicationName: string): string {
-  const suffix = '-macOS.zip';
+function standaloneArchiveSuffix(platform: NodeJS.Platform): string {
+  return platform === 'win32' ? '-Windows.zip' : '-macOS.zip';
+}
+
+function safeStandaloneArchiveName(
+  applicationName: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const suffix = standaloneArchiveSuffix(platform);
   const baseName = truncateUtf8(
     safeBundleBaseName(applicationName),
     240 - Buffer.byteLength(suffix, 'utf8'),
@@ -87,7 +94,10 @@ function normalizeBundlePath(selectedPath: string): string {
   return `${absolutePath}.vngame`;
 }
 
-function normalizeStandaloneArtifactPath(selectedPath: string): string {
+function normalizeStandaloneArtifactPath(
+  selectedPath: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
   let basePath = path.resolve(selectedPath);
   if (/\.zip$/iu.test(basePath)) {
     basePath = basePath.slice(0, -'.zip'.length);
@@ -95,10 +105,13 @@ function normalizeStandaloneArtifactPath(selectedPath: string): string {
   if (/\.app$/iu.test(basePath)) {
     basePath = basePath.slice(0, -'.app'.length);
   }
+  if (/-windows$/iu.test(basePath)) {
+    basePath = basePath.slice(0, -'-Windows'.length);
+  }
   if (/-macos$/iu.test(basePath)) {
     basePath = basePath.slice(0, -'-macOS'.length);
   }
-  return `${basePath}-macOS.zip`;
+  return `${basePath}${standaloneArchiveSuffix(platform)}`;
 }
 
 function normalizeWebArtifactPath(selectedPath: string): string {
@@ -160,7 +173,10 @@ export async function runExportGameWorkflow(
 
   let templateRootPath: string | null = null;
   if (request.output === 'standalone-application') {
-    if (process.platform !== 'darwin') {
+    if (
+      process.platform !== 'darwin' &&
+      !(process.platform === 'win32' && process.arch === 'x64')
+    ) {
       throw new Error(STANDALONE_LOCAL_PLATFORM_UNSUPPORTED_MESSAGE);
     }
     try {
@@ -210,10 +226,13 @@ export async function runExportGameWorkflow(
     ),
     filters: webPlayer
       ? [{ name: labels.webFilter, extensions: ['zip'] }]
-      : standalone && process.platform === 'darwin'
-        ? [{ name: labels.macFilter, extensions: ['zip'] }]
-        : standalone
-          ? undefined
+      : standalone
+        ? [{
+            name: process.platform === 'win32'
+              ? labels.windowsFilter
+              : labels.macFilter,
+            extensions: ['zip'],
+          }]
           : [{ name: 'VN Game Bundle', extensions: ['vngame'] }],
     properties: ['createDirectory', 'dontAddToRecent'],
   });

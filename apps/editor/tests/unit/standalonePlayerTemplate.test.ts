@@ -31,7 +31,11 @@ describe('standalone Player template contract', () => {
       playerVersion: '0.1.0',
       runtimeCompatibility: '>=1 <11',
       payloadRoot: 'payload',
-      artifactEntry: macos ? 'VN Engine Player.app' : 'player',
+      artifactEntry: macos
+        ? 'VN Engine Player.app'
+        : process.platform === 'win32'
+          ? 'VN Engine Player-win32-x64'
+          : 'player',
       gameResourceDirectory: macos
         ? 'Contents/Resources/game'
         : 'resources/game',
@@ -117,6 +121,38 @@ describe('standalone Player template contract', () => {
       await expect(
         loadStandalonePlayerTemplate(root, 'darwin', 'arm64'),
       ).rejects.toThrow('v1 exact 契约');
+    }
+  });
+
+  it('accepts only the fixed Windows x64 v1 injection paths', async () => {
+    const fixedWindowsManifest = {
+      platform: 'win32',
+      arch: 'x64',
+      payloadRoot: 'payload',
+      artifactEntry: 'VN Engine Player-win32-x64',
+      gameResourceDirectory: 'resources/game',
+      applicationMetadataFile: 'resources/vn-game-application.json',
+      macosInfoPlistFile: null,
+    };
+    const valid = await createTemplate(fixedWindowsManifest);
+    await expect(
+      loadStandalonePlayerTemplate(valid, 'win32', 'x64'),
+    ).resolves.toMatchObject({ manifest: fixedWindowsManifest });
+
+    for (const drift of [
+      { arch: 'arm64' },
+      { payloadRoot: 'player-payload' },
+      { artifactEntry: 'player' },
+      { gameResourceDirectory: 'Resources/game' },
+      { applicationMetadataFile: 'resources/application.json' },
+      { macosInfoPlistFile: 'Info.plist' },
+    ]) {
+      const root = await createTemplate({ ...fixedWindowsManifest, ...drift });
+      await expect(
+        loadStandalonePlayerTemplate(root, 'win32', 'x64'),
+      ).rejects.toThrow(
+        /Windows x64.*exact 契约|平台或架构不匹配|格式或路径无效/u,
+      );
     }
   });
 

@@ -232,7 +232,9 @@ describe('game export IPC', () => {
       artifactName:
         process.platform === 'darwin'
           ? 'Custom Story-macOS.zip'
-          : 'Custom Story',
+          : process.platform === 'win32'
+            ? 'Custom Story-Windows.zip'
+            : 'Custom Story',
       buildId: 'private-standalone-build-id',
       sourceRevision: 3,
       assetCount: 2,
@@ -512,6 +514,47 @@ describe('game export IPC', () => {
     },
   );
 
+  it.runIf(process.platform === 'win32')(
+    'exports a Windows x64 ZIP from validated path-free metadata',
+    async () => {
+      electronMocks.showSaveDialog.mockResolvedValue({
+        canceled: false,
+        filePath: path.resolve('/exports/Custom Story'),
+      });
+      const { handler } = registerSession({ saved: true });
+
+      await expect(handler(trustedEvent(), standaloneInvocation)).resolves.toEqual({
+        cancelled: false,
+        output: 'standalone-application',
+        artifactName: 'Custom Story-Windows.zip',
+        sourceRevision: 3,
+        assetCount: 2,
+      });
+      expect(electronMocks.showSaveDialog).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          defaultPath: path.join(
+            path.dirname(projectRootPath),
+            'Custom Story-Windows.zip',
+          ),
+          filters: [{ name: 'Windows 游戏 ZIP', extensions: ['zip'] }],
+        }),
+      );
+      expect(exportMocks.loadStandalonePlayerTemplate).toHaveBeenCalledWith(
+        '/templates/current',
+      );
+      expect(exportMocks.exportStandaloneApplication).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetArtifactPath: path.resolve(
+            '/exports/Custom Story-Windows.zip',
+          ),
+          templateRootPath: '/templates/current',
+          application: standaloneInvocation.params.application,
+        }),
+      );
+    },
+  );
+
   it.runIf(process.platform === 'darwin')(
     'normalizes ZIP, prior app, and platform suffixes to one -macOS.zip suffix',
     async () => {
@@ -616,14 +659,14 @@ describe('game export IPC', () => {
     },
   );
 
-  it.runIf(process.platform !== 'darwin')(
+  it.runIf(process.platform !== 'darwin' && process.platform !== 'win32')(
     'rejects local standalone assembly before resolving a Player template',
     async () => {
       const { handler } = registerSession({ saved: true });
 
       await expect(
         handler(trustedEvent(), standaloneInvocation),
-      ).rejects.toThrow('当前 Editor 只支持在 macOS 本地组装独立应用');
+      ).rejects.toThrow('当前 Editor 只支持在 macOS 或 Windows x64 本地组装独立应用');
       expect(exportMocks.resolveStandalonePlayerTemplateRoot).not.toHaveBeenCalled();
       expect(exportMocks.loadStandalonePlayerTemplate).not.toHaveBeenCalled();
       expect(electronMocks.showSaveDialog).not.toHaveBeenCalled();
