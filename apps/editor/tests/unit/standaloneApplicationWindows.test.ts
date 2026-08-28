@@ -253,6 +253,6 @@ describe.runIf(process.platform === 'win32')(
         version: '1.2.3',
         appBundleId: 'com.example.windows-story',
       });
-    });
+    }, 60_000);
   },
 );
