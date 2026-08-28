@@ -181,10 +181,12 @@ jobs:
             --receipt "${{ runner.temp }}/editor-internal-receipt.json"
 
       - name: Archive and re-open the internal Editor ZIP
+        id: archive_editor
         shell: bash
         env:
           EDITOR_APP_PATH: ${{ steps.application.outputs.app_path }}
           EDITOR_RELEASE_VERSION: ${{ steps.preflight.outputs.version }}
+          VN_EDITOR_ARCHIVE_PHASE_REPORT: github-output
         run: |
           mkdir -p "${{ runner.temp }}/editor-internal-input"
           node apps/editor/scripts/archiveEditorBuild.mjs \
@@ -192,6 +194,27 @@ jobs:
             --source "$EDITOR_APP_PATH" \
             --output "${{ runner.temp }}/editor-internal-input/VN-Engine-Editor-${{ matrix.platform }}-${{ matrix.arch }}-$EDITOR_RELEASE_VERSION.zip" \
             --receipt "${{ runner.temp }}/editor-internal-receipt.json"
+
+      - name: Record the fixed Editor archive failure phase
+        if: failure() && steps.archive_editor.outcome == 'failure'
+        shell: bash
+        env:
+          EDITOR_ARCHIVE_PHASE: ${{ steps.archive_editor.outputs.editor_archive_phase }}
+        run: |
+          case "$EDITOR_ARCHIVE_PHASE" in
+            input|create|zip-verify|extract-verify|cleanup)
+              SAFE_ARCHIVE_PHASE="$EDITOR_ARCHIVE_PHASE"
+              ;;
+            *)
+              SAFE_ARCHIVE_PHASE="unknown"
+              ;;
+          esac
+          echo "::error title=Internal Editor archive failed::phase=$SAFE_ARCHIVE_PHASE"
+          {
+            echo "## Internal Editor archive failed"
+            echo ""
+            echo "Fixed diagnostic phase: \`$SAFE_ARCHIVE_PHASE\`."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Collect and verify the internal ZIP and SHA-256
         shell: bash

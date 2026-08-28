@@ -570,6 +570,16 @@ test('never interpolates untrusted workflow expressions into shell source', asyn
   assert.match(editorCiWorkflow, /pnpm --dir apps\/editor package:application/u);
   assert.match(editorCiWorkflow, /SAFE_PACKAGE_PHASE="unknown"/u);
   assert.doesNotMatch(editorCiWorkflow, /tee[^\n]*editor-package|tail[^\n]*editor-package/u);
+  assert.match(editorCiWorkflow, /id:\s+archive_editor/u);
+  assert.match(
+    editorCiWorkflow,
+    /input\|create\|zip-verify\|extract-verify\|cleanup/u,
+  );
+  assert.match(editorCiWorkflow, /SAFE_ARCHIVE_PHASE="unknown"/u);
+  assert.doesNotMatch(
+    editorCiWorkflow,
+    /(?:tee|tail|cat)[^\n]*(?:editor-archive|archive\.log)/u,
+  );
   assert.doesNotMatch(editorCiWorkflow, /actions\/upload-release-asset|softprops\/action-gh-release/u);
 
   const gameWorkflow = await readWorkflowSource(

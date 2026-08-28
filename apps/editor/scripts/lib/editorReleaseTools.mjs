@@ -197,7 +197,7 @@ function isContained(root, candidate) {
   );
 }
 
-async function snapshotApplicationTree(root, platform, relative = '') {
+export async function snapshotApplicationTree(root, platform, relative = '') {
   const directory = relative === '' ? root : path.join(root, ...relative.split('/'));
   const entries = await readdir(directory, { withFileTypes: true });
   entries.sort((left, right) => comparePaths(left.name, right.name));
@@ -262,6 +262,7 @@ async function snapshotApplicationTree(root, platform, relative = '') {
       throw new Error(`Editor 应用树包含不支持的文件类型：${relativePath}`);
     }
   }
+  records.sort((left, right) => comparePaths(left.path, right.path));
   return records;
 }
 
@@ -773,7 +774,7 @@ export async function verifyPackagedEditor({
   criticalFiles.sort((left, right) => comparePaths(left.path, right.path));
   const applicationEntries = await snapshotApplicationTree(appRoot, platform);
 
-  return {
+  const receipt = {
     schemaVersion: EDITOR_RECEIPT_SCHEMA_VERSION,
     classification,
     platform,
@@ -797,6 +798,7 @@ export async function verifyPackagedEditor({
     applicationEntries,
     createdAt: new Date().toISOString(),
   };
+  return validateEditorReceipt(receipt);
 }
 
 function openZip(archivePath) {
@@ -1252,11 +1254,12 @@ function windowsExtractionInvocation(archive, destination) {
   };
 }
 
-async function verifyExtractedArchive(archive, receipt) {
+async function verifyExtractedArchive(archive, receipt, recordPhase) {
   const temporaryRoot = await mkdtemp(
     path.join(os.tmpdir(), 'vn-editor-archive-verify-'),
   );
   const extracted = path.join(temporaryRoot, 'expanded');
+  let verificationSucceeded = false;
   try {
     if (receipt.platform === 'darwin') {
       await mkdir(extracted);
@@ -1302,7 +1305,11 @@ async function verifyExtractedArchive(archive, receipt) {
     if (signature !== receipt.signature) {
       throw new Error('Editor ZIP 解压后的签名分类与回执不一致');
     }
+    verificationSucceeded = true;
   } finally {
+    if (verificationSucceeded) {
+      recordPhase('cleanup');
+    }
     await rm(temporaryRoot, { recursive: true, force: true });
   }
 }
@@ -1312,6 +1319,7 @@ export async function archiveEditorApplication({
   sourceDirectory,
   outputPath,
   receipt,
+  recordPhase = () => {},
 }) {
   if (process.platform !== platform) {
     throw new Error(`必须在 ${platform} runner 上归档 ${platform} Editor`);
@@ -1329,6 +1337,7 @@ export async function archiveEditorApplication({
     throw new Error('Editor 应用目录与验证回执不一致');
   }
   await mkdir(path.dirname(output), { recursive: true });
+  recordPhase('create');
   if (platform === 'darwin') {
     runChecked('ditto', [
       '-c',
@@ -1348,8 +1357,10 @@ export async function archiveEditorApplication({
   if ((await stat(output)).size <= 0) {
     throw new Error('Editor ZIP 是空文件');
   }
+  recordPhase('zip-verify');
   const artifact = await verifyEditorArchive(output, validatedReceipt);
-  await verifyExtractedArchive(output, validatedReceipt);
+  recordPhase('extract-verify');
+  await verifyExtractedArchive(output, validatedReceipt, recordPhase);
   return artifact;
 }
 

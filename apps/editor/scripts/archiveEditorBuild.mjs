@@ -11,9 +11,11 @@ import {
   enumOption,
   requiredOption,
 } from '../../player/scripts/lib/releaseTools.mjs';
+import { recordEditorArchivePhase } from './lib/archivePhaseReporter.mjs';
 import { archiveEditorApplication } from './lib/editorReleaseTools.mjs';
 
 async function main() {
+  recordEditorArchivePhase('input');
   const values = commandOptions({
     platform: { type: 'string' },
     source: { type: 'string' },
@@ -29,6 +31,7 @@ async function main() {
     sourceDirectory: path.resolve(requiredOption(values, 'source')),
     outputPath: path.resolve(requiredOption(values, 'output')),
     receipt,
+    recordPhase: recordEditorArchivePhase,
   });
   process.stdout.write(
     `Editor ZIP 已生成并验证：${artifact.name} (${artifact.entryCount} entries)\n`,

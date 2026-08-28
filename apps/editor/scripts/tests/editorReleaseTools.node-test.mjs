@@ -26,6 +26,7 @@ import {
   collectEditorArtifacts,
   expectedEditorArtifactName,
   locatePackagedEditor,
+  snapshotApplicationTree,
   validateEditorReceipt,
   verifyEditorArchive,
   verifyEditorAsarMetadata,
@@ -35,6 +36,10 @@ import {
   EDITOR_RELEASE_REQUIRED_SECRETS,
   validateEditorReleasePrerequisites,
 } from '../verifyEditorReleasePrerequisites.mjs';
+import {
+  EDITOR_ARCHIVE_PHASES,
+  recordEditorArchivePhase,
+} from '../lib/archivePhaseReporter.mjs';
 import { windowsSignOptions } from '../../../player/scripts/lib/signingPolicy.mjs';
 
 const VERSION = '1.0.0';
@@ -206,6 +211,99 @@ async function writeArchive(output, rootName, contents) {
     zip.end();
   });
 }
+
+test('sorts the complete application tree across directory and file prefixes', async () => {
+  const root = await temporaryDirectory();
+  await mkdir(path.join(root, 'resources'));
+  await writeFile(path.join(root, 'resources', 'app.asar'), 'asar');
+  await writeFile(path.join(root, 'resources.pak'), 'pak');
+
+  const records = await snapshotApplicationTree(root, 'win32');
+  assert.deepEqual(records.map((record) => record.path), [
+    'resources',
+    'resources.pak',
+    'resources/app.asar',
+  ]);
+});
+
+test('reports only fixed Editor archive phases to GitHub output', async () => {
+  const root = await temporaryDirectory();
+  const output = path.join(root, 'github-output');
+  const environment = {
+    VN_EDITOR_ARCHIVE_PHASE_REPORT: 'github-output',
+    GITHUB_ACTIONS: 'true',
+    GITHUB_OUTPUT: output,
+  };
+  assert.deepEqual(EDITOR_ARCHIVE_PHASES, [
+    'input',
+    'create',
+    'zip-verify',
+    'extract-verify',
+    'cleanup',
+  ]);
+  for (const phase of EDITOR_ARCHIVE_PHASES) {
+    assert.equal(recordEditorArchivePhase(phase, environment), true);
+  }
+  assert.equal(
+    await readFile(output, 'utf8'),
+    EDITOR_ARCHIVE_PHASES
+      .map((phase) => `editor_archive_phase=${phase}\n`)
+      .join(''),
+  );
+  assert.throws(
+    () => recordEditorArchivePhase('C:\\private\\build: raw failure', environment),
+    /\u65E0\u6548的 Editor 归档阶段/u,
+  );
+  assert.equal(
+    recordEditorArchivePhase('input', {
+      ...environment,
+      GITHUB_OUTPUT: path.join(root, 'missing', 'github-output'),
+    }),
+    false,
+  );
+});
+
+test('keeps Editor archive phase reporting disabled outside the internal workflow', async () => {
+  const root = await temporaryDirectory();
+  const output = path.join(root, 'github-output');
+  assert.equal(recordEditorArchivePhase('input', {
+    VN_EDITOR_ARCHIVE_PHASE_REPORT: 'github-output',
+    GITHUB_ACTIONS: 'false',
+    GITHUB_OUTPUT: output,
+  }), false);
+  await assert.rejects(readFile(output, 'utf8'), { code: 'ENOENT' });
+});
+
+test('records each fixed Editor archive operation before it can fail', async () => {
+  const runnerSource = await readFile(
+    new URL('../archiveEditorBuild.mjs', import.meta.url),
+    'utf8',
+  );
+  const releaseToolsSource = await readFile(
+    new URL('../lib/editorReleaseTools.mjs', import.meta.url),
+    'utf8',
+  );
+  assert.match(runnerSource, /recordEditorArchivePhase\('input'\)/u);
+  assert.match(
+    runnerSource,
+    /recordPhase:\s+recordEditorArchivePhase/u,
+  );
+  const orderedMarkers = [
+    "recordPhase('create')",
+    "recordPhase('zip-verify')",
+    "recordPhase('extract-verify')",
+  ];
+  let previousIndex = -1;
+  for (const marker of orderedMarkers) {
+    const markerIndex = releaseToolsSource.indexOf(marker);
+    assert.ok(markerIndex > previousIndex, `${marker} 必须按归档顺序记录`);
+    previousIndex = markerIndex;
+  }
+  assert.match(
+    releaseToolsSource,
+    /if \(verificationSucceeded\) \{\s+recordPhase\('cleanup'\);/u,
+  );
+});
 
 test('allows internal builds without secrets and rejects unsigned release preflight', () => {
   const packageDocument = {
