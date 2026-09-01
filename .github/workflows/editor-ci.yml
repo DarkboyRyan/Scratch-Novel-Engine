@@ -331,15 +331,19 @@ jobs:
           PUBLISH_DIR: ${{ runner.temp }}/editor-prerelease-assets
         run: |
           set -Eeuo pipefail
-          CREATED_DRAFT=false
+          CREATED_RELEASE=false
           CREATED_RELEASE_ID=''
-          rollback_draft() {
-            status=$?
+          rollback_created_release() {
+            local status=$?
             trap - EXIT
-            if [[ "$status" -ne 0 && "$CREATED_DRAFT" == "true" ]]; then
-              release_state="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${CREATED_RELEASE_ID}" --jq '[.id, .draft, .prerelease, .tag_name, (.published_at // "UNPUBLISHED")] | @tsv' 2>/dev/null || true)"
-              expected_state="$CREATED_RELEASE_ID"$'\ttrue\ttrue\t'"$TAG"$'\tUNPUBLISHED'
-              if [[ "$release_state" == "$expected_state" ]] && verify_tag >/dev/null 2>&1; then
+            if [[ "$status" -ne 0 && "$CREATED_RELEASE" == "true" ]]; then
+              local rollback_state rollback_id rollback_draft rollback_prerelease rollback_tag rollback_published_at
+              rollback_state="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${CREATED_RELEASE_ID}" --jq '[.id, .draft, .prerelease, .tag_name, (.published_at // "UNPUBLISHED")] | @tsv' 2>/dev/null || true)"
+              IFS=$'\t' read -r rollback_id rollback_draft rollback_prerelease rollback_tag rollback_published_at <<< "$rollback_state"
+              if [[ "$rollback_id" == "$CREATED_RELEASE_ID" && "$rollback_prerelease" == "true" && "$rollback_tag" == "$TAG" ]] && \
+                { [[ "$rollback_draft" == "true" && "$rollback_published_at" == "UNPUBLISHED" ]] || \
+                  [[ "$rollback_draft" == "false" && "$rollback_published_at" != "UNPUBLISHED" ]]; } && \
+                verify_tag >/dev/null 2>&1; then
                 gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${CREATED_RELEASE_ID}" >/dev/null || true
               fi
             fi
@@ -390,7 +394,7 @@ jobs:
             fi
             verify_tag
           }
-          trap rollback_draft EXIT
+          trap rollback_created_release EXIT
           verify_tag
           RELEASE_TAGS="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" --jq '.[] | .tag_name')"
           if grep -Fxq "$TAG" <<< "$RELEASE_TAGS"; then
@@ -419,7 +423,7 @@ jobs:
             echo "The Draft Release ID is invalid" >&2
             exit 1
           }
-          CREATED_DRAFT=true
+          CREATED_RELEASE=true
           verify_draft
           gh release upload "$TAG" \
             "$PUBLISH_DIR/VN-Engine-Editor-darwin-arm64-$VERSION.zip" \
@@ -452,8 +456,19 @@ jobs:
             "repos/${GITHUB_REPOSITORY}/releases/${CREATED_RELEASE_ID}" \
             --input "${{ runner.temp }}/editor-prerelease-publish.json" \
             >/dev/null
-          CREATED_DRAFT=false
-          verify_prerelease
+          prerelease_verified=false
+          for attempt in {1..10}; do
+            if verify_prerelease; then
+              prerelease_verified=true
+              break
+            fi
+            sleep 2
+          done
+          if [[ "$prerelease_verified" != "true" ]]; then
+            echo "The internal Editor Pre-release did not reach its exact published state" >&2
+            exit 1
+          fi
+          CREATED_RELEASE=false
           trap - EXIT
 
       - name: Record the visible Pre-release result

@@ -645,7 +645,7 @@ test('never interpolates untrusted workflow expressions into shell source', asyn
     editorCiWorkflow,
     /JSON\.stringify\(\{[^\n}]*target_commitish/u,
   );
-  assert.match(editorCiWorkflow, /trap rollback_draft EXIT/u);
+  assert.match(editorCiWorkflow, /trap rollback_created_release EXIT/u);
   assert.match(editorCiWorkflow, /git\/ref\/tags\/\$\{TAG\}/u);
   assert.match(editorCiWorkflow, /releases\/tags\/\$\{TAG\}/u);
   assert.match(editorCiWorkflow, /gh release download "\$TAG" --dir "\$REMOTE_DIR"/u);
@@ -653,6 +653,8 @@ test('never interpolates untrusted workflow expressions into shell source', asyn
   assert.match(editorCiWorkflow, /published_at \/\/ "UNPUBLISHED"/u);
   assert.match(editorCiWorkflow, /verify_prerelease/u);
   assert.match(editorCiWorkflow, /releases\/latest/u);
+  assert.match(editorCiWorkflow, /for attempt in \{1\.\.10\}/u);
+  assert.match(editorCiWorkflow, /--method DELETE/u);
   assert.doesNotMatch(editorCiWorkflow, /-f make_latest=true|make_latest:'true'/u);
   assert.doesNotMatch(editorCiWorkflow, /git (?:merge|push|tag)\b/u);
 
