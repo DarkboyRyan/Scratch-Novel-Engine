@@ -1,7 +1,7 @@
 {
   "name": "editor",
   "productName": "VN Engine Editor",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A visual novel editor powered by React and C++20",
   "main": ".vite/build/main.js",
   "private": true,

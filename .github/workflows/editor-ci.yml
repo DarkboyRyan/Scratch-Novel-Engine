@@ -1,11 +1,13 @@
-# 文件职责：在受控入口构建、验证并短期上传 Editor 内部 ZIP；经一次性提交标记授权时创建非公开 Draft Release。
-# 关键实现：C++/TypeScript 测试、Editor 打包、ZIP 回读、SHA-256、精确 artifact 上传与 Draft-only 远端复验。
-name: Editor internal verification
+# 文件职责：从 1.0.1 内测发布分支或标签构建、验证 Editor 双平台 ZIP；标签运行发布可见的非 Latest Pre-release。
+# 关键实现：C++/TypeScript 测试、Editor 打包、ZIP 回读、SHA-256、精确 artifact 上传与发布前后远端复验。
+name: Editor 1.0.1 internal pre-release
 
 on:
   push:
     branches:
-      - feature/editor-release
+      - release/editor-v1.0.1-internal.1
+    tags:
+      - editor-v1.0.1-internal.1
   workflow_dispatch:
 
 permissions:
@@ -247,16 +249,15 @@ jobs:
           {
             echo "## Internal Editor ZIP verified: ${{ matrix.platform }}-${{ matrix.arch }}"
             echo ""
-            echo "This ZIP is not a public release. macOS is ad-hoc signed; Windows is unsigned or not platform-verified."
-            echo "The verified internal artifact is retained for seven days for maintainer inspection."
+            echo "This Actions artifact is an internal candidate. macOS is ad-hoc signed; Windows is unsigned or not platform-verified."
+            echo "The candidate is retained for seven days and is only published after the exact two-platform set passes remote verification."
           } >> "$GITHUB_STEP_SUMMARY"
 
-  draft-release:
-    name: Create the authorized internal Editor Draft Release
+  publish-prerelease:
+    name: Publish the authorized internal Editor Pre-release
     if: >-
       github.event_name == 'push' &&
-      github.ref == 'refs/heads/feature/editor-release' &&
-      contains(github.event.head_commit.message, '[editor-draft-release]')
+      github.ref == 'refs/tags/editor-v1.0.1-internal.1'
     needs:
       - test-package
     runs-on: ubuntu-latest
@@ -315,19 +316,19 @@ jobs:
         run: |
           node apps/editor/scripts/verifyEditorReleaseSet.mjs \
             --input "${{ runner.temp }}/editor-release-candidates" \
-            --output "${{ runner.temp }}/editor-draft-assets" \
+            --output "${{ runner.temp }}/editor-prerelease-assets" \
             --classification internal \
             --version "$EDITOR_RELEASE_VERSION" \
             --commit "$EDITOR_RELEASE_COMMIT"
 
-      - name: Create, upload, and re-open the private Draft Release
+      - name: Create a Draft, verify every asset, and publish the Pre-release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           EXPECTED_COMMIT: ${{ github.sha }}
           VERSION: ${{ steps.preflight.outputs.version }}
           TAG: editor-v${{ steps.preflight.outputs.version }}-internal.1
-          PUBLISH_DIR: ${{ runner.temp }}/editor-draft-assets
+          PUBLISH_DIR: ${{ runner.temp }}/editor-prerelease-assets
         run: |
           set -Eeuo pipefail
           CREATED_DRAFT=false
@@ -365,6 +366,30 @@ jobs:
             fi
             verify_tag
           }
+          verify_prerelease() {
+            release_state="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${CREATED_RELEASE_ID}" --jq '[.id, .draft, .prerelease, .tag_name, (.published_at // "UNPUBLISHED")] | @tsv')"
+            IFS=$'\t' read -r state_id state_draft state_prerelease state_tag published_at <<< "$release_state"
+            if [[ "$state_id" != "$CREATED_RELEASE_ID" || "$state_draft" != "false" || "$state_prerelease" != "true" || "$state_tag" != "$TAG" || "$published_at" == "UNPUBLISHED" ]]; then
+              echo "The published internal Editor Pre-release identity is invalid" >&2
+              return 1
+            fi
+            tag_release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq '.id')"
+            if [[ "$tag_release_id" != "$CREATED_RELEASE_ID" ]]; then
+              echo "The internal Editor tag no longer resolves to this Pre-release" >&2
+              return 1
+            fi
+            latest_release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq '.id' 2>/dev/null || true)"
+            if [[ "$latest_release_id" == "$CREATED_RELEASE_ID" ]]; then
+              echo "The internal Editor Pre-release must not be Latest" >&2
+              return 1
+            fi
+            published_names="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${CREATED_RELEASE_ID}/assets" --jq '.[].name' | LC_ALL=C sort)"
+            if [[ "$published_names" != "$EXPECTED_NAMES" ]]; then
+              echo "Published Pre-release assets do not match the verified set" >&2
+              return 1
+            fi
+            verify_tag
+          }
           trap rollback_draft EXIT
           verify_tag
           RELEASE_TAGS="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" --jq '.[] | .tag_name')"
@@ -375,19 +400,20 @@ jobs:
           {
             echo "VN Engine Editor $VERSION — Internal Test Build"
             echo ""
-            echo "This is a private Draft Release for trusted internal testing. It is not published and is not Latest."
+            echo "This is a public Pre-release for internal testing. It is not a stable release and is not Latest."
             echo ""
             echo "- macOS: Apple Silicon (arm64), ad-hoc signed and not notarized."
             echo "- Windows: x64, unsigned or not platform-verified."
+            echo "- Both packages may trigger operating-system security warnings."
             echo "- Verify downloads with SHA256SUMS before testing."
-          } > "${{ runner.temp }}/editor-draft-notes.md"
+          } > "${{ runner.temp }}/editor-prerelease-notes.md"
           node -e "const fs=require('node:fs');fs.writeFileSync(process.argv[1],JSON.stringify({tag_name:process.env.TAG,name:'VN Engine Editor '+process.env.VERSION+' Internal',body:fs.readFileSync(process.argv[2],'utf8'),draft:true,prerelease:true,make_latest:'false'}))" \
-            "${{ runner.temp }}/editor-draft-create.json" \
-            "${{ runner.temp }}/editor-draft-notes.md"
+            "${{ runner.temp }}/editor-prerelease-create.json" \
+            "${{ runner.temp }}/editor-prerelease-notes.md"
           CREATED_RELEASE_ID="$(gh api \
             --method POST \
             "repos/${GITHUB_REPOSITORY}/releases" \
-            --input "${{ runner.temp }}/editor-draft-create.json" \
+            --input "${{ runner.temp }}/editor-prerelease-create.json" \
             --jq '.id')"
           [[ "$CREATED_RELEASE_ID" =~ ^[0-9]+$ ]] || {
             echo "The Draft Release ID is invalid" >&2
@@ -406,7 +432,7 @@ jobs:
             echo "Draft Release assets do not match the verified local set" >&2
             exit 1
           fi
-          REMOTE_DIR="${{ runner.temp }}/editor-draft-download"
+          REMOTE_DIR="${{ runner.temp }}/editor-prerelease-download"
           mkdir -p "$REMOTE_DIR"
           gh release download "$TAG" --dir "$REMOTE_DIR"
           while IFS= read -r asset_name; do
@@ -419,15 +445,23 @@ jobs:
           done <<< "$EXPECTED_NAMES"
           (cd "$REMOTE_DIR" && sha256sum --strict --check SHA256SUMS)
           verify_draft
+          node -e "require('node:fs').writeFileSync(process.argv[1],JSON.stringify({draft:false,prerelease:true,make_latest:'false'}))" \
+            "${{ runner.temp }}/editor-prerelease-publish.json"
+          gh api \
+            --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/releases/${CREATED_RELEASE_ID}" \
+            --input "${{ runner.temp }}/editor-prerelease-publish.json" \
+            >/dev/null
           CREATED_DRAFT=false
+          verify_prerelease
           trap - EXIT
 
-      - name: Record the private Draft result
+      - name: Record the visible Pre-release result
         shell: bash
         run: |
           {
-            echo "## Internal Editor Draft Release created"
+            echo "## Internal Editor Pre-release published"
             echo ""
-            echo "The release remains Draft and Pre-release, is not Latest, and was created from the exact feature/editor-release commit."
-            echo "Only trusted collaborators with push access can view a GitHub Draft Release."
+            echo "The release is visible on GitHub Releases, remains a Pre-release, is not Latest, and was created from the exact 1.0.1 tag commit."
+            echo "Both platform ZIPs and the checksum files were downloaded again and verified before publication."
           } >> "$GITHUB_STEP_SUMMARY"

@@ -576,7 +576,7 @@ test('never interpolates untrusted workflow expressions into shell source', asyn
   );
   assert.match(
     editorCiWorkflow,
-    /^on:\n {2}push:\n {4}branches:\n {6}- feature\/editor-release\n {2}workflow_dispatch:\n/mu,
+    /^on:\n {2}push:\n {4}branches:\n {6}- release\/editor-v1\.0\.1-internal\.1\n {4}tags:\n {6}- editor-v1\.0\.1-internal\.1\n {2}workflow_dispatch:\n/mu,
   );
   assert.doesNotMatch(editorCiWorkflow, /^\s+pull_request:\s*$/mu);
   assert.equal((editorCiWorkflow.match(/runner: macos-15/gu) ?? []).length, 1);
@@ -618,20 +618,20 @@ test('never interpolates untrusted workflow expressions into shell source', asyn
     /(?:tee|tail|cat)[^\n]*(?:editor-archive|archive\.log)/u,
   );
   assert.doesNotMatch(editorCiWorkflow, /actions\/upload-release-asset|softprops\/action-gh-release/u);
-  assert.match(editorCiWorkflow, /name:\s+Create the authorized internal Editor Draft Release/u);
-  const editorDraftJob = editorCiWorkflow.slice(
-    editorCiWorkflow.indexOf('\n  draft-release:'),
+  assert.match(editorCiWorkflow, /name:\s+Publish the authorized internal Editor Pre-release/u);
+  const editorPrereleaseJob = editorCiWorkflow.slice(
+    editorCiWorkflow.indexOf('\n  publish-prerelease:'),
   );
   assert.doesNotMatch(
-    editorCiWorkflow.slice(0, editorCiWorkflow.indexOf('\n  draft-release:')),
+    editorCiWorkflow.slice(0, editorCiWorkflow.indexOf('\n  publish-prerelease:')),
     /^\s+contents: write\s*$/mu,
   );
-  assert.match(editorDraftJob, /^\s+actions: read\s*$/mu);
-  assert.match(editorDraftJob, /^\s+contents: write\s*$/mu);
-  assert.match(editorDraftJob, /needs:\s*\n\s+- test-package/u);
-  assert.match(editorDraftJob, /github\.event_name == 'push'/u);
-  assert.match(editorDraftJob, /github\.ref == 'refs\/heads\/feature\/editor-release'/u);
-  assert.match(editorCiWorkflow, /contains\(github\.event\.head_commit\.message, '\[editor-draft-release\]'\)/u);
+  assert.match(editorPrereleaseJob, /^\s+actions: read\s*$/mu);
+  assert.match(editorPrereleaseJob, /^\s+contents: write\s*$/mu);
+  assert.match(editorPrereleaseJob, /needs:\s*\n\s+- test-package/u);
+  assert.match(editorPrereleaseJob, /github\.event_name == 'push'/u);
+  assert.match(editorPrereleaseJob, /github\.ref == 'refs\/tags\/editor-v1\.0\.1-internal\.1'/u);
+  assert.doesNotMatch(editorCiWorkflow, /editor-draft-release/u);
   assert.match(
     editorCiWorkflow,
     /uses:\s+actions\/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c\s+#\s+v8/u,
@@ -640,6 +640,7 @@ test('never interpolates untrusted workflow expressions into shell source', asyn
   assert.match(editorCiWorkflow, /run-id:\s+\$\{\{ github\.run_id \}\}/u);
   assert.match(editorCiWorkflow, /verifyEditorReleaseSet\.mjs/u);
   assert.match(editorCiWorkflow, /draft:true,prerelease:true,make_latest:'false'/u);
+  assert.match(editorCiWorkflow, /draft:false,prerelease:true,make_latest:'false'/u);
   assert.doesNotMatch(
     editorCiWorkflow,
     /JSON\.stringify\(\{[^\n}]*target_commitish/u,
@@ -650,7 +651,9 @@ test('never interpolates untrusted workflow expressions into shell source', asyn
   assert.match(editorCiWorkflow, /gh release download "\$TAG" --dir "\$REMOTE_DIR"/u);
   assert.match(editorCiWorkflow, /sha256sum --strict --check SHA256SUMS/u);
   assert.match(editorCiWorkflow, /published_at \/\/ "UNPUBLISHED"/u);
-  assert.doesNotMatch(editorCiWorkflow, /-F draft=false|-f make_latest=true|draft:\s*false/u);
+  assert.match(editorCiWorkflow, /verify_prerelease/u);
+  assert.match(editorCiWorkflow, /releases\/latest/u);
+  assert.doesNotMatch(editorCiWorkflow, /-f make_latest=true|make_latest:'true'/u);
   assert.doesNotMatch(editorCiWorkflow, /git (?:merge|push|tag)\b/u);
 
   const gameWorkflow = await readWorkflowSource(

@@ -57,9 +57,9 @@ Player 共用同一语义，标题页背景和 CG 不显示该控件。
 
 ## 内部打包验证
 
-[`editor-ci.yml`](../../.github/workflows/editor-ci.yml) 提供受控入口的原生双平台门禁：可人工调度，并为初次交付精确监听 `feature/editor-release` 分支 push。macOS 15 arm64 与 Windows x64 分别执行 Runtime、Player、Editor、C++ 和发布工具测试，再构建当前平台 Editor，验证应用身份、原生后端、Web Player 模板、同平台桌面 Player 模板、签名分类以及 ZIP 解包后的完整文件树。
+[`editor-ci.yml`](../../.github/workflows/editor-ci.yml) 提供受控入口的原生双平台门禁：可人工调度，并为 1.0.1 内测精确监听 `release/editor-v1.0.1-internal.1` 分支与对应标签。macOS 15 arm64 与 Windows x64 分别执行 Runtime、Player、Editor、C++ 和发布工具测试，再构建当前平台 Editor，验证应用身份、原生后端、Web Player 模板、同平台桌面 Player 模板、签名分类以及 ZIP 解包后的完整文件树。
 
-该工作流不读取签名 Secrets。普通运行只把验证后的候选目录作为 internal artifact 保留 7 天；只有 `feature/editor-release` 的提交信息带有显式 `[editor-draft-release]` 授权标记、双平台全部通过且同名标签精确指向该提交时，才会创建不可见于普通访客的 Draft Release。Draft 始终保持 Pre-release、不会设为 Latest，也不会自动发布。macOS 结果仅为 ad-hoc 签名，Windows 结果为 unsigned-or-unverified，因此仍不能替代正式签名发行。完整的本地工具顺序与正式签名要求见 [`scripts/README.md`](./scripts/README.md)。
+该工作流不读取签名 Secrets。普通分支运行只把验证后的候选目录作为 internal artifact 保留 7 天；只有精确的 `editor-v1.0.1-internal.1` 标签运行在双平台全部通过后，才会先创建 Draft、回读校验四个资产，再发布为 GitHub 可见的 Pre-release。它不会设为 Latest。macOS 结果仅为 ad-hoc 签名且未公证，Windows 结果为 unsigned-or-unverified，因此仍不能替代正式签名发行。完整的本地工具顺序与正式签名要求见 [`scripts/README.md`](./scripts/README.md)。
 
 ## 开发提示
 
