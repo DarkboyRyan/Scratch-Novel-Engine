@@ -42,6 +42,7 @@ import type {
   AssetDocument,
   ProjectDocument,
 } from '../../shared/projectTypes';
+import type { EditorLanguage } from '../../shared/editorSettingsProtocol';
 import { RUNTIME_VERSION } from './AuthorProjectCompiler';
 import { acquireExportFileLock } from './ExportFileLock';
 import {
@@ -94,6 +95,7 @@ export type WebPlayerExportOptions = {
   expectedManifestSha256: string;
   expectedProject: ProjectDocument;
   expectedAssets: AssetDocument[];
+  defaultLanguage: EditorLanguage;
   buildId?: string;
   createdAt?: string;
   assertSourceStillCurrent?: () => void | Promise<void>;
@@ -625,6 +627,74 @@ async function copyTemplatePayload(
   }
 }
 
+async function localizeCopiedEntryLanguage(
+  destinationRootPath: string,
+  language: EditorLanguage,
+): Promise<void> {
+  const entryPath = path.join(destinationRootPath, 'index.html');
+  const before = await lstat(entryPath);
+  if (before.isSymbolicLink() || !before.isFile() || before.nlink !== 1) {
+    throw new Error('Web Player 入口不是安全的常规文件');
+  }
+  const entry = await open(
+    entryPath,
+    constants.O_RDWR | (constants.O_NOFOLLOW ?? 0),
+  );
+  try {
+    const opened = await entry.stat();
+    if (!sameFileSnapshot(before, opened)) {
+      throw new Error('Web Player 入口在本地化前发生了变化');
+    }
+    const source = await entry.readFile({ encoding: 'utf8' });
+    const htmlTags = [...source.matchAll(/<html\b[^<>]*>/giu)];
+    if (htmlTags.length !== 1 || htmlTags[0]!.index === undefined) {
+      throw new Error('Web Player 入口缺少唯一的 html 根标签');
+    }
+    const htmlTag = htmlTags[0]![0];
+    const rawLanguageAttributes = [...htmlTag.matchAll(/\s+lang\s*=/giu)];
+    const languageAttributes = [
+      ...htmlTag.matchAll(/(\s+)lang\s*=\s*(["'])([^"']*)\2/giu),
+    ];
+    if (
+      rawLanguageAttributes.length !== 1 ||
+      languageAttributes.length !== 1 ||
+      languageAttributes[0]!.index === undefined ||
+      (languageAttributes[0]![3] !== 'zh-CN' &&
+        languageAttributes[0]![3] !== 'en-US')
+    ) {
+      throw new Error('Web Player 入口语言属性不符合模板契约');
+    }
+    const languageAttribute = languageAttributes[0]!;
+    const localizedTag =
+      htmlTag.slice(0, languageAttribute.index) +
+      `${languageAttribute[1]}lang="${language}"` +
+      htmlTag.slice(languageAttribute.index + languageAttribute[0].length);
+    const tagIndex = htmlTags[0]!.index;
+    const localized =
+      source.slice(0, tagIndex) +
+      localizedTag +
+      source.slice(tagIndex + htmlTag.length);
+    const bytes = Buffer.from(localized, 'utf8');
+    let offset = 0;
+    while (offset < bytes.length) {
+      const { bytesWritten } = await entry.write(
+        bytes,
+        offset,
+        bytes.length - offset,
+        offset,
+      );
+      if (bytesWritten <= 0) {
+        throw new Error('Web Player 入口语言写入不完整');
+      }
+      offset += bytesWritten;
+    }
+    await entry.truncate(bytes.length);
+    await entry.sync();
+  } finally {
+    await entry.close();
+  }
+}
+
 function jsonContents(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
@@ -971,6 +1041,7 @@ export async function exportWebPlayer(
       expectedManifestSha256: options.expectedManifestSha256,
       expectedProject: options.expectedProject,
       expectedAssets: options.expectedAssets,
+      defaultLanguage: options.defaultLanguage,
       buildId,
       createdAt: options.createdAt,
       assertSourceStillCurrent: options.assertSourceStillCurrent,
@@ -979,6 +1050,10 @@ export async function exportWebPlayer(
     await options.injectFault?.('after-runtime-bundle');
 
     await copyTemplatePayload(template, stagingRootPath);
+    await localizeCopiedEntryLanguage(
+      stagingRootPath,
+      options.defaultLanguage,
+    );
     await options.injectFault?.('after-template-copy');
 
     const gameParentPath = path.join(stagingRootPath, 'game');

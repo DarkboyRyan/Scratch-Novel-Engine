@@ -57,7 +57,7 @@ using SceneNode = std::variant<
 - VideoNode 只保存 Asset ID，不保存绝对路径、项目相对路径或 capability URL；
 - 删除和重排复用统一的 `timeline.*` 命令。
 
-视频节点在 `fileVersion:8` 引入。当前 Writer 固定写 v20；Reader 接受 v1–v20，旧版本
+视频节点在 `fileVersion:8` 引入。当前 Writer 固定写 v21；Reader 接受 v1–v21，旧版本
 只是不包含 VideoNode，不会凭空生成空视频节点。v8 节点严格写作
 `{id,type:"video",assetId:string|null}`。
 

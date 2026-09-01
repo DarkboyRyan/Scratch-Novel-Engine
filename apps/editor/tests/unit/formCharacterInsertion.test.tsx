@@ -34,6 +34,7 @@ const project: ProjectDocument = {
       id: 'scene-1',
       name: 'Scene 1',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [
         {
           id: 'character-existing',
@@ -44,6 +45,7 @@ const project: ProjectDocument = {
           layer: 1,
           position: null,
           effect: null,
+          scalePercent: 100,
         },
         {
           id: 'dialogue-current',
@@ -73,6 +75,7 @@ const createdCharacter = {
   layer: 1,
   position: null,
   effect: null,
+  scalePercent: 100,
 };
 
 const addCharacterResult: EngineMutationResult = {
@@ -104,6 +107,8 @@ describe('form character insertion', () => {
   let current: ReturnType<typeof useFormEditor> | null;
   let activeProject: ProjectDocument;
   let addCharacter: ReturnType<typeof vi.fn>;
+  let updateBackground: ReturnType<typeof vi.fn>;
+  let updateCharacter: ReturnType<typeof vi.fn>;
   let addDialogue: ReturnType<typeof vi.fn>;
   let updateDialogue: ReturnType<typeof vi.fn>;
   let renameScene: ReturnType<typeof vi.fn>;
@@ -119,6 +124,8 @@ describe('form character insertion', () => {
       runEngineAction,
       authoringCommands: {
         addCharacter,
+        updateBackground,
+        updateCharacter,
         addDialogue,
         updateDialogue,
         renameScene,
@@ -148,6 +155,8 @@ describe('form character insertion', () => {
       }
     });
     addCharacter = vi.fn().mockResolvedValue(addCharacterResult);
+    updateBackground = vi.fn().mockResolvedValue(addCharacterResult);
+    updateCharacter = vi.fn().mockResolvedValue(addCharacterResult);
     addDialogue = vi.fn().mockResolvedValue({
       ...addCharacterResult,
       project: {
@@ -216,7 +225,7 @@ describe('form character insertion', () => {
     vi.restoreAllMocks();
   });
 
-  it('inserts a portrait before the selected dialogue so it appears in that frame', async () => {
+  it('inserts a portrait directly after a selected middle dialogue', async () => {
     const dialogue = project.scenes[0].nodes[1];
     if (dialogue.type !== 'dialogue') {
       throw new Error('fixture dialogue is invalid');
@@ -229,7 +238,24 @@ describe('form character insertion', () => {
       sceneId: 'scene-1',
       mode: 'show',
       assetId: null,
-      beforeNodeId: 'dialogue-current',
+      afterNodeId: 'dialogue-current',
+    });
+  });
+
+  it('inserts a portrait directly after a selected final dialogue', async () => {
+    const dialogue = project.scenes[0].nodes[2];
+    if (dialogue.type !== 'dialogue') {
+      throw new Error('fixture final dialogue is invalid');
+    }
+
+    await act(async () => current?.selectNode(dialogue));
+    await act(async () => current?.insertCharacter());
+
+    expect(addCharacter).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      mode: 'show',
+      assetId: null,
+      afterNodeId: 'dialogue-next',
     });
   });
 
@@ -340,7 +366,7 @@ describe('form character insertion', () => {
     expect(reorderTimelineNode).not.toHaveBeenCalled();
   });
 
-  it('keeps additional portraits in the same group before the following dialogue', async () => {
+  it('inserts after the selected portrait when it is the end of its group', async () => {
     const character = project.scenes[0].nodes[0];
     if (character.type !== 'character') {
       throw new Error('fixture character is invalid');
@@ -353,7 +379,7 @@ describe('form character insertion', () => {
       sceneId: 'scene-1',
       mode: 'show',
       assetId: null,
-      beforeNodeId: 'dialogue-current',
+      afterNodeId: 'character-existing',
     });
   });
 
@@ -373,7 +399,7 @@ describe('form character insertion', () => {
       sceneId: 'scene-1',
       mode: 'show',
       assetId: null,
-      beforeNodeId: 'dialogue-created',
+      afterNodeId: 'dialogue-created',
     });
   });
 
@@ -394,6 +420,236 @@ describe('form character insertion', () => {
     });
 
     expect(addDialogue).not.toHaveBeenCalled();
+  });
+
+  it('commits a focused portrait scale draft through the ordinary save flush', async () => {
+    const character = project.scenes[0].nodes[0];
+    if (character.type !== 'character') {
+      throw new Error('fixture character is invalid');
+    }
+
+    await act(async () => current?.selectNode(character));
+    await act(async () => current?.setSelectedImageScaleDraft('175'));
+    expect(current?.selectedImageScaleDraft).toBe('175');
+    expect(current?.draftDirty).toBe(true);
+
+    await act(async () => {
+      expect(await current?.commitPendingDraft()).toBe(true);
+    });
+
+    expect(updateCharacter).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      nodeId: 'character-existing',
+      mode: 'show',
+      assetId: 'portrait-existing',
+      slot: 'left',
+      layer: 1,
+      position: null,
+      scalePercent: 175,
+    });
+    expect(current?.draftDirty).toBe(false);
+  });
+
+  it.each([10, 100, 300])(
+    'commits the supported portrait scale boundary %i',
+    async (scalePercent) => {
+      const character = project.scenes[0].nodes[0];
+      if (character.type !== 'character') {
+        throw new Error('fixture character is invalid');
+      }
+
+      await act(async () => current?.selectNode(character));
+      await act(async () => {
+        current?.setSelectedImageScaleDraft(String(scalePercent));
+      });
+      await act(async () => {
+        expect(await current?.commitPendingDraft()).toBe(true);
+      });
+
+      if (scalePercent === character.scalePercent) {
+        expect(updateCharacter).not.toHaveBeenCalled();
+      } else {
+        expect(updateCharacter).toHaveBeenCalledWith(expect.objectContaining({
+          nodeId: character.id,
+          scalePercent,
+        }));
+      }
+      expect(current?.selectedImageScaleDraftInvalid).toBe(false);
+      expect(current?.draftDirty).toBe(false);
+    },
+  );
+
+  it('rejects a fractional portrait scale without invoking the engine', async () => {
+    const character = project.scenes[0].nodes[0];
+    if (character.type !== 'character') {
+      throw new Error('fixture character is invalid');
+    }
+
+    await act(async () => current?.selectNode(character));
+    await act(async () => current?.setSelectedImageScaleDraft('10.5'));
+    await act(async () => {
+      expect(await current?.commitPendingDraft()).toBe(false);
+    });
+
+    expect(updateCharacter).not.toHaveBeenCalled();
+    expect(current?.selectedImageScaleDraftInvalid).toBe(true);
+    expect(current?.selectedImageScaleDraft).toBe('10.5');
+    expect(current?.draftDirty).toBe(true);
+  });
+
+  it('commits a focused background scale draft through the ordinary save flush', async () => {
+    const background = {
+      id: 'background-focused',
+      type: 'background' as const,
+      assetId: 'background-old',
+      scalePercent: 120,
+    };
+    activeProject = {
+      ...project,
+      id: 'background-scale-project',
+      scenes: [{
+        ...project.scenes[0],
+        nodes: [background, ...project.scenes[0].nodes],
+      }],
+    };
+    await act(async () => root.render(<Harness key={activeProject.id} />));
+    await act(async () => current?.selectNode(background));
+    await act(async () => current?.setSelectedImageScaleDraft('165'));
+
+    await act(async () => {
+      expect(await current?.commitPendingDraft()).toBe(true);
+    });
+
+    expect(updateBackground).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      nodeId: 'background-focused',
+      assetId: 'background-old',
+      scalePercent: 165,
+    });
+    expect(current?.draftDirty).toBe(false);
+  });
+
+  it('keeps a failed portrait scale draft dirty and available for retry', async () => {
+    const character = project.scenes[0].nodes[0];
+    if (character.type !== 'character') {
+      throw new Error('fixture character is invalid');
+    }
+    updateCharacter.mockRejectedValueOnce(new Error('scale save failed'));
+
+    await act(async () => current?.selectNode(character));
+    await act(async () => current?.setSelectedImageScaleDraft('175'));
+    await act(async () => {
+      expect(await current?.commitPendingDraft()).toBe(false);
+    });
+
+    expect(current?.selectedNodeId).toBe(character.id);
+    expect(current?.selectedImageScaleDraft).toBe('175');
+    expect(current?.draftDirty).toBe(true);
+  });
+
+  it('keeps an invalid scale draft visible and blocks navigation', async () => {
+    const character = project.scenes[0].nodes[0];
+    const dialogue = project.scenes[0].nodes[1];
+    if (character.type !== 'character' || dialogue.type !== 'dialogue') {
+      throw new Error('fixture nodes are invalid');
+    }
+
+    await act(async () => current?.selectNode(character));
+    await act(async () => current?.setSelectedImageScaleDraft('301'));
+    await act(async () => current?.selectNode(dialogue));
+
+    expect(updateCharacter).not.toHaveBeenCalled();
+    expect(current?.selectedNodeId).toBe(character.id);
+    expect(current?.selectedImageScaleDraft).toBe('301');
+    expect(current?.draftDirty).toBe(true);
+  });
+
+  it('uses the latest portrait scale draft when the image changes', async () => {
+    const character = project.scenes[0].nodes[0];
+    if (character.type !== 'character') {
+      throw new Error('fixture character is invalid');
+    }
+
+    await act(async () => current?.selectNode(character));
+    await act(async () => current?.setSelectedImageScaleDraft('175'));
+    await act(async () => current?.updateCharacterNode(character, {
+      mode: 'show',
+      assetId: 'portrait-replacement',
+      slot: character.slot,
+      layer: character.layer,
+      position: character.position,
+      scalePercent: character.scalePercent,
+    }));
+
+    expect(updateCharacter).toHaveBeenLastCalledWith({
+      sceneId: 'scene-1',
+      nodeId: 'character-existing',
+      mode: 'show',
+      assetId: 'portrait-replacement',
+      slot: 'left',
+      layer: 1,
+      position: null,
+      scalePercent: 175,
+    });
+    expect(current?.draftDirty).toBe(false);
+  });
+
+  it('uses the latest background scale draft when the image changes', async () => {
+    const background = {
+      id: 'background-asset-change',
+      type: 'background' as const,
+      assetId: 'background-old',
+      scalePercent: 120,
+    };
+    activeProject = {
+      ...project,
+      id: 'background-asset-change-project',
+      scenes: [{
+        ...project.scenes[0],
+        nodes: [background, ...project.scenes[0].nodes],
+      }],
+    };
+    await act(async () => root.render(<Harness key={activeProject.id} />));
+    await act(async () => current?.selectNode(background));
+    await act(async () => current?.setSelectedImageScaleDraft('165'));
+    await act(async () => current?.updateBackgroundNode(background, {
+      assetId: 'background-replacement',
+      scalePercent: background.scalePercent,
+    }));
+
+    expect(updateBackground).toHaveBeenLastCalledWith({
+      sceneId: 'scene-1',
+      nodeId: 'background-asset-change',
+      assetId: 'background-replacement',
+      scalePercent: 165,
+    });
+    expect(current?.draftDirty).toBe(false);
+  });
+
+  it('blocks an image change while the selected scale draft is invalid', async () => {
+    const character = project.scenes[0].nodes[0];
+    if (character.type !== 'character') {
+      throw new Error('fixture character is invalid');
+    }
+
+    await act(async () => current?.selectNode(character));
+    await act(async () => current?.setSelectedImageScaleDraft('301'));
+    let updated = true;
+    await act(async () => {
+      updated = await current!.updateCharacterNode(character, {
+        mode: 'show',
+        assetId: 'portrait-replacement',
+        slot: character.slot,
+        layer: character.layer,
+        position: character.position,
+        scalePercent: character.scalePercent,
+      });
+    });
+
+    expect(updated).toBe(false);
+    expect(updateCharacter).not.toHaveBeenCalled();
+    expect(current?.selectedImageScaleDraft).toBe('301');
+    expect(current?.draftDirty).toBe(true);
   });
 
   it('keeps an empty-dialogue submit single-flight', async () => {
@@ -441,7 +697,7 @@ describe('form character insertion', () => {
       sceneId: 'scene-1',
       mode: 'show',
       assetId: null,
-      beforeNodeId: 'dialogue-current',
+      afterNodeId: 'dialogue-current',
     });
   });
 
@@ -587,6 +843,98 @@ describe('form character insertion', () => {
     return activeProject;
   }
 
+  it('inserts after the tail of a contiguous portrait group', async () => {
+    const groupProject = await renderLogicProject('portrait-group-tail', [
+      {
+        id: 'character-group-first',
+        type: 'character',
+        mode: 'show',
+        assetId: 'portrait-first',
+        slot: 'left',
+        layer: 1,
+        position: null,
+        effect: null,
+        scalePercent: 100,
+      },
+      {
+        id: 'character-group-second',
+        type: 'character',
+        mode: 'show',
+        assetId: 'portrait-second',
+        slot: 'right',
+        layer: 1,
+        position: null,
+        effect: null,
+        scalePercent: 100,
+      },
+      {
+        id: 'dialogue-after-portrait-group',
+        type: 'dialogue',
+        speaker: '',
+        text: 'After portrait group',
+        voiceAssetId: null,
+      },
+    ]);
+    const firstCharacter = groupProject.scenes[0].nodes[0];
+    if (firstCharacter.type !== 'character') {
+      throw new Error('portrait group fixture is invalid');
+    }
+
+    await act(async () => current?.selectNode(firstCharacter));
+    await act(async () => current?.insertCharacter());
+
+    expect(addCharacter).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      mode: 'show',
+      assetId: null,
+      afterNodeId: 'character-group-second',
+    });
+  });
+
+  it('inserts after the hidden CG end marker for a selected CG body dialogue', async () => {
+    const cgProject = await renderLogicProject('cg-body-portrait-anchor', [
+      {
+        id: 'cg-root',
+        type: 'cgDisplay',
+        assetId: 'cg-image',
+        leadInMs: 0,
+      },
+      {
+        id: 'cg-body-dialogue',
+        type: 'dialogue',
+        speaker: '',
+        text: 'Inside CG',
+        voiceAssetId: null,
+      },
+      {
+        id: 'cg-end',
+        type: 'cgEndDisplay',
+        cgDisplayNodeId: 'cg-root',
+      },
+      {
+        id: 'dialogue-after-cg',
+        type: 'dialogue',
+        speaker: '',
+        text: 'After CG',
+        voiceAssetId: null,
+      },
+    ]);
+    const bodyDialogue = cgProject.scenes[0].nodes[1];
+    if (bodyDialogue.type !== 'dialogue') {
+      throw new Error('CG body fixture is invalid');
+    }
+
+    await act(async () => current?.selectNode(bodyDialogue));
+    await act(async () => current?.insertCharacter());
+
+    expect(addCharacter).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      mode: 'show',
+      assetId: null,
+      afterNodeId: 'cg-end',
+    });
+  });
+
   it('does not search across Then into Else for a portrait dialogue anchor', async () => {
     const logicProject = await renderLogicProject('then-boundary', [
       {
@@ -607,6 +955,7 @@ describe('form character insertion', () => {
         layer: 1,
         position: null,
         effect: null,
+        scalePercent: 100,
       },
       { id: 'else-1', type: 'logicElse', ifNodeId: 'if-1' },
       {
@@ -655,6 +1004,7 @@ describe('form character insertion', () => {
         layer: 1,
         position: null,
         effect: null,
+        scalePercent: 100,
       },
       { id: 'endif-1', type: 'logicEndIf', ifNodeId: 'if-1' },
       {
@@ -693,6 +1043,7 @@ describe('form character insertion', () => {
         layer: 1,
         position: null,
         effect: null,
+        scalePercent: 100,
       },
       {
         id: 'endrepeat-1',

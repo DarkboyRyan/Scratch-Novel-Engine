@@ -6,7 +6,7 @@
 
 ## 架构位置与工作方式
 
-1. `ResourcePanel` 从当前作者工程取得资产清单，并通过平台/创作动作发起导入或删除。
+1. `ResourcePanel` 从当前作者工程取得资产清单，并通过平台/创作动作发起导入或删除；普通场景可在同一入口设置初始背景及 10%–300% 缩放，标题页和 CG 资源面不显示该控件。
 2. `useAssetPreviewUrls` 按资产标识解析预览地址，在依赖变化或卸载时释放旧 URL。
 3. 拖拽时 `assetDragTypes.ts` 写入受控类型和资产 ID，表单或 Blockly 接收方再提交对应节点更新。
 
@@ -15,7 +15,7 @@
 | 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
 | --- | --- | --- | --- |
 | [assetDragTypes.ts](./assetDragTypes.ts) | TypeScript | 声明图片资源拖拽的数据类型与序列化协议 | `VN_IMAGE_ASSET_DRAG_TYPE`、`VN_AUDIO_ASSET_DRAG_TYPE`、`VN_VIDEO_ASSET_DRAG_TYPE` |
-| [ResourcePanel.tsx](./ResourcePanel.tsx) | React + TypeScript | 展示项目资源并支持导入、删除、预览和拖拽图片资源 | `ResourcePanel` |
+| [ResourcePanel.tsx](./ResourcePanel.tsx) | React + TypeScript | 展示项目资源，支持导入、预览、拖拽及场景初始背景缩放 | `ResourcePanel` |
 | [useAssetPreviewUrls.ts](./useAssetPreviewUrls.ts) | TypeScript | 解析资源预览 URL 并在依赖变化时释放旧地址 | `useAssetPreviewUrls` |
 
 ## 开发与验证

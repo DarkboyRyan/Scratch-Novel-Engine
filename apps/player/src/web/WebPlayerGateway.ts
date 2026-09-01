@@ -18,6 +18,7 @@ import {
   type PlayerSettingsPatch,
   type PlayerSettingsReadResult,
   type PlayerSettings,
+  type PlayerSettingsLanguageSource,
   type PlayerSettingsWriteResult,
 } from '../shared/playerProtocol';
 import {
@@ -40,6 +41,7 @@ export type WebPlayerGatewayOptions = {
 export class WebPlayerGateway implements PlayerGateway {
   readonly fullscreenControlsEnabled: boolean;
   readonly windowSizeControlsEnabled = false;
+  readonly gameScopedLanguagePreferences = true;
 
   private readonly loadBundle: () => Promise<LoadedWebBundle>;
   private readonly storage: WebPlayerStoragePort;
@@ -48,7 +50,10 @@ export class WebPlayerGateway implements PlayerGateway {
   private active: LoadedWebBundle | null = null;
   private activation: Promise<LoadedWebBundle> | null = null;
   private settingsQueue: Promise<void> = Promise.resolve();
-  private settingsCache: PlayerSettings | null = null;
+  private settingsCache: {
+    settings: PlayerSettings;
+    languageSource: PlayerSettingsLanguageSource;
+  } | null = null;
 
   private readonly handleFullscreenChange = (): void => {
     void this.persistAuthoritativeFullscreenMode();
@@ -135,16 +140,31 @@ export class WebPlayerGateway implements PlayerGateway {
 
   getSettings(): Promise<PlayerSettingsReadResult> {
     return this.runSettingsExclusive(async () => {
-      const result = await this.storage.readSettings();
+      const active = await this.activeStorageGame();
+      if (active === null) {
+        return { status: 'rejected', error: 'web-game-not-loaded' };
+      }
+      const result = await this.storage.readSettings(active);
       if (result.status === 'rejected') {
         return result;
       }
       const settings = this.withAuthoritativeFullscreenMode(result.settings);
-      this.settingsCache = settings;
-      if (settings.windowMode !== result.settings.windowMode) {
-        await this.storage.writeSettings(settings);
+      let languageSource = result.languageSource;
+      if (
+        languageSource === 'stored' &&
+        settings.windowMode !== result.settings.windowMode
+      ) {
+        const persisted = await this.storage.writeSettings(
+          active,
+          settings,
+          false,
+        );
+        if (persisted.status === 'updated') {
+          languageSource = 'stored';
+        }
       }
-      return { status: 'ready', settings };
+      this.settingsCache = { settings, languageSource };
+      return { status: 'ready', settings, languageSource };
     });
   }
 
@@ -168,21 +188,38 @@ export class WebPlayerGateway implements PlayerGateway {
           error: 'fullscreen-denied',
         };
       }
-      let current = this.settingsCache;
-      if (current === null) {
-        const loaded = await this.storage.readSettings();
+      const active = await this.activeStorageGame();
+      if (active === null) {
+        return { status: 'rejected', error: 'web-game-not-loaded' };
+      }
+      let cached = this.settingsCache;
+      if (cached === null) {
+        const loaded = await this.storage.readSettings(active);
         if (loaded.status === 'rejected') {
           return loaded;
         }
-        current = loaded.settings;
+        cached = {
+          settings: loaded.settings,
+          languageSource: loaded.languageSource,
+        };
       }
       const next = this.withAuthoritativeFullscreenMode({
-        ...current,
+        ...cached.settings,
         ...patch,
       });
-      const result = await this.storage.writeSettings(next);
+      const persistLanguage = patch.language !== undefined;
+      const result = await this.storage.writeSettings(
+        active,
+        next,
+        persistLanguage,
+      );
       if (result.status === 'updated') {
-        this.settingsCache = result.settings;
+        this.settingsCache = {
+          settings: result.settings,
+          languageSource: persistLanguage
+            ? 'stored'
+            : cached.languageSource,
+        };
       }
       return result;
     });
@@ -279,22 +316,36 @@ export class WebPlayerGateway implements PlayerGateway {
 
   private persistAuthoritativeFullscreenMode(): Promise<void> {
     return this.runSettingsExclusive(async () => {
-      let current = this.settingsCache;
-      if (current === null) {
-        const loaded = await this.storage.readSettings();
+      const active = await this.activeStorageGame();
+      if (active === null) {
+        return;
+      }
+      let cached = this.settingsCache;
+      if (cached === null) {
+        const loaded = await this.storage.readSettings(active);
         if (loaded.status === 'rejected') {
           return;
         }
-        current = loaded.settings;
+        cached = {
+          settings: loaded.settings,
+          languageSource: loaded.languageSource,
+        };
       }
-      const next = this.withAuthoritativeFullscreenMode(current);
-      if (next.windowMode === current.windowMode) {
-        this.settingsCache = next;
+      const next = this.withAuthoritativeFullscreenMode(cached.settings);
+      if (next.windowMode === cached.settings.windowMode) {
+        this.settingsCache = { ...cached, settings: next };
         return;
       }
-      const result = await this.storage.writeSettings(next);
+      if (cached.languageSource === 'default') {
+        this.settingsCache = { ...cached, settings: next };
+        return;
+      }
+      const result = await this.storage.writeSettings(active, next, false);
       if (result.status === 'updated') {
-        this.settingsCache = result.settings;
+        this.settingsCache = {
+          settings: result.settings,
+          languageSource: 'stored',
+        };
       }
     });
   }

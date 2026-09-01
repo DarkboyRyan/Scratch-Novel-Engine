@@ -9,6 +9,8 @@
 1. 应用启动时 `EditorSettingsStore` 从用户数据目录读取并验证版本化文档。
 2. `EditorSettingsManager` 缓存有效设置，验证更新补丁后写回 Store，并向订阅者广播克隆值。
 3. Settings IPC 把读取、更新和跨窗口变化通知暴露给 Renderer，原生菜单也据此重新本地化。
+4. 游戏导出在 Main 内读取同一权威语言，写入 Runtime v12
+   `game.defaultLanguage`；Renderer 不能在导出请求中另行指定。
 
 ## 文件
 

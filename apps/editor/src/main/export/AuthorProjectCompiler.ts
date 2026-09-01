@@ -1,5 +1,5 @@
 // 主要作用：校验作者工程并编译为 Player 可执行的运行时项目文档。
-// 关键实现：compileAuthorProjectV15 迁移版本、过滤编辑标记并校验逻辑和资产。
+// 关键实现：compileAuthorProjectV15 迁移版本、过滤编辑标记并校验逻辑、缩放和资产。
 import path from 'node:path';
 
 import type {
@@ -21,7 +21,11 @@ import {
   validateSceneControlFlow,
 } from '@vnengine/runtime';
 
+import type { EditorLanguage } from '../../shared/editorSettingsProtocol';
 import {
+  DEFAULT_IMAGE_SCALE_PERCENT,
+  MAX_IMAGE_SCALE_PERCENT,
+  MIN_IMAGE_SCALE_PERCENT,
   toRuntimeProjectDocument,
   isSemanticSceneNode,
   type AssetDocument,
@@ -35,9 +39,9 @@ import {
 } from '../media/MediaFormat';
 
 export const AUTHOR_PROJECT_FORMAT = 'vn-engine-project';
-export const AUTHOR_PROJECT_FILE_VERSION = 20;
+export const AUTHOR_PROJECT_FILE_VERSION = 21;
 export const RUNTIME_FORMAT = 'vn-engine-runtime';
-export const RUNTIME_VERSION = 10;
+export const RUNTIME_VERSION = 12;
 
 export const AUTHOR_PROJECT_COMPILE_ERROR_CODES = {
   unresolvedCharacterAsset: 'character-image-required',
@@ -67,13 +71,14 @@ export type AuthorAssetRecord = AssetDocument & {
   mime: PreviewMime;
 };
 
-export type RuntimeGameDocumentV10 = {
+export type RuntimeGameDocumentV12 = {
   format: typeof RUNTIME_FORMAT;
   runtimeVersion: typeof RUNTIME_VERSION;
   game: {
     id: string;
     title: string;
     entrySceneId: string;
+    defaultLanguage: EditorLanguage;
     startScreen: {
       title: string;
       eyebrow: string;
@@ -90,7 +95,7 @@ export type RuntimeGameDocumentV10 = {
 };
 
 export type CompiledAuthorProject = {
-  game: RuntimeGameDocumentV10;
+  game: RuntimeGameDocumentV12;
   sourceProject: AuthorProjectDocument;
   project: RuntimeProjectDocument;
   referencedAssets: AuthorAssetRecord[];
@@ -127,7 +132,7 @@ function exactFields(
     actual.length !== wanted.length ||
     actual.some((field, index) => field !== wanted[index])
   ) {
-    throw new Error(`${context} 字段不符合作者项目 v20`);
+    throw new Error(`${context} 字段不符合作者项目 v21`);
   }
 }
 
@@ -257,6 +262,26 @@ function parseLogicCondition(input: unknown, context: string): LogicCondition {
   };
 }
 
+function imageScalePercent(
+  value: JsonObject,
+  context: string,
+  sourceFileVersion: number,
+): number {
+  if (sourceFileVersion < 21) {
+    return DEFAULT_IMAGE_SCALE_PERCENT;
+  }
+  if (
+    !Number.isSafeInteger(value.scalePercent) ||
+    (value.scalePercent as number) < MIN_IMAGE_SCALE_PERCENT ||
+    (value.scalePercent as number) > MAX_IMAGE_SCALE_PERCENT
+  ) {
+    throw new Error(
+      `${context}.scalePercent 必须是 ${MIN_IMAGE_SCALE_PERCENT} 到 ${MAX_IMAGE_SCALE_PERCENT} 的整数`,
+    );
+  }
+  return value.scalePercent as number;
+}
+
 function parseSceneNode(
   input: unknown,
   context: string,
@@ -303,16 +328,51 @@ function parseSceneNode(
         ),
       };
     case 'background':
-      exactFields(value, ['id', 'type', 'assetId'], context);
-      return {
-        id,
-        type,
-        assetId: registerOptionalAsset(nullableId(value, 'assetId', context)),
-      };
+      exactFields(
+        value,
+        sourceFileVersion >= 21
+          ? ['id', 'type', 'assetId', 'scalePercent']
+          : ['id', 'type', 'assetId'],
+        context,
+      );
+      {
+        const assetId = registerOptionalAsset(
+          nullableId(value, 'assetId', context),
+        );
+        const scalePercent = imageScalePercent(
+          value,
+          context,
+          sourceFileVersion,
+        );
+        if (
+          assetId === null &&
+          scalePercent !== DEFAULT_IMAGE_SCALE_PERCENT
+        ) {
+          throw new Error(`${context}.assetId 为 null 时 scalePercent 必须是 100`);
+        }
+        return {
+          id,
+          type,
+          assetId,
+          scalePercent,
+        };
+      }
     case 'character': {
       exactFields(
         value,
-        sourceFileVersion >= 19
+        sourceFileVersion >= 21
+          ? [
+              'id',
+              'type',
+              'mode',
+              'assetId',
+              'slot',
+              'layer',
+              'position',
+              'effect',
+              'scalePercent',
+            ]
+          : sourceFileVersion >= 19
           ? [
               'id',
               'type',
@@ -365,6 +425,11 @@ function parseSceneNode(
       const assetId = registerOptionalAsset(
         nullableId(value, 'assetId', context),
       );
+      const scalePercent = imageScalePercent(
+        value,
+        context,
+        sourceFileVersion,
+      );
       let mode: 'show' | 'clear';
       if (sourceFileVersion >= 19) {
         if (value.mode !== 'show' && value.mode !== 'clear') {
@@ -389,6 +454,9 @@ function parseSceneNode(
               : `${context}.effect 不能用于清除立绘节点`,
           );
         }
+        if (scalePercent !== DEFAULT_IMAGE_SCALE_PERCENT) {
+          throw new Error(`${context}.scalePercent 在 clear 模式下必须是 100`);
+        }
         return {
           id,
           type,
@@ -398,6 +466,7 @@ function parseSceneNode(
           layer: layer as number,
           position: null,
           effect: null,
+          scalePercent: DEFAULT_IMAGE_SCALE_PERCENT,
         };
       }
 
@@ -422,6 +491,7 @@ function parseSceneNode(
         layer: layer as number,
         position,
         effect,
+        scalePercent,
       };
     }
     case 'sceneJump':
@@ -559,7 +629,7 @@ function parseSceneNode(
         repeatNodeId: idValue(value, 'repeatNodeId', context),
       };
     default:
-      throw new Error(`${context}.type 不受作者项目 v20 支持`);
+      throw new Error(`${context}.type 不受作者项目 v21 支持`);
   }
 }
 
@@ -578,7 +648,13 @@ function parseScene(
   registerId(ids, id);
 
   const visuals = objectValue(value.visuals, `${context}.visuals`);
-  exactFields(visuals, ['backgroundAssetId', 'characters'], `${context}.visuals`);
+  exactFields(
+    visuals,
+    sourceFileVersion >= 21
+      ? ['backgroundAssetId', 'backgroundScalePercent', 'characters']
+      : ['backgroundAssetId', 'characters'],
+    `${context}.visuals`,
+  );
   const backgroundAssetId = nullableId(
     visuals,
     'backgroundAssetId',
@@ -586,6 +662,29 @@ function parseScene(
   );
   if (backgroundAssetId !== null) {
     referencedAssetIds.add(backgroundAssetId);
+  }
+  const backgroundScalePercent = sourceFileVersion >= 21
+    ? (() => {
+        const scalePercent = visuals.backgroundScalePercent;
+        if (
+          !Number.isSafeInteger(scalePercent) ||
+          (scalePercent as number) < MIN_IMAGE_SCALE_PERCENT ||
+          (scalePercent as number) > MAX_IMAGE_SCALE_PERCENT
+        ) {
+          throw new Error(
+            `${context}.visuals.backgroundScalePercent 必须是 ${MIN_IMAGE_SCALE_PERCENT} 到 ${MAX_IMAGE_SCALE_PERCENT} 的整数`,
+          );
+        }
+        return scalePercent as number;
+      })()
+    : DEFAULT_IMAGE_SCALE_PERCENT;
+  if (
+    backgroundAssetId === null &&
+    backgroundScalePercent !== DEFAULT_IMAGE_SCALE_PERCENT
+  ) {
+    throw new Error(
+      `${context}.visuals.backgroundAssetId 为 null 时 backgroundScalePercent 必须是 100`,
+    );
   }
 
   const initialCharacterAssetIds = arrayValue(
@@ -606,7 +705,7 @@ function parseScene(
   });
 
   if (initialCharacterAssetIds.length > 0) {
-    throw new Error('runtime v10 不支持场景初始人物，请改用人物立绘时间线节点');
+    throw new Error('runtime v12 不支持场景初始人物，请改用人物立绘时间线节点');
   }
 
   const nodes = arrayValue(value, 'nodes', context).map((node, nodeIndex) =>
@@ -648,6 +747,7 @@ function parseScene(
       id,
       name: stringValue(value, 'name', context, { maximum: 4096 }),
       backgroundAssetId,
+      backgroundScalePercent,
       nodes,
     },
     initialCharacterAssetIds,
@@ -806,7 +906,10 @@ function parseJson(contents: string): unknown {
   }
 }
 
-export function compileAuthorProjectV15(contents: string): CompiledAuthorProject {
+export function compileAuthorProjectV15(
+  contents: string,
+  defaultLanguage: EditorLanguage = 'zh-CN',
+): CompiledAuthorProject {
   const root = objectValue(parseJson(contents), 'document');
   exactFields(root, ['format', 'fileVersion', 'project', 'assets'], 'document');
   requireLiteral(root, 'format', AUTHOR_PROJECT_FORMAT, 'document');
@@ -817,6 +920,7 @@ export function compileAuthorProjectV15(contents: string): CompiledAuthorProject
     root.fileVersion !== 17 &&
     root.fileVersion !== 18 &&
     root.fileVersion !== 19 &&
+    root.fileVersion !== 20 &&
     root.fileVersion !== AUTHOR_PROJECT_FILE_VERSION
   ) {
     throw new Error('document.fileVersion 版本或格式不受支持');
@@ -1025,6 +1129,7 @@ export function compileAuthorProjectV15(contents: string): CompiledAuthorProject
         id: project.id,
         title: project.name,
         entrySceneId: project.entrySceneId,
+        defaultLanguage,
         startScreen: project.startScreen,
         cgGallery: project.cgGallery,
       },

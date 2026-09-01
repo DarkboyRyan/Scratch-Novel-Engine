@@ -799,6 +799,14 @@ void validates_visual_references_and_stable_z_order() {
   CHECK(const_asset != nullptr);
   CHECK(const_asset->type == vnengine::AssetType::image);
   CHECK(vnengine::find_asset(aggregate, "missing") == nullptr);
+
+  vnengine::ProjectAggregate invalid_scale = aggregate;
+  invalid_scale.project.scenes[0].visuals.background_scale_percent = 301;
+  CHECK(vnengine::validate_project_aggregate(invalid_scale).has_value());
+  invalid_scale = aggregate;
+  invalid_scale.project.scenes[0].visuals.background_asset_id.reset();
+  invalid_scale.project.scenes[0].visuals.background_scale_percent = 80;
+  CHECK(vnengine::validate_project_aggregate(invalid_scale).has_value());
 }
 
 void changes_scene_background_only_after_validation() {
@@ -808,36 +816,49 @@ void changes_scene_background_only_after_validation() {
   const std::string scene_id = aggregate.project.entry_scene_id;
 
   CHECK(vnengine::set_scene_background(
-            aggregate, scene_id, "asset-background") ==
+            aggregate, scene_id, "asset-background", 100) ==
         Result::unchanged);
   CHECK(vnengine::set_scene_background(
-            aggregate, scene_id, "asset-alice") == Result::changed);
+            aggregate, scene_id, "asset-alice", 80) == Result::changed);
   CHECK(
       aggregate.project.scenes[0].visuals.background_asset_id ==
       "asset-alice");
+  CHECK(
+      aggregate.project.scenes[0].visuals.background_scale_percent == 80);
 
   const vnengine::ProjectAggregate after_change = aggregate;
   CHECK(vnengine::set_scene_background(
-            aggregate, "missing-scene", "asset-background") ==
+            aggregate, "missing-scene", "asset-background", 100) ==
         Result::scene_not_found);
   CHECK(aggregate == after_change);
 
   CHECK(vnengine::set_scene_background(
-            aggregate, scene_id, "missing-asset") ==
+            aggregate, scene_id, "missing-asset", 100) ==
         Result::asset_not_found);
   CHECK(aggregate == after_change);
 
   CHECK(vnengine::set_scene_background(
-            aggregate, scene_id, "asset-music") ==
+            aggregate, scene_id, "asset-music", 100) ==
         Result::asset_not_image);
   CHECK(aggregate == after_change);
 
   CHECK(vnengine::set_scene_background(
-            aggregate, scene_id, std::nullopt) == Result::changed);
+            aggregate, scene_id, "asset-alice", 9) ==
+        Result::invalid_scale);
+  CHECK(vnengine::set_scene_background(
+            aggregate, scene_id, "asset-alice", 301) ==
+        Result::invalid_scale);
+  CHECK(vnengine::set_scene_background(
+            aggregate, scene_id, std::nullopt, 80) ==
+        Result::invalid_scale);
+  CHECK(aggregate == after_change);
+
+  CHECK(vnengine::set_scene_background(
+            aggregate, scene_id, std::nullopt, 100) == Result::changed);
   CHECK(!aggregate.project.scenes[0]
              .visuals.background_asset_id.has_value());
   CHECK(vnengine::set_scene_background(
-            aggregate, scene_id, std::nullopt) == Result::unchanged);
+            aggregate, scene_id, std::nullopt, 100) == Result::unchanged);
 }
 
 void manages_mixed_background_timeline_atomically() {
@@ -865,11 +886,14 @@ void manages_mixed_background_timeline_atomically() {
   CHECK(timeline_ids(scene) == std::vector<std::string>({
       first, *first_background.node_id, second}));
   CHECK(!background_at(scene, 1).asset_id.has_value());
+  CHECK(background_at(scene, 1).scale_percent == 100);
   CHECK(vnengine::update_background_node(
             aggregate,
             scene_id,
             *first_background.node_id,
-            "asset-alice") == UpdateResult::changed);
+            "asset-alice",
+            80) == UpdateResult::changed);
+  CHECK(background_at(scene, 1).scale_percent == 80);
 
   // Dialogue placement anchors are timeline nodes, not dialogue-only IDs.
   const std::string between = *vnengine::add_dialogue(
@@ -893,7 +917,8 @@ void manages_mixed_background_timeline_atomically() {
             aggregate,
             scene_id,
             *second_background.node_id,
-            "asset-bob") == UpdateResult::changed);
+            "asset-bob",
+            300) == UpdateResult::changed);
   CHECK(timeline_ids(scene) == std::vector<std::string>({
       first,
       *first_background.node_id,
@@ -935,32 +960,55 @@ void manages_mixed_background_timeline_atomically() {
             aggregate,
             scene_id,
             *first_background.node_id,
-            "asset-bob") == UpdateResult::changed);
+            "asset-bob",
+            10) == UpdateResult::changed);
   CHECK(vnengine::update_background_node(
             aggregate,
             scene_id,
             *first_background.node_id,
-            "asset-bob") == UpdateResult::unchanged);
+            "asset-bob",
+            10) == UpdateResult::unchanged);
 
   const vnengine::ProjectAggregate before_failures = aggregate;
   CHECK(vnengine::update_background_node(
             aggregate,
             scene_id,
             *first_background.node_id,
-            "asset-music") == UpdateResult::asset_not_image);
+            "asset-music",
+            100) == UpdateResult::asset_not_image);
+  CHECK(vnengine::update_background_node(
+            aggregate,
+            scene_id,
+            *first_background.node_id,
+            "asset-bob",
+            9) == UpdateResult::invalid_scale);
+  CHECK(vnengine::update_background_node(
+            aggregate,
+            scene_id,
+            *first_background.node_id,
+            "asset-bob",
+            301) == UpdateResult::invalid_scale);
+  CHECK(vnengine::update_background_node(
+            aggregate,
+            scene_id,
+            *first_background.node_id,
+            std::nullopt,
+            150) == UpdateResult::invalid_scale);
   CHECK(aggregate == before_failures);
 
   CHECK(vnengine::update_background_node(
             aggregate,
             scene_id,
             *first_background.node_id,
-            std::nullopt) == UpdateResult::changed);
+            std::nullopt,
+            100) == UpdateResult::changed);
   CHECK(!background_at(scene, 1).asset_id.has_value());
   CHECK(vnengine::update_background_node(
             aggregate,
             scene_id,
             *first_background.node_id,
-            std::nullopt) == UpdateResult::unchanged);
+            std::nullopt,
+            100) == UpdateResult::unchanged);
 
   // Legacy dialogue operations still participate in the unified timeline:
   // they can move a Dialogue across, or anchor it to, a BackgroundNode.
@@ -1197,6 +1245,7 @@ void manages_character_timeline_nodes_atomically() {
   CHECK(empty.slot == vnengine::CharacterSlot::center);
   CHECK(empty.layer == 1);
   CHECK(!empty.position.has_value());
+  CHECK(empty.scale_percent == 100);
 
   CHECK(vnengine::update_character_node(
             aggregate,
@@ -1205,6 +1254,7 @@ void manages_character_timeline_nodes_atomically() {
             "portrait",
             vnengine::CharacterSlot::left,
             3,
+            125,
             vnengine::CharacterPosition{.x = 24.5, .y = 88.0}) ==
         vnengine::UpdateCharacterNodeResult::changed);
   const vnengine::CharacterNode& updated = character_at(scene, 0);
@@ -1214,6 +1264,7 @@ void manages_character_timeline_nodes_atomically() {
   CHECK(updated.layer == 3);
   CHECK(updated.position ==
         (vnengine::CharacterPosition{.x = 24.5, .y = 88.0}));
+  CHECK(updated.scale_percent == 125);
   CHECK(vnengine::update_character_node(
             aggregate,
             scene_id,
@@ -1221,6 +1272,7 @@ void manages_character_timeline_nodes_atomically() {
             "portrait",
             vnengine::CharacterSlot::left,
             3,
+            125,
             vnengine::CharacterPosition{.x = 24.5, .y = 88.0}) ==
         vnengine::UpdateCharacterNodeResult::unchanged);
 
@@ -1231,21 +1283,24 @@ void manages_character_timeline_nodes_atomically() {
             *added.node_id,
             "missing",
             vnengine::CharacterSlot::right,
-            2) == vnengine::UpdateCharacterNodeResult::asset_not_found);
+            2,
+            100) == vnengine::UpdateCharacterNodeResult::asset_not_found);
   CHECK(vnengine::update_character_node(
             aggregate,
             scene_id,
             *added.node_id,
             "video",
             vnengine::CharacterSlot::right,
-            2) == vnengine::UpdateCharacterNodeResult::asset_not_image);
+            2,
+            100) == vnengine::UpdateCharacterNodeResult::asset_not_image);
   CHECK(vnengine::update_character_node(
             aggregate,
             scene_id,
             *added.node_id,
             "portrait",
             vnengine::CharacterSlot::right,
-            11) == vnengine::UpdateCharacterNodeResult::invalid_layer);
+            11,
+            100) == vnengine::UpdateCharacterNodeResult::invalid_layer);
   CHECK(vnengine::update_character_node(
             aggregate,
             scene_id,
@@ -1253,8 +1308,25 @@ void manages_character_timeline_nodes_atomically() {
             "portrait",
             vnengine::CharacterSlot::right,
             3,
+            100,
             vnengine::CharacterPosition{.x = -1.0, .y = 50.0}) ==
         vnengine::UpdateCharacterNodeResult::invalid_position);
+  CHECK(vnengine::update_character_node(
+            aggregate,
+            scene_id,
+            *added.node_id,
+            "portrait",
+            vnengine::CharacterSlot::right,
+            3,
+            9) == vnengine::UpdateCharacterNodeResult::invalid_scale);
+  CHECK(vnengine::update_character_node(
+            aggregate,
+            scene_id,
+            *added.node_id,
+            "portrait",
+            vnengine::CharacterSlot::right,
+            3,
+            301) == vnengine::UpdateCharacterNodeResult::invalid_scale);
   CHECK(aggregate == before_failures);
 
   CHECK(vnengine::update_character_node(
@@ -1263,9 +1335,11 @@ void manages_character_timeline_nodes_atomically() {
             *added.node_id,
             std::nullopt,
             vnengine::CharacterSlot::right,
-            3) == vnengine::UpdateCharacterNodeResult::changed);
+            3,
+            150) == vnengine::UpdateCharacterNodeResult::changed);
   CHECK(!character_at(scene, 0).asset_id.has_value());
   CHECK(character_at(scene, 0).mode == vnengine::CharacterNodeMode::show);
+  CHECK(character_at(scene, 0).scale_percent == 150);
 
   // An asset-less show node is an editable placeholder. Only an explicit
   // mode transition turns it into the runtime command that clears the layer.
@@ -1276,6 +1350,7 @@ void manages_character_timeline_nodes_atomically() {
             std::nullopt,
             vnengine::CharacterSlot::right,
             3,
+            100,
             std::nullopt,
             vnengine::CharacterNodeMode::clear) ==
         vnengine::UpdateCharacterNodeResult::changed);
@@ -1288,6 +1363,7 @@ void manages_character_timeline_nodes_atomically() {
             "portrait",
             vnengine::CharacterSlot::right,
             3,
+            100,
             std::nullopt,
             vnengine::CharacterNodeMode::clear) ==
         vnengine::UpdateCharacterNodeResult::invalid_mode);
@@ -1298,6 +1374,7 @@ void manages_character_timeline_nodes_atomically() {
             std::nullopt,
             vnengine::CharacterSlot::right,
             3,
+            100,
             vnengine::CharacterPosition{.x = 50.0, .y = 50.0},
             vnengine::CharacterNodeMode::clear) ==
         vnengine::UpdateCharacterNodeResult::invalid_mode);
@@ -1335,14 +1412,16 @@ void manages_character_effects_atomically() {
             *source.node_id,
             "portrait",
             vnengine::CharacterSlot::left,
-            1) == vnengine::UpdateCharacterNodeResult::changed);
+            1,
+            100) == vnengine::UpdateCharacterNodeResult::changed);
   CHECK(vnengine::update_character_node(
             aggregate,
             scene_id,
             *target.node_id,
             "portrait",
             vnengine::CharacterSlot::right,
-            2) == vnengine::UpdateCharacterNodeResult::changed);
+            2,
+            100) == vnengine::UpdateCharacterNodeResult::changed);
 
   const vnengine::CharacterEffect shake{
       .type = vnengine::CharacterEffectType::shake,
@@ -1365,6 +1444,7 @@ void manages_character_effects_atomically() {
             "portrait",
             vnengine::CharacterSlot::center,
             3,
+            100,
             vnengine::CharacterPosition{.x = 40.0, .y = 90.0}) ==
         vnengine::UpdateCharacterNodeResult::changed);
   CHECK(vnengine::find_character_node(
@@ -1434,6 +1514,7 @@ void manages_character_effects_atomically() {
             std::nullopt,
             vnengine::CharacterSlot::right,
             2,
+            100,
             std::nullopt,
             vnengine::CharacterNodeMode::clear) ==
         vnengine::UpdateCharacterNodeResult::changed);

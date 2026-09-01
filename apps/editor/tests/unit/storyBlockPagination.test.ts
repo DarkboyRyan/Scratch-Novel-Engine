@@ -184,6 +184,7 @@ describe('story Blockly pagination', () => {
       id: 'scene-with-start',
       name: '带开始节点的场景',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [dialogue(1), dialogue(2)],
     };
     const startId = getSceneStartBlockId(scene.id);

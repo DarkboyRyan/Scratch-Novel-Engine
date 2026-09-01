@@ -34,6 +34,7 @@ const project: ProjectDocument = {
       id: 'scene-other',
       name: 'Not entry',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [],
     },
     {
@@ -41,8 +42,14 @@ const project: ProjectDocument = {
       id: 'scene-entry',
       name: 'Entry',
       backgroundAssetId: 'initial',
+      backgroundScalePercent: 100,
       nodes: [
-        { id: 'background', type: 'background', assetId: 'room' },
+        {
+          id: 'background',
+          type: 'background',
+          assetId: 'room',
+          scalePercent: 100,
+        },
         { id: 'music', type: 'bgm', assetId: 'theme-audio' },
         {
           id: 'alice',
@@ -52,6 +59,7 @@ const project: ProjectDocument = {
           layer: 1,
           position: null,
           effect: null,
+          scalePercent: 100,
         },
         {
           id: 'd1',
@@ -68,6 +76,7 @@ const project: ProjectDocument = {
           layer: 2,
           position: { x: 82, y: 96 },
           effect: null,
+          scalePercent: 100,
         },
         {
           id: 'replace',
@@ -77,6 +86,7 @@ const project: ProjectDocument = {
           layer: 1,
           position: null,
           effect: null,
+          scalePercent: 100,
         },
         {
           id: 'd2',
@@ -93,6 +103,7 @@ const project: ProjectDocument = {
           layer: 2,
           position: null,
           effect: null,
+          scalePercent: 100,
         },
       ],
     },
@@ -166,6 +177,7 @@ describe('game preview runtime', () => {
       sceneId: 'scene-entry',
       nextNodeIndex: 4,
       backgroundAssetId: 'room',
+      backgroundScalePercent: 100,
       bgmAssetId: 'theme-audio',
       bgmSequence: 1,
       dialogueSequence: 1,
@@ -182,6 +194,7 @@ describe('game preview runtime', () => {
           slot: 'left',
           layer: 1,
           position: null,
+          scalePercent: 100,
           opacity: 1,
           effect: null,
           effectSequence: 1,
@@ -213,6 +226,7 @@ describe('game preview runtime', () => {
         slot: 'center',
         layer: 1,
         position: null,
+        scalePercent: 100,
         opacity: 1,
         effect: null,
         effectSequence: 3,
@@ -223,6 +237,7 @@ describe('game preview runtime', () => {
         slot: 'right',
         layer: 2,
         position: { x: 82, y: 96 },
+        scalePercent: 100,
         opacity: 1,
         effect: null,
         effectSequence: 2,
@@ -239,6 +254,7 @@ describe('game preview runtime', () => {
         slot: 'center',
         layer: 1,
         position: null,
+        scalePercent: 100,
         opacity: 1,
         effect: null,
         effectSequence: 3,
@@ -347,6 +363,7 @@ describe('game preview runtime', () => {
           id: 'loop',
           name: 'Loop',
           backgroundAssetId: null,
+          backgroundScalePercent: 100,
           nodes: [
             {
               id: 'same-dialogue',
@@ -429,6 +446,7 @@ describe('game preview runtime', () => {
           id: 'a',
           name: 'A',
           backgroundAssetId: null,
+          backgroundScalePercent: 100,
           nodes: [{ id: 'ab', type: 'sceneJump', targetSceneId: 'b' }],
         },
         {
@@ -436,6 +454,7 @@ describe('game preview runtime', () => {
           id: 'b',
           name: 'B',
           backgroundAssetId: null,
+          backgroundScalePercent: 100,
           nodes: [{ id: 'ba', type: 'sceneJump', targetSceneId: 'a' }],
         },
       ],
@@ -501,6 +520,7 @@ describe('game preview runtime', () => {
           id: 'entry',
           name: 'Entry',
           backgroundAssetId: 'entry-bg',
+          backgroundScalePercent: 100,
           nodes: [
             { id: 'music', type: 'bgm', assetId: 'theme' },
             {
@@ -511,6 +531,7 @@ describe('game preview runtime', () => {
               layer: 1,
               position: null,
               effect: null,
+              scalePercent: 100,
             },
             {
               id: 'choice',
@@ -527,8 +548,14 @@ describe('game preview runtime', () => {
           id: 'target-a',
           name: 'Target A',
           backgroundAssetId: 'target-a-initial',
+          backgroundScalePercent: 100,
           nodes: [
-            { id: 'target-bg', type: 'background', assetId: 'target-bg' },
+            {
+              id: 'target-bg',
+              type: 'background',
+              assetId: 'target-bg',
+              scalePercent: 100,
+            },
             {
               id: 'arrival',
               type: 'dialogue',
@@ -543,6 +570,7 @@ describe('game preview runtime', () => {
           id: 'target-b',
           name: 'Target B',
           backgroundAssetId: null,
+          backgroundScalePercent: 100,
           nodes: [],
         },
       ],
@@ -588,6 +616,7 @@ describe('game preview runtime', () => {
           id: 'entry',
           name: 'Entry',
           backgroundAssetId: null,
+          backgroundScalePercent: 100,
           nodes: [
             {
               id: 'choice',

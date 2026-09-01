@@ -1,5 +1,5 @@
 // 文件职责：将精确校验后的 JSONL 命令映射到 C++ Core 原子操作。
-// 关键实现：Backend::handle、参数解析、业务错误码、revision 与项目快照提交。
+// 关键实现：Backend::handle、缩放等参数解析、业务错误码、revision 与项目快照提交。
 #include "backend.hpp"
 
 #include <algorithm>
@@ -399,6 +399,26 @@ int required_character_layer(const Json& object) {
   }
   throw ProtocolError(
       "invalid_params", "params.layer must be an integer between 1 and 10");
+}
+
+int required_image_scale_percent(const Json& object) {
+  if (!object.contains("scalePercent") ||
+      !object.at("scalePercent").is_number_integer()) {
+    throw ProtocolError(
+        "invalid_params",
+        "params.scalePercent must be an integer between 10 and 300");
+  }
+  try {
+    const int scale_percent = object.at("scalePercent").get<int>();
+    if (scale_percent >= kMinimumImageScalePercent &&
+        scale_percent <= kMaximumImageScalePercent) {
+      return scale_percent;
+    }
+  } catch (const Json::exception&) {
+  }
+  throw ProtocolError(
+      "invalid_params",
+      "params.scalePercent must be an integer between 10 and 300");
 }
 
 std::optional<CharacterPosition> required_character_position(
@@ -958,6 +978,8 @@ Json Backend::handle(const Json& request) {
     }
     changed = vnengine::rename_scene(project, scene_id, *name);
   } else if (method == "scene.setBackground") {
+    require_exact_params(
+        params, {"sceneId", "assetId", "scalePercent"});
     const std::string scene_id = required_string(params, "sceneId");
     if (!params.contains("assetId") ||
         (!params.at("assetId").is_null() &&
@@ -972,7 +994,10 @@ Json Backend::handle(const Json& request) {
     }
 
     switch (vnengine::set_scene_background(
-        require_aggregate(), scene_id, std::move(asset_id))) {
+        require_aggregate(),
+        scene_id,
+        std::move(asset_id),
+        required_image_scale_percent(params))) {
       case vnengine::SetSceneBackgroundResult::changed:
         changed = true;
         break;
@@ -986,6 +1011,10 @@ Json Backend::handle(const Json& request) {
       case vnengine::SetSceneBackgroundResult::asset_not_image:
         throw ProtocolError(
             "asset_not_image", "scene background asset must be an image");
+      case vnengine::SetSceneBackgroundResult::invalid_scale:
+        throw ProtocolError(
+            "invalid_params",
+            "scene background scale must be 100 when empty, otherwise between 10 and 300");
     }
   } else if (method == "scene.delete") {
     const std::string scene_id = required_string(params, "sceneId");
@@ -1072,6 +1101,8 @@ Json Backend::handle(const Json& request) {
         scene_id,
         result.node_id);
   } else if (method == "background.update") {
+    require_exact_params(
+        params, {"sceneId", "nodeId", "assetId", "scalePercent"});
     const std::string scene_id = required_string(params, "sceneId");
     const std::string node_id = required_string(params, "nodeId");
     if (!params.contains("assetId") ||
@@ -1085,7 +1116,11 @@ Json Backend::handle(const Json& request) {
       asset_id = params.at("assetId").get<std::string>();
     }
     switch (vnengine::update_background_node(
-        require_aggregate(), scene_id, node_id, asset_id)) {
+        require_aggregate(),
+        scene_id,
+        node_id,
+        asset_id,
+        required_image_scale_percent(params))) {
       case vnengine::UpdateBackgroundNodeResult::changed:
         changed = true;
         break;
@@ -1102,6 +1137,10 @@ Json Backend::handle(const Json& request) {
       case vnengine::UpdateBackgroundNodeResult::asset_not_image:
         throw ProtocolError(
             "asset_not_image", "background node asset must be an image");
+      case vnengine::UpdateBackgroundNodeResult::invalid_scale:
+        throw ProtocolError(
+            "invalid_params",
+            "background scale must be 100 when empty, otherwise between 10 and 300");
     }
   } else if (method == "background.delete") {
     const std::string scene_id = required_string(params, "sceneId");
@@ -1226,6 +1265,7 @@ Json Backend::handle(const Json& request) {
           std::move(initial_asset_id),
           vnengine::CharacterSlot::center,
           1,
+          vnengine::kDefaultImageScalePercent,
           std::nullopt)) {
         case vnengine::UpdateCharacterNodeResult::changed:
           break;
@@ -1240,6 +1280,7 @@ Json Backend::handle(const Json& request) {
         case vnengine::UpdateCharacterNodeResult::invalid_slot:
         case vnengine::UpdateCharacterNodeResult::invalid_layer:
         case vnengine::UpdateCharacterNodeResult::invalid_position:
+        case vnengine::UpdateCharacterNodeResult::invalid_scale:
         case vnengine::UpdateCharacterNodeResult::invalid_mode:
           throw ProtocolError(
               "internal_error", "character.add initial asset update failed");
@@ -1261,7 +1302,8 @@ Json Backend::handle(const Json& request) {
   } else if (method == "character.update") {
     require_params_with_optional(
         params,
-        {"sceneId", "nodeId", "assetId", "slot", "layer", "position"},
+        {"sceneId", "nodeId", "assetId", "slot", "layer", "position",
+         "scalePercent"},
         {"mode"});
     const std::string scene_id = required_string(params, "sceneId");
     const std::string node_id = required_string(params, "nodeId");
@@ -1282,6 +1324,7 @@ Json Backend::handle(const Json& request) {
         std::move(asset_id),
         required_character_slot(params),
         required_character_layer(params),
+        required_image_scale_percent(params),
         required_character_position(params),
         params.contains("mode")
             ? std::optional<CharacterNodeMode>(
@@ -1306,6 +1349,7 @@ Json Backend::handle(const Json& request) {
       case vnengine::UpdateCharacterNodeResult::invalid_slot:
       case vnengine::UpdateCharacterNodeResult::invalid_layer:
       case vnengine::UpdateCharacterNodeResult::invalid_position:
+      case vnengine::UpdateCharacterNodeResult::invalid_scale:
       case vnengine::UpdateCharacterNodeResult::invalid_mode:
         throw ProtocolError("invalid_params", "character node fields are invalid");
     }

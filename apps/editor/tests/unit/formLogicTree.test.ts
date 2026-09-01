@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import type { SceneDocument } from '../../src/shared/projectTypes';
 import {
   createFormLogicTree,
+  getCharacterInsertionPlan,
   getFormNodeMovePlan,
 } from '../../src/renderer/features/form-editor/formLogicTree';
 
@@ -18,6 +19,7 @@ describe('form logic tree', () => {
       id: 'scene-1',
       name: 'Scene',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [
         {
           id: 'if-1',
@@ -92,6 +94,7 @@ describe('form logic tree', () => {
       id: 'scene-cg-moves',
       name: 'CG moves',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [
         {
           id: 'before-cg',
@@ -182,6 +185,7 @@ describe('form logic tree', () => {
       id: 'scene-page-leaf',
       name: 'Leaf page boundary',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [
         dialogue('leaf-a'),
         dialogue('leaf-b'),
@@ -227,6 +231,7 @@ describe('form logic tree', () => {
       id: 'scene-logic-moves',
       name: 'Logic moves',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [
         {
           id: 'if-root',
@@ -332,5 +337,90 @@ describe('form logic tree', () => {
       beforeNodeId: 'if-root',
     });
     expect(getFormNodeMovePlan(scene, 'missing-node', 1)).toBeNull();
+  });
+
+  it('plans structure-safe portrait insertion anchors below the selection', () => {
+    const scene: SceneDocument = {
+      schemaVersion: 1,
+      id: 'scene-character-insertion',
+      name: 'Character insertion',
+      backgroundAssetId: null,
+      backgroundScalePercent: 100,
+      nodes: [
+        {
+          id: 'if-root',
+          type: 'logicIf',
+          condition: {
+            left: { kind: 'variable', name: 'route' },
+            operator: 'eq',
+            right: { kind: 'literal', value: 'A' },
+          },
+        },
+        {
+          id: 'then-line',
+          type: 'dialogue',
+          speaker: '',
+          text: 'Then',
+          voiceAssetId: null,
+        },
+        { id: 'if-else', type: 'logicElse', ifNodeId: 'if-root' },
+        { id: 'repeat-root', type: 'logicRepeat', count: 2 },
+        {
+          id: 'cg-root',
+          type: 'cgDisplay',
+          assetId: 'cg-image',
+          leadInMs: 0,
+        },
+        {
+          id: 'cg-line',
+          type: 'dialogue',
+          speaker: '',
+          text: 'CG line',
+          voiceAssetId: null,
+        },
+        {
+          id: 'cg-end',
+          type: 'cgEndDisplay',
+          cgDisplayNodeId: 'cg-root',
+        },
+        {
+          id: 'repeat-end',
+          type: 'logicEndRepeat',
+          repeatNodeId: 'repeat-root',
+        },
+        { id: 'if-end', type: 'logicEndIf', ifNodeId: 'if-root' },
+        { id: 'page-extension', type: 'storyExtension' },
+        {
+          id: 'root-line',
+          type: 'dialogue',
+          speaker: '',
+          text: 'Root',
+          voiceAssetId: null,
+        },
+      ],
+    };
+
+    expect(getCharacterInsertionPlan(scene, null)).toEqual({
+      afterNodeId: null,
+    });
+    expect(getCharacterInsertionPlan(scene, 'then-line')).toEqual({
+      afterNodeId: 'then-line',
+    });
+    expect(getCharacterInsertionPlan(scene, 'if-root')).toEqual({
+      afterNodeId: 'if-end',
+    });
+    expect(getCharacterInsertionPlan(scene, 'repeat-root')).toEqual({
+      afterNodeId: 'repeat-end',
+    });
+    expect(getCharacterInsertionPlan(scene, 'cg-root')).toEqual({
+      afterNodeId: 'cg-end',
+    });
+    expect(getCharacterInsertionPlan(scene, 'cg-line')).toEqual({
+      afterNodeId: 'cg-end',
+    });
+    expect(getCharacterInsertionPlan(scene, 'page-extension')).toEqual({
+      afterNodeId: 'page-extension',
+    });
+    expect(getCharacterInsertionPlan(scene, 'missing-node')).toBeNull();
   });
 });

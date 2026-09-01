@@ -48,7 +48,7 @@ function gameDocument(assetId: string | null = null) {
 
 function manifestDocument(
   files: unknown[] = [],
-  runtimeVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 = 1,
+  runtimeVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 = 1,
 ): Record<string, unknown> {
   return {
     format: 'vn-engine-runtime-manifest',
@@ -122,6 +122,7 @@ describe('runtime bundle loader', () => {
       },
     });
     expect(bundle.game.assets).toEqual([]);
+    expect(bundle.game.defaultLanguage).toBe('zh-CN');
     expect(JSON.stringify(bundle.game)).not.toContain('relativePath');
     expect(JSON.stringify(bundle.game)).not.toContain(fixture);
     const gameContents = await readFile(path.join(fixture, 'game.json'), 'utf8');
@@ -366,6 +367,198 @@ describe('runtime bundle loader', () => {
       JSON.stringify(runtimeV9WithEyebrow),
       JSON.stringify(manifestDocument([], 9)),
     )).toThrow('game.json.game.startScreen 字段不符合');
+  });
+
+  it('strictly reads runtime v11 image scales and defaults legacy runtimes', () => {
+    const imageAsset = (assetId: string) => ({
+      assetId,
+      type: 'image',
+      displayName: assetId,
+      path: `assets/images/${assetId}.png`,
+      mime: 'image/png',
+      bytes: 4,
+      sha256: '0'.repeat(64),
+    });
+    const runtimeV11 = {
+      ...gameDocument(),
+      runtimeVersion: 11,
+      game: {
+        ...gameDocument().game,
+        startScreen: {
+          title: 'Scaled story',
+          eyebrow: '',
+          backgroundAssetId: null,
+          musicAssetId: null,
+        },
+        cgGallery: {
+          pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+        },
+      },
+      scenes: [{
+        ...gameDocument().scenes[0],
+        backgroundAssetId: 'scene-background',
+        backgroundScalePercent: 80,
+        nodes: [
+          {
+            id: 'background-node',
+            type: 'background',
+            assetId: 'node-background',
+            scalePercent: 125,
+          },
+          {
+            id: 'character-node',
+            type: 'character',
+            assetId: 'hero',
+            slot: 'center',
+            layer: 1,
+            position: null,
+            effect: null,
+            scalePercent: 70,
+          },
+        ],
+      }],
+    };
+    const manifest = manifestDocument([
+      imageAsset('scene-background'),
+      imageAsset('node-background'),
+      imageAsset('hero'),
+    ], 11);
+
+    const parsed = parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV11),
+      JSON.stringify(manifest),
+    );
+    expect(parsed.runtimeVersion).toBe(11);
+    expect(parsed.game.defaultLanguage).toBe('zh-CN');
+    expect(parsed.game.project.scenes[0]).toMatchObject({
+      backgroundScalePercent: 80,
+      nodes: [
+        { type: 'background', scalePercent: 125 },
+        { type: 'character', scalePercent: 70 },
+      ],
+    });
+
+    const missingSceneScale = structuredClone(runtimeV11);
+    delete (missingSceneScale.scenes[0] as Record<string, unknown>)
+      .backgroundScalePercent;
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(missingSceneScale),
+      JSON.stringify(manifest),
+    )).toThrow('字段不符合 runtime 约定');
+
+    const missingNodeScale = structuredClone(runtimeV11);
+    delete (missingNodeScale.scenes[0]!.nodes[0] as Record<string, unknown>)
+      .scalePercent;
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(missingNodeScale),
+      JSON.stringify(manifest),
+    )).toThrow('字段不符合 runtime 约定');
+
+    const legacyV10 = structuredClone(runtimeV11);
+    legacyV10.runtimeVersion = 10;
+    delete (legacyV10.scenes[0] as Record<string, unknown>)
+      .backgroundScalePercent;
+    for (const node of legacyV10.scenes[0]!.nodes) {
+      delete (node as Record<string, unknown>).scalePercent;
+    }
+    const legacyParsed = parseRuntimeBundleDocuments(
+      JSON.stringify(legacyV10),
+      JSON.stringify({
+        ...manifest,
+        runtimeVersion: 10,
+        playerCompatibility: '>=10 <11',
+      }),
+    );
+    expect(legacyParsed.game.project.scenes[0]).toMatchObject({
+      backgroundScalePercent: 100,
+      nodes: [
+        { type: 'background', scalePercent: 100 },
+        { type: 'character', scalePercent: 100 },
+      ],
+    });
+
+    const legacyWithScale = structuredClone(legacyV10);
+    (legacyWithScale.scenes[0] as Record<string, unknown>)
+      .backgroundScalePercent = 100;
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(legacyWithScale),
+      JSON.stringify({
+        ...manifest,
+        runtimeVersion: 10,
+        playerCompatibility: '>=10 <11',
+      }),
+    )).toThrow('字段不符合 runtime 约定');
+
+    for (const scalePercent of [9, 301, 100.5, null]) {
+      const invalid = structuredClone(runtimeV11);
+      (invalid.scenes[0]!.nodes[0] as Record<string, unknown>).scalePercent =
+        scalePercent;
+      expect(() => parseRuntimeBundleDocuments(
+        JSON.stringify(invalid),
+        JSON.stringify(manifest),
+      )).toThrow('scalePercent 必须是 10 到 300 的整数');
+    }
+
+    const invalidClear = structuredClone(runtimeV11);
+    (invalidClear.scenes[0]!.nodes[1] as Record<string, unknown>).assetId = null;
+    (invalidClear.scenes[0]!.nodes[1] as Record<string, unknown>)
+      .scalePercent = 90;
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(invalidClear),
+      JSON.stringify(manifest),
+    )).toThrow('清除立绘时必须为 100');
+
+    const invalidBackgroundClear = structuredClone(runtimeV11);
+    (invalidBackgroundClear.scenes[0]!.nodes[0] as Record<string, unknown>)
+      .assetId = null;
+    invalidBackgroundClear.scenes[0]!.nodes[0]!.scalePercent = 90;
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(invalidBackgroundClear),
+      JSON.stringify(manifest),
+    )).toThrow('清除背景时必须为 100');
+
+    const invalidInitialClear = structuredClone(runtimeV11);
+    (invalidInitialClear.scenes[0] as Record<string, unknown>)
+      .backgroundAssetId = null;
+    invalidInitialClear.scenes[0]!.backgroundScalePercent = 90;
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(invalidInitialClear),
+      JSON.stringify(manifest),
+    )).toThrow('无背景时必须为 100');
+
+    const runtimeV12 = structuredClone(runtimeV11);
+    runtimeV12.runtimeVersion = 12;
+    (runtimeV12.game as Record<string, unknown>).defaultLanguage = 'en-US';
+    const manifestV12 = {
+      ...manifest,
+      runtimeVersion: 12,
+      playerCompatibility: '>=12 <13',
+    };
+    expect(parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV12),
+      JSON.stringify(manifestV12),
+    ).game.defaultLanguage).toBe('en-US');
+
+    const missingLanguage = structuredClone(runtimeV12);
+    delete (missingLanguage.game as Record<string, unknown>).defaultLanguage;
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(missingLanguage),
+      JSON.stringify(manifestV12),
+    )).toThrow('game.json.game 字段不符合 runtime 约定');
+
+    const invalidLanguage = structuredClone(runtimeV12);
+    (invalidLanguage.game as Record<string, unknown>).defaultLanguage = 'fr-FR';
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(invalidLanguage),
+      JSON.stringify(manifestV12),
+    )).toThrow('game.json.game.defaultLanguage 无效');
+
+    const legacyWithLanguage = structuredClone(runtimeV11);
+    (legacyWithLanguage.game as Record<string, unknown>).defaultLanguage = 'zh-CN';
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(legacyWithLanguage),
+      JSON.stringify(manifest),
+    )).toThrow('game.json.game 字段不符合 runtime 约定');
   });
 
   it('reads runtime v4 portrait coordinates and keeps v3 portraits on presets', () => {

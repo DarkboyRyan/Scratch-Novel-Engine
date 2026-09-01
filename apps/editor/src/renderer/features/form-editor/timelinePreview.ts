@@ -16,6 +16,7 @@ export type TimelineCharacterState = RuntimeCharacterState;
 
 export type TimelinePreviewState = {
   backgroundAssetId: string | null;
+  backgroundScalePercent: number;
   cgAssetId: string | null;
   characters: TimelineCharacterState[];
   showDialogue: boolean;
@@ -52,6 +53,9 @@ export function deriveTimelinePreview(
     : requestedPlayheadIndex;
 
   let backgroundAssetId = scene.backgroundAssetId;
+  // Start from the scene-level initial background scale. Each later
+  // BackgroundNode replaces both the active image and its scale atomically.
+  let backgroundScalePercent = scene.backgroundScalePercent;
   let cgAssetId: string | null = null;
   let cgDisplayNodeId: string | null = null;
   const charactersByLayer = new Map<number, TimelineCharacterState>();
@@ -59,6 +63,7 @@ export function deriveTimelinePreview(
     const node = nodes[index];
     if (node?.type === 'background') {
       backgroundAssetId = node.assetId;
+      backgroundScalePercent = node.scalePercent;
     } else if (node?.type === 'character') {
       if (node.mode === 'clear') {
         charactersByLayer.delete(node.layer);
@@ -69,6 +74,7 @@ export function deriveTimelinePreview(
           slot: node.slot,
           layer: node.layer,
           position: node.position,
+          scalePercent: node.scalePercent,
           opacity: node.effect?.type === 'fadeOut' ? 0 : 1,
           effect: null,
           effectSequence: 0,
@@ -88,6 +94,7 @@ export function deriveTimelinePreview(
 
   return {
     backgroundAssetId,
+    backgroundScalePercent,
     cgAssetId,
     characters: [...charactersByLayer.values()].sort(
       (left, right) => left.layer - right.layer,

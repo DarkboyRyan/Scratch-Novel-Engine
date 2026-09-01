@@ -158,21 +158,36 @@ describe('engine IPC validation', () => {
     expect(
       isEngineInvocation({
         method: 'scene.setBackground',
-        params: { sceneId: 'scene-1', assetId: 'asset-1' },
+        params: {
+          sceneId: 'scene-1',
+          assetId: 'asset-1',
+          scalePercent: 80,
+        },
       }),
     ).toBe(true);
     expect(
       isEngineInvocation({
         method: 'scene.setBackground',
-        params: { sceneId: 'scene-1', assetId: null },
+        params: { sceneId: 'scene-1', assetId: null, scalePercent: 100 },
       }),
     ).toBe(true);
     expect(
       isEngineInvocation({
         method: 'scene.setBackground',
-        params: { sceneId: 'scene-1', assetId: 3 },
+        params: { sceneId: 'scene-1', assetId: 3, scalePercent: 100 },
       }),
     ).toBe(false);
+    for (const params of [
+      { sceneId: 'scene-1', assetId: 'asset-1' },
+      { sceneId: 'scene-1', assetId: 'asset-1', scalePercent: 9 },
+      { sceneId: 'scene-1', assetId: 'asset-1', scalePercent: 301 },
+      { sceneId: 'scene-1', assetId: null, scalePercent: 80 },
+    ]) {
+      expect(isEngineInvocation({
+        method: 'scene.setBackground',
+        params,
+      })).toBe(false);
+    }
   });
 
   it('accepts a unique, non-empty selection and a nullable anchor', () => {
@@ -283,6 +298,7 @@ describe('engine IPC validation', () => {
           sceneId: 'scene-1',
           nodeId: 'background-1',
           assetId: 'asset-2',
+          scalePercent: 80,
         },
       }),
     ).toBe(true);
@@ -293,9 +309,34 @@ describe('engine IPC validation', () => {
           sceneId: 'scene-1',
           nodeId: 'background-1',
           assetId: null,
+          scalePercent: 100,
         },
       }),
     ).toBe(true);
+    for (const params of [
+      {
+        sceneId: 'scene-1',
+        nodeId: 'background-1',
+        assetId: 'asset-2',
+      },
+      {
+        sceneId: 'scene-1',
+        nodeId: 'background-1',
+        assetId: 'asset-2',
+        scalePercent: 9,
+      },
+      {
+        sceneId: 'scene-1',
+        nodeId: 'background-1',
+        assetId: null,
+        scalePercent: 80,
+      },
+    ]) {
+      expect(isEngineInvocation({
+        method: 'background.update',
+        params,
+      })).toBe(false);
+    }
 
     expect(
       isEngineInvocation({
@@ -371,6 +412,7 @@ describe('engine IPC validation', () => {
           slot: 'center',
           layer: 10,
           position: { x: 37.5, y: 92 },
+          scalePercent: 125,
         },
       }),
     ).toBe(true);
@@ -385,6 +427,7 @@ describe('engine IPC validation', () => {
           slot: 'center',
           layer: 10,
           position: null,
+          scalePercent: 100,
         },
       }),
     ).toBe(true);
@@ -399,16 +442,20 @@ describe('engine IPC validation', () => {
           slot: 'center',
           layer: 10,
           position: { x: 50, y: 90 },
+          scalePercent: 100,
         },
       }),
     ).toBe(false);
 
     for (const invalid of [
-      { assetId: null, slot: 'top', layer: 1, position: null },
-      { assetId: null, slot: 'left', layer: 0, position: null },
-      { assetId: null, slot: 'right', layer: 1.5, position: null },
-      { assetId: null, slot: 'center', layer: 1, position: { x: -1, y: 50 } },
-      { assetId: null, slot: 'center', layer: 1, position: { x: 50, y: 101 } },
+      { assetId: null, slot: 'top', layer: 1, position: null, scalePercent: 100 },
+      { assetId: null, slot: 'left', layer: 0, position: null, scalePercent: 100 },
+      { assetId: null, slot: 'right', layer: 1.5, position: null, scalePercent: 100 },
+      { assetId: null, slot: 'center', layer: 1, position: { x: -1, y: 50 }, scalePercent: 100 },
+      { assetId: null, slot: 'center', layer: 1, position: { x: 50, y: 101 }, scalePercent: 100 },
+      { assetId: 'image-1', slot: 'center', layer: 1, position: null, scalePercent: 9 },
+      { assetId: 'image-1', slot: 'center', layer: 1, position: null, scalePercent: 301 },
+      { mode: 'clear', assetId: null, slot: 'center', layer: 1, position: null, scalePercent: 125 },
     ]) {
       expect(
         isEngineInvocation({
@@ -432,6 +479,7 @@ describe('engine IPC validation', () => {
           slot: 'left',
           layer: 1,
           position: null,
+          scalePercent: 100,
           effect: null,
         },
       }),

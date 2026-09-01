@@ -29,6 +29,7 @@ const scene: SceneDocument = {
   id: 'scene-1',
   name: 'Scene',
   backgroundAssetId: null,
+  backgroundScalePercent: 100,
   nodes: [
     {
       id: 'cg-1',

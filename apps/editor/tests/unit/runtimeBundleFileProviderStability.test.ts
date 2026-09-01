@@ -192,6 +192,7 @@ function runtimeOptions(
       .digest('hex'),
     expectedProject: fixture.expectedProject,
     expectedAssets: fixture.expectedAssets,
+    defaultLanguage: 'zh-CN' as const,
     buildId: 'file-provider-build',
     createdAt: '2026-08-19T00:00:00.000Z',
   };

@@ -45,6 +45,7 @@ const session: GamePreviewSession = {
         id: 'scene-entry',
         name: 'Entry',
         backgroundAssetId: null,
+        backgroundScalePercent: 100,
         nodes: [{ id: 'choice-1', type: 'choice', options }],
       },
       ...options.map((option) => ({
@@ -52,6 +53,7 @@ const session: GamePreviewSession = {
         id: option.targetSceneId,
         name: option.text,
         backgroundAssetId: null,
+        backgroundScalePercent: 100,
         nodes: [],
       })),
     ],
@@ -61,6 +63,7 @@ const session: GamePreviewSession = {
     sceneId: 'scene-entry',
     nextNodeIndex: 1,
     backgroundAssetId: null,
+    backgroundScalePercent: 100,
     bgmAssetId: 'theme',
     bgmSequence: 1,
     dialogueSequence: 2,

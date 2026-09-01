@@ -50,6 +50,7 @@ const project: ProjectDocument = {
       id: 'scene-entry',
       name: 'Entry',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [
         {
           id: 'choice-1',
@@ -74,6 +75,7 @@ const project: ProjectDocument = {
       id: 'scene-a',
       name: 'A',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [],
     },
     {
@@ -81,6 +83,7 @@ const project: ProjectDocument = {
       id: 'scene-b',
       name: 'B',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [],
     },
   ],
@@ -238,9 +241,13 @@ describe('form editor choice compatibility', () => {
             assets={[]}
             speaker=""
             text=""
+            imageScaleDraft="100"
+            imageScaleDraftInvalid={false}
             isBusy={false}
             onSpeakerChange={vi.fn()}
             onTextChange={vi.fn()}
+            onImageScaleDraftChange={vi.fn()}
+            onImageScaleDraftCommit={async () => true}
             onBackgroundChange={noop}
             onCharacterChange={noop}
             onSceneJumpChange={noop}

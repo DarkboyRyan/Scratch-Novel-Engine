@@ -29,6 +29,7 @@ const validProject = {
       id: 'scene-1',
       name: 'Scene 1',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [
         {
           id: 'dialogue-1',
@@ -41,6 +42,7 @@ const validProject = {
           id: 'background-1',
           type: 'background',
           assetId: 'asset-1',
+          scalePercent: 80,
         },
         {
           id: 'character-1',
@@ -49,6 +51,7 @@ const validProject = {
           assetId: 'asset-1',
           slot: 'right',
           layer: 3,
+          scalePercent: 125,
           position: { x: 73, y: 92 },
           effect: null,
         },
@@ -218,6 +221,29 @@ describe('backend response validation', () => {
     ).toThrow('project');
   });
 
+  it('rejects malformed scene background scales', () => {
+    const withoutScale = { ...validProject.scenes[0] } as Record<
+      string,
+      unknown
+    >;
+    delete withoutScale.backgroundScalePercent;
+    for (const scene of [
+      withoutScale,
+      { ...validProject.scenes[0], backgroundScalePercent: 9 },
+      { ...validProject.scenes[0], backgroundScalePercent: 301 },
+      { ...validProject.scenes[0], backgroundScalePercent: 100.5 },
+      {
+        ...validProject.scenes[0],
+        backgroundAssetId: null,
+        backgroundScalePercent: 80,
+      },
+    ]) {
+      expect(() => parseBackendResponse(successResponse({
+        project: { ...validProject, scenes: [scene] },
+      }))).toThrow('project');
+    }
+  });
+
   it('accepts an optional generated choice option ID', () => {
     expect(
       parseBackendResponse(successResponse({ optionId: 'option-1' })),
@@ -289,13 +315,14 @@ describe('backend response validation', () => {
                   speaker: 'Ryan',
                   voiceAssetId: null,
                 },
-                { type: 'background', assetId: 'asset-1' },
+                { type: 'background', assetId: 'asset-1', scalePercent: 80 },
                 {
                   type: 'character',
                   mode: 'show',
                   assetId: 'asset-1',
                   slot: 'right',
                   layer: 3,
+                  scalePercent: 125,
                   position: { x: 73, y: 92 },
                   effect: null,
                 },
@@ -365,6 +392,7 @@ describe('backend response validation', () => {
         assetId: null,
         position: null,
         effect: null,
+        scalePercent: 100,
       },
     ]) {
       expect(parseBackendResponse(successResponse({
@@ -386,9 +414,14 @@ describe('backend response validation', () => {
     delete withoutEffect.effect;
     const withoutMode: Record<string, unknown> = { ...character };
     delete withoutMode.mode;
+    const withoutScale: Record<string, unknown> = { ...character };
+    delete withoutScale.scalePercent;
     for (const malformed of [
       withoutEffect,
       withoutMode,
+      withoutScale,
+      { ...character, scalePercent: 9 },
+      { ...character, scalePercent: 301 },
       {
         ...character,
         assetId: null,
@@ -461,6 +494,7 @@ describe('backend response validation', () => {
                   id: 'background-clear',
                   type: 'background',
                   assetId: null,
+                  scalePercent: 100,
                 },
               ],
             },
@@ -480,6 +514,7 @@ describe('backend response validation', () => {
                   id: 'background-clear',
                   type: 'background',
                   assetId: null,
+                  scalePercent: 100,
                 },
               ],
             },
@@ -592,7 +627,10 @@ describe('backend response validation', () => {
 
   it.each([
     { type: 'background' },
-    { type: 'background', assetId: 7 },
+    { type: 'background', assetId: 7, scalePercent: 100 },
+    { type: 'background', assetId: 'asset-1', scalePercent: 9 },
+    { type: 'background', assetId: 'asset-1', scalePercent: 301 },
+    { type: 'background', assetId: null, scalePercent: 80 },
     { type: 'unknown', assetId: 'asset-1' },
   ])('rejects a malformed background node: %j', (node) => {
     expect(() =>
@@ -761,7 +799,12 @@ describe('backend response validation', () => {
       [
         cgNodes[0],
         cgNodes[1],
-        { id: 'background-inside', type: 'background', assetId: null },
+        {
+          id: 'background-inside',
+          type: 'background',
+          assetId: null,
+          scalePercent: 100,
+        },
         ...cgNodes.slice(2),
       ],
       [

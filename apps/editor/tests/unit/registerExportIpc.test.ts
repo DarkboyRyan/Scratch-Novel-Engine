@@ -16,6 +16,7 @@ import {
   standaloneApplicationMetadataError,
   standaloneApplicationMetadataErrorCode,
 } from '../../src/shared/exportProtocol';
+import type { EditorLanguage } from '../../src/shared/editorSettingsProtocol';
 
 const electronMocks = vi.hoisted(() => ({
   handle: vi.fn(),
@@ -104,6 +105,7 @@ function projectResult(revision = 3) {
           id: 'scene-1',
           name: 'Scene 1',
           backgroundAssetId: null,
+          backgroundScalePercent: 100,
           nodes: [],
         },
       ],
@@ -117,7 +119,11 @@ function projectResult(revision = 3) {
   };
 }
 
-function registerSession(options: { saved?: boolean; dirty?: boolean } = {}) {
+function registerSession(options: {
+  saved?: boolean;
+  dirty?: boolean;
+  language?: EditorLanguage;
+} = {}) {
   const projectFileSession = new ProjectFileSession();
   if (options.saved) {
     projectFileSession.markOpened(
@@ -155,6 +161,7 @@ function registerSession(options: { saved?: boolean; dirty?: boolean } = {}) {
   registerExportIpc(
     contexts,
     new Map([[7, 'file:///editor/index.html']]),
+    () => options.language ?? 'zh-CN',
   );
   return {
     request,
@@ -280,6 +287,12 @@ describe('game export IPC', () => {
     await expect(
       handler(trustedEvent(), {
         action: 'export',
+        params: { output: 'runtime-bundle', language: 'en-US' },
+      }),
+    ).rejects.toThrow('无效的游戏导出请求');
+    await expect(
+      handler(trustedEvent(), {
+        action: 'export',
         params: {},
         path: '/tmp/game.vngame',
       }),
@@ -350,7 +363,10 @@ describe('game export IPC', () => {
       canceled: false,
       filePath: path.resolve('/exports/Custom'),
     });
-    const { handler } = registerSession({ saved: true });
+    const { handler } = registerSession({
+      saved: true,
+      language: 'en-US',
+    });
 
     await expect(
       handler(trustedEvent(), runtimeInvocation),
@@ -378,6 +394,7 @@ describe('game export IPC', () => {
         sourceRevision: 3,
         expectedProject: projectResult().project,
         expectedAssets: [],
+        defaultLanguage: 'en-US',
         expectedManifestSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
       }),
     );
@@ -422,6 +439,7 @@ describe('game export IPC', () => {
         targetArtifactPath: path.resolve('/exports/Custom Web-Web.zip'),
         templateRootPath: '/templates/web-current',
         sourceRevision: 3,
+        defaultLanguage: 'zh-CN',
       }),
     );
     expect(JSON.stringify(await handler(trustedEvent(), webInvocation))).not.toContain(
@@ -503,6 +521,7 @@ describe('game export IPC', () => {
           targetArtifactPath: '/exports/Custom Story-macOS.zip',
           templateRootPath: '/templates/current',
           sourceRevision: 3,
+          defaultLanguage: 'zh-CN',
           application: standaloneInvocation.params.application,
         }),
       );

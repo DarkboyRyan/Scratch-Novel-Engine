@@ -33,6 +33,7 @@ describe('choice Blockly blocks', () => {
         id: 'scene-1',
         name: '场景 1',
         backgroundAssetId: null,
+        backgroundScalePercent: 100,
         nodes: [],
       },
     ]);
@@ -60,6 +61,7 @@ describe('choice Blockly blocks', () => {
         id: 'scene-1',
         name: '序章',
         backgroundAssetId: null,
+        backgroundScalePercent: 100,
         nodes: [],
       },
       {
@@ -67,6 +69,7 @@ describe('choice Blockly blocks', () => {
         id: 'scene-2',
         name: '场景 2',
         backgroundAssetId: null,
+        backgroundScalePercent: 100,
         nodes: [],
       },
     ]);

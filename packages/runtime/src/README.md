@@ -13,8 +13,12 @@
 验证 If/Else、Repeat 与 CG 的配对关系；无效结构转换为稳定的 Runtime 错误，而不是执行
 未校验数据。
 
-Snapshot v4 保存恢复剧情所需的最小状态，包括变量、循环栈、CG、人物层与最终透明度。
-瞬时人物特效本身不持久化，只保留序号以避免恢复时重复触发。
+Snapshot v5 保存恢复剧情所需的最小状态，包括变量、循环栈、CG、背景/立绘缩放、人物层与
+最终透明度。瞬时人物特效本身不持久化，只保留序号以避免恢复时重复触发。
+
+`imageScale.ts` 是缩放范围的唯一公共来源。场景初始背景、BackgroundNode 和
+CharacterNode 使用 10–300 的整数；空背景和清除人物状态必须为 100，标题页与 CG 不读取
+该字段。Runtime v1–v10 与 Snapshot v1–v4 的兼容输入统一补 100%。
 
 ## 文件索引
 
@@ -22,9 +26,10 @@ Snapshot v4 保存恢复剧情所需的最小状态，包括变量、循环栈�
 | --- | --- | --- |
 | [`projectTypes.ts`](./projectTypes.ts) | 定义项目、场景、媒体、CG、逻辑与人物数据。 | `ProjectDocument`、`SceneNode`、`CharacterEffect` |
 | [`gameRuntime.ts`](./gameRuntime.ts) | 执行场景、分支、逻辑、循环、CG 与人物状态。 | `startGame`、`advanceGame`、`selectChoice`、`completeCgLeadIn` |
-| [`gameRuntimeSnapshot.ts`](./gameRuntimeSnapshot.ts) | 创建、校验、比较并恢复 Snapshot v1–v4。 | `createGameRuntimeSnapshot`、`restoreGameRuntimeSnapshot` |
+| [`gameRuntimeSnapshot.ts`](./gameRuntimeSnapshot.ts) | 创建、校验、比较并恢复 Snapshot v1–v5。 | `createGameRuntimeSnapshot`、`restoreGameRuntimeSnapshot` |
 | [`logicValidation.ts`](./logicValidation.ts) | 校验逻辑 AST、变量与执行预算。 | `isLogicCondition`、`validateProjectLogicVariableBudget` |
 | [`characterEffect.ts`](./characterEffect.ts) | 校验七类人物特效的严格判别结构。 | `isCharacterEffect`、时长边界 |
+| [`imageScale.ts`](./imageScale.ts) | 定义剧情图片缩放的统一范围与默认值。 | `isImageScalePercent`、10%–300% 边界 |
 | [`index.ts`](./index.ts) | 聚合 Runtime 唯一公共 API。 | 执行、快照、校验与类型再导出 |
 
 ## 修改约定

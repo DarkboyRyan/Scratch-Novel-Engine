@@ -1,5 +1,5 @@
 // 文件职责：严格读取、迁移并写出 VN Engine Author 项目 JSON。
-// 关键实现：v1–v20 迁移、exact-field 校验、节点/资源序列化和 v20 Writer。
+// 关键实现：v1–v21 迁移、exact-field 校验、节点/资源序列化和 v21 Writer。
 #include "serialization.hpp"
 
 #include <algorithm>
@@ -87,6 +87,21 @@ int require_integer(
     invalid(
         std::string(context) + "." + key + " is outside the supported range");
   }
+}
+
+int image_scale_percent_from_json(
+    const Json& object,
+    const std::string_view context,
+    const std::string_view field = "scalePercent") {
+  const int scale_percent =
+      require_integer(object, field, context);
+  if (scale_percent < kMinimumImageScalePercent ||
+      scale_percent > kMaximumImageScalePercent) {
+    invalid(
+        std::string(context) + "." + std::string(field) +
+        " must be between 10 and 300");
+  }
+  return scale_percent;
 }
 
 void require_schema_version(
@@ -334,6 +349,7 @@ Json background_node_to_json(const BackgroundNode& background) {
       {"assetId",
        background.asset_id.has_value() ? Json(*background.asset_id)
                                        : Json(nullptr)},
+      {"scalePercent", background.scale_percent},
   };
 }
 
@@ -357,6 +373,7 @@ Json character_node_to_json(const CharacterNode& character) {
       {"layer", character.layer},
       {"position", std::move(position)},
       {"effect", std::move(effect)},
+      {"scalePercent", character.scale_percent},
   };
 }
 
@@ -697,7 +714,12 @@ SceneNode scene_node_from_json(
     return dialogue_from_json(value, context, file_version);
   }
   if (type == "background") {
-    require_exact_fields(value, {"id", "type", "assetId"}, context);
+    if (file_version >= 21) {
+      require_exact_fields(
+          value, {"id", "type", "assetId", "scalePercent"}, context);
+    } else {
+      require_exact_fields(value, {"id", "type", "assetId"}, context);
+    }
     if (file_version < 4 && !value.at("assetId").is_string()) {
       invalid(context + ".assetId must be a string before file version 4");
     }
@@ -709,16 +731,30 @@ SceneNode scene_node_from_json(
     if (!value.at("assetId").is_null()) {
       asset_id = value.at("assetId").get<std::string>();
     }
+    const int scale_percent = file_version >= 21
+        ? image_scale_percent_from_json(value, context)
+        : kDefaultImageScalePercent;
+    if (!asset_id.has_value() &&
+        scale_percent != kDefaultImageScalePercent) {
+      invalid(context + ".scalePercent must be 100 when assetId is null");
+    }
     return BackgroundNode{
         .id = require_string(value, "id", context),
         .asset_id = std::move(asset_id),
+        .scale_percent = scale_percent,
     };
   }
   if (type == "character") {
     if (file_version < 5) {
       unsupported(context + ".type is not supported before file version 5");
     }
-    if (file_version >= 19) {
+    if (file_version >= 21) {
+      require_exact_fields(
+          value,
+          {"id", "type", "mode", "assetId", "slot", "layer", "position",
+           "effect", "scalePercent"},
+          context);
+    } else if (file_version >= 19) {
       require_exact_fields(
           value,
           {"id", "type", "mode", "assetId", "slot", "layer", "position",
@@ -792,6 +828,13 @@ SceneNode scene_node_from_json(
       // metadata so every migrated clear node satisfies the v19 invariant.
       position.reset();
     }
+    const int scale_percent = file_version >= 21
+        ? image_scale_percent_from_json(value, context)
+        : kDefaultImageScalePercent;
+    if (mode == CharacterNodeMode::clear &&
+        scale_percent != kDefaultImageScalePercent) {
+      invalid(context + ".scalePercent must be 100 when mode is clear");
+    }
     return CharacterNode{
         .id = require_string(value, "id", context),
         .asset_id = std::move(asset_id),
@@ -800,6 +843,7 @@ SceneNode scene_node_from_json(
         .layer = layer,
         .position = std::move(position),
         .effect = std::move(effect),
+        .scale_percent = scale_percent,
     };
   }
   if (type == "sceneJump") {
@@ -1032,6 +1076,8 @@ Json scene_to_renderer_json(const Scene& scene) {
        scene.visuals.background_asset_id.has_value()
            ? Json(*scene.visuals.background_asset_id)
            : Json(nullptr)},
+      {"backgroundScalePercent",
+       scene.visuals.background_scale_percent},
       {"nodes", std::move(nodes)},
   };
 }
@@ -1095,15 +1141,24 @@ Json scene_visuals_to_json(const SceneVisualState& visuals) {
        visuals.background_asset_id.has_value()
            ? Json(*visuals.background_asset_id)
            : Json(nullptr)},
+      {"backgroundScalePercent", visuals.background_scale_percent},
       {"characters", std::move(characters)},
   };
 }
 
 SceneVisualState scene_visuals_from_json(
     const Json& value,
-    const std::string& context) {
-  require_exact_fields(
-      value, {"backgroundAssetId", "characters"}, context);
+    const std::string& context,
+    const int file_version) {
+  if (file_version >= 21) {
+    require_exact_fields(
+        value,
+        {"backgroundAssetId", "backgroundScalePercent", "characters"},
+        context);
+  } else {
+    require_exact_fields(
+        value, {"backgroundAssetId", "characters"}, context);
+  }
 
   std::optional<std::string> background_asset_id;
   const Json& background = value.at("backgroundAssetId");
@@ -1111,6 +1166,16 @@ SceneVisualState scene_visuals_from_json(
     background_asset_id = background.get<std::string>();
   } else if (!background.is_null()) {
     invalid(context + ".backgroundAssetId must be a string or null");
+  }
+  const int background_scale_percent = file_version >= 21
+      ? image_scale_percent_from_json(
+            value, context, "backgroundScalePercent")
+      : kDefaultImageScalePercent;
+  if (!background_asset_id.has_value() &&
+      background_scale_percent != kDefaultImageScalePercent) {
+    invalid(
+        context +
+        ".backgroundScalePercent must be 100 when backgroundAssetId is null");
   }
 
   const Json& characters_json = value.at("characters");
@@ -1120,6 +1185,7 @@ SceneVisualState scene_visuals_from_json(
 
   SceneVisualState visuals{
       .background_asset_id = std::move(background_asset_id),
+      .background_scale_percent = background_scale_percent,
       .characters = {},
   };
   visuals.characters.reserve(characters_json.size());
@@ -1329,7 +1395,8 @@ Scene scene_from_json(
       // explicit empty visual state rather than inventing implicit Assets.
       .visuals = file_version == 1
           ? SceneVisualState{}
-          : scene_visuals_from_json(value.at("visuals"), context + ".visuals"),
+          : scene_visuals_from_json(
+                value.at("visuals"), context + ".visuals", file_version),
       .nodes = {},
   };
   scene.nodes.reserve(nodes.size());

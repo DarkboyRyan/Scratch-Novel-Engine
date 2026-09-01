@@ -10,6 +10,7 @@ import {
   isPlayerSettings,
   type PlayerErrorCode,
   type PlayerSettings,
+  type PlayerSettingsLanguageSource,
   type PlayerSettingsPatch,
   type PlayerSettingsReadResult,
   type PlayerSettingsWriteResult,
@@ -70,6 +71,7 @@ function safePositiveInteger(value: number, fallback: number): number {
 
 export class PlayerSettingsManager {
   private current = createDefaultPlayerSettings();
+  private languageSource: PlayerSettingsLanguageSource = 'default';
   private operationQueue: Promise<void> = Promise.resolve();
   private initialization: Promise<void> | null = null;
   private initialized = false;
@@ -90,10 +92,13 @@ export class PlayerSettingsManager {
     }
     this.initialization ??= (async () => {
       try {
-        this.current = await this.store.load();
+        const loaded = await this.store.load();
+        this.current = loaded.settings;
+        this.languageSource = loaded.languageSource;
       } catch (error) {
         this.reportError('load', error);
         this.current = createDefaultPlayerSettings();
+        this.languageSource = 'default';
       }
       this.initialized = true;
     })();
@@ -162,7 +167,11 @@ export class PlayerSettingsManager {
       if (this.activatedWindows.has(window)) {
         await this.syncAuthoritativeWindowMode(window);
       }
-      return { status: 'ready', settings: cloneSettings(this.current) };
+      return {
+        status: 'ready',
+        settings: cloneSettings(this.current),
+        languageSource: this.languageSource,
+      };
     });
   }
 
@@ -202,6 +211,7 @@ export class PlayerSettingsManager {
         return { status: 'rejected', error: SETTINGS_STORAGE_ERROR };
       }
       this.current = persisted;
+      this.languageSource = 'stored';
       if (appliesWindowGeometry) {
         for (const window of this.windows) {
           try {
@@ -252,6 +262,13 @@ export class PlayerSettingsManager {
       windowMode,
     };
     this.current = candidate;
+    // A native window transition is not a language preference. While the
+    // language still comes from defaults, keep the authoritative geometry in
+    // memory and let the first explicit Renderer update persist both it and
+    // the effective game language together.
+    if (this.languageSource === 'default') {
+      return;
+    }
     try {
       this.current = await this.store.write(candidate);
     } catch (error) {

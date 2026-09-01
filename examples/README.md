@@ -10,13 +10,14 @@
 
 | 子目录 | 格式 | 主要作用 |
 | --- | --- | --- |
-| [`hello-project/`](./hello-project/README.md) | Author Project v1 | 验证最早格式的兼容读取，以及再次保存为当前 v20。 |
+| [`hello-project/`](./hello-project/README.md) | Author Project v1 | 验证最早格式的兼容读取，以及再次保存为当前 v21。 |
 
 ## 使用方式
 
 启动 Editor 后选择“打开项目”，再选择示例目录。若要编辑或保存，请先复制整个示例目录，
 避免把仓库中的历史版本输入直接迁移成当前格式。打开后可在表单和 Blockly 中继续添加节点，
-也可以导出为 Runtime v10 检查 Player 链路。
+也可以导出为当前 Runtime v12 检查 Player 链路；此时包默认语言取自
+Main 权威 Editor 设置，不会翻译示例中的作者文本。
 
 ## 验证约定
 

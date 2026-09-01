@@ -10,6 +10,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import type { StandaloneApplicationMetadata } from "../../shared/exportProtocol";
+import type { EditorLanguage } from "../../shared/editorSettingsProtocol";
 import type {
   AssetDocument,
   ProjectDocument,
@@ -114,6 +115,7 @@ export type StandaloneApplicationExportOptions = {
   expectedManifestSha256: string;
   expectedProject: ProjectDocument;
   expectedAssets: AssetDocument[];
+  defaultLanguage: EditorLanguage;
   application: StandaloneApplicationMetadata;
   buildId?: string;
   createdAt?: string;
@@ -1527,6 +1529,7 @@ export async function exportStandaloneApplication(
       expectedManifestSha256: options.expectedManifestSha256,
       expectedProject: options.expectedProject,
       expectedAssets: options.expectedAssets,
+      defaultLanguage: options.defaultLanguage,
       buildId: options.buildId,
       createdAt: options.createdAt,
       assertSourceStillCurrent: options.assertSourceStillCurrent,

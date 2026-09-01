@@ -1,5 +1,5 @@
 // 主要作用：把 C++ JSONL 响应验证并转换成 Editor 公共项目模型。
-// 关键实现：parseBackendResponse 严格校验结构，formatBackendError 统一错误文案。
+// 关键实现：parseBackendResponse 严格校验结构和图片缩放，formatBackendError 统一错误文案。
 import type {
   BackendResponse,
   EngineMutationResult,
@@ -11,6 +11,10 @@ import type {
   ProjectDocument,
   SceneDocument,
   SceneNode,
+} from '../../shared/projectTypes';
+import {
+  DEFAULT_IMAGE_SCALE_PERCENT,
+  isImageScalePercent,
 } from '../../shared/projectTypes';
 import {
   isCharacterEffect,
@@ -71,6 +75,15 @@ function isSceneNode(value: unknown): boolean {
     );
   }
 
+  if (value.type === 'background') {
+    return (
+      (value.assetId === null || typeof value.assetId === 'string') &&
+      isImageScalePercent(value.scalePercent) &&
+      (value.assetId !== null ||
+        value.scalePercent === DEFAULT_IMAGE_SCALE_PERCENT)
+    );
+  }
+
   if (value.type === 'character') {
     return (
       (value.mode === 'show' || value.mode === 'clear') &&
@@ -81,6 +94,7 @@ function isSceneNode(value: unknown): boolean {
       Number.isInteger(value.layer) &&
       (value.layer as number) >= 1 &&
       (value.layer as number) <= 10 &&
+      isImageScalePercent(value.scalePercent) &&
       (value.position === null ||
         (isObject(value.position) &&
           Object.keys(value.position).length === 2 &&
@@ -100,7 +114,8 @@ function isSceneNode(value: unknown): boolean {
         ? value.assetId !== null || value.effect === null
         : value.assetId === null &&
           value.position === null &&
-          value.effect === null)
+          value.effect === null &&
+          value.scalePercent === DEFAULT_IMAGE_SCALE_PERCENT)
     );
   }
 
@@ -266,6 +281,9 @@ function isSceneDocument(value: unknown): boolean {
     typeof value.name === 'string' &&
     (value.backgroundAssetId === null ||
       typeof value.backgroundAssetId === 'string') &&
+    isImageScalePercent(value.backgroundScalePercent) &&
+    (value.backgroundAssetId !== null ||
+      value.backgroundScalePercent === DEFAULT_IMAGE_SCALE_PERCENT) &&
     Array.isArray(value.nodes) &&
     value.nodes.every(isSceneNode) &&
     hasValidLogicStructure(value.nodes)
@@ -373,6 +391,7 @@ function toPublicSceneNode(
       id: value.id as string,
       type: 'background',
       assetId: value.assetId as string | null,
+      scalePercent: value.scalePercent as number,
     };
   }
 
@@ -387,6 +406,7 @@ function toPublicSceneNode(
         layer: value.layer as number,
         position: null,
         effect: null,
+        scalePercent: value.scalePercent as number,
       };
     }
     if (value.assetId === null) {
@@ -399,6 +419,7 @@ function toPublicSceneNode(
         layer: value.layer as number,
         position: value.position as { x: number; y: number } | null,
         effect: null,
+        scalePercent: value.scalePercent as number,
       };
     }
     return {
@@ -410,6 +431,7 @@ function toPublicSceneNode(
       layer: value.layer as number,
       position: value.position as { x: number; y: number } | null,
       effect: value.effect as CharacterEffect | null,
+      scalePercent: value.scalePercent as number,
     };
   }
 
@@ -546,6 +568,7 @@ function toPublicSceneDocument(
     id: value.id as string,
     name: value.name as string,
     backgroundAssetId: value.backgroundAssetId as string | null,
+    backgroundScalePercent: value.backgroundScalePercent as number,
     nodes: (value.nodes as Record<string, unknown>[]).map(
       toPublicSceneNode,
     ),

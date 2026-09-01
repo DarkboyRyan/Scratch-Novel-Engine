@@ -97,6 +97,10 @@ describe('Editor localization', () => {
   it('updates Blockly chrome in place while preserving author fields', () => {
     const zh = getEditorLabels('zh-CN');
     const en = getEditorLabels('en-US');
+    expect(zh.inspector.addPortrait).toBe('在当前节点后插入人物立绘');
+    expect(en.inspector.addPortrait).toBe(
+      'Insert a character portrait after the current node',
+    );
     registerDialogueBlock(zh);
     const workspace = new Blockly.Workspace();
     const block = workspace.newBlock(DIALOGUE_BLOCK_TYPE);

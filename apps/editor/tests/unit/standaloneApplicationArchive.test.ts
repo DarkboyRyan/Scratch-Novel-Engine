@@ -101,6 +101,7 @@ const project = {
       id: 'scene-1',
       name: 'Scene 1',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [],
     },
   ],
@@ -145,7 +146,7 @@ describe.runIf(process.platform === 'darwin')(
           platform: process.platform,
           arch: process.arch,
           playerVersion: '0.1.0',
-          runtimeCompatibility: '>=1 <11',
+          runtimeCompatibility: '>=1 <13',
           payloadRoot: 'payload',
           artifactEntry: 'VN Engine Player.app',
           gameResourceDirectory: 'Contents/Resources/game',
@@ -221,6 +222,7 @@ describe.runIf(process.platform === 'darwin')(
           .digest('hex'),
         expectedProject: project,
         expectedAssets: [],
+        defaultLanguage: 'en-US' as const,
         application: {
           name: 'Story',
           version: '1.2.3',
@@ -338,6 +340,9 @@ describe.runIf(process.platform === 'darwin')(
       );
 
       expect(result.artifactName).toBe('Story-macOS.zip');
+      expect(runtimeMocks.exportRuntimeBundle).toHaveBeenCalledWith(
+        expect.objectContaining({ defaultLanguage: 'en-US' }),
+      );
       expect(await readFile(target, 'utf8')).toBe('verified-fake-zip');
       expect(archiveApplication).toHaveBeenCalledTimes(1);
       expect(extractApplicationArchive).toHaveBeenCalledTimes(2);

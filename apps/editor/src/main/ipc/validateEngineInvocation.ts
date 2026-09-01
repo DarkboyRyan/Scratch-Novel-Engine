@@ -4,6 +4,10 @@ import {
   ENGINE_METHODS,
   type EngineInvocation,
 } from '../../shared/engineProtocol';
+import {
+  DEFAULT_IMAGE_SCALE_PERCENT,
+  isImageScalePercent,
+} from '../../shared/projectTypes';
 import { isCharacterEffect } from '@vnengine/runtime';
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -172,7 +176,11 @@ export function isEngineInvocation(
     case 'scene.setBackground':
       return (
         hasString('sceneId') &&
-        (params.assetId === null || hasString('assetId'))
+        (params.assetId === null || hasString('assetId')) &&
+        isImageScalePercent(params.scalePercent) &&
+        (params.assetId !== null ||
+          params.scalePercent === DEFAULT_IMAGE_SCALE_PERCENT) &&
+        hasOnly(['sceneId', 'assetId', 'scalePercent'])
       );
     case 'dialogue.add':
       return (
@@ -373,7 +381,11 @@ export function isEngineInvocation(
       return (
         hasString('sceneId') &&
         hasString('nodeId') &&
-        (params.assetId === null || hasString('assetId'))
+        (params.assetId === null || hasString('assetId')) &&
+        isImageScalePercent(params.scalePercent) &&
+        (params.assetId !== null ||
+          params.scalePercent === DEFAULT_IMAGE_SCALE_PERCENT) &&
+        hasOnly(['sceneId', 'nodeId', 'assetId', 'scalePercent'])
       );
     case 'background.delete':
       return hasString('sceneId') && hasString('nodeId');
@@ -419,6 +431,7 @@ export function isEngineInvocation(
         Number.isInteger(params.layer) &&
         (params.layer as number) >= 1 &&
         (params.layer as number) <= 10 &&
+        isImageScalePercent(params.scalePercent) &&
         (params.position === null ||
           (isObject(params.position) &&
             Object.keys(params.position).length === 2 &&
@@ -433,7 +446,9 @@ export function isEngineInvocation(
             params.position.y >= 0 &&
             params.position.y <= 100)) &&
         (params.mode !== 'clear' ||
-          params.assetId === null && params.position === null) &&
+          params.assetId === null &&
+            params.position === null &&
+            params.scalePercent === DEFAULT_IMAGE_SCALE_PERCENT) &&
         hasOnly([
           'sceneId',
           'nodeId',
@@ -442,6 +457,7 @@ export function isEngineInvocation(
           'slot',
           'layer',
           'position',
+          'scalePercent',
         ])
       );
     case 'characterEffect.update':

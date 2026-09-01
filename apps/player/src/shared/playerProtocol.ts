@@ -14,6 +14,7 @@ export const LEGACY_PLAYER_SETTINGS_VERSION = 1 as const;
 export const PLAYER_SETTINGS_VERSION = 2 as const;
 
 export type PlayerLanguage = 'zh-CN' | 'en-US';
+export type PlayerSettingsLanguageSource = 'default' | 'stored';
 export type PlayerWindowMode = 'windowed' | 'fullscreen';
 export type PlayerWindowSizePreset = 'small' | 'medium' | 'large';
 
@@ -196,6 +197,7 @@ export type PlayerAsset = {
 };
 
 export type PlayerGameData = {
+  defaultLanguage: PlayerLanguage;
   project: ProjectDocument;
   assets: PlayerAsset[];
 };
@@ -282,7 +284,11 @@ export type PlayerSaveLoadResult =
   | { status: 'rejected'; error: PlayerErrorCode };
 
 export type PlayerSettingsReadResult =
-  | { status: 'ready'; settings: PlayerSettings }
+  | {
+      status: 'ready';
+      settings: PlayerSettings;
+      languageSource: PlayerSettingsLanguageSource;
+    }
   | { status: 'rejected'; error: PlayerErrorCode };
 
 export type PlayerSettingsWriteResult =

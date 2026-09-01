@@ -39,7 +39,7 @@ const runtimeMocks = vi.hoisted(() => ({
 
 vi.mock('../../src/main/export/RuntimeBundleExporter', () => ({
   exportRuntimeBundle: runtimeMocks.exportRuntimeBundle,
-  PLAYER_COMPATIBILITY: '>=10 <11',
+  PLAYER_COMPATIBILITY: '>=12 <13',
   RUNTIME_MANIFEST_FORMAT: 'vn-engine-runtime-manifest',
 }));
 
@@ -196,7 +196,11 @@ describe('Web Player ZIP exporter', () => {
 
   async function createTemplate(root: string): Promise<string> {
     const templateRoot = path.join(root, 'template');
-    const index = '<!doctype html><div id="root"></div>\n';
+    const index = [
+      '<!doctype html>',
+      '<html lang="zh-CN"><body><div id="root"></div></body></html>',
+      '',
+    ].join('\n');
     const script = 'console.log("player");\n';
     const style = 'body{margin:0}\n';
     await mkdir(path.join(templateRoot, 'payload', 'player-assets'), {
@@ -227,7 +231,7 @@ describe('Web Player ZIP exporter', () => {
         templateVersion: WEB_PLAYER_TEMPLATE_VERSION,
         payloadRoot: 'payload',
         entry: 'index.html',
-        runtimeCompatibility: '>=1 <11',
+        runtimeCompatibility: '>=1 <13',
         playerVersion: '1.0.0',
         files,
       })}\n`,
@@ -250,6 +254,7 @@ describe('Web Player ZIP exporter', () => {
       expectedManifestSha256: 'a'.repeat(64),
       expectedProject: {} as ProjectDocument,
       expectedAssets: [],
+      defaultLanguage: 'en-US' as const,
       buildId: 'build-7',
       createdAt: '2026-08-25T00:00:00.000Z',
     };
@@ -261,13 +266,17 @@ describe('Web Player ZIP exporter', () => {
         targetBundlePath: string;
         sourceRevision: number;
         buildId: string;
+        defaultLanguage: 'zh-CN' | 'en-US';
       }) => {
         await mkdir(path.join(runtimeOptions.targetBundlePath, 'assets', 'images'), {
           recursive: true,
         });
         await writeFile(
           path.join(runtimeOptions.targetBundlePath, 'game.json'),
-          '{"runtimeVersion":10}\n',
+          `${JSON.stringify({
+            runtimeVersion: 12,
+            game: { defaultLanguage: runtimeOptions.defaultLanguage },
+          })}\n`,
         );
         await writeFile(
           path.join(runtimeOptions.targetBundlePath, 'manifest.json'),
@@ -277,8 +286,8 @@ describe('Web Player ZIP exporter', () => {
             buildId: runtimeOptions.buildId,
             projectId: 'project-1',
             sourceRevision: runtimeOptions.sourceRevision,
-            runtimeVersion: 10,
-            playerCompatibility: '>=10 <11',
+            runtimeVersion: 12,
+            playerCompatibility: '>=12 <13',
             createdAt: '2026-08-25T00:00:00.000Z',
             files: [],
           })}\n`,
@@ -310,26 +319,46 @@ describe('Web Player ZIP exporter', () => {
       sourceRevision: 7,
       assetCount: 0,
     });
+    expect(runtimeMocks.exportRuntimeBundle).toHaveBeenCalledWith(
+      expect.objectContaining({ defaultLanguage: 'en-US' }),
+    );
 
     const zip = await openZip(exportOptions.targetArtifactPath, {
       lazyEntries: true,
       strictFileNames: true,
     });
     const names: string[] = [];
+    let runtimeGame = '';
+    let indexHtml = '';
     let webExport = '';
     let readme = '';
     for await (const entry of zip.eachEntry()) {
       names.push(entry.fileName);
-      if (entry.fileName === 'web-export.json' || entry.fileName === 'README.txt') {
+      if (
+        entry.fileName === 'game/build-7/game.json' ||
+        entry.fileName === 'index.html' ||
+        entry.fileName === 'web-export.json' ||
+        entry.fileName === 'README.txt'
+      ) {
         const stream = await zip.openReadStreamPromise(entry);
         const chunks: Buffer[] = [];
         for await (const chunk of stream) {
           chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
         }
-        if (entry.fileName === 'web-export.json') {
-          webExport = Buffer.concat(chunks).toString('utf8');
-        } else {
-          readme = Buffer.concat(chunks).toString('utf8');
+        const contents = Buffer.concat(chunks).toString('utf8');
+        switch (entry.fileName) {
+          case 'game/build-7/game.json':
+            runtimeGame = contents;
+            break;
+          case 'index.html':
+            indexHtml = contents;
+            break;
+          case 'web-export.json':
+            webExport = contents;
+            break;
+          case 'README.txt':
+            readme = contents;
+            break;
         }
       }
     }
@@ -343,11 +372,15 @@ describe('Web Player ZIP exporter', () => {
       'player-assets/player.js',
       'web-export.json',
     ]);
+    expect(JSON.parse(runtimeGame)).toMatchObject({
+      game: { defaultLanguage: 'en-US' },
+    });
+    expect(indexHtml).toMatch(/<html\s+lang="en-US">/u);
     expect(JSON.parse(webExport)).toEqual({
       format: WEB_EXPORT_FORMAT,
       webExportVersion: 1,
-      runtimeVersion: 10,
-      playerCompatibility: '>=10 <11',
+      runtimeVersion: 12,
+      playerCompatibility: '>=12 <13',
       gameRoot: 'game/build-7',
     });
     expect(readme).toBe(WEB_EXPORT_README);

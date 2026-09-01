@@ -1,5 +1,5 @@
 // 文件职责：实现项目、场景及全部时间线节点的无 JSON 业务规则。
-// 关键实现：原子增删改、逻辑与 CG 配对结构、批量重排、人物特效和变量预算。
+// 关键实现：原子增删改、图片缩放、逻辑与 CG 配对结构、批量重排、人物特效和变量预算。
 #include "vnengine/project.hpp"
 
 #include "project_internal.hpp"
@@ -485,7 +485,8 @@ UpdateCgGalleryResult update_cg_gallery(
 SetSceneBackgroundResult set_scene_background(
     ProjectAggregate& aggregate,
     const std::string_view scene_id,
-    std::optional<std::string> asset_id) {
+    std::optional<std::string> asset_id,
+    const int scale_percent) {
   Scene* scene = find_scene(aggregate.project, scene_id);
   if (scene == nullptr) {
     return SetSceneBackgroundResult::scene_not_found;
@@ -503,13 +504,22 @@ SetSceneBackgroundResult set_scene_background(
     }
   }
 
-  if (scene->visuals.background_asset_id == asset_id) {
+  if (scale_percent < kMinimumImageScalePercent ||
+      scale_percent > kMaximumImageScalePercent ||
+      (!asset_id.has_value() &&
+       scale_percent != kDefaultImageScalePercent)) {
+    return SetSceneBackgroundResult::invalid_scale;
+  }
+
+  if (scene->visuals.background_asset_id == asset_id &&
+      scene->visuals.background_scale_percent == scale_percent) {
     return SetSceneBackgroundResult::unchanged;
   }
 
   // std::string's move assignment is noexcept with the default allocator, so
   // no fallible work remains after the authoritative value starts changing.
   scene->visuals.background_asset_id = std::move(asset_id);
+  scene->visuals.background_scale_percent = scale_percent;
   return SetSceneBackgroundResult::changed;
 }
 
@@ -706,6 +716,7 @@ AddBackgroundNodeResult add_background_node(
   BackgroundNode background{
       .id = ids.next(),
       .asset_id = std::nullopt,
+      .scale_percent = kDefaultImageScalePercent,
   };
   std::string created_id = background.id;
   const std::size_t insertion_index = static_cast<std::size_t>(
@@ -728,7 +739,8 @@ UpdateBackgroundNodeResult update_background_node(
     ProjectAggregate& aggregate,
     const std::string_view scene_id,
     const std::string_view node_id,
-    std::optional<std::string> asset_id) {
+    std::optional<std::string> asset_id,
+    const int scale_percent) {
   Scene* scene = find_scene(aggregate.project, scene_id);
   if (scene == nullptr) {
     return UpdateBackgroundNodeResult::scene_not_found;
@@ -747,11 +759,19 @@ UpdateBackgroundNodeResult update_background_node(
       return UpdateBackgroundNodeResult::asset_not_image;
     }
   }
-  if (background->asset_id == asset_id) {
+  if (scale_percent < kMinimumImageScalePercent ||
+      scale_percent > kMaximumImageScalePercent ||
+      (!asset_id.has_value() &&
+       scale_percent != kDefaultImageScalePercent)) {
+    return UpdateBackgroundNodeResult::invalid_scale;
+  }
+  if (background->asset_id == asset_id &&
+      background->scale_percent == scale_percent) {
     return UpdateBackgroundNodeResult::unchanged;
   }
 
   background->asset_id = std::move(asset_id);
+  background->scale_percent = scale_percent;
   return UpdateBackgroundNodeResult::changed;
 }
 
@@ -820,6 +840,7 @@ AddCharacterNodeResult add_character_node(
       .layer = 1,
       .position = std::nullopt,
       .effect = std::nullopt,
+      .scale_percent = kDefaultImageScalePercent,
   };
   std::string created_id = character.id;
   const std::size_t insertion_index = static_cast<std::size_t>(
@@ -845,6 +866,7 @@ UpdateCharacterNodeResult update_character_node(
     std::optional<std::string> asset_id,
     const CharacterSlot slot,
     const int layer,
+    const int scale_percent,
     std::optional<CharacterPosition> position,
     const std::optional<CharacterNodeMode> mode) {
   Scene* scene = find_scene(aggregate.project, scene_id);
@@ -867,12 +889,20 @@ UpdateCharacterNodeResult update_character_node(
        position->y < 0.0 || position->y > 100.0)) {
     return UpdateCharacterNodeResult::invalid_position;
   }
+  if (scale_percent < kMinimumImageScalePercent ||
+      scale_percent > kMaximumImageScalePercent) {
+    return UpdateCharacterNodeResult::invalid_scale;
+  }
   const CharacterNodeMode effective_mode = mode.value_or(character->mode);
   if ((effective_mode != CharacterNodeMode::show &&
        effective_mode != CharacterNodeMode::clear) ||
       (effective_mode == CharacterNodeMode::clear &&
        (asset_id.has_value() || position.has_value()))) {
     return UpdateCharacterNodeResult::invalid_mode;
+  }
+  if (effective_mode == CharacterNodeMode::clear &&
+      scale_percent != kDefaultImageScalePercent) {
+    return UpdateCharacterNodeResult::invalid_scale;
   }
   if (asset_id.has_value()) {
     const Asset* asset = find_asset(aggregate, *asset_id);
@@ -890,7 +920,8 @@ UpdateCharacterNodeResult update_character_node(
   if (character->asset_id == asset_id && character->mode == effective_mode &&
       character->slot == slot &&
       character->layer == layer && character->position == position &&
-      character->effect == effect) {
+      character->effect == effect &&
+      character->scale_percent == scale_percent) {
     return UpdateCharacterNodeResult::unchanged;
   }
 
@@ -900,6 +931,7 @@ UpdateCharacterNodeResult update_character_node(
   character->layer = layer;
   character->position = std::move(position);
   character->effect = std::move(effect);
+  character->scale_percent = scale_percent;
   return UpdateCharacterNodeResult::changed;
 }
 

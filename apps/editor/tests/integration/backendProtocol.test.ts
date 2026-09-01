@@ -750,12 +750,14 @@ describe('C++ JSONL backend', () => {
         id: backgroundId,
         type: 'background',
         assetId: null,
+        scalePercent: 100,
       });
 
       const filledBackground = await request('background.update', {
         sceneId,
         nodeId: backgroundId,
         assetId: imageAssetId,
+        scalePercent: 125,
       });
       expect(filledBackground.ok).toBe(true);
 
@@ -780,6 +782,7 @@ describe('C++ JSONL backend', () => {
         layer: 1,
         position: null,
         effect: null,
+        scalePercent: 100,
       });
 
       const filledCharacter = await request('character.update', {
@@ -789,6 +792,7 @@ describe('C++ JSONL backend', () => {
         slot: 'left',
         layer: 2,
         position: { x: 24, y: 88 },
+        scalePercent: 135,
       });
       expect(filledCharacter.ok).toBe(true);
 
@@ -819,6 +823,7 @@ describe('C++ JSONL backend', () => {
         slot: 'right',
         layer: 3,
         position: null,
+        scalePercent: 90,
       });
       expect(targetFilled.ok).toBe(true);
 
@@ -845,6 +850,7 @@ describe('C++ JSONL backend', () => {
         slot: 'center',
         layer: 4,
         position: { x: 50, y: 90 },
+        scalePercent: 110,
       });
       if (!ordinaryUpdate.ok) {
         throw new Error(ordinaryUpdate.error.message);

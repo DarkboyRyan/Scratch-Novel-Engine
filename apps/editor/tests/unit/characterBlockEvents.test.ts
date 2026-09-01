@@ -1,12 +1,13 @@
 /**
- * 文件主要作用：验证 getCharacterFieldUpdate 的行为。
- * 测试覆盖：`getCharacterFieldUpdate`。
+ * 文件主要作用：验证人物立绘积木字段解析与未提交草稿收集。
+ * 测试覆盖：`getCharacterFieldUpdate`、`collectCharacterFieldDrafts`。
  */
 
 import * as Blockly from 'blockly';
 import { describe, expect, it } from 'vitest';
 
 import {
+  collectCharacterFieldDrafts,
   getCharacterFieldUpdate,
   resolveNewCharacterPlacement,
 } from '../../src/renderer/features/block-editor/characterBlockEvents';
@@ -15,13 +16,16 @@ import {
   AssetNameField,
 } from '../../src/renderer/features/block-editor/blocks/assetNameField';
 import {
+  applyCharacterBlockLocalization,
   CHARACTER_BLOCK_FIELDS,
   CHARACTER_BLOCK_TYPE,
   CLEAR_CHARACTER_BLOCK_TYPE,
   registerCharacterBlock,
   setCharacterBlockAsset,
   setCharacterBlockPosition,
+  setCharacterBlockScalePercent,
 } from '../../src/renderer/features/block-editor/blocks/characterBlock';
+import { getEditorLabels } from '../../src/renderer/i18n/editorLocalization';
 import type { SceneDocument } from '../../src/shared/projectTypes';
 
 const scene: SceneDocument = {
@@ -29,6 +33,7 @@ const scene: SceneDocument = {
   id: 'scene-1',
   name: 'Scene',
   backgroundAssetId: null,
+  backgroundScalePercent: 100,
   nodes: [
     {
       id: 'character-1',
@@ -39,6 +44,7 @@ const scene: SceneDocument = {
       layer: 2,
       position: null,
       effect: null,
+      scalePercent: 100,
     },
   ],
 };
@@ -90,6 +96,7 @@ describe('getCharacterFieldUpdate', () => {
       Blockly.FieldDropdown,
     );
     expect(block.getFieldValue(CHARACTER_BLOCK_FIELDS.layer)).toBe('1');
+    expect(block.getField(CHARACTER_BLOCK_FIELDS.scalePercent)).toBeNull();
 
     workspace.dispose();
   });
@@ -98,6 +105,7 @@ describe('getCharacterFieldUpdate', () => {
     const fields = new Map<string, string>([
       ['SLOT', 'right'],
       ['LAYER', '4'],
+      ['SCALE_PERCENT', '135'],
     ]);
     const block = {
       id: 'character-1',
@@ -105,6 +113,7 @@ describe('getCharacterFieldUpdate', () => {
       data: null,
       setFieldValue: (value: string, name: string) => fields.set(name, value),
       getFieldValue: (name: string) => fields.get(name),
+      getField: () => null,
     } as unknown as Blockly.BlockSvg;
     setCharacterBlockAsset(block, 'asset-1', 'Alice');
     const workspace = {
@@ -129,6 +138,7 @@ describe('getCharacterFieldUpdate', () => {
       slot: 'right',
       layer: 4,
       position: null,
+      scalePercent: 135,
     });
   });
 
@@ -162,6 +172,7 @@ describe('getCharacterFieldUpdate', () => {
           layer: 2,
           position: { x: 28, y: 86 },
           effect: null,
+          scalePercent: 100,
         },
       ],
     };
@@ -217,6 +228,7 @@ describe('getCharacterFieldUpdate', () => {
           layer: 2,
           position: null,
           effect: null,
+          scalePercent: 100,
         },
       ],
     };
@@ -249,6 +261,70 @@ describe('getCharacterFieldUpdate', () => {
       slot: 'center',
       layer: 6,
       position: null,
+      scalePercent: 100,
     });
+  });
+
+  it('collects a valid scale draft before the number field loses focus', () => {
+    registerCharacterBlock();
+    const workspace = new Blockly.Workspace();
+    const block = workspace.newBlock(CHARACTER_BLOCK_TYPE, 'character-1');
+    setCharacterBlockAsset(block, 'asset-1', 'Alice');
+    setCharacterBlockPosition(block, 'left', null);
+    block.setFieldValue('2', CHARACTER_BLOCK_FIELDS.layer);
+    setCharacterBlockScalePercent(block, 175);
+
+    expect(
+      collectCharacterFieldDrafts(
+        workspace as unknown as Blockly.WorkspaceSvg,
+        scene,
+      ),
+    ).toEqual({
+      drafts: [
+        {
+          nodeId: 'character-1',
+          mode: 'show',
+          assetId: 'asset-1',
+          slot: 'left',
+          layer: 2,
+          position: null,
+          scalePercent: 175,
+        },
+      ],
+      invalidNodeId: null,
+    });
+
+    workspace.dispose();
+  });
+
+  it('upgrades stale portrait definitions and already-created blocks', () => {
+    Blockly.Blocks[CHARACTER_BLOCK_TYPE] = {
+      init(): void {
+        this.appendDummyInput().appendField('Portrait');
+      },
+    };
+    const staleWorkspace = new Blockly.Workspace();
+    const staleBlock = staleWorkspace.newBlock(CHARACTER_BLOCK_TYPE);
+    expect(staleBlock.getField(CHARACTER_BLOCK_FIELDS.scalePercent)).toBeNull();
+
+    setCharacterBlockScalePercent(staleBlock, 160);
+    expect(
+      staleBlock.getFieldValue(CHARACTER_BLOCK_FIELDS.scalePercent),
+    ).toBe(160);
+
+    registerCharacterBlock();
+    const freshWorkspace = new Blockly.Workspace();
+    const freshBlock = freshWorkspace.newBlock(CHARACTER_BLOCK_TYPE);
+    expect(
+      freshBlock.getFieldValue(CHARACTER_BLOCK_FIELDS.scalePercent),
+    ).toBe(100);
+    setCharacterBlockScalePercent(freshBlock, 165);
+    applyCharacterBlockLocalization(freshBlock, getEditorLabels('en-US'));
+    expect(
+      freshBlock.getFieldValue(CHARACTER_BLOCK_FIELDS.scalePercent),
+    ).toBe(165);
+
+    staleWorkspace.dispose();
+    freshWorkspace.dispose();
   });
 });

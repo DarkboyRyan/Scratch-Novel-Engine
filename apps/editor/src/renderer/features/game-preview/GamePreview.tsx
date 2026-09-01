@@ -82,6 +82,7 @@ function StoryGamePreview({
         slot: character.slot,
         layer: character.layer,
         position: character.position,
+        scalePercent: character.scalePercent,
         opacity: character.opacity,
         effect: character.effect,
         effectSequence: character.effectSequence,
@@ -235,6 +236,7 @@ function StoryGamePreview({
           backgroundAsset ? previewUrls[backgroundAsset.id] ?? null : null
         }
         backgroundName={backgroundAsset?.displayName ?? null}
+        backgroundScalePercent={runtime.backgroundScalePercent}
         showDialogue={runtime.status === 'playing' && runtime.dialogue !== null}
         characters={characters}
         animateCharacters

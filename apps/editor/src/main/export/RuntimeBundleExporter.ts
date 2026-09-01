@@ -20,6 +20,7 @@ import type {
   AssetDocument,
   ProjectDocument,
 } from "../../shared/projectTypes";
+import type { EditorLanguage } from "../../shared/editorSettingsProtocol";
 import { mediaMagicMatches } from "../media/MediaContentValidator";
 import { maximumPreviewBytes } from "../media/MediaFormat";
 import {
@@ -39,7 +40,7 @@ const MAX_CTIME_ONLY_RETRY_ATTEMPTS = 3;
 
 export const RUNTIME_MANIFEST_FORMAT = "vn-engine-runtime-manifest";
 export const RUNTIME_MANIFEST_VERSION = 1;
-export const PLAYER_COMPATIBILITY = ">=10 <11";
+export const PLAYER_COMPATIBILITY = ">=12 <13";
 
 export type RuntimeManifestAssetV1 = {
   assetId: string;
@@ -80,6 +81,7 @@ export type RuntimeBundleExportOptions = {
   expectedManifestSha256: string;
   expectedProject: ProjectDocument;
   expectedAssets: AssetDocument[];
+  defaultLanguage: EditorLanguage;
   buildId?: string;
   createdAt?: string;
   assertSourceStillCurrent?: () => void | Promise<void>;
@@ -134,7 +136,7 @@ function parseSavedAuthorProjectEnvelope(
     !isJsonObject(parsed) ||
     !hasExactFields(parsed, ["format", "fileVersion", "project", "assets"])
   ) {
-    throw new Error("document 字段不符合作者项目 v20");
+    throw new Error("document 字段不符合作者项目 v21");
   }
   if (parsed.format !== AUTHOR_PROJECT_FORMAT) {
     throw new Error("document.format 版本或格式不受支持");
@@ -202,7 +204,7 @@ function assertLegacyProjectMatchesBackendProjection(
       // absent from the Backend Renderer projection. Never canonicalize by
       // silently dropping them from an old project.
       if (characters.length > 0) {
-        throw new Error("runtime v10 不支持场景初始人物，请改用人物立绘时间线节点");
+        throw new Error("runtime v12 不支持场景初始人物，请改用人物立绘时间线节点");
       }
       if (sourceSceneValue.visuals.backgroundAssetId !== expectedScene.backgroundAssetId) {
         throw new Error("磁盘项目与当前编辑器项目不一致");
@@ -226,10 +228,11 @@ function assertLegacyProjectMatchesBackendProjection(
 function compileSavedAuthorProject(
   contents: string,
   expectedProject: ProjectDocument,
+  defaultLanguage: EditorLanguage,
 ): CompiledAuthorProject {
   const envelope = parseSavedAuthorProjectEnvelope(contents);
   if (envelope.fileVersion >= 14) {
-    return compileAuthorProjectV15(contents);
+    return compileAuthorProjectV15(contents, defaultLanguage);
   }
 
   // v1-v13 have already been parsed, migrated and aggregate-validated by the
@@ -237,7 +240,7 @@ function compileSavedAuthorProject(
   // are the exact bytes that produced expectedProject. Reuse that canonical
   // projection instead of duplicating thirteen migration readers in Main;
   // retain the original private Asset records so paths still pass the strict
-  // v20 compiler and are compared with expectedAssets below.
+  // v21 compiler and are compared with expectedAssets below.
   assertLegacyProjectMatchesBackendProjection(envelope, expectedProject);
   const canonicalContents = JSON.stringify({
     format: AUTHOR_PROJECT_FORMAT,
@@ -255,6 +258,7 @@ function compileSavedAuthorProject(
         name: scene.name,
         visuals: {
           backgroundAssetId: scene.backgroundAssetId,
+          backgroundScalePercent: scene.backgroundScalePercent,
           characters: [],
         },
         nodes: scene.nodes,
@@ -262,7 +266,7 @@ function compileSavedAuthorProject(
     },
     assets: envelope.assets,
   });
-  return compileAuthorProjectV15(canonicalContents);
+  return compileAuthorProjectV15(canonicalContents, defaultLanguage);
 }
 
 function errnoCode(error: unknown): string | undefined {
@@ -683,7 +687,7 @@ async function copyAssetAndHash(
   stagingRootPath: string,
   asset: AuthorAssetRecord,
 ): Promise<RuntimeManifestAssetV1> {
-  // Author assets have no trusted digest in the saved v20 document. Treat even
+  // Author assets have no trusted digest in the saved v21 document. Treat even
   // ctime-only drift as a source change instead of learning a new hash here.
   return (await copyAssetAndHashAttempt(sourceRootPath, stagingRootPath, asset))
     .value;
@@ -837,6 +841,12 @@ function assertTargetDoesNotExist(targetPath: string): Promise<void> {
 export async function exportRuntimeBundle(
   options: RuntimeBundleExportOptions,
 ): Promise<RuntimeBundleExportResult> {
+  if (
+    options.defaultLanguage !== "zh-CN" &&
+    options.defaultLanguage !== "en-US"
+  ) {
+    throw new Error("游戏默认语言无效");
+  }
   const buildId = options.buildId ?? randomUUID();
   const createdAt = options.createdAt ?? new Date().toISOString();
   validateBuildMetadata(
@@ -903,6 +913,7 @@ export async function exportRuntimeBundle(
     const compiled = compileSavedAuthorProject(
       sourceManifestContents,
       options.expectedProject,
+      options.defaultLanguage,
     );
     if (!isDeepStrictEqual(compiled.sourceProject, options.expectedProject)) {
       throw new Error("磁盘项目与当前编辑器项目不一致");

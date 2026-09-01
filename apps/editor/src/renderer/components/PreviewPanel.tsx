@@ -9,6 +9,7 @@ import {
   VisualStage,
   type PreviewCharacter,
 } from './VisualStage';
+import { DEFAULT_IMAGE_SCALE_PERCENT } from '../../shared/projectTypes';
 import { useEditorI18n } from '../i18n/editorLocalization';
 
 type PreviewPanelProps = {
@@ -16,6 +17,7 @@ type PreviewPanelProps = {
   text: string;
   backgroundUrl: string | null;
   backgroundName: string | null;
+  backgroundScalePercent?: number;
   cgUrl?: string | null;
   cgName?: string | null;
   showDialogue?: boolean;
@@ -33,6 +35,7 @@ export function PreviewPanel({
   text,
   backgroundUrl,
   backgroundName,
+  backgroundScalePercent = DEFAULT_IMAGE_SCALE_PERCENT,
   cgUrl = null,
   cgName = null,
   showDialogue = true,
@@ -83,6 +86,7 @@ export function PreviewPanel({
         text={text}
         backgroundUrl={backgroundUrl}
         backgroundName={backgroundName}
+        backgroundScalePercent={backgroundScalePercent}
         placeholder={labels.preview.stagePlaceholder}
         showDialogue={showDialogue}
         characters={characters}

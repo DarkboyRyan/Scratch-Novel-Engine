@@ -47,6 +47,7 @@ describe('Player trusted IPC', () => {
           id: 'scene',
           name: 'Scene',
           backgroundAssetId: null,
+          backgroundScalePercent: 100,
           nodes: [],
         },
       ],
@@ -90,6 +91,7 @@ describe('Player trusted IPC', () => {
     const settingsController = {
       getSettings: vi.fn().mockResolvedValue({
         status: 'ready',
+        languageSource: 'stored',
         settings: {
           settingsVersion: 2,
           language: 'zh-CN',
@@ -211,6 +213,7 @@ describe('Player trusted IPC', () => {
       params: {},
     })).resolves.toMatchObject({
       status: 'ready',
+      languageSource: 'stored',
       settings: {
         settingsVersion: 2,
         language: 'zh-CN',

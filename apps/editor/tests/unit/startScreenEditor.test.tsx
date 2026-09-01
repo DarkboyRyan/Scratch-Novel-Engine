@@ -65,6 +65,7 @@ const project: ProjectDocument = {
       id: 'scene-1',
       name: '场景 1',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [],
     },
     {
@@ -72,6 +73,7 @@ const project: ProjectDocument = {
       id: 'scene-2',
       name: '天台',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [],
     },
   ],

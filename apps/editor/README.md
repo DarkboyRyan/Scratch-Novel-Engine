@@ -10,6 +10,14 @@ VN Engine Editor 是基于 Electron、React、Blockly 与 C++20 后端的视觉�
 2. Main 验证 IPC 来源和参数，再协调每个窗口独占的 C++ 后端、项目存储、媒体预览与设置服务。
 3. 保存时后端快照被原子写入作者工程；导出时作者工程会编译为 Player 可读取的 Runtime 文档和资产包。
 
+当前 Author v21 允许在资源面板设置场景初始背景缩放，并在表单或 Blockly 中设置时间线
+背景和人物立绘缩放；范围为 10%–300% 的整数，默认 100%。Editor 静态/正式预览与导出
+Player 共用同一语义，标题页背景和 CG 不显示该控件。
+
+当前导出为 Runtime v12。导出开始时 Main 从 Editor 设置服务取得权威
+`zh-CN` / `en-US`，写入 `game.defaultLanguage`；Renderer 的导出请求不能伪造该值。
+这不会翻译作者内容，也不提升 Author v21 或 Snapshot v5。
+
 ## 模块导航
 
 | 目录 | 框架技术 | 主要作用 |

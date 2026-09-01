@@ -175,6 +175,7 @@ function sameSnapshot(left: GameRuntimeSnapshot, right: unknown): boolean {
     right.snapshotVersion === 1 ||
     right.snapshotVersion === 2 ||
     right.snapshotVersion === 3 ||
+    right.snapshotVersion === 4 ||
     areGameRuntimeSnapshotsEqual(left, right)
   );
 }

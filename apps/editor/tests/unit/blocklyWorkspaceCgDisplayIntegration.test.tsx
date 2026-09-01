@@ -55,6 +55,7 @@ const emptyScene: SceneDocument = {
   id: 'scene-1',
   name: 'Scene 1',
   backgroundAssetId: null,
+  backgroundScalePercent: 100,
   nodes: [],
 };
 

@@ -20,7 +20,7 @@ Core 不包含 Backend 头文件，也不链接 `nlohmann/json`。Backend 可以
 | 子目录 | 技术 | 主要作用 |
 | --- | --- | --- |
 | [`core/`](./core/README.md) | C++20 | 查询、原子编辑、控制范围和 Project Aggregate 校验。 |
-| [`backend/`](./backend/README.md) | C++20、nlohmann/json、JSONL | 协议、Author v1–v20 迁移、媒体导入和原子文件发布。 |
+| [`backend/`](./backend/README.md) | C++20、nlohmann/json、JSONL | 协议、Author v1–v21 迁移、媒体导入和原子文件发布。 |
 
 ## 开发与验证
 

@@ -15,6 +15,7 @@ import type { PlayerSettingsStore } from '../../src/main/settings/PlayerSettings
 import {
   DEFAULT_PLAYER_SETTINGS,
   type PlayerSettings,
+  type PlayerSettingsLanguageSource,
 } from '../../src/shared/playerProtocol';
 
 class FakeSettingsStore {
@@ -25,12 +26,18 @@ class FakeSettingsStore {
     this.current = { ...initial };
   }
 
-  async load(): Promise<PlayerSettings> {
-    return { ...this.current };
+  languageSource: PlayerSettingsLanguageSource = 'stored';
+
+  async load() {
+    return {
+      settings: { ...this.current },
+      languageSource: this.languageSource,
+    };
   }
 
   async write(settings: PlayerSettings): Promise<PlayerSettings> {
     this.current = { ...settings };
+    this.languageSource = 'stored';
     this.writes.push({ ...settings });
     return { ...settings };
   }
@@ -136,6 +143,35 @@ afterEach(() => {
 });
 
 describe('Player settings window manager', () => {
+  it('keeps default language provenance through native window sync until an explicit update', async () => {
+    const store = new FakeSettingsStore();
+    store.languageSource = 'default';
+    const window = new FakeWindow();
+    const manager = new PlayerSettingsManager(
+      asStore(store),
+      () => spaciousWorkArea,
+    );
+    const controller = await manager.attachWindow(asWindow(window));
+    await manager.activateWindow(asWindow(window));
+
+    window.nativeFullScreen(true);
+    await expect(controller.getSettings()).resolves.toMatchObject({
+      status: 'ready',
+      languageSource: 'default',
+      settings: { language: 'zh-CN', windowMode: 'fullscreen' },
+    });
+    expect(store.writes).toEqual([]);
+
+    await expect(controller.updateSettings({ language: 'en-US' })).resolves
+      .toMatchObject({ status: 'updated', settings: { language: 'en-US' } });
+    await expect(controller.getSettings()).resolves.toMatchObject({
+      status: 'ready',
+      languageSource: 'stored',
+      settings: { language: 'en-US', windowMode: 'fullscreen' },
+    });
+    expect(store.writes).toHaveLength(1);
+  });
+
   it('does not request persisted fullscreen until Main activates a loaded window', async () => {
     const store = new FakeSettingsStore({
       ...DEFAULT_PLAYER_SETTINGS,

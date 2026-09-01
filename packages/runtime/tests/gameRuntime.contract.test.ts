@@ -50,6 +50,7 @@ describe('shared runtime execution contract', () => {
         id: 'entry',
         name: 'Entry',
         backgroundAssetId: null,
+        backgroundScalePercent: 100,
         nodes: [
           {
             id: 'empty-line',
@@ -58,7 +59,12 @@ describe('shared runtime execution contract', () => {
             text: '',
             voiceAssetId: null,
           },
-          { id: 'next-background', type: 'background', assetId: 'room' },
+          {
+            id: 'next-background',
+            type: 'background',
+            assetId: 'room',
+            scalePercent: 100,
+          },
           dialogue('following-line'),
         ],
       }],
@@ -75,6 +81,47 @@ describe('shared runtime execution contract', () => {
     expect(advanceGame(project, empty)).toMatchObject({
       backgroundAssetId: 'room',
       dialogue: { id: 'following-line' },
+    });
+  });
+
+  it('uses scene-initial image scale and rejects non-canonical clear scales', () => {
+    const project: ProjectDocument = {
+      schemaVersion: 1,
+      id: 'initial-scale',
+      name: 'Initial scale',
+      entrySceneId: 'entry',
+      startScreen: {
+        title: '',
+        eyebrow: '',
+        backgroundAssetId: null,
+        musicAssetId: null,
+      },
+      cgGallery: emptyCgGallery(),
+      scenes: [{
+        schemaVersion: 1,
+        id: 'entry',
+        name: 'Entry',
+        backgroundAssetId: 'room',
+        backgroundScalePercent: 80,
+        nodes: [dialogue('line')],
+      }],
+    };
+
+    expect(startGame(project)).toMatchObject({
+      status: 'playing',
+      backgroundAssetId: 'room',
+      backgroundScalePercent: 80,
+    });
+    expect(startGame({
+      ...project,
+      scenes: [{
+        ...project.scenes[0]!,
+        backgroundAssetId: null,
+        backgroundScalePercent: 80,
+      }],
+    })).toMatchObject({
+      status: 'runtimeError',
+      errorCode: 'imageScaleInvalid',
     });
   });
 
@@ -95,8 +142,14 @@ describe('shared runtime execution contract', () => {
         id: 'entry',
         name: 'Entry',
         backgroundAssetId: 'initial-background',
+        backgroundScalePercent: 150,
         nodes: [
-          { id: 'bg', type: 'background', assetId: 'room' },
+          {
+            id: 'bg',
+            type: 'background',
+            assetId: 'room',
+            scalePercent: 125,
+          },
           { id: 'music', type: 'bgm', assetId: 'theme' },
           {
             id: 'hero',
@@ -105,6 +158,7 @@ describe('shared runtime execution contract', () => {
             slot: 'center',
             layer: 2,
             position: { x: 42, y: 91 },
+            scalePercent: 70,
             effect: null,
           },
           dialogue('line', 'voice'),
@@ -115,6 +169,7 @@ describe('shared runtime execution contract', () => {
     expect(startGame(project)).toMatchObject({
       status: 'playing',
       backgroundAssetId: 'room',
+      backgroundScalePercent: 125,
       bgmAssetId: 'theme',
       bgmSequence: 1,
       dialogueSequence: 1,
@@ -125,6 +180,7 @@ describe('shared runtime execution contract', () => {
         slot: 'center',
         layer: 2,
         position: { x: 42, y: 91 },
+        scalePercent: 70,
       }],
     });
   });
@@ -142,6 +198,7 @@ describe('shared runtime execution contract', () => {
         id: 'entry',
         name: 'Entry',
         backgroundAssetId: null,
+        backgroundScalePercent: 100,
         nodes: [
           {
             id: 'hero-out',
@@ -150,6 +207,7 @@ describe('shared runtime execution contract', () => {
             slot: 'left',
             layer: 1,
             position: null,
+            scalePercent: 100,
             effect: { type: 'fadeOut', durationMs: 600 },
           },
           {
@@ -159,6 +217,7 @@ describe('shared runtime execution contract', () => {
             slot: 'right',
             layer: 2,
             position: { x: 75, y: 92 },
+            scalePercent: 100,
             effect: {
               type: 'shake',
               durationMs: 400,
@@ -174,6 +233,7 @@ describe('shared runtime execution contract', () => {
             slot: 'center',
             layer: 1,
             position: null,
+            scalePercent: 100,
             effect: {
               type: 'slideIn',
               durationMs: 900,
@@ -236,6 +296,7 @@ describe('shared runtime execution contract', () => {
         id: 'entry',
         name: 'Entry',
         backgroundAssetId: null,
+        backgroundScalePercent: 100,
         nodes: [
           { id: 'repeat', type: 'logicRepeat', count: 2 },
           {
@@ -245,6 +306,7 @@ describe('shared runtime execution contract', () => {
             slot: 'center',
             layer: 1,
             position: null,
+            scalePercent: 100,
             effect: { type: 'jump', durationMs: 500, intensity: 'normal' },
           },
           dialogue('loop-line'),
@@ -255,6 +317,7 @@ describe('shared runtime execution contract', () => {
             slot: 'center',
             layer: 1,
             position: null,
+            scalePercent: 100,
             effect: null,
           },
           { id: 'repeat-end', type: 'logicEndRepeat', repeatNodeId: 'repeat' },
@@ -289,6 +352,7 @@ describe('shared runtime execution contract', () => {
         id: 'entry',
         name: 'Entry',
         backgroundAssetId: null,
+        backgroundScalePercent: 100,
         nodes: [
           dialogue('before-overflow'),
           {
@@ -298,6 +362,7 @@ describe('shared runtime execution contract', () => {
             slot: 'center',
             layer: 1,
             position: null,
+            scalePercent: 100,
             effect: { type: 'flash', durationMs: 300, intensity: 'normal' },
           },
           dialogue('after-overflow'),
@@ -331,6 +396,7 @@ describe('shared runtime execution contract', () => {
         id: 'entry',
         name: 'Entry',
         backgroundAssetId: null,
+        backgroundScalePercent: 100,
         nodes: [{
           id: 'invalid-clear',
           type: 'character',
@@ -338,6 +404,7 @@ describe('shared runtime execution contract', () => {
           slot: 'left',
           layer: 1,
           position: null,
+          scalePercent: 100,
           effect: { type: 'fadeOut', durationMs: 500 },
         }],
       }],
@@ -365,6 +432,7 @@ describe('shared runtime execution contract', () => {
         id: 'entry',
         name: 'Entry',
         backgroundAssetId: null,
+        backgroundScalePercent: 100,
         nodes: [
           { id: 'empty-video', type: 'video', assetId: null },
           { id: 'empty-choice', type: 'choice', options: [] },
@@ -401,6 +469,7 @@ describe('shared runtime execution contract', () => {
         id: 'entry',
         name: 'Entry',
         backgroundAssetId: null,
+        backgroundScalePercent: 100,
         nodes: [
           { id: 'cg', type: 'cgDisplay', assetId: 'cg-image', leadInMs: 750 },
           dialogue('cg-line-1'),
@@ -454,6 +523,7 @@ describe('shared runtime execution contract', () => {
         id: 'entry',
         name: 'Entry',
         backgroundAssetId: null,
+        backgroundScalePercent: 100,
         nodes: [
           { id: 'repeat', type: 'logicRepeat', count: 2 },
           {
@@ -531,6 +601,7 @@ describe('shared runtime execution contract', () => {
           id: 'entry',
           name: 'Entry',
           backgroundAssetId: 'entry-bg',
+          backgroundScalePercent: 100,
           nodes: [
             { id: 'music', type: 'bgm', assetId: 'theme' },
             {
@@ -540,6 +611,7 @@ describe('shared runtime execution contract', () => {
               slot: 'left',
               layer: 1,
               position: null,
+              scalePercent: 100,
               effect: null,
             },
             {
@@ -558,8 +630,14 @@ describe('shared runtime execution contract', () => {
           id: 'target',
           name: 'Target',
           backgroundAssetId: 'target-initial',
+          backgroundScalePercent: 100,
           nodes: [
-            { id: 'target-bg', type: 'background', assetId: 'target-bg' },
+            {
+              id: 'target-bg',
+              type: 'background',
+              assetId: 'target-bg',
+              scalePercent: 100,
+            },
             dialogue('arrived'),
           ],
         },
@@ -599,6 +677,7 @@ describe('shared runtime execution contract', () => {
           id: 'entry',
           name: 'Entry',
           backgroundAssetId: null,
+          backgroundScalePercent: 100,
           nodes: [
             { id: 'music', type: 'bgm', assetId: 'theme' },
             { id: 'jump', type: 'sceneJump', targetSceneId: 'target' },
@@ -609,6 +688,7 @@ describe('shared runtime execution contract', () => {
           id: 'target',
           name: 'Target',
           backgroundAssetId: 'target-bg',
+          backgroundScalePercent: 140,
           nodes: [dialogue('target-line')],
         },
       ],
@@ -618,6 +698,7 @@ describe('shared runtime execution contract', () => {
       status: 'playing',
       sceneId: 'target',
       backgroundAssetId: 'target-bg',
+      backgroundScalePercent: 140,
       bgmAssetId: 'theme',
       dialogue: { id: 'target-line' },
     });
@@ -640,6 +721,7 @@ describe('shared runtime execution contract', () => {
         id: 'entry',
         name: 'Entry',
         backgroundAssetId: null,
+        backgroundScalePercent: 100,
         nodes: [],
       }],
     };
@@ -662,6 +744,7 @@ describe('shared runtime execution contract', () => {
           id: 'a',
           name: 'A',
           backgroundAssetId: null,
+          backgroundScalePercent: 100,
           nodes: [{ id: 'ab', type: 'sceneJump', targetSceneId: 'b' }],
         },
         {
@@ -669,6 +752,7 @@ describe('shared runtime execution contract', () => {
           id: 'b',
           name: 'B',
           backgroundAssetId: null,
+          backgroundScalePercent: 100,
           nodes: [{ id: 'ba', type: 'sceneJump', targetSceneId: 'a' }],
         },
       ],
@@ -696,6 +780,7 @@ describe('shared runtime execution contract', () => {
         id: 'entry',
         name: 'Entry',
         backgroundAssetId: null,
+        backgroundScalePercent: 100,
         nodes: [
           dialogue('same-line', 'voice'),
           { id: 'loop', type: 'sceneJump', targetSceneId: 'entry' },
@@ -724,6 +809,7 @@ describe('shared runtime execution contract', () => {
         id: 'entry',
         name: 'Entry',
         backgroundAssetId: null,
+        backgroundScalePercent: 100,
         nodes: [
           { id: 'set', type: 'variableSet', variableName: 'score', value: 2 },
           {
@@ -735,13 +821,23 @@ describe('shared runtime execution contract', () => {
               right: { kind: 'literal', value: 2 },
             },
           },
-          { id: 'win-bg', type: 'background', assetId: 'win' },
+          {
+            id: 'win-bg',
+            type: 'background',
+            assetId: 'win',
+            scalePercent: 100,
+          },
           { id: 'repeat', type: 'logicRepeat', count: 3 },
           { id: 'change', type: 'variableChange', variableName: 'score', amount: 1 },
           dialogue('inside-loop'),
           { id: 'end-repeat', type: 'logicEndRepeat', repeatNodeId: 'repeat' },
           { id: 'else', type: 'logicElse', ifNodeId: 'if' },
-          { id: 'lose-bg', type: 'background', assetId: 'lose' },
+          {
+            id: 'lose-bg',
+            type: 'background',
+            assetId: 'lose',
+            scalePercent: 100,
+          },
           { id: 'endif', type: 'logicEndIf', ifNodeId: 'if' },
           dialogue('after-loop'),
         ],
@@ -788,6 +884,7 @@ describe('shared runtime execution contract', () => {
         id: 'entry',
         name: 'Entry',
         backgroundAssetId: null,
+        backgroundScalePercent: 100,
         nodes: [
           { id: 'change', type: 'variableChange', variableName: 'score', amount: 2 },
           dialogue('changed'),
@@ -823,6 +920,7 @@ describe('shared runtime execution contract', () => {
           id: 'entry',
           name: 'Entry',
           backgroundAssetId: null,
+          backgroundScalePercent: 100,
           nodes: [
             { id: 'repeat', type: 'logicRepeat', count: 2 },
             { id: 'video', type: 'video', assetId: 'clip' },
@@ -839,6 +937,7 @@ describe('shared runtime execution contract', () => {
           id: 'target',
           name: 'Target',
           backgroundAssetId: null,
+          backgroundScalePercent: 100,
           nodes: [dialogue('target-dialogue')],
         },
       ],
@@ -872,6 +971,7 @@ describe('shared runtime execution contract', () => {
           id: 'entry',
           name: 'Entry',
           backgroundAssetId: null,
+          backgroundScalePercent: 100,
           nodes: [
             { id: 'repeat', type: 'logicRepeat', count: 2 },
             { id: 'change', type: 'variableChange', variableName: 'visits', amount: 1 },
@@ -884,6 +984,7 @@ describe('shared runtime execution contract', () => {
           id: 'target',
           name: 'Target',
           backgroundAssetId: null,
+          backgroundScalePercent: 100,
           nodes: [dialogue('target-line')],
         },
       ],
@@ -910,6 +1011,7 @@ describe('shared runtime execution contract', () => {
         id: 'entry',
         name: 'Entry',
         backgroundAssetId: null,
+        backgroundScalePercent: 100,
         nodes: [
           {
             id: 'if',
@@ -974,6 +1076,7 @@ describe('shared runtime execution contract', () => {
         id: 'entry',
         name: 'Entry',
         backgroundAssetId: null,
+        backgroundScalePercent: 100,
         nodes: [
           ...variableNodes,
           { id: 'outer', type: 'logicRepeat', count: 1_000 },

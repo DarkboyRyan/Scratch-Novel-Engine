@@ -28,7 +28,10 @@ async function fixture() {
   const source = path.join(root, 'source');
   const output = path.join(root, 'web-player-template');
   await mkdir(path.join(source, 'player-assets'), { recursive: true });
-  await writeFile(path.join(source, 'index.html'), '<!doctype html><script></script>');
+  await writeFile(
+    path.join(source, 'index.html'),
+    '<!doctype html><html lang="zh-CN"><script></script></html>',
+  );
   await writeFile(path.join(source, 'player-assets', 'player-test.js'), 'safe();');
   await writeFile(path.join(source, 'player-assets', 'index-test.css'), 'body{}');
   return { root, source, output };
@@ -67,7 +70,7 @@ test('stages an exact, hashed Web Player template payload', async () => {
   assert.equal(manifest.templateVersion, 1);
   assert.equal(manifest.payloadRoot, 'payload');
   assert.equal(manifest.entry, 'index.html');
-  assert.equal(manifest.runtimeCompatibility, '>=1 <11');
+  assert.equal(manifest.runtimeCompatibility, '>=1 <13');
   assert.match(manifest.playerVersion, /^\d+\.\d+\.\d+$/u);
   assert.deepEqual(
     manifest.files.map((file) => file.path),
@@ -114,6 +117,38 @@ test('rejects unexpected root files and linked payload entries', async () => {
     assert.notEqual(linkedResult.status, 0);
     assert.match(linkedResult.stderr, /不能包含符号链接/u);
   }
+});
+
+test('rejects an entry without one supported html language attribute', async () => {
+  const missing = await fixture();
+  await writeFile(
+    path.join(missing.source, 'index.html'),
+    '<!doctype html><html data-lang="zh-CN"></html>',
+  );
+  const missingResult = spawnSync(process.execPath, [
+    stageScript,
+    '--source',
+    missing.source,
+    '--output',
+    missing.output,
+  ], { encoding: 'utf8' });
+  assert.notEqual(missingResult.status, 0);
+  assert.match(missingResult.stderr, /语言属性不符合模板契约/u);
+
+  const duplicate = await fixture();
+  await writeFile(
+    path.join(duplicate.source, 'index.html'),
+    '<!doctype html><html lang="zh-CN" lang=en-US></html>',
+  );
+  const duplicateResult = spawnSync(process.execPath, [
+    stageScript,
+    '--source',
+    duplicate.source,
+    '--output',
+    duplicate.output,
+  ], { encoding: 'utf8' });
+  assert.notEqual(duplicateResult.status, 0);
+  assert.match(duplicateResult.stderr, /语言属性不符合模板契约/u);
 });
 
 test('rejects a broad output name and preserves an existing template on failure', async () => {

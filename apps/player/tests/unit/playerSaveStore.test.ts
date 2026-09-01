@@ -50,6 +50,7 @@ const project: ProjectDocument = {
       id: 'scene-1',
       name: 'First scene',
       backgroundAssetId: 'background',
+      backgroundScalePercent: 100,
       nodes: [
         { id: 'music', type: 'bgm', assetId: 'theme' },
         {
@@ -59,6 +60,7 @@ const project: ProjectDocument = {
           slot: 'left',
           layer: 1,
           position: null,
+          scalePercent: 100,
           effect: null,
         },
         {
@@ -74,6 +76,7 @@ const project: ProjectDocument = {
 };
 
 const game: PlayerGameData = {
+  defaultLanguage: 'zh-CN',
   project,
   assets: [
     { id: 'background', type: 'image', displayName: 'Background' },
@@ -250,6 +253,7 @@ describe('Player save storage', () => {
       scenes: [{
         ...project.scenes[0]!,
         backgroundAssetId: null,
+        backgroundScalePercent: 100,
         nodes: [
           { id: 'cg', type: 'cgDisplay', assetId: 'story-cg', leadInMs: 800 },
           {
@@ -265,6 +269,7 @@ describe('Player save storage', () => {
     };
     const active: PlayerActiveGameContext = {
       game: {
+        defaultLanguage: 'en-US',
         project: cgProject,
         assets: [{ id: 'story-cg', type: 'image', displayName: 'Story CG' }],
       },
@@ -328,7 +333,7 @@ describe('Player save storage', () => {
     });
   });
 
-  it('loads legacy snapshot v2 and v3 saves after the snapshot v4 upgrade', async () => {
+  it('loads legacy snapshot v2, v3, and v4 saves after the snapshot v5 upgrade', async () => {
     const { root, store } = await makeStore();
     const active = activeContext();
     const runtime = startGame(project)!;
@@ -362,8 +367,22 @@ describe('Player save storage', () => {
       cgLeadInMs: 0,
       cgSequence: 0,
     };
+    const snapshotV4 = {
+      ...snapshotV3,
+      snapshotVersion: 4,
+      characterEffectSequence: current.characterEffectSequence,
+      characters: current.characters.map((character) => ({
+        nodeId: character.nodeId,
+        assetId: character.assetId,
+        slot: character.slot,
+        layer: character.layer,
+        position: character.position,
+        opacity: character.opacity,
+        effectSequence: character.effectSequence,
+      })),
+    };
 
-    for (const snapshot of [snapshotV2, snapshotV3]) {
+    for (const snapshot of [snapshotV2, snapshotV3, snapshotV4]) {
       await writeFile(path.join(namespace, 'slot-1.json'), JSON.stringify({
         format: 'vn-engine-player-save',
         saveVersion: 1,

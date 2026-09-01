@@ -9,6 +9,8 @@
 1. `projectSceneToWorkspace.ts` 和 [`blocks/`](./blocks/README.md) 把当前场景投影成具有稳定 ID、字段和连接约束的积木树。
 2. `BlocklyWorkspace.tsx` 监听创建、删除、字段变更和移动事件，各 `*BlockEvents.ts` 将其解析为作者语义动作。
 3. Engine 成功后重新投影项目；布局模块单独保留坐标和视口，避免业务刷新打乱用户工作区。
+4. 背景与人物立绘积木使用统一的 10%–300% 整数缩放字段；事件层同时收集未失焦草稿，热更新后缺字段的旧积木会在投影时原位升级。
+5. “新建 / 设置变量”保留自由名称输入；“修改数值变量”和 If/Else 的“现有变量”操作数从项目全部 Set 节点的稳定去重名称中选择，支持输入名称前缀筛选，并为旧项目的孤立引用保留原值。
 
 ## 子目录
 
@@ -25,8 +27,9 @@
 | [blockGroupDrag.ts](./blockGroupDrag.ts) | TypeScript + Blockly | 实现故事积木组拖动时的拓扑收集与整体位移 | `BlockGroupDragController`、`BlockGroupSelectionMode`、`getBlockGroupSelectionMode`、`createBlockGroupDragController` |
 | [BlocklyWorkspace.tsx](./BlocklyWorkspace.tsx) | React + TypeScript + Blockly | 管理故事 Blockly 工作区生命周期、投影、拖拽事件与引擎命令同步 | `BlocklyWorkspaceHandle`、`BlocklyWorkspace` |
 | [blockSelection.ts](./blockSelection.ts) | TypeScript + Blockly | 统一 Blockly 积木选中、取消选中和选择状态读取 | `BlockSelectionController`、`getBlockClientRectangle`、`createBlockSelectionController` |
+| [backgroundBlockEvents.ts](./backgroundBlockEvents.ts) | TypeScript + Blockly | 解析背景积木缩放字段并收集未提交草稿 | `BackgroundFieldUpdate`、`getBackgroundFieldUpdate`、`collectBackgroundFieldDrafts` |
 | [cgDisplayBlockEvents.ts](./cgDisplayBlockEvents.ts) | TypeScript + Blockly | 把 CG 显示积木的拖放和字段变化转换为引擎变更 | `CgDisplayFieldDraft`、`CgDisplayDraftCollection`、`NewCgDisplayDrop`、`CgDisplayReorderResolution`、`CgDisplayDeleteResolution`、`isInvalidCgDisplayBodyDrop` 等 11 项 |
-| [characterBlockEvents.ts](./characterBlockEvents.ts) | TypeScript + Blockly | 区分新增人物占位、清除操作，并解析字段更新 | `resolveNewCharacterPlacement`、`CharacterFieldUpdate`、`getCharacterFieldUpdate` |
+| [characterBlockEvents.ts](./characterBlockEvents.ts) | TypeScript + Blockly | 区分新增人物占位、清除操作，并解析位置、层级与缩放草稿 | `resolveNewCharacterPlacement`、`CharacterFieldUpdate`、`getCharacterFieldUpdate`、`collectCharacterFieldDrafts` |
 | [characterEffectBlockEvents.ts](./characterEffectBlockEvents.ts) | TypeScript + Blockly | 解析人物特效积木的连接、字段更新和顺序变更 | `CharacterEffectFieldDraft`、`CharacterEffectMutation`、`getCharacterEffectMutation`、`collectCharacterEffectFieldDrafts`、`getCharacterEffectOwnerForDelete` |
 | [choiceBlockEvents.ts](./choiceBlockEvents.ts) | TypeScript + Blockly | 解析选项及选项分支积木的创建、编辑和排序事件 | `ChoiceOptionLocation`、`ChoiceOptionFieldUpdate`、`NewChoiceOptionDrop`、`NewChoiceOptionDropResolution`、`ChoiceOptionReorderDrop`、`findChoiceOption` 等 11 项 |
 | [dialogueBlockEvents.ts](./dialogueBlockEvents.ts) | TypeScript + Blockly | 解析对白积木拖放、草稿字段更新与时间线重排 | `DialogueFieldUpdate`、`DialogueFieldDraft`、`NewDialogueDrop`、`NewStoryExtensionDrop`、`NewStoryExtensionDropResolution`、`DialogueReorderDrop` 等 14 项 |

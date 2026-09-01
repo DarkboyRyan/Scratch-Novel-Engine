@@ -18,9 +18,12 @@ import {
   type EditorLabels,
 } from '../../../i18n/editorLocalization';
 import {
+  createVariableNameField,
   formatLogicValue,
+  getDeclaredVariableNames,
   getLogicValueType,
   parseLogicValue,
+  setVariableNameFieldOptions,
   type LogicValueType,
 } from './variableBlock';
 
@@ -71,15 +74,15 @@ function operandTypeOptions(
 ): Blockly.MenuOption[] {
   return [
     [labels.blockly.operandVariable, 'variable'],
-    [labels.blockly.valueTypeText, 'string'],
-    [labels.blockly.valueTypeNumber, 'number'],
-    [labels.blockly.valueTypeBoolean, 'boolean'],
+    [labels.blockly.operandTextLiteral, 'string'],
+    [labels.blockly.operandNumberLiteral, 'number'],
+    [labels.blockly.operandBooleanLiteral, 'boolean'],
   ];
 }
 
 function defaultOperandValue(type: OperandFieldType): string {
   return type === 'variable'
-    ? 'score'
+    ? getDeclaredVariableNames()[0] ?? ''
     : type === 'boolean'
       ? 'false'
       : type === 'number'
@@ -96,6 +99,66 @@ function isValidOperandValue(
     : parseLogicValue(type, rawValue) !== null;
 }
 
+function withoutBlocklyEvents(action: () => void): void {
+  const eventsWereEnabled = Blockly.Events.isEnabled();
+  if (eventsWereEnabled) {
+    Blockly.Events.disable();
+  }
+  try {
+    action();
+  } finally {
+    if (eventsWereEnabled) {
+      Blockly.Events.enable();
+    }
+  }
+}
+
+function setLiteralOperandField(
+  block: Blockly.Block,
+  valueFieldName: string,
+  value: string,
+): void {
+  const existingField = block.getField(valueFieldName);
+  if (existingField === null) {
+    return;
+  }
+  if (existingField instanceof Blockly.FieldTextInput) {
+    existingField.setValue(value);
+    return;
+  }
+
+  const input = existingField.getParentInput();
+  const fieldIndex = input.fieldRow.indexOf(existingField);
+  input.removeField(valueFieldName);
+  input.insertFieldAt(
+    Math.max(0, fieldIndex),
+    new Blockly.FieldTextInput(value),
+    valueFieldName,
+  );
+}
+
+function setOperandValueField(
+  block: Blockly.Block,
+  valueFieldName: string,
+  type: OperandFieldType,
+  value: string,
+  labels: EditorLabels = currentLabels,
+): void {
+  withoutBlocklyEvents(() => {
+    if (type === 'variable') {
+      setVariableNameFieldOptions(
+        block,
+        valueFieldName,
+        getDeclaredVariableNames(),
+        labels,
+        isLogicVariableName(value) ? value : null,
+      );
+      return;
+    }
+    setLiteralOperandField(block, valueFieldName, value);
+  });
+}
+
 function createOperandTypeField(
   valueFieldName: string,
 ): Blockly.FieldDropdown {
@@ -106,12 +169,12 @@ function createOperandTypeField(
     const type = String(newValue) as OperandFieldType;
     const block = field.getSourceBlock();
     const rawValue = String(block?.getFieldValue(valueFieldName) ?? '');
-    if (
-      block &&
-      (String(field.getValue()) !== type ||
-        !isValidOperandValue(type, rawValue))
-    ) {
-      block.setFieldValue(defaultOperandValue(type), valueFieldName);
+    if (block) {
+      const value = String(field.getValue()) !== type ||
+        !isValidOperandValue(type, rawValue)
+        ? defaultOperandValue(type)
+        : rawValue;
+      setOperandValueField(block, valueFieldName, type, value);
     }
     return type;
   });
@@ -198,26 +261,30 @@ export function setLogicIfBlockCondition(
   block: Blockly.Block,
   condition: LogicCondition,
 ): void {
-  block.setFieldValue(
-    operandFieldType(condition.left),
-    LOGIC_CONTROL_FIELDS.leftType,
-  );
-  block.setFieldValue(
-    operandFieldValue(condition.left),
+  const leftType = operandFieldType(condition.left);
+  const leftValue = operandFieldValue(condition.left);
+  block.setFieldValue(leftType, LOGIC_CONTROL_FIELDS.leftType);
+  setOperandValueField(
+    block,
     LOGIC_CONTROL_FIELDS.leftValue,
+    leftType,
+    leftValue,
   );
+  block.setFieldValue(leftValue, LOGIC_CONTROL_FIELDS.leftValue);
   block.setFieldValue(
     condition.operator,
     LOGIC_CONTROL_FIELDS.operator,
   );
-  block.setFieldValue(
-    operandFieldType(condition.right),
-    LOGIC_CONTROL_FIELDS.rightType,
-  );
-  block.setFieldValue(
-    operandFieldValue(condition.right),
+  const rightType = operandFieldType(condition.right);
+  const rightValue = operandFieldValue(condition.right);
+  block.setFieldValue(rightType, LOGIC_CONTROL_FIELDS.rightType);
+  setOperandValueField(
+    block,
     LOGIC_CONTROL_FIELDS.rightValue,
+    rightType,
+    rightValue,
   );
+  block.setFieldValue(rightValue, LOGIC_CONTROL_FIELDS.rightValue);
 }
 
 export function setLogicControlMarkers(
@@ -261,20 +328,42 @@ export function applyLogicControlBlockLocalization(
   block: Blockly.Block,
   labels: EditorLabels,
 ): void {
+  currentLabels = labels;
   if (block.type === LOGIC_IF_BLOCK_TYPE) {
+    const operandStates = [
+      {
+        typeFieldName: LOGIC_CONTROL_FIELDS.leftType,
+        valueFieldName: LOGIC_CONTROL_FIELDS.leftValue,
+      },
+      {
+        typeFieldName: LOGIC_CONTROL_FIELDS.rightType,
+        valueFieldName: LOGIC_CONTROL_FIELDS.rightValue,
+      },
+    ].map(({ typeFieldName, valueFieldName }) => ({
+      typeFieldName,
+      valueFieldName,
+      type: String(
+        block.getFieldValue(typeFieldName) ?? 'variable',
+      ) as OperandFieldType,
+      value: String(block.getFieldValue(valueFieldName) ?? ''),
+    }));
     block.setFieldValue(labels.blockly.logicIf, LABEL_FIELDS.if);
     block.setFieldValue(labels.blockly.logicThen, LABEL_FIELDS.then);
     block.setFieldValue(labels.blockly.logicElse, LABEL_FIELDS.else);
-    for (const fieldName of [
-      LOGIC_CONTROL_FIELDS.leftType,
-      LOGIC_CONTROL_FIELDS.rightType,
-    ]) {
-      const field = block.getField(fieldName);
+    for (const state of operandStates) {
+      const field = block.getField(state.typeFieldName);
       if (field instanceof Blockly.FieldDropdown) {
-        const value = String(field.getValue());
         field.setOptions(() => operandTypeOptions(labels));
-        field.setValue(value);
+        field.setValue(state.type);
       }
+      setOperandValueField(
+        block,
+        state.valueFieldName,
+        state.type,
+        state.value,
+        labels,
+      );
+      block.setFieldValue(state.value, state.valueFieldName);
     }
     const operatorField = block.getField(LOGIC_CONTROL_FIELDS.operator);
     if (operatorField instanceof Blockly.FieldDropdown) {
@@ -296,46 +385,46 @@ export function registerLogicControlBlocks(
 ): void {
   currentLabels = labels;
 
-  if (!Blockly.Blocks[LOGIC_IF_BLOCK_TYPE]) {
-    Blockly.Blocks[LOGIC_IF_BLOCK_TYPE] = {
-      init(): void {
-        this.appendDummyInput()
-          .appendField(currentLabels.blockly.logicIf, LABEL_FIELDS.if)
-          .appendField(
-            createOperandTypeField(LOGIC_CONTROL_FIELDS.leftValue),
-            LOGIC_CONTROL_FIELDS.leftType,
-          )
-          .appendField(
-            new Blockly.FieldTextInput('score'),
-            LOGIC_CONTROL_FIELDS.leftValue,
-          )
-          .appendField(
-            new Blockly.FieldDropdown(() =>
-              operatorOptions(currentLabels),
-            ),
-            LOGIC_CONTROL_FIELDS.operator,
-          )
-          .appendField(
-            createOperandTypeField(LOGIC_CONTROL_FIELDS.rightValue),
-            LOGIC_CONTROL_FIELDS.rightType,
-          )
-          .appendField(
-            new Blockly.FieldTextInput('0'),
-            LOGIC_CONTROL_FIELDS.rightValue,
-          );
-        this.setFieldValue('number', LOGIC_CONTROL_FIELDS.rightType);
-        this.appendStatementInput(LOGIC_CONTROL_INPUTS.then)
-          .appendField(currentLabels.blockly.logicThen, LABEL_FIELDS.then);
-        this.appendStatementInput(LOGIC_CONTROL_INPUTS.else)
-          .appendField(currentLabels.blockly.logicElse, LABEL_FIELDS.else);
-        this.setPreviousStatement(true);
-        this.setNextStatement(true);
-        this.setColour(120);
-        this.setTooltip(currentLabels.blockly.logicIfTooltip);
-        this.setHelpUrl('');
-      },
-    };
-  }
+  // Blockly's global registry survives Renderer HMR. Always replace the If
+  // definition; existing instances are upgraded by localization/projection.
+  Blockly.Blocks[LOGIC_IF_BLOCK_TYPE] = {
+    init(): void {
+      this.appendDummyInput()
+        .appendField(currentLabels.blockly.logicIf, LABEL_FIELDS.if)
+        .appendField(
+          createOperandTypeField(LOGIC_CONTROL_FIELDS.leftValue),
+          LOGIC_CONTROL_FIELDS.leftType,
+        )
+        .appendField(
+          createVariableNameField(),
+          LOGIC_CONTROL_FIELDS.leftValue,
+        )
+        .appendField(
+          new Blockly.FieldDropdown(() =>
+            operatorOptions(currentLabels),
+          ),
+          LOGIC_CONTROL_FIELDS.operator,
+        )
+        .appendField(
+          createOperandTypeField(LOGIC_CONTROL_FIELDS.rightValue),
+          LOGIC_CONTROL_FIELDS.rightType,
+        )
+        .appendField(
+          new Blockly.FieldTextInput('0'),
+          LOGIC_CONTROL_FIELDS.rightValue,
+        );
+      this.setFieldValue('number', LOGIC_CONTROL_FIELDS.rightType);
+      this.appendStatementInput(LOGIC_CONTROL_INPUTS.then)
+        .appendField(currentLabels.blockly.logicThen, LABEL_FIELDS.then);
+      this.appendStatementInput(LOGIC_CONTROL_INPUTS.else)
+        .appendField(currentLabels.blockly.logicElse, LABEL_FIELDS.else);
+      this.setPreviousStatement(true);
+      this.setNextStatement(true);
+      this.setColour(120);
+      this.setTooltip(currentLabels.blockly.logicIfTooltip);
+      this.setHelpUrl('');
+    },
+  };
 
   if (!Blockly.Blocks[LOGIC_REPEAT_BLOCK_TYPE]) {
     Blockly.Blocks[LOGIC_REPEAT_BLOCK_TYPE] = {

@@ -20,6 +20,7 @@ import {
   LEGACY_PLAYER_SETTINGS_VERSION,
   PLAYER_SETTINGS_VERSION,
   type PlayerSettings,
+  type PlayerSettingsLanguageSource,
 } from '../../shared/playerProtocol';
 
 const SETTINGS_FORMAT = 'vn-engine-player-settings';
@@ -36,6 +37,11 @@ type SettingsDocumentV2 = {
   format: typeof SETTINGS_FORMAT;
   settingsVersion: typeof PLAYER_SETTINGS_VERSION;
   settings: Omit<PlayerSettings, 'settingsVersion'>;
+};
+
+export type LoadedPlayerSettings = {
+  settings: PlayerSettings;
+  languageSource: PlayerSettingsLanguageSource;
 };
 
 class InvalidSettingsError extends Error {}
@@ -129,7 +135,14 @@ function canonicalizeSettings(settings: PlayerSettings): PlayerSettings {
   };
 }
 
-function parseDocument(input: unknown): PlayerSettings {
+function defaultLoadedSettings(): LoadedPlayerSettings {
+  return {
+    settings: createDefaultPlayerSettings(),
+    languageSource: 'default',
+  };
+}
+
+function parseDocument(input: unknown): LoadedPlayerSettings {
   if (!isObject(input) || !hasExactFields(input, [
     'format',
     'settingsVersion',
@@ -162,11 +175,14 @@ function parseDocument(input: unknown): PlayerSettings {
     if (!isPlayerSettingsV1(legacy)) {
       throw new InvalidSettingsError('settings values are invalid');
     }
-    return canonicalizeSettings({
-      ...legacy,
-      settingsVersion: PLAYER_SETTINGS_VERSION,
-      language: 'zh-CN',
-    });
+    return {
+      settings: canonicalizeSettings({
+        ...legacy,
+        settingsVersion: PLAYER_SETTINGS_VERSION,
+        language: 'zh-CN',
+      }),
+      languageSource: 'default',
+    };
   }
   if (
     input.settingsVersion !== PLAYER_SETTINGS_VERSION ||
@@ -181,7 +197,10 @@ function parseDocument(input: unknown): PlayerSettings {
   if (!isPlayerSettings(current)) {
     throw new InvalidSettingsError('settings values are invalid');
   }
-  return canonicalizeSettings(current);
+  return {
+    settings: canonicalizeSettings(current),
+    languageSource: 'stored',
+  };
 }
 
 function createDocument(settings: PlayerSettings): SettingsDocumentV2 {
@@ -210,14 +229,14 @@ export class PlayerSettingsStore {
     this.rootPath = validateRootPath(rootPath);
   }
 
-  async load(): Promise<PlayerSettings> {
+  async load(): Promise<LoadedPlayerSettings> {
     try {
       if (!await inspectSafeDirectory(this.rootPath)) {
-        return createDefaultPlayerSettings();
+        return defaultLoadedSettings();
       }
     } catch (error) {
       this.reportError('read', error);
-      return createDefaultPlayerSettings();
+      return defaultLoadedSettings();
     }
 
     const primaryPath = path.join(this.rootPath, SETTINGS_FILE_NAME);
@@ -238,7 +257,7 @@ export class PlayerSettingsStore {
     } catch (error) {
       this.reportError('read', error);
     }
-    return createDefaultPlayerSettings();
+    return defaultLoadedSettings();
   }
 
   async write(settings: PlayerSettings): Promise<PlayerSettings> {
@@ -255,7 +274,9 @@ export class PlayerSettingsStore {
     }
   }
 
-  private async readDocument(filePath: string): Promise<PlayerSettings | null> {
+  private async readDocument(
+    filePath: string,
+  ): Promise<LoadedPlayerSettings | null> {
     let status;
     try {
       status = await lstat(filePath);

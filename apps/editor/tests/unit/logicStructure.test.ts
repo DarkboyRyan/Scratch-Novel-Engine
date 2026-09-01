@@ -19,6 +19,7 @@ function scene(nodes: SceneDocument['nodes']): SceneDocument {
     id: 'scene-1',
     name: 'Scene',
     backgroundAssetId: null,
+    backgroundScalePercent: 100,
     nodes,
   };
 }
@@ -168,7 +169,12 @@ describe('flat logic marker structure', () => {
     };
     expect(() => parseLogicStructure(scene([
       root,
-      { id: 'bg-1', type: 'background', assetId: null },
+      {
+        id: 'bg-1',
+        type: 'background',
+        assetId: null,
+        scalePercent: 100,
+      },
       {
         id: 'cg-end-1',
         type: 'cgEndDisplay',

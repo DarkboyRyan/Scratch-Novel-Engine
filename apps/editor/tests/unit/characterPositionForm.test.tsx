@@ -10,7 +10,10 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { InspectorPanel } from '../../src/renderer/features/form-editor/InspectorPanel';
-import type { CharacterNode } from '../../src/shared/projectTypes';
+import type {
+  CharacterNode,
+  SemanticSceneNode,
+} from '../../src/shared/projectTypes';
 
 const character: CharacterNode = {
   id: 'character-1',
@@ -21,12 +24,25 @@ const character: CharacterNode = {
   layer: 2,
   position: { x: 31, y: 87 },
   effect: null,
+  scalePercent: 125,
 };
+
+function setInputValue(input: HTMLInputElement, value: string): void {
+  const nativeSetter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    'value',
+  )?.set;
+  nativeSetter?.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
 
 describe('character position form controls', () => {
   let container: HTMLDivElement;
   let root: ReturnType<typeof createRoot>;
   const onCharacterChange = vi.fn().mockResolvedValue(undefined);
+  const onBackgroundChange = vi.fn().mockResolvedValue(undefined);
+  const onImageScaleDraftChange = vi.fn();
+  const onImageScaleDraftCommit = vi.fn().mockResolvedValue(true);
 
   beforeEach(() => {
     (
@@ -38,6 +54,9 @@ describe('character position form controls', () => {
     document.body.append(container);
     root = createRoot(container);
     onCharacterChange.mockClear();
+    onBackgroundChange.mockClear();
+    onImageScaleDraftChange.mockClear();
+    onImageScaleDraftCommit.mockClear();
   });
 
   afterEach(async () => {
@@ -45,7 +64,14 @@ describe('character position form controls', () => {
     container.remove();
   });
 
-  async function renderInspector(selectedNode: CharacterNode = character) {
+  async function renderInspector(
+    selectedNode: SemanticSceneNode = character,
+    imageScaleDraft = selectedNode.type === 'background' ||
+        selectedNode.type === 'character'
+      ? String(selectedNode.scalePercent)
+      : '100',
+    imageScaleDraftInvalid = false,
+  ) {
     await act(async () => {
       root.render(
         <InspectorPanel
@@ -55,10 +81,14 @@ describe('character position form controls', () => {
           assets={[{ id: 'portrait-1', type: 'image', displayName: '立绘' }]}
           speaker=""
           text=""
+          imageScaleDraft={imageScaleDraft}
+          imageScaleDraftInvalid={imageScaleDraftInvalid}
           isBusy={false}
           onSpeakerChange={vi.fn()}
           onTextChange={vi.fn()}
-          onBackgroundChange={vi.fn()}
+          onImageScaleDraftChange={onImageScaleDraftChange}
+          onImageScaleDraftCommit={onImageScaleDraftCommit}
+          onBackgroundChange={onBackgroundChange}
           onCharacterChange={onCharacterChange}
           onSceneJumpChange={vi.fn()}
           onBgmChange={vi.fn()}
@@ -98,6 +128,7 @@ describe('character position form controls', () => {
       slot: 'left',
       layer: 2,
       position: { x: 44, y: 87 },
+      scalePercent: 125,
     });
   });
 
@@ -115,6 +146,7 @@ describe('character position form controls', () => {
       slot: 'right',
       layer: 2,
       position: null,
+      scalePercent: 125,
     });
   });
 
@@ -142,6 +174,7 @@ describe('character position form controls', () => {
       slot: 'right',
       layer: 2,
       position: { x: 80, y: 100 },
+      scalePercent: 125,
     });
   });
 
@@ -170,6 +203,7 @@ describe('character position form controls', () => {
       slot: 'left',
       layer: 2,
       position: null,
+      scalePercent: 125,
     });
   });
 
@@ -183,12 +217,16 @@ describe('character position form controls', () => {
       layer: 3,
       position: null,
       effect: null,
+      scalePercent: 100,
     });
     const imageSelect = container.querySelectorAll('select')[0];
 
     expect(imageSelect.options[0]?.textContent).toBe('无立绘（清空这一层）');
     expect(container.querySelector('.character-coordinate-fields')).toBeNull();
     expect(container.querySelector('.character-effect-readonly')).toBeNull();
+    expect(
+      container.querySelector('[aria-label="立绘缩放百分比"]'),
+    ).toBeNull();
 
     await act(async () => {
       imageSelect.value = 'portrait-1';
@@ -200,6 +238,7 @@ describe('character position form controls', () => {
       slot: 'center',
       layer: 3,
       position: null,
+      scalePercent: 100,
     });
   });
 
@@ -221,5 +260,104 @@ describe('character position form controls', () => {
     expect(summary?.textContent).toContain('强烈');
     expect(summary?.textContent).toContain('0.85秒');
     expect(summary?.querySelector('input, select, button')).toBeNull();
+  });
+
+  it('keeps portrait scale input controlled and delegates its commit', async () => {
+    await renderInspector();
+    const scaleInput = container.querySelector<HTMLInputElement>(
+      '[aria-label="立绘缩放百分比"]',
+    );
+    expect(scaleInput?.value).toBe('125');
+
+    await act(async () => {
+      if (!scaleInput) throw new Error('missing scale input');
+      setInputValue(scaleInput, '175');
+    });
+    expect(onImageScaleDraftChange).toHaveBeenCalledWith('175');
+
+    await renderInspector(character, '175');
+    const updatedScaleInput = container.querySelector<HTMLInputElement>(
+      '[aria-label="立绘缩放百分比"]',
+    );
+    await act(async () => {
+      if (!updatedScaleInput) throw new Error('missing updated scale input');
+      updatedScaleInput.dispatchEvent(
+        new FocusEvent('focusout', { bubbles: true }),
+      );
+      await Promise.resolve();
+    });
+    expect(onImageScaleDraftCommit).toHaveBeenCalledOnce();
+    expect(onCharacterChange).not.toHaveBeenCalled();
+
+    await renderInspector(character, '301', true);
+    const invalidScaleInput = container.querySelector<HTMLInputElement>(
+      '[aria-label="立绘缩放百分比"]',
+    );
+    expect(invalidScaleInput?.value).toBe('301');
+    expect(invalidScaleInput?.getAttribute('aria-invalid')).toBe('true');
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('10');
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('300');
+  });
+
+  it('lets an image selection consume the focused scale draft without a blur mutation', async () => {
+    await renderInspector(character, '175');
+    const scaleInput = container.querySelector<HTMLInputElement>(
+      '[aria-label="立绘缩放百分比"]',
+    );
+    const imageSelect = container.querySelector('select');
+    if (!scaleInput || !imageSelect) {
+      throw new Error('missing portrait image controls');
+    }
+
+    await act(async () => {
+      scaleInput.focus();
+      scaleInput.dispatchEvent(new FocusEvent('focusout', {
+        bubbles: true,
+        relatedTarget: imageSelect,
+      }));
+      imageSelect.value = '';
+      imageSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(onImageScaleDraftCommit).not.toHaveBeenCalled();
+    expect(onCharacterChange).toHaveBeenCalledWith({
+      assetId: null,
+      slot: 'left',
+      layer: 2,
+      position: { x: 31, y: 87 },
+      scalePercent: 125,
+    });
+  });
+
+  it('updates a background-node scale and resets it when the image is cleared', async () => {
+    await renderInspector({
+      id: 'background-1',
+      type: 'background',
+      assetId: 'portrait-1',
+      scalePercent: 130,
+    });
+    const scaleInput = container.querySelector<HTMLInputElement>(
+      '[aria-label="背景缩放百分比"]',
+    );
+    expect(scaleInput?.value).toBe('130');
+
+    await act(async () => {
+      if (!scaleInput) throw new Error('missing background scale input');
+      setInputValue(scaleInput, '155');
+    });
+    expect(onImageScaleDraftChange).toHaveBeenCalledWith('155');
+
+    onBackgroundChange.mockClear();
+    const imageSelect = container.querySelector('select');
+    await act(async () => {
+      if (!imageSelect) throw new Error('missing background image select');
+      imageSelect.value = '';
+      imageSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(onBackgroundChange).toHaveBeenCalledWith({
+      assetId: null,
+      scalePercent: 100,
+    });
   });
 });

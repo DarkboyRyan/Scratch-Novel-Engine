@@ -32,11 +32,13 @@
 
 选项是 Player 外壳的本地偏好，不属于作者项目、导出内容或剧情存档：
 
-- 作者项目固定写 `fileVersion: 20`，Reader 支持 v1–v20；
-- 导出内容为 runtime v10，Player 兼容 runtime v1–v10；
-- 游戏进度使用独立的 `GameRuntimeSnapshot v4` 和 `saveVersion: 1`，并受限兼容旧 v1–v3；
+- 作者项目固定写 `fileVersion: 21`，Reader 支持 v1–v21；
+- 导出内容为 runtime v12，Player 兼容 runtime v1–v12；Runtime v11 仍是图片缩放的历史里程碑；
+- 游戏进度使用独立的 `GameRuntimeSnapshot v5` 和 `saveVersion: 1`，并受限兼容旧 v1–v4；
 - Player 设置当前写 `settingsVersion: 2`，Reader 严格迁移旧 v1；
-- 切换 `.vngame` 不会重置选项，同一 Player 用户的设置会继续生效。
+- Runtime v12 必须有 `game.defaultLanguage`，v1–v11 迁移为 `zh-CN`；
+- 首次启动、无设置或旧 v1 设置没有持久语言时，桌面与 Web Player 使用当前包默认；
+- 当前 v2 设置中已保存的玩家语言优先，切换 `.vngame` 不会用新包覆盖它。
 
 [`playerProtocol.ts`](../apps/player/src/shared/playerProtocol.ts) 保留旧
 `PlayerSettingsV1`，并把当前设置定义为 `PlayerSettingsV2` / `PlayerSettings`：
@@ -57,7 +59,7 @@ type PlayerSettingsV2 = {
 | 字段 | 默认值 | 规则 |
 | --- | --- | --- |
 | `settingsVersion` | `2` | 固定版本，不允许 Renderer 修改 |
-| `language` | `"zh-CN"` | 只允许简体中文或 English |
+| `language` | 静态回退 `"zh-CN"`；有效首次值来自当前包 | 只允许简体中文或 English；已持久玩家值优先 |
 | `masterVolume` | `1` | 有限数，范围 0–1 |
 | `bgmVolume` | `1` | 有限数，范围 0–1 |
 | `voiceVolume` | `1` | 有限数，范围 0–1 |
@@ -66,8 +68,9 @@ type PlayerSettingsV2 = {
 | `windowSizePreset` | `"medium"` | 只允许 small、medium、large |
 
 完整设置和磁盘文档都执行 exact-fields 校验；多余字段、缺失字段、`NaN`、无穷大、
-越界音量和未知枚举都会被拒绝。Reader 仅接受精确旧 v1（唯一缺少 `language`）并迁移为
-中文 v2；Writer 和 IPC 只接受、写出精确 v2。未来改变语义时必须再次提升版本，不能
+越界音量和未知枚举都会被拒绝。Reader 仅接受精确旧 v1（唯一缺少 `language`），在
+内存中补中文作为安全回退，但将语言来源标为 `default`，因此加载游戏后仍采用
+包默认。Writer 和 IPC 只接受、写出精确 v2。未来改变语义时必须再次提升版本，不能
 静默改变 v2。
 
 ## 3. 完整调用链
@@ -87,10 +90,17 @@ flowchart LR
   MANAGER --> APP
 ```
 
-Renderer 启动时先请求设置；设置读取完成前不挂载标题媒体或游戏画面，避免已静音的
+Renderer 启动时并发请求设置与游戏；两者完成前不挂载标题媒体或游戏画面。
+`PlayerSettingsReadResult.languageSource` 为 `default` 时投影当前包的 `defaultLanguage`，
+为 `stored` 时保留玩家语言；无论请求返回先后都不会闪现错误语言。这也避免已静音的
 用户仍短暂听到默认 100% 音量。弹层中的本地预览先更新 React 状态，提交时只生成相对
 最近确认值的非空 patch。Main 合并 patch、持久化、按 patch 字段决定是否应用窗口后返回
 完整权威设置。
+
+Web 的 `stored` 只表示玩家明确选择过的同域语言：偏好按项目 ID 和包默认语言隔离。
+全局 `settings-v2` 仍承载音量等值，但其历史 `language` 字段不再被解释为显式选择；只改
+音量或全屏也不会把当前包默认语言塞进 patch。这样同一 origin 上的新英文导出不会被旧
+中文包的站点数据覆盖，同时玩家对当前游戏的明确选择仍能跨刷新保留。
 
 这里还有一层 Main-owned 的窗口激活门。`attachWindow()` 只给隐藏窗口应用安全的窗口
 尺寸，并为该窗口建立 activation gate；Renderer 发出的 `get-settings` / `update-settings`
@@ -302,7 +312,8 @@ Player 的 `onOpenOptions` 时，`TitleScreen` 创建一份仅属于该组件生
 - 语言可以在当前预览生命周期内切换，默认中文；
 - 不调用 `window.vnPlayer`、不访问 `userData`，关闭预览后不会保存；
 - 窗口模式和窗口尺寸控件保持禁用，并明确提示“仅在正式 Player 中应用”；
-- 不会调整 Editor BrowserWindow，也不会把设置写入 author v20 或 runtime v10。
+- 不会调整 Editor BrowserWindow，也不会把该预览设置写入 Author v21 或
+  Runtime v12；正式导出的包默认另由 Editor Main 权威语言决定。
 
 这样 Editor 能预览正式选项样式和媒体效果，但不会意外获得 Player 的本地持久化或窗口
 控制权限。
@@ -312,7 +323,7 @@ Player 的 `onOpenOptions` 时，`TitleScreen` 创建一份仅属于该组件生
 | 层 | 主要测试 | 覆盖重点 |
 | --- | --- | --- |
 | 协议/Preload | `registerPlayerIpc.test.ts`、`playerPreload.test.ts` | trusted frame、exact invocation、非空 patch、稳定错误码、未知字段/路径/自定义尺寸拒绝、调用转发 |
-| 设置文件 | `playerSettingsStore.test.ts`、`webStorage.test.ts` | v1→v2 迁移、v2 round-trip、Web `settings-v2` 优先与 `settings-v1` 回退、未来版本/损坏回退、备份恢复、symlink 与路径拒绝 |
+| 设置文件 | `playerSettingsStore.test.ts`、`webStorage.test.ts` | v1→v2 迁移、v2 round-trip、Web 通用设置迁移、项目+包默认语言分域、显式偏好与音量更新隔离、未来版本/损坏回退、备份恢复、symlink 与路径拒绝 |
 | 窗口协调 | `playerSettingsManager.test.ts` | activation gate、三档尺寸、workArea 缩放/居中、纯音量不改窗口、原生模式同步、并发 patch、5 秒超时、销毁窗口与退出 flush |
 | 退出协调 | `playerSettingsQuitCoordinator.test.ts` | flush 期间的重复退出均被阻止、失败只写本地诊断、最终清理只执行一次 |
 | Player Renderer | `playerRenderer.test.tsx` | 设置加载门、中英即时切换与失败回滚、异步错误和结构化存档摘要按当前语言重译、作者剧情状态不重置、标题与剧情有效音量、原生全屏刷新、焦点恢复、Esc/busy、CG/存档/选项同 tick 互斥 |

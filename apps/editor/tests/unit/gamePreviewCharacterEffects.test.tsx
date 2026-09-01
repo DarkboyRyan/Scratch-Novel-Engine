@@ -42,7 +42,8 @@ const project: ProjectDocument = {
     schemaVersion: 1,
     id: 'entry',
     name: 'Entry',
-    backgroundAssetId: null,
+    backgroundAssetId: 'room',
+    backgroundScalePercent: 75,
     nodes: [
       {
         id: 'hero-effect',
@@ -52,6 +53,7 @@ const project: ProjectDocument = {
         layer: 2,
         position: { x: 75, y: 90 },
         effect: { type: 'jump', durationMs: 650, intensity: 'normal' },
+        scalePercent: 135,
       },
       {
         id: 'line',
@@ -95,8 +97,11 @@ describe('Editor character effect previews', () => {
     act(() => root.render(
       <GamePreview
         session={session}
-        assets={[{ id: 'hero', type: 'image', displayName: 'Hero' }]}
-        previewUrls={{ hero: 'blob:hero' }}
+        assets={[
+          { id: 'hero', type: 'image', displayName: 'Hero' },
+          { id: 'room', type: 'image', displayName: 'Room' },
+        ]}
+        previewUrls={{ hero: 'blob:hero', room: 'blob:room' }}
         resolveMediaUrl={async () => null}
         onAdvance={() => {}}
         onVideoComplete={() => {}}
@@ -108,6 +113,10 @@ describe('Editor character effect previews', () => {
 
     expect(container.querySelector('.dialogue-box')?.textContent)
       .toContain('The effect starts with this line.');
+    expect(
+      container.querySelector<HTMLImageElement>('.preview-background')
+        ?.dataset.scalePercent,
+    ).toBe('75');
     const image = container.querySelector<HTMLImageElement>(
       '.preview-character-image',
     )!;
@@ -133,6 +142,10 @@ describe('Editor character effect previews', () => {
       .not.toBeNull();
     expect(container.querySelector('.preview-character-anchor')
       ?.getAttribute('style')).toContain('translate(-50%, -100%)');
+    expect(
+      container.querySelector<HTMLElement>('.preview-character-scale')
+        ?.dataset.scalePercent,
+    ).toBe('135');
 
     hidden = true;
     act(() => document.dispatchEvent(new Event('visibilitychange')));
@@ -149,8 +162,9 @@ describe('Editor character effect previews', () => {
       <PreviewPanel
         speaker="Hero"
         text="Static"
-        backgroundUrl={null}
-        backgroundName={null}
+        backgroundUrl="blob:room"
+        backgroundName="Room"
+        backgroundScalePercent={80}
         characters={[{
           id: 'fade-out',
           url: 'blob:hero',
@@ -158,6 +172,7 @@ describe('Editor character effect previews', () => {
           slot: 'center',
           layer: 1,
           position: null,
+          scalePercent: 150,
           opacity: 0,
           effect: { type: 'fadeOut', durationMs: 500 },
           effectSequence: 1,
@@ -173,7 +188,53 @@ describe('Editor character effect previews', () => {
     });
     expect(image.classList.contains('preview-character-effect')).toBe(false);
     expect(image.style.opacity).toBe('0');
+    const scaleLayer = container.querySelector<HTMLElement>(
+      '.preview-character-scale',
+    );
+    expect(scaleLayer?.dataset.scalePercent).toBe('150');
+    expect(scaleLayer?.style.transform).toBe('scale(1.5)');
+    const background = container.querySelector<HTMLImageElement>(
+      '.preview-background',
+    );
+    expect(background?.dataset.scalePercent).toBe('80');
+    expect(background?.style.transform).toBe('scale(0.8)');
   });
+
+  it.each([10, 100, 300])(
+    'renders the canonical %i%% background and portrait scale boundary',
+    (scalePercent) => {
+      act(() => root.render(
+        <PreviewPanel
+          speaker=""
+          text=""
+          backgroundUrl="blob:room"
+          backgroundName="Room"
+          backgroundScalePercent={scalePercent}
+          characters={[{
+            id: `portrait-${scalePercent}`,
+            url: 'blob:hero',
+            name: 'Hero',
+            slot: 'center',
+            layer: 1,
+            position: null,
+            scalePercent,
+            opacity: 1,
+            effect: null,
+            effectSequence: 0,
+          }]}
+        />,
+      ));
+
+      expect(
+        container.querySelector<HTMLImageElement>('.preview-background')
+          ?.dataset.scalePercent,
+      ).toBe(String(scalePercent));
+      expect(
+        container.querySelector<HTMLElement>('.preview-character-scale')
+          ?.dataset.scalePercent,
+      ).toBe(String(scalePercent));
+    },
+  );
 
   it('defines reduced-motion and pause CSS for the Editor preview', () => {
     const css = readFileSync(

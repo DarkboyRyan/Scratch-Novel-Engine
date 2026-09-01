@@ -15,6 +15,7 @@ type FormEditorProps = {
   assets: AssetDocument[];
   backgroundUrl: string | null;
   backgroundName: string | null;
+  backgroundScalePercent: number;
   cgUrl: string | null;
   cgName: string | null;
   showDialogue: boolean;
@@ -23,6 +24,8 @@ type FormEditorProps = {
   characters: PreviewCharacter[];
   isStartPreviewDisabled: boolean;
   onStartPreview: () => void;
+  onAddScene: () => Promise<void>;
+  onSelectScene: (sceneId: string) => Promise<void>;
   onSelectStartScreen: () => Promise<void>;
   onSelectCgGallery: () => Promise<void>;
 };
@@ -32,6 +35,7 @@ export function FormEditor({
   assets,
   backgroundUrl,
   backgroundName,
+  backgroundScalePercent,
   cgUrl,
   cgName,
   showDialogue,
@@ -40,6 +44,8 @@ export function FormEditor({
   characters,
   isStartPreviewDisabled,
   onStartPreview,
+  onAddScene,
+  onSelectScene,
   onSelectStartScreen,
   onSelectCgGallery,
 }: FormEditorProps) {
@@ -57,7 +63,7 @@ export function FormEditor({
         assets={assets}
         selectedNodeId={editor.selectedNodeId}
         isBusy={editor.isBusy}
-        onAddScene={editor.addScene}
+        onAddScene={onAddScene}
         editingSceneId={editor.editingSceneId}
         sceneNameDraft={editor.sceneNameDraft}
         sceneRenameError={editor.sceneRenameError}
@@ -66,7 +72,7 @@ export function FormEditor({
         onSceneNameDraftChange={editor.setSceneNameDraft}
         onCancelSceneRename={editor.cancelSceneRename}
         onCommitSceneRename={editor.commitSceneRename}
-        onSelectScene={editor.selectScene}
+        onSelectScene={onSelectScene}
         onSelectStartScreen={onSelectStartScreen}
         onSelectCgGallery={onSelectCgGallery}
         onSelectNode={editor.selectNode}
@@ -81,6 +87,7 @@ export function FormEditor({
         text={editor.previewText}
         backgroundUrl={backgroundUrl}
         backgroundName={backgroundName}
+        backgroundScalePercent={backgroundScalePercent}
         cgUrl={cgUrl}
         cgName={cgName}
         showDialogue={showDialogue}
@@ -98,22 +105,23 @@ export function FormEditor({
         assets={assets}
         speaker={editor.speaker}
         text={editor.text}
+        imageScaleDraft={editor.selectedImageScaleDraft}
+        imageScaleDraftInvalid={editor.selectedImageScaleDraftInvalid}
         isBusy={editor.isBusy}
         onSpeakerChange={editor.setSpeaker}
         onTextChange={editor.setText}
-        onBackgroundChange={(assetId) =>
-          editor.selectedBackground
-            ? editor.updateBackgroundNode(
-                editor.selectedBackground,
-                assetId,
-              )
-            : Promise.resolve()
-        }
-        onCharacterChange={(next) =>
-          editor.selectedCharacter
-            ? editor.updateCharacterNode(editor.selectedCharacter, next)
-            : Promise.resolve()
-        }
+        onImageScaleDraftChange={editor.setSelectedImageScaleDraft}
+        onImageScaleDraftCommit={editor.commitSelectedImageScaleDraft}
+        onBackgroundChange={async (next) => {
+          if (editor.selectedBackground) {
+            await editor.updateBackgroundNode(editor.selectedBackground, next);
+          }
+        }}
+        onCharacterChange={async (next) => {
+          if (editor.selectedCharacter) {
+            await editor.updateCharacterNode(editor.selectedCharacter, next);
+          }
+        }}
         onSceneJumpChange={(targetSceneId) =>
           editor.selectedSceneJump
             ? editor.updateSceneJumpNode(

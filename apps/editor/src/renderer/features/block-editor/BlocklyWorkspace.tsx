@@ -129,6 +129,11 @@ import { EngineTrashcan } from './EngineTrashcan';
 import { projectSceneToWorkspace } from './projectSceneToWorkspace';
 import { createBlockEditorToolbox } from './toolbox';
 import {
+  collectBackgroundFieldDrafts,
+  getBackgroundFieldUpdate,
+} from './backgroundBlockEvents';
+import {
+  collectCharacterFieldDrafts,
   getCharacterFieldUpdate,
   resolveNewCharacterPlacement,
 } from './characterBlockEvents';
@@ -168,6 +173,7 @@ import {
 import {
   applyVariableBlockLocalization,
   registerVariableBlocks,
+  setVariableBlockProjectScenes,
   VARIABLE_CHANGE_BLOCK_TYPE,
   VARIABLE_SET_BLOCK_TYPE,
 } from './blocks/variableBlock';
@@ -530,6 +536,7 @@ export const BlocklyWorkspace = forwardRef<
 
     const targetLayout = layoutStore.get(nextLayoutKey);
     setCgDisplayImageOptions(assetsRef.current, labelsRef.current);
+    setVariableBlockProjectScenes(scenesRef.current, labelsRef.current);
     projectSceneToWorkspace(
       nextScene,
       workspace,
@@ -545,6 +552,11 @@ export const BlocklyWorkspace = forwardRef<
       scene: nextScene,
     };
     const logicDrafts = collectLogicFieldDrafts(workspace, nextScene);
+    const backgroundDrafts = collectBackgroundFieldDrafts(
+      workspace,
+      nextScene,
+    );
+    const characterDrafts = collectCharacterFieldDrafts(workspace, nextScene);
     const cgDisplayDrafts = collectCgDisplayFieldDrafts(workspace, nextScene);
     const characterEffectDrafts = collectCharacterEffectFieldDrafts(
       workspace,
@@ -556,6 +568,10 @@ export const BlocklyWorkspace = forwardRef<
         collectStoryContinuationSequenceDraft(workspace, nextScene) !== null ||
         logicDrafts.drafts.length > 0 ||
         logicDrafts.invalidNodeId !== null ||
+        backgroundDrafts.drafts.length > 0 ||
+        backgroundDrafts.invalidNodeId !== null ||
+        characterDrafts.drafts.length > 0 ||
+        characterDrafts.invalidNodeId !== null ||
         cgDisplayDrafts.drafts.length > 0 ||
         cgDisplayDrafts.invalidNodeId !== null ||
         characterEffectDrafts.drafts.length > 0 ||
@@ -585,6 +601,7 @@ export const BlocklyWorkspace = forwardRef<
     registerBgmBlock(initialLabels);
     registerVideoBlock(initialLabels);
     registerStoryContinuationBlock(initialLabels);
+    setVariableBlockProjectScenes(scenesRef.current, initialLabels);
     registerVariableBlocks(initialLabels);
     registerLogicControlBlocks(initialLabels);
     setCgDisplayImageOptions(assetsRef.current, initialLabels);
@@ -904,6 +921,7 @@ export const BlocklyWorkspace = forwardRef<
               sceneId: sceneRef.current.id,
               nodeId: node.id,
               assetId,
+              scalePercent: node.scalePercent,
             })
           : node.type === 'character'
             ? updateCharacterRef.current({
@@ -917,6 +935,7 @@ export const BlocklyWorkspace = forwardRef<
                     : getCharacterBlockSlot(block),
                 layer: getCharacterBlockLayer(block),
                 position: node.position,
+                scalePercent: node.scalePercent,
               })
             : node.type === 'cgDisplay'
               ? updateCgDisplayRef.current({
@@ -965,6 +984,14 @@ export const BlocklyWorkspace = forwardRef<
         currentScene,
       );
       const logicDrafts = collectLogicFieldDrafts(workspace, currentScene);
+      const backgroundDrafts = collectBackgroundFieldDrafts(
+        workspace,
+        currentScene,
+      );
+      const characterDrafts = collectCharacterFieldDrafts(
+        workspace,
+        currentScene,
+      );
       const cgDisplayDrafts = collectCgDisplayFieldDrafts(
         workspace,
         currentScene,
@@ -979,6 +1006,10 @@ export const BlocklyWorkspace = forwardRef<
           storyContinuationDraft !== null ||
           logicDrafts.drafts.length > 0 ||
           logicDrafts.invalidNodeId !== null ||
+          backgroundDrafts.drafts.length > 0 ||
+          backgroundDrafts.invalidNodeId !== null ||
+          characterDrafts.drafts.length > 0 ||
+          characterDrafts.invalidNodeId !== null ||
           cgDisplayDrafts.drafts.length > 0 ||
           cgDisplayDrafts.invalidNodeId !== null ||
           characterEffectDrafts.drafts.length > 0 ||
@@ -1015,6 +1046,32 @@ export const BlocklyWorkspace = forwardRef<
               ...draft,
             });
 
+            if (!saved) {
+              return false;
+            }
+          }
+
+          if (backgroundDrafts.invalidNodeId !== null) {
+            return false;
+          }
+          for (const draft of backgroundDrafts.drafts) {
+            const saved = await updateBackgroundRef.current({
+              sceneId: currentScene.id,
+              ...draft,
+            });
+            if (!saved) {
+              return false;
+            }
+          }
+
+          if (characterDrafts.invalidNodeId !== null) {
+            return false;
+          }
+          for (const draft of characterDrafts.drafts) {
+            const saved = await updateCharacterRef.current({
+              sceneId: currentScene.id,
+              ...draft,
+            });
             if (!saved) {
               return false;
             }
@@ -1308,6 +1365,14 @@ export const BlocklyWorkspace = forwardRef<
 
       if (event.type === Blockly.Events.BLOCK_FIELD_INTERMEDIATE_CHANGE) {
         const logicDrafts = collectLogicFieldDrafts(workspace, currentScene);
+        const backgroundDrafts = collectBackgroundFieldDrafts(
+          workspace,
+          currentScene,
+        );
+        const characterDrafts = collectCharacterFieldDrafts(
+          workspace,
+          currentScene,
+        );
         const cgDisplayDrafts = collectCgDisplayFieldDrafts(
           workspace,
           currentScene,
@@ -1326,6 +1391,10 @@ export const BlocklyWorkspace = forwardRef<
               null ||
             logicDrafts.drafts.length > 0 ||
             logicDrafts.invalidNodeId !== null ||
+            backgroundDrafts.drafts.length > 0 ||
+            backgroundDrafts.invalidNodeId !== null ||
+            characterDrafts.drafts.length > 0 ||
+            characterDrafts.invalidNodeId !== null ||
             cgDisplayDrafts.drafts.length > 0 ||
             cgDisplayDrafts.invalidNodeId !== null ||
             characterEffectDrafts.drafts.length > 0 ||
@@ -1821,6 +1890,21 @@ export const BlocklyWorkspace = forwardRef<
         return;
       }
 
+      const backgroundUpdate = getBackgroundFieldUpdate(
+        event,
+        workspace,
+        currentScene,
+      );
+      if (backgroundUpdate) {
+        void saveWorkspaceMutation(() =>
+          updateBackgroundRef.current({
+            sceneId: currentScene.id,
+            ...backgroundUpdate,
+          }),
+        );
+        return;
+      }
+
       const characterUpdate = getCharacterFieldUpdate(
         event,
         workspace,
@@ -1947,6 +2031,7 @@ export const BlocklyWorkspace = forwardRef<
     registerBgmBlock(labels);
     registerVideoBlock(labels);
     registerStoryContinuationBlock(labels);
+    setVariableBlockProjectScenes(scenesRef.current, labels);
     registerVariableBlocks(labels);
     registerLogicControlBlocks(labels);
     setCgDisplayImageOptions(assetsRef.current, labels);

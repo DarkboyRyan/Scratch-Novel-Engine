@@ -18,6 +18,7 @@ import {
 import {
   BACKGROUND_BLOCK_TYPE,
   setBackgroundBlockAsset,
+  setBackgroundBlockScalePercent,
 } from './blocks/backgroundBlock';
 import {
   CHARACTER_BLOCK_FIELDS,
@@ -25,6 +26,7 @@ import {
   CLEAR_CHARACTER_BLOCK_TYPE,
   setCharacterBlockAsset,
   setCharacterBlockPosition,
+  setCharacterBlockScalePercent,
   CHARACTER_BLOCK_INPUTS,
 } from './blocks/characterBlock';
 import {
@@ -305,6 +307,7 @@ function createNodeBlock(
         : (context.assets.find((asset) => asset.id === node.assetId)
             ?.displayName ?? context.labels.common.missingImage);
     setBackgroundBlockAsset(block, node.assetId, name);
+    setBackgroundBlockScalePercent(block, node.scalePercent);
   } else if (node.type === 'character') {
     if (node.mode === 'show') {
       const name =
@@ -314,6 +317,7 @@ function createNodeBlock(
               ?.displayName ?? context.labels.common.missingImage);
       setCharacterBlockAsset(block, node.assetId, name);
       setCharacterBlockPosition(block, node.slot, node.position);
+      setCharacterBlockScalePercent(block, node.scalePercent);
     }
     block.setFieldValue(String(node.layer), CHARACTER_BLOCK_FIELDS.layer);
   } else if (node.type === 'sceneJump') {

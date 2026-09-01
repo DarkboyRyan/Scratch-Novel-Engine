@@ -21,7 +21,7 @@ export type StandalonePlayerTemplateManifest = {
   platform: SupportedPlatform;
   arch: SupportedArchitecture;
   playerVersion: string;
-  runtimeCompatibility: '>=1 <11';
+  runtimeCompatibility: '>=1 <13';
   payloadRoot: string;
   artifactEntry: string;
   gameResourceDirectory: string;
@@ -112,7 +112,7 @@ function parseTemplateManifest(
     !/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(
       parsed.playerVersion,
     ) ||
-    parsed.runtimeCompatibility !== '>=1 <11' ||
+    parsed.runtimeCompatibility !== '>=1 <13' ||
     !isSafeRelativePath(parsed.payloadRoot) ||
     !isSafeRelativePath(parsed.artifactEntry) ||
     !isSafeRelativePath(parsed.gameResourceDirectory) ||
