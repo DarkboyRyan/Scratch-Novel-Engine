@@ -40,6 +40,7 @@ export const EDITOR_ARTIFACT_MANIFEST_SCHEMA_VERSION = 1;
 export const EDITOR_RELEASE_SET_SCHEMA_VERSION = 1;
 export const EDITOR_PRODUCT_NAME = 'VN Engine Editor';
 export const EDITOR_APP_BUNDLE_ID = 'com.vnengine.editor';
+export const EMBEDDED_PLAYER_RUNTIME_COMPATIBILITY = '>=1 <13';
 
 const RELEASE_TARGETS = [
   { platform: 'darwin', arch: 'arm64' },
@@ -439,7 +440,7 @@ async function verifyWebTemplate(root, expectedPlayerVersion) {
     manifest.templateVersion !== 1 ||
     manifest.payloadRoot !== 'payload' ||
     manifest.entry !== 'index.html' ||
-    manifest.runtimeCompatibility !== '>=1 <11' ||
+    manifest.runtimeCompatibility !== EMBEDDED_PLAYER_RUNTIME_COMPATIBILITY ||
     manifest.playerVersion !== expectedPlayerVersion ||
     !Array.isArray(manifest.files) ||
     manifest.files.length < 2
@@ -556,7 +557,7 @@ async function verifyPlayerTemplate(root, platform, arch, expectedPlayerVersion)
     manifest.platform !== platform ||
     manifest.arch !== arch ||
     manifest.playerVersion !== expectedPlayerVersion ||
-    manifest.runtimeCompatibility !== '>=1 <11' ||
+    manifest.runtimeCompatibility !== EMBEDDED_PLAYER_RUNTIME_COMPATIBILITY ||
     manifest.payloadRoot !== 'payload' ||
     Object.entries(expectedPaths).some(([key, value]) => manifest[key] !== value)
   ) {

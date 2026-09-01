@@ -24,6 +24,7 @@ import { ZipFile } from 'yazl';
 import {
   assertPeArchitecture,
   collectEditorArtifacts,
+  EMBEDDED_PLAYER_RUNTIME_COMPATIBILITY,
   expectedEditorArtifactName,
   locatePackagedEditor,
   snapshotApplicationTree,
@@ -241,6 +242,10 @@ test('sorts the complete application tree across directory and file prefixes', a
     'resources.pak',
     'resources/app.asar',
   ]);
+});
+
+test('validates embedded desktop and Web templates against Runtime v12', () => {
+  assert.equal(EMBEDDED_PLAYER_RUNTIME_COMPATIBILITY, '>=1 <13');
 });
 
 test('reports only fixed Editor archive phases and failure codes to GitHub output', async () => {
