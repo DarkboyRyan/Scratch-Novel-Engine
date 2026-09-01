@@ -106,6 +106,7 @@ function currentSnapshot() {
       .digest('hex'),
     expectedProject: compiled.sourceProject,
     expectedAssets: compiled.publicAssets,
+    defaultLanguage: 'zh-CN' as const,
   };
 }
 
@@ -163,6 +164,7 @@ function legacyV12Snapshot(contents: string) {
                   layer: 1,
                   position: null,
                   effect: null,
+                  scalePercent: 100,
                 },
                 {
                   id: 'legacy-dialogue',
@@ -178,6 +180,7 @@ function legacyV12Snapshot(contents: string) {
       ),
     },
     expectedAssets: current.expectedAssets,
+    defaultLanguage: 'en-US' as const,
   };
 }
 
@@ -232,7 +235,7 @@ afterEach(async () => {
 });
 
 describe('runtime bundle exporter', () => {
-  it('publishes a verified runtime v10 bundle with start-screen and CG assets', async () => {
+  it('publishes a verified runtime v12 bundle with the selected default language', async () => {
     const {
       projectRoot,
       outputParent,
@@ -248,6 +251,7 @@ describe('runtime bundle exporter', () => {
         targetBundlePath: targetPath,
         sourceRevision: 12,
         ...currentSnapshot(),
+        defaultLanguage: 'en-US',
         buildId: 'build-fixed',
         createdAt: '2026-08-18T00:00:00.000Z',
       }),
@@ -267,6 +271,7 @@ describe('runtime bundle exporter', () => {
       'id',
       'title',
       'entrySceneId',
+      'defaultLanguage',
       'startScreen',
       'cgGallery',
     ]);
@@ -278,11 +283,12 @@ describe('runtime bundle exporter', () => {
     ]);
     expect(game).toMatchObject({
       format: 'vn-engine-runtime',
-      runtimeVersion: 10,
+      runtimeVersion: 12,
       game: {
         id: 'project-1',
         title: 'Export Game',
         entrySceneId: 'scene-1',
+        defaultLanguage: 'en-US',
         startScreen: {
           title: 'Custom Title',
           eyebrow: 'A VN ENGINE STORY',
@@ -313,8 +319,8 @@ describe('runtime bundle exporter', () => {
       'files',
     ]);
     expect(manifest).toMatchObject({
-      runtimeVersion: 10,
-      playerCompatibility: '>=10 <11',
+      runtimeVersion: 12,
+      playerCompatibility: '>=12 <13',
     });
     expect(manifest.files).toEqual([
       {
@@ -357,6 +363,20 @@ describe('runtime bundle exporter', () => {
     expect(JSON.stringify({ game, manifest })).not.toContain(projectRoot);
   });
 
+  it('rejects a default language outside the runtime contract before publishing', async () => {
+    const { projectRoot, outputParent } = await createSavedProject();
+    const targetPath = path.join(outputParent, 'Invalid language.vngame');
+
+    await expect(exportRuntimeBundle({
+      sourceProjectRootPath: projectRoot,
+      targetBundlePath: targetPath,
+      sourceRevision: 1,
+      ...currentSnapshot(),
+      defaultLanguage: 'fr-FR' as 'en-US',
+    })).rejects.toThrow('游戏默认语言无效');
+    await expect(access(targetPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   it('exports an opened v14 project without requiring an extra save', async () => {
     const { projectRoot, outputParent } = await createSavedProject();
     const legacyDocument = projectDocument() as {
@@ -384,6 +404,7 @@ describe('runtime bundle exporter', () => {
         .digest('hex'),
       expectedProject: migratedSnapshot.sourceProject,
       expectedAssets: migratedSnapshot.publicAssets,
+      defaultLanguage: 'en-US',
       buildId: 'legacy-build',
       createdAt: '2026-08-18T00:00:00.000Z',
     })).resolves.toMatchObject({ assetCount: 3 });
@@ -420,13 +441,14 @@ describe('runtime bundle exporter', () => {
       await readFile(path.join(targetPath, 'game.json'), 'utf8'),
     ) as {
       runtimeVersion: number;
-      game: { cgGallery: unknown };
+      game: { defaultLanguage: string; cgGallery: unknown };
       scenes: Array<{ nodes: unknown[] }>;
     };
     const manifest = JSON.parse(
       await readFile(path.join(targetPath, 'manifest.json'), 'utf8'),
     ) as { files: Array<{ assetId: string }> };
-    expect(game.runtimeVersion).toBe(10);
+    expect(game.runtimeVersion).toBe(12);
+    expect(game.game.defaultLanguage).toBe('en-US');
     expect(game.game.cgGallery).toEqual({
       pages: [{ imageAssetIds: Array(9).fill(null) }],
     });
@@ -439,6 +461,7 @@ describe('runtime bundle exporter', () => {
         layer: 1,
         position: null,
         effect: null,
+        scalePercent: 100,
       },
       {
         id: 'legacy-dialogue',
@@ -508,6 +531,7 @@ describe('runtime bundle exporter', () => {
           id: 'legacy-scene',
           name: 'Legacy Scene',
           backgroundAssetId: null,
+          backgroundScalePercent: 100,
           nodes: [{
             id: 'legacy-dialogue',
             type: 'dialogue',
@@ -518,6 +542,7 @@ describe('runtime bundle exporter', () => {
         }],
       },
       expectedAssets: [],
+      defaultLanguage: 'en-US',
       buildId: 'legacy-v1-build',
       createdAt: '2026-08-18T00:00:00.000Z',
     })).resolves.toMatchObject({ assetCount: 0 });
@@ -526,10 +551,15 @@ describe('runtime bundle exporter', () => {
       await readFile(path.join(targetPath, 'game.json'), 'utf8'),
     ) as {
       runtimeVersion: number;
-      game: { startScreen: unknown; cgGallery: unknown };
+      game: {
+        defaultLanguage: string;
+        startScreen: unknown;
+        cgGallery: unknown;
+      };
       scenes: Array<{ backgroundAssetId: string | null; nodes: unknown[] }>;
     };
-    expect(game.runtimeVersion).toBe(10);
+    expect(game.runtimeVersion).toBe(12);
+    expect(game.game.defaultLanguage).toBe('en-US');
     expect(game.game.startScreen).toEqual({
       title: 'Legacy v1',
       eyebrow: 'A VN ENGINE STORY',
@@ -541,6 +571,7 @@ describe('runtime bundle exporter', () => {
     });
     expect(game.scenes[0]).toMatchObject({
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [{
         id: 'legacy-dialogue',
         type: 'dialogue',
@@ -556,7 +587,7 @@ describe('runtime bundle exporter', () => {
     const expected = currentSnapshot();
 
     const future = projectDocument() as { fileVersion: number };
-    future.fileVersion = 21;
+    future.fileVersion = 22;
     const futureContents = JSON.stringify(future);
     await writeFile(path.join(projectRoot, 'project.vn.json'), futureContents);
     await expect(exportRuntimeBundle({
@@ -724,6 +755,7 @@ describe('runtime bundle exporter', () => {
         expectedManifestSha256: currentSnapshot().expectedManifestSha256,
         expectedProject: changedProject,
         expectedAssets: currentSnapshot().expectedAssets,
+        defaultLanguage: 'zh-CN',
       }),
     ).rejects.toThrow('磁盘项目与当前编辑器项目不一致');
 
@@ -737,6 +769,7 @@ describe('runtime bundle exporter', () => {
         expectedManifestSha256: currentSnapshot().expectedManifestSha256,
         expectedProject: currentSnapshot().expectedProject,
         expectedAssets: changedAssets,
+        defaultLanguage: 'zh-CN',
       }),
     ).rejects.toThrow('磁盘资源清单与当前编辑器项目不一致');
   });

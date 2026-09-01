@@ -31,9 +31,15 @@ const project: ProjectDocument = {
       id: 'entry',
       name: 'Entry',
       backgroundAssetId: 'entry-background',
+      backgroundScalePercent: 100,
       nodes: [
         { id: 'music', type: 'bgm', assetId: 'theme' },
-        { id: 'background', type: 'background', assetId: 'room' },
+        {
+          id: 'background',
+          type: 'background',
+          assetId: 'room',
+          scalePercent: 100,
+        },
         {
           id: 'character',
           type: 'character',
@@ -41,6 +47,7 @@ const project: ProjectDocument = {
           slot: 'left',
           layer: 2,
           position: { x: 25, y: 90 },
+          scalePercent: 100,
           effect: null,
         },
         {
@@ -65,6 +72,7 @@ const project: ProjectDocument = {
       id: 'ending',
       name: 'Ending',
       backgroundAssetId: 'ending-background',
+      backgroundScalePercent: 100,
       nodes: [
         {
           id: 'ending-dialogue',
@@ -85,11 +93,12 @@ describe('versioned game runtime snapshots', () => {
     const snapshot = createGameRuntimeSnapshot(project, runtime!);
 
     expect(snapshot).toEqual({
-      snapshotVersion: 4,
+      snapshotVersion: 5,
       status: 'playing',
       sceneId: 'entry',
       nextNodeIndex: 4,
       backgroundAssetId: 'room',
+      backgroundScalePercent: 100,
       bgmAssetId: 'theme',
       bgmSequence: 1,
       dialogueSequence: 1,
@@ -104,6 +113,7 @@ describe('versioned game runtime snapshots', () => {
         slot: 'left',
         layer: 2,
         position: { x: 25, y: 90 },
+        scalePercent: 100,
         opacity: 1,
         effectSequence: 1,
       }],
@@ -154,6 +164,7 @@ describe('versioned game runtime snapshots', () => {
         id: 'entry',
         name: 'Entry',
         backgroundAssetId: null,
+        backgroundScalePercent: 100,
         nodes: [
           { id: 'cg', type: 'cgDisplay', assetId: 'cg-image', leadInMs: 1200 },
           {
@@ -178,7 +189,7 @@ describe('versioned game runtime snapshots', () => {
     const waiting = startGame(cgProject)!;
     const waitingSnapshot = createGameRuntimeSnapshot(cgProject, waiting)!;
     expect(waitingSnapshot).toMatchObject({
-      snapshotVersion: 4,
+      snapshotVersion: 5,
       status: 'waitingCgLeadIn',
       cgAssetId: 'cg-image',
       cgLeadInMs: 1200,
@@ -287,6 +298,83 @@ describe('versioned game runtime snapshots', () => {
     expect(restoreGameRuntimeSnapshot(project, v3Snapshot)).toEqual(runtime);
   });
 
+  it('round-trips v5 scales and restores v4 image state at 100 percent', () => {
+    const scaledProject: ProjectDocument = {
+      ...project,
+      id: 'snapshot-scales',
+      scenes: [
+        {
+          ...project.scenes[0]!,
+          backgroundAssetId: 'entry-background',
+          backgroundScalePercent: 80,
+          nodes: project.scenes[0]!.nodes.map((node) =>
+            node.type === 'background'
+              ? { ...node, scalePercent: 125 }
+              : node.type === 'character'
+                ? { ...node, scalePercent: 70 }
+                : node),
+        },
+        project.scenes[1]!,
+      ],
+    };
+    const runtime = startGame(scaledProject)!;
+    const snapshot = createGameRuntimeSnapshot(scaledProject, runtime)!;
+    expect(snapshot).toMatchObject({
+      snapshotVersion: 5,
+      backgroundScalePercent: 125,
+      characters: [{ scalePercent: 70 }],
+    });
+    expect(restoreGameRuntimeSnapshot(scaledProject, snapshot)).toEqual(runtime);
+
+    const {
+      backgroundScalePercent: _backgroundScalePercent,
+      ...withoutBackgroundScale
+    } = snapshot;
+    const v4Snapshot = {
+      ...withoutBackgroundScale,
+      snapshotVersion: 4 as const,
+      characters: snapshot.characters.map((character) => {
+        const { scalePercent: _scalePercent, ...legacyCharacter } = character;
+        return legacyCharacter;
+      }),
+    };
+    expect(restoreGameRuntimeSnapshot(scaledProject, v4Snapshot)).toMatchObject({
+      backgroundScalePercent: 100,
+      characters: [{ scalePercent: 100 }],
+    });
+    expect(restoreGameRuntimeSnapshot(scaledProject, {
+      ...v4Snapshot,
+      characters: snapshot.characters,
+    })).toBeNull();
+  });
+
+  it('persists a scaled scene-initial background in v5 saves', () => {
+    const initialScaleProject: ProjectDocument = {
+      ...project,
+      id: 'snapshot-initial-scale',
+      scenes: [
+        {
+          ...project.scenes[0]!,
+          backgroundScalePercent: 85,
+          nodes: project.scenes[0]!.nodes.filter(
+            (node) => node.type !== 'background',
+          ),
+        },
+        project.scenes[1]!,
+      ],
+    };
+    const runtime = startGame(initialScaleProject)!;
+    const snapshot = createGameRuntimeSnapshot(initialScaleProject, runtime)!;
+    expect(snapshot).toMatchObject({
+      snapshotVersion: 5,
+      backgroundAssetId: 'entry-background',
+      backgroundScalePercent: 85,
+    });
+    expect(restoreGameRuntimeSnapshot(initialScaleProject, snapshot)).toEqual(
+      runtime,
+    );
+  });
+
   it('stores final character opacity but strips transient effects on restore', () => {
     const effectProject: ProjectDocument = {
       ...project,
@@ -296,6 +384,7 @@ describe('versioned game runtime snapshots', () => {
         id: 'entry',
         name: 'Effect',
         backgroundAssetId: null,
+        backgroundScalePercent: 100,
         nodes: [
           {
             id: 'fade-out',
@@ -304,6 +393,7 @@ describe('versioned game runtime snapshots', () => {
             slot: 'center',
             layer: 1,
             position: null,
+            scalePercent: 100,
             effect: { type: 'fadeOut', durationMs: 800 },
           },
           {
@@ -320,6 +410,7 @@ describe('versioned game runtime snapshots', () => {
             slot: 'center',
             layer: 1,
             position: null,
+            scalePercent: 100,
             effect: null,
           },
           {
@@ -329,6 +420,7 @@ describe('versioned game runtime snapshots', () => {
             slot: 'center',
             layer: 1,
             position: null,
+            scalePercent: 100,
             effect: { type: 'fadeIn', durationMs: 500 },
           },
           {
@@ -356,6 +448,7 @@ describe('versioned game runtime snapshots', () => {
       slot: 'center',
       layer: 1,
       position: null,
+      scalePercent: 100,
       opacity: 0,
       effectSequence: 1,
     });
@@ -367,6 +460,7 @@ describe('versioned game runtime snapshots', () => {
       slot: 'center',
       layer: 1,
       position: null,
+      scalePercent: 100,
       opacity: 0,
       effect: null,
       effectSequence: 1,
@@ -426,6 +520,7 @@ describe('versioned game runtime snapshots', () => {
         id: 'entry',
         name: 'Logic',
         backgroundAssetId: 'entry-background',
+        backgroundScalePercent: 100,
         nodes: [
           { id: 'set', type: 'variableSet', variableName: 'route', value: 1 },
           {
@@ -437,9 +532,19 @@ describe('versioned game runtime snapshots', () => {
               right: { kind: 'literal', value: 1 },
             },
           },
-          { id: 'chosen-background', type: 'background', assetId: 'room' },
+          {
+            id: 'chosen-background',
+            type: 'background',
+            assetId: 'room',
+            scalePercent: 100,
+          },
           { id: 'else', type: 'logicElse', ifNodeId: 'if' },
-          { id: 'other-background', type: 'background', assetId: 'other-room' },
+          {
+            id: 'other-background',
+            type: 'background',
+            assetId: 'other-room',
+            scalePercent: 100,
+          },
           { id: 'endif', type: 'logicEndIf', ifNodeId: 'if' },
           { id: 'overwrite', type: 'variableSet', variableName: 'route', value: 0 },
           { id: 'repeat', type: 'logicRepeat', count: 3 },
@@ -450,6 +555,7 @@ describe('versioned game runtime snapshots', () => {
             slot: 'right',
             layer: 1,
             position: null,
+            scalePercent: 100,
             effect: null,
           },
           {
@@ -475,7 +581,7 @@ describe('versioned game runtime snapshots', () => {
     const second = advanceGame(logicProject, first);
     expect(second.loopStack[0]?.remainingIterations).toBe(2);
     const snapshot = createGameRuntimeSnapshot(logicProject, second);
-    expect(snapshot?.snapshotVersion).toBe(4);
+    expect(snapshot?.snapshotVersion).toBe(5);
     expect(restoreGameRuntimeSnapshot(logicProject, snapshot)).toEqual(second);
     expect(restoreGameRuntimeSnapshot(logicProject, {
       ...snapshot,

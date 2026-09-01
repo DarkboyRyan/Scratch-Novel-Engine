@@ -1,5 +1,5 @@
 /**
- * 文件主要作用：验证 author project v20 compiler 的行为。
+ * 文件主要作用：验证 author project v21 compiler 的行为。
  * 测试覆盖：严格编译、旧版迁移、Author 人物模式与标题界面的 Runtime 投影。
  */
 
@@ -18,7 +18,7 @@ import {
 function authorProject(): Record<string, unknown> {
   return {
     format: 'vn-engine-project',
-    fileVersion: 20,
+    fileVersion: 21,
     project: {
       schemaVersion: 1,
       id: 'project-1',
@@ -47,7 +47,11 @@ function authorProject(): Record<string, unknown> {
           schemaVersion: 1,
           id: 'scene-1',
           name: '开场',
-          visuals: { backgroundAssetId: 'image-1', characters: [] },
+          visuals: {
+            backgroundAssetId: 'image-1',
+            backgroundScalePercent: 80,
+            characters: [],
+          },
           nodes: [
             {
               id: 'dialogue-1',
@@ -56,7 +60,12 @@ function authorProject(): Record<string, unknown> {
               text: '开始',
               voiceAssetId: 'audio-1',
             },
-            { id: 'background-1', type: 'background', assetId: null },
+            {
+              id: 'background-1',
+              type: 'background',
+              assetId: null,
+              scalePercent: 100,
+            },
             {
               id: 'character-1',
               type: 'character',
@@ -64,6 +73,7 @@ function authorProject(): Record<string, unknown> {
               assetId: 'image-2',
               slot: 'center',
               layer: 2,
+              scalePercent: 125,
               position: { x: 41.5, y: 90 },
               effect: null,
             },
@@ -83,7 +93,11 @@ function authorProject(): Record<string, unknown> {
           schemaVersion: 1,
           id: 'scene-2',
           name: '结尾',
-          visuals: { backgroundAssetId: null, characters: [] },
+          visuals: {
+            backgroundAssetId: null,
+            backgroundScalePercent: 100,
+            characters: [],
+          },
           nodes: [
             { id: 'jump-1', type: 'sceneJump', targetSceneId: 'scene-1' },
           ],
@@ -153,10 +167,22 @@ function downgradeTo(
     delete startScreen.eyebrow;
   }
   const scenes = (document.project as {
-    scenes: Array<{ nodes: Array<Record<string, unknown>> }>;
+    scenes: Array<{
+      visuals: Record<string, unknown>;
+      nodes: Array<Record<string, unknown>>;
+    }>;
   }).scenes;
   for (const scene of scenes) {
+    if (fileVersion < 21) {
+      delete scene.visuals.backgroundScalePercent;
+    }
     for (const node of scene.nodes) {
+      if (
+        fileVersion < 21 &&
+        (node.type === 'background' || node.type === 'character')
+      ) {
+        delete node.scalePercent;
+      }
       if (node.type === 'character') {
         if (fileVersion < 19) {
           delete node.mode;
@@ -169,17 +195,42 @@ function downgradeTo(
   }
 }
 
-describe('author project v20 compiler', () => {
-  it('builds exact runtime v10 data and includes fixed CG pages and CG-only assets', () => {
-    const result = compile(authorProject());
+describe('author project v21 compiler', () => {
+  it('preserves empty speaker and text fields in the runtime projection', () => {
+    const document = authorProject() as {
+      project: { scenes: Array<{ nodes: Array<Record<string, unknown>> }> };
+    };
+    document.project.scenes[0]!.nodes[0] = {
+      id: 'dialogue-1',
+      type: 'dialogue',
+      speaker: '',
+      text: '',
+      voiceAssetId: 'audio-1',
+    };
+
+    expect(compile(document).game.scenes[0]!.nodes[0]).toEqual({
+      id: 'dialogue-1',
+      type: 'dialogue',
+      speaker: '',
+      text: '',
+      voiceAssetId: 'audio-1',
+    });
+  });
+
+  it('builds exact runtime v12 data with the selected default language', () => {
+    const result = compileAuthorProjectV15(
+      JSON.stringify(authorProject()),
+      'en-US',
+    );
 
     expect(result.game).toMatchObject({
       format: 'vn-engine-runtime',
-      runtimeVersion: 10,
+      runtimeVersion: 12,
       game: {
         id: 'project-1',
         title: '导出测试',
         entrySceneId: 'scene-1',
+        defaultLanguage: 'en-US',
         startScreen: {
           title: '星光物语',
           eyebrow: 'A CUSTOM STORY',
@@ -200,16 +251,19 @@ describe('author project v20 compiler', () => {
         },
       },
     });
+    expect(compile(authorProject()).game.game.defaultLanguage).toBe('zh-CN');
     expect(result.game.scenes[0]).toMatchObject({
       schemaVersion: 1,
       id: 'scene-1',
       backgroundAssetId: 'image-1',
+      backgroundScalePercent: 80,
     });
     expect(result.game.scenes[0]).not.toHaveProperty('visuals');
     expect(result.game.scenes[0].nodes).toContainEqual(
       expect.objectContaining({
         id: 'character-1',
         position: { x: 41.5, y: 90 },
+        scalePercent: 125,
       }),
     );
     expect(result.sourceProject.scenes[0].nodes).toContainEqual({
@@ -247,6 +301,82 @@ describe('author project v20 compiler', () => {
     expect(result.allAssetCount).toBe(7);
   });
 
+  it('migrates v20 image scales and validates v21 scales strictly', () => {
+    const legacy = authorProject();
+    downgradeTo(legacy, 20);
+    const migrated = compile(legacy);
+    expect(migrated.sourceProject.scenes[0]).toMatchObject({
+      backgroundScalePercent: 100,
+      nodes: expect.arrayContaining([
+        expect.objectContaining({ id: 'background-1', scalePercent: 100 }),
+        expect.objectContaining({ id: 'character-1', scalePercent: 100 }),
+      ]),
+    });
+    expect(migrated.game.scenes[0]).toMatchObject({
+      backgroundScalePercent: 100,
+      nodes: expect.arrayContaining([
+        expect.objectContaining({ id: 'background-1', scalePercent: 100 }),
+        expect.objectContaining({ id: 'character-1', scalePercent: 100 }),
+      ]),
+    });
+
+    const missingSceneScale = authorProject();
+    delete (missingSceneScale.project as {
+      scenes: Array<{ visuals: Record<string, unknown> }>;
+    }).scenes[0]!.visuals.backgroundScalePercent;
+    expect(() => compile(missingSceneScale)).toThrow(
+      '字段不符合作者项目 v21',
+    );
+
+    for (const [target, scalePercent] of [
+      ['scene', 9],
+      ['scene', 301],
+      ['background', 100.5],
+      ['character', true],
+    ] as const) {
+      const invalid = authorProject();
+      const scene = (invalid.project as {
+        scenes: Array<{
+          visuals: Record<string, unknown>;
+          nodes: Array<Record<string, unknown>>;
+        }>;
+      }).scenes[0]!;
+      if (target === 'scene') {
+        scene.visuals.backgroundScalePercent = scalePercent;
+      } else {
+        scene.nodes[target === 'background' ? 1 : 2]!.scalePercent =
+          scalePercent;
+      }
+      expect(() => compile(invalid)).toThrow(
+        target === 'scene' ? 'backgroundScalePercent' : 'scalePercent',
+      );
+    }
+
+    const invalidNullBackground = authorProject();
+    const nullBackgroundScene = (invalidNullBackground.project as {
+      scenes: Array<{
+        visuals: Record<string, unknown>;
+        nodes: Array<Record<string, unknown>>;
+      }>;
+    }).scenes[0]!;
+    nullBackgroundScene.visuals.backgroundAssetId = null;
+    expect(() => compile(invalidNullBackground)).toThrow(
+      'backgroundAssetId 为 null 时 backgroundScalePercent 必须是 100',
+    );
+
+    const invalidClearScale = authorProject();
+    const clearCharacter = (invalidClearScale.project as {
+      scenes: Array<{ nodes: Array<Record<string, unknown>> }>;
+    }).scenes[0]!.nodes[2]!;
+    clearCharacter.mode = 'clear';
+    clearCharacter.assetId = null;
+    clearCharacter.position = null;
+    clearCharacter.effect = null;
+    expect(() => compile(invalidClearScale)).toThrow(
+      'scalePercent 在 clear 模式下必须是 100',
+    );
+  });
+
   it('keeps unresolved show nodes as preview no-ops and explicit clear nodes destructive', () => {
     const sourceProject = compile(authorProject()).sourceProject;
     const sourceCharacter = sourceProject.scenes[0]!.nodes.find(
@@ -276,6 +406,7 @@ describe('author project v20 compiler', () => {
             assetId: null,
             position: null,
             effect: null,
+            scalePercent: 100,
           },
         ],
       }],
@@ -292,6 +423,7 @@ describe('author project v20 compiler', () => {
         layer: 2,
         position: { x: 41.5, y: 90 },
         effect: null,
+        scalePercent: 125,
       },
       {
         id: 'character-clear',
@@ -301,6 +433,7 @@ describe('author project v20 compiler', () => {
         layer: 2,
         position: null,
         effect: null,
+        scalePercent: 100,
       },
     ]);
     expect(runtimeCharacters.every((node) => !Object.hasOwn(node, 'mode')))
@@ -330,7 +463,7 @@ describe('author project v20 compiler', () => {
     expect((thrown as Error).message).toContain('尚未选择人物立绘图片');
   });
 
-  it('compiles explicit clear and strictly validates its v20 null fields', () => {
+  it('compiles explicit clear and strictly validates its v21 null fields', () => {
     const cleared = authorProject();
     const clearCharacter = (cleared.project as {
       scenes: Array<{ nodes: Array<Record<string, unknown>> }>;
@@ -339,6 +472,7 @@ describe('author project v20 compiler', () => {
     clearCharacter.assetId = null;
     clearCharacter.position = null;
     clearCharacter.effect = null;
+    clearCharacter.scalePercent = 100;
 
     expect(compile(cleared).project.scenes[0]!.nodes[2]).toEqual({
       id: 'character-1',
@@ -348,6 +482,7 @@ describe('author project v20 compiler', () => {
       layer: 2,
       position: null,
       effect: null,
+      scalePercent: 100,
     });
 
     for (const [field, value, message] of [
@@ -395,6 +530,7 @@ describe('author project v20 compiler', () => {
       layer: 2,
       position: null,
       effect: null,
+      scalePercent: 100,
     });
   });
 
@@ -514,7 +650,12 @@ describe('author project v20 compiler', () => {
         assetId: 'image-1',
         leadInMs: 0,
       },
-      { id: 'background-inside', type: 'background', assetId: null },
+      {
+        id: 'background-inside',
+        type: 'background',
+        assetId: null,
+        scalePercent: 100,
+      },
       {
         id: 'cg-end-1',
         type: 'cgEndDisplay',
@@ -605,7 +746,7 @@ describe('author project v20 compiler', () => {
 
     const unknownField = authorProject();
     (unknownField.project as Record<string, unknown>).nativePath = '/private/tmp';
-    expect(() => compile(unknownField)).toThrow('字段不符合作者项目 v20');
+    expect(() => compile(unknownField)).toThrow('字段不符合作者项目 v21');
   });
 
   it('rejects an empty or ASCII-padded custom title', () => {
@@ -660,7 +801,7 @@ describe('author project v20 compiler', () => {
     const missing = authorProject();
     delete (missing.project as { startScreen: Record<string, unknown> })
       .startScreen.eyebrow;
-    expect(() => compile(missing)).toThrow('字段不符合作者项目 v20');
+    expect(() => compile(missing)).toThrow('字段不符合作者项目 v21');
   });
 
   it('rejects duplicate IDs and duplicate asset paths', () => {
@@ -853,7 +994,7 @@ describe('author project v20 compiler', () => {
     const forgedLegacy = authorProject();
     forgedLegacy.fileVersion = 17;
     expect(() => compile(forgedLegacy)).toThrow(
-      '字段不符合作者项目 v20',
+      '字段不符合作者项目 v21',
     );
 
     const missingCurrentField = authorProject();
@@ -862,7 +1003,7 @@ describe('author project v20 compiler', () => {
     }).scenes[0]!.nodes[2]!;
     delete missingCharacter.effect;
     expect(() => compile(missingCurrentField)).toThrow(
-      '字段不符合作者项目 v20',
+      '字段不符合作者项目 v21',
     );
   });
 

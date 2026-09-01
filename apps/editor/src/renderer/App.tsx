@@ -10,6 +10,11 @@ import {
   type EditorSettings,
 } from '../shared/editorSettingsProtocol';
 import type { GameExportRequest } from '../shared/exportProtocol';
+import {
+  DEFAULT_IMAGE_SCALE_PERCENT,
+  isImageScalePercent,
+} from '../shared/projectTypes';
+import type { SceneDocument } from '../shared/projectTypes';
 import type { EditorMode } from './application/editorMode';
 import {
   resolveEditorAssetPreviewUrl,
@@ -69,7 +74,66 @@ type EditorApplicationProps = {
   onOpenSettings: () => void;
 };
 
-function EditorApplication({
+type SceneBackgroundScaleDraft = {
+  projectId: string;
+  sceneId: string;
+  value: string;
+};
+
+function parseImageScaleDraft(value: string): number | null {
+  if (value.trim().length === 0) {
+    return null;
+  }
+  const scalePercent = Number(value);
+  return isImageScalePercent(scalePercent) ? scalePercent : null;
+}
+
+function projectScaleDraftsOntoPreviewScene(
+  scene: SceneDocument,
+  sceneScalePercent: number | null,
+  selectedNodeId: string | null,
+  selectedNodeScalePercent: number | null,
+): SceneDocument {
+  const backgroundScalePercent =
+    scene.backgroundAssetId !== null && sceneScalePercent !== null
+      ? sceneScalePercent
+      : scene.backgroundScalePercent;
+  let nodes = scene.nodes;
+
+  if (selectedNodeId !== null && selectedNodeScalePercent !== null) {
+    const selectedNodeIndex = scene.nodes.findIndex(
+      (node) => node.id === selectedNodeId,
+    );
+    const selectedNode = scene.nodes[selectedNodeIndex];
+    const selectedNodeSupportsScale =
+      (selectedNode?.type === 'background' &&
+        selectedNode.assetId !== null) ||
+      (selectedNode?.type === 'character' &&
+        selectedNode.mode === 'show' &&
+        selectedNode.assetId !== null);
+
+    if (
+      selectedNodeSupportsScale &&
+      selectedNode.scalePercent !== selectedNodeScalePercent
+    ) {
+      nodes = [...scene.nodes];
+      nodes[selectedNodeIndex] = {
+        ...selectedNode,
+        scalePercent: selectedNodeScalePercent,
+      };
+    }
+  }
+
+  if (
+    backgroundScalePercent === scene.backgroundScalePercent &&
+    nodes === scene.nodes
+  ) {
+    return scene;
+  }
+  return { ...scene, backgroundScalePercent, nodes };
+}
+
+export function EditorApplication({
   settings,
   isSettingsSaving,
   settingsSaveFailed,
@@ -110,22 +174,55 @@ function EditorApplication({
     labels.app.untitledProject,
   );
   const [blockDraftDirty, setBlockDraftDirty] = useState(false);
+  const [sceneBackgroundScaleDraft, setSceneBackgroundScaleDraftState] =
+    useState<SceneBackgroundScaleDraft | null>(null);
+  const sceneBackgroundScaleDraftRef =
+    useRef<SceneBackgroundScaleDraft | null>(null);
+  const sceneBackgroundScaleCommitRef = useRef<Promise<boolean> | null>(null);
   const projectNameCommitRef = useRef<Promise<boolean> | null>(null);
   const projectNameDraftDirty = Boolean(
     project &&
       isRenamingProject &&
       projectNameDraft !== project.name,
   );
+  const activeSceneBackgroundScaleDraft =
+    project && scene && !isSyntheticSurfaceSelected &&
+      sceneBackgroundScaleDraft?.projectId === project.id &&
+      sceneBackgroundScaleDraft.sceneId === scene.id
+      ? sceneBackgroundScaleDraft
+      : null;
+  const sceneBackgroundScaleDraftValue =
+    activeSceneBackgroundScaleDraft?.value ??
+      String(scene?.backgroundScalePercent ?? DEFAULT_IMAGE_SCALE_PERCENT);
+  const sceneBackgroundScaleDraftInvalid =
+    !isSyntheticSurfaceSelected && scene?.backgroundAssetId !== null &&
+      parseImageScaleDraft(sceneBackgroundScaleDraftValue) === null;
+  const sceneBackgroundScaleDraftDirty = Boolean(
+    scene && activeSceneBackgroundScaleDraft &&
+      activeSceneBackgroundScaleDraft.value !==
+        String(scene.backgroundScalePercent),
+  );
   const isDirty =
     engine.session.isDirty ||
     editor.draftDirty ||
     projectNameDraftDirty ||
-    blockDraftDirty;
+    blockDraftDirty ||
+    sceneBackgroundScaleDraftDirty;
   const latestActionsRef = useRef({
     create: async () => {},
     open: async () => {},
     save: async () => {},
   });
+
+  useEffect(() => {
+    sceneBackgroundScaleDraftRef.current = null;
+    setSceneBackgroundScaleDraftState(null);
+  }, [
+    engine.projectGeneration,
+    isSyntheticSurfaceSelected,
+    project?.id,
+    scene?.id,
+  ]);
 
   const handleCreateProject = async () => {
     setNewProjectName(labels.app.untitledProject);
@@ -200,7 +297,86 @@ function EditorApplication({
     }
   };
 
-  const prepareCurrentEdits = async (): Promise<boolean> => {
+  const setSceneBackgroundScaleDraft = (value: string): void => {
+    if (!project || !scene || isSyntheticSurfaceSelected) {
+      return;
+    }
+    const nextDraft: SceneBackgroundScaleDraft = {
+      projectId: project.id,
+      sceneId: scene.id,
+      value,
+    };
+    sceneBackgroundScaleDraftRef.current = nextDraft;
+    setSceneBackgroundScaleDraftState(nextDraft);
+  };
+
+  const clearCommittedSceneBackgroundScaleDraft = (
+    owner: Pick<SceneBackgroundScaleDraft, 'projectId' | 'sceneId'>,
+    committedValue: string,
+  ): void => {
+    const matches = (candidate: SceneBackgroundScaleDraft | null) =>
+      candidate?.projectId === owner.projectId &&
+      candidate.sceneId === owner.sceneId &&
+      candidate.value === committedValue;
+    if (matches(sceneBackgroundScaleDraftRef.current)) {
+      sceneBackgroundScaleDraftRef.current = null;
+    }
+    setSceneBackgroundScaleDraftState(
+      (current) => matches(current) ? null : current,
+    );
+  };
+
+  const commitSceneBackgroundScaleDraft = async (): Promise<boolean> => {
+    if (sceneBackgroundScaleCommitRef.current) {
+      return sceneBackgroundScaleCommitRef.current;
+    }
+    if (!project || !scene || isSyntheticSurfaceSelected) {
+      return true;
+    }
+
+    const owner = { projectId: project.id, sceneId: scene.id };
+    const currentDraft = sceneBackgroundScaleDraftRef.current;
+    const rawValue =
+      currentDraft?.projectId === project.id &&
+        currentDraft.sceneId === scene.id
+        ? currentDraft.value
+        : String(scene.backgroundScalePercent);
+    if (scene.backgroundAssetId === null) {
+      clearCommittedSceneBackgroundScaleDraft(owner, rawValue);
+      return true;
+    }
+    const scalePercent = parseImageScaleDraft(rawValue);
+    if (scalePercent === null) {
+      return false;
+    }
+    if (scalePercent === scene.backgroundScalePercent) {
+      clearCommittedSceneBackgroundScaleDraft(owner, rawValue);
+      return true;
+    }
+
+    const commit = (async (): Promise<boolean> => {
+      const saved = await engine.setSceneBackground(
+        scene.id,
+        scene.backgroundAssetId,
+        scalePercent,
+      );
+      if (!saved) {
+        return false;
+      }
+      clearCommittedSceneBackgroundScaleDraft(owner, rawValue);
+      return true;
+    })();
+    sceneBackgroundScaleCommitRef.current = commit;
+    try {
+      return await commit;
+    } finally {
+      if (sceneBackgroundScaleCommitRef.current === commit) {
+        sceneBackgroundScaleCommitRef.current = null;
+      }
+    }
+  };
+
+  const prepareEditorEdits = async (): Promise<boolean> => {
     // 先提交当前正在编辑的视图，再提交项目名，最后才写文件。
     // Blockly 必须第一个 flush：项目重命名返回的 C++ 快照会重绘
     // workspace，如果先重命名，可能把仍在输入框中的最新文字覆盖。
@@ -233,6 +409,13 @@ function EditorApplication({
       setBlockDraftDirty(false);
     }
     return prepared;
+  };
+
+  const prepareCurrentEdits = async (): Promise<boolean> => {
+    if (!(await prepareEditorEdits())) {
+      return false;
+    }
+    return commitSceneBackgroundScaleDraft();
   };
 
   const handleSaveProject = async () => {
@@ -305,7 +488,7 @@ function EditorApplication({
   };
 
   const handleSelectBackground = async (
-    assetId: string | null,
+    next: { assetId: string | null; scalePercent: number },
   ): Promise<void> => {
     if (!project || !scene) {
       return;
@@ -319,7 +502,7 @@ function EditorApplication({
 
     if (isStartScreenSelected) {
       await updateStartScreenFromLatest(
-        { backgroundAssetId: assetId },
+        { backgroundAssetId: next.assetId },
         prepareCurrentEdits,
         engine.getProjectSnapshot,
         engine.updateStartScreen,
@@ -327,17 +510,49 @@ function EditorApplication({
       return;
     }
 
-    if (scene.backgroundAssetId === assetId) {
+    const currentDraft = sceneBackgroundScaleDraftRef.current;
+    const draftBelongsToScene = Boolean(
+      currentDraft?.projectId === project.id &&
+        currentDraft.sceneId === scene.id,
+    );
+    const rawDraftValue = draftBelongsToScene && currentDraft
+      ? currentDraft.value
+      : String(next.scalePercent);
+    const draftScalePercent = parseImageScaleDraft(rawDraftValue);
+    const scalePercent = next.assetId === null
+      ? DEFAULT_IMAGE_SCALE_PERCENT
+      : draftScalePercent;
+    if (
+      scene.backgroundAssetId === next.assetId &&
+      scene.backgroundScalePercent === scalePercent &&
+      !sceneBackgroundScaleDraftDirty
+    ) {
       return;
     }
 
     // 背景命令也会返回完整 C++ 快照。先提交当前编辑器草稿，避免
     // 快照重绘 Blockly 或表单时覆盖尚未写入 C++ 的文字。
-    if (!(await prepareCurrentEdits())) {
+    // 初始背景缩放草稿不在这里单独提交；它和新资源共用
+    // 同一次 setSceneBackground，避免中间快照把缩放写到旧资源。
+    if (
+      !(await prepareEditorEdits()) ||
+      (draftBelongsToScene && draftScalePercent === null) ||
+      scalePercent === null
+    ) {
       return;
     }
 
-    await engine.setSceneBackground(scene.id, assetId);
+    const saved = await engine.setSceneBackground(
+      scene.id,
+      next.assetId,
+      scalePercent,
+    );
+    if (saved && draftBelongsToScene) {
+      clearCommittedSceneBackgroundScaleDraft(
+        { projectId: project.id, sceneId: scene.id },
+        rawDraftValue,
+      );
+    }
   };
 
   const handleSceneChange = async (nextSceneId: string): Promise<void> => {
@@ -356,14 +571,7 @@ function EditorApplication({
       ) {
         return;
       }
-      const committed = isCgGallerySelected
-        ? await (cgGalleryEditorRef.current?.flushPendingDraft() ?? true)
-        : isStartScreenSelected
-          ? await (startScreenEditorRef.current?.flushPendingDraft() ?? true)
-          : editorMode === 'form'
-          ? await editor.commitPendingDraft()
-          : await (blockEditorRef.current?.flushPendingDraft() ?? true);
-      if (committed) {
+      if (await prepareCurrentEdits()) {
         dispatchEditorSurface({
           type: selectingStartScreen
             ? 'select-start-screen'
@@ -379,16 +587,18 @@ function EditorApplication({
       return;
     }
 
-    if (isSyntheticSurfaceSelected) {
-      const flushed = isCgGallerySelected
-        ? await (cgGalleryEditorRef.current?.flushPendingDraft() ?? true)
-        : await (startScreenEditorRef.current?.flushPendingDraft() ?? true);
-      if (!flushed) {
-        return;
-      }
+    if (!(await prepareCurrentEdits())) {
+      return;
     }
     await editor.selectScene(nextSceneId);
     dispatchEditorSurface({ type: 'select-story' });
+  };
+
+  const handleAddScene = async (): Promise<void> => {
+    if (engine.isBusy || !(await prepareCurrentEdits())) {
+      return;
+    }
+    await editor.addScene();
   };
 
   const handleEditorModeChange = async (
@@ -400,15 +610,7 @@ function EditorApplication({
 
     // 切换视图会卸载当前编辑器，所以先把它的草稿提交给
     // C++。提交失败就留在当前模式，避免隐藏或丢失用户输入。
-    const committed = isCgGallerySelected
-      ? await (cgGalleryEditorRef.current?.flushPendingDraft() ?? true)
-      : isStartScreenSelected
-      ? await (startScreenEditorRef.current?.flushPendingDraft() ?? true)
-      : editorMode === 'form'
-        ? await editor.commitPendingDraft()
-        : await (blockEditorRef.current?.flushPendingDraft() ?? true);
-
-    if (committed) {
+    if (await prepareCurrentEdits()) {
       setEditorMode(nextMode);
     }
   };
@@ -483,8 +685,16 @@ function EditorApplication({
     );
   }
 
-  const timelinePreview = deriveTimelinePreview(
+  const previewScene = projectScaleDraftsOntoPreviewScene(
     scene,
+    parseImageScaleDraft(sceneBackgroundScaleDraftValue),
+    editor.selectedNodeId,
+    typeof editor.selectedImageScaleDraft === 'string'
+      ? parseImageScaleDraft(editor.selectedImageScaleDraft)
+      : null,
+  );
+  const timelinePreview = deriveTimelinePreview(
+    previewScene,
     editor.selectedNodeId,
   );
   const backgroundAsset = timelinePreview.backgroundAssetId
@@ -518,6 +728,7 @@ function EditorApplication({
       slot: character.slot,
       layer: character.layer,
       position: character.position,
+      scalePercent: character.scalePercent,
       opacity: character.opacity,
       effect: null,
       effectSequence: character.effectSequence,
@@ -575,6 +786,20 @@ function EditorApplication({
               ? null
             : scene.backgroundAssetId
         }
+        backgroundScalePercent={
+          isStartScreenSelected || isCgGallerySelected
+            ? DEFAULT_IMAGE_SCALE_PERCENT
+            : scene.backgroundScalePercent
+        }
+        backgroundScaleDraft={
+          isStartScreenSelected || isCgGallerySelected
+            ? String(DEFAULT_IMAGE_SCALE_PERCENT)
+            : sceneBackgroundScaleDraftValue
+        }
+        backgroundScaleDraftInvalid={sceneBackgroundScaleDraftInvalid}
+        supportsBackgroundScale={
+          !isStartScreenSelected && !isCgGallerySelected
+        }
         previewUrls={assetPreviewUrls}
         isBusy={engine.isBusy}
         imageSelectionPurpose={
@@ -583,6 +808,8 @@ function EditorApplication({
         onImportImage={handleImportImage}
         onImportAudio={handleImportAudio}
         onImportVideo={handleImportVideo}
+        onBackgroundScaleDraftChange={setSceneBackgroundScaleDraft}
+        onCommitBackgroundScaleDraft={commitSceneBackgroundScaleDraft}
         onSelectBackground={handleSelectBackground}
       />
 
@@ -648,6 +875,7 @@ function EditorApplication({
           assets={engine.assets}
           backgroundUrl={backgroundUrl}
           backgroundName={backgroundAsset?.displayName ?? null}
+          backgroundScalePercent={timelinePreview.backgroundScalePercent}
           cgUrl={cgUrl}
           cgName={cgName}
           showDialogue={timelinePreview.showDialogue}
@@ -660,6 +888,8 @@ function EditorApplication({
           characters={previewCharacters}
           isStartPreviewDisabled={engine.isBusy}
           onStartPreview={() => void handleStartPreview()}
+          onAddScene={handleAddScene}
+          onSelectScene={handleSceneChange}
           onSelectStartScreen={() =>
             handleSceneChange(START_SCREEN_SCENE_ID)
           }

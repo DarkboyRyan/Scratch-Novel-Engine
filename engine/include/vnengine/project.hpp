@@ -1,5 +1,5 @@
 // 文件职责：声明对权威项目模型的查询、校验和原子编辑接口。
-// 关键实现：IdGenerator、项目/场景命令、时间线节点、控制范围和聚合校验函数。
+// 关键实现：IdGenerator、项目/场景命令、时间线节点、图片缩放和聚合校验函数。
 #pragma once
 
 #include <optional>
@@ -145,19 +145,21 @@ enum class SetSceneBackgroundResult {
   scene_not_found,
   asset_not_found,
   asset_not_image,
+  invalid_scale,
 };
 
 SetSceneBackgroundResult set_scene_background(
     ProjectAggregate& aggregate,
     std::string_view scene_id,
-    std::optional<std::string> asset_id);
+    std::optional<std::string> asset_id,
+    int scale_percent);
 
 std::string next_scene_name(const Project& project);
 
-// A committed dialogue must contain text. Whitespace is trimmed and an empty
-// speaker becomes “旁白”. Empty placeholder nodes created by the "+" command
-// bypass this function while the user is still editing their draft fields.
-std::optional<DialogueContent> normalize_dialogue_content(
+// Speaker and text are both optional author content. Surrounding ASCII
+// whitespace is normalized, while an empty value remains empty instead of
+// being rejected or replaced with a narrator name.
+DialogueContent normalize_dialogue_content(
     std::string speaker,
     std::string text);
 
@@ -170,6 +172,10 @@ bool rename_project(Project& project, std::string name);
 
 // Scene names are generated as 场景 1, 场景 2, ... when name is omitted.
 // The created entity's ID is returned so the UI can select it if needed.
+// Explicit names use the same surrounding ASCII-whitespace rule as project
+// names. Backend commands reject all-whitespace input before mutation, while
+// a direct Core add safely falls back to the next generated name.
+std::optional<std::string> normalize_scene_name(std::string name);
 std::string add_scene(
     Project& project,
     IdGenerator& ids,
@@ -206,13 +212,15 @@ enum class UpdateBackgroundNodeResult {
   node_not_found,
   asset_not_found,
   asset_not_image,
+  invalid_scale,
 };
 
 UpdateBackgroundNodeResult update_background_node(
     ProjectAggregate& aggregate,
     std::string_view scene_id,
     std::string_view node_id,
-    std::optional<std::string> asset_id);
+    std::optional<std::string> asset_id,
+    int scale_percent);
 bool delete_background_node(
     Project& project,
     std::string_view scene_id,
@@ -250,6 +258,7 @@ enum class UpdateCharacterNodeResult {
   invalid_slot,
   invalid_layer,
   invalid_position,
+  invalid_scale,
   invalid_mode,
 };
 
@@ -260,6 +269,7 @@ UpdateCharacterNodeResult update_character_node(
     std::optional<std::string> asset_id,
     CharacterSlot slot,
     int layer,
+    int scale_percent,
     std::optional<CharacterPosition> position = std::nullopt,
     std::optional<CharacterNodeMode> mode = std::nullopt);
 

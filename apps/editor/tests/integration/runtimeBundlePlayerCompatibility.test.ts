@@ -28,7 +28,7 @@ afterEach(async () => {
 });
 
 describe('Editor export to Player compatibility', () => {
-  it('reopens an exported runtime v9 bundle through the Player strict reader', async () => {
+  it('preserves Author v21 language and image scales in Runtime v12 through the Player strict reader', async () => {
     const testRoot = await mkdtemp(
       path.join(tmpdir(), 'vn-export-player-contract-'),
     );
@@ -43,7 +43,7 @@ describe('Editor export to Player compatibility', () => {
 
     const authorDocument = {
       format: 'vn-engine-project',
-      fileVersion: 18,
+      fileVersion: 21,
       project: {
         schemaVersion: 1,
         id: 'contract-project',
@@ -51,6 +51,7 @@ describe('Editor export to Player compatibility', () => {
         entrySceneId: 'scene-1',
         startScreen: {
           title: 'Contract Title',
+          eyebrow: 'A VN ENGINE STORY',
           backgroundAssetId: 'background-asset',
           musicAssetId: null,
         },
@@ -70,6 +71,7 @@ describe('Editor export to Player compatibility', () => {
             name: 'Opening',
             visuals: {
               backgroundAssetId: 'background-asset',
+              backgroundScalePercent: 80,
               characters: [],
             },
             nodes: [
@@ -89,8 +91,15 @@ describe('Editor export to Player compatibility', () => {
                 },
               },
               {
+                id: 'background-1',
+                type: 'background',
+                assetId: 'background-asset',
+                scalePercent: 125,
+              },
+              {
                 id: 'portrait-1',
                 type: 'character',
+                mode: 'show',
                 assetId: 'background-asset',
                 slot: 'left',
                 layer: 1,
@@ -101,12 +110,13 @@ describe('Editor export to Player compatibility', () => {
                   intensity: 'normal',
                   direction: 'left',
                 },
+                scalePercent: 70,
               },
               {
                 id: 'dialogue-1',
                 type: 'dialogue',
-                speaker: 'Narrator',
-                text: 'Export contract',
+                speaker: '',
+                text: '',
                 voiceAssetId: null,
               },
               { id: 'else-route', type: 'logicElse', ifNodeId: 'if-route' },
@@ -133,7 +143,7 @@ describe('Editor export to Player compatibility', () => {
       ],
     };
     const authorContents = JSON.stringify(authorDocument);
-    const compiled = compileAuthorProjectV15(authorContents);
+    const compiled = compileAuthorProjectV15(authorContents, 'en-US');
     await writeFile(path.join(projectRoot, 'project.vn.json'), authorContents);
     await writeFile(
       path.join(projectRoot, 'assets', 'images', 'background-asset.png'),
@@ -152,20 +162,41 @@ describe('Editor export to Player compatibility', () => {
         .digest('hex'),
       expectedProject: compiled.sourceProject,
       expectedAssets: compiled.publicAssets,
+      defaultLanguage: 'en-US',
       buildId: 'contract-build',
       createdAt: '2026-08-18T00:00:00.000Z',
     });
     const loaded = await loadRuntimeBundle(bundlePath);
 
+    expect(compiled.game.runtimeVersion).toBe(12);
+    expect(loaded.identity.runtimeVersion).toBe(12);
+    expect(loaded.game.defaultLanguage).toBe('en-US');
     expect(loaded.game.project).toEqual(compiled.project);
+    expect(loaded.game.project.scenes[0]).toMatchObject({
+      backgroundAssetId: 'background-asset',
+      backgroundScalePercent: 80,
+      nodes: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'background-1',
+          scalePercent: 125,
+        }),
+        expect.objectContaining({
+          id: 'portrait-1',
+          scalePercent: 70,
+        }),
+      ]),
+    });
     expect(loaded.game.project.scenes[0].nodes).not.toContainEqual(
       expect.objectContaining({ type: 'storyExtension' }),
     );
     expect(startGame(loaded.game.project)).toMatchObject({
-      dialogue: { id: 'dialogue-1' },
+      backgroundAssetId: 'background-asset',
+      backgroundScalePercent: 125,
+      dialogue: { id: 'dialogue-1', speaker: '', text: '' },
       variables: { route: 'open' },
       characters: [{
         nodeId: 'portrait-1',
+        scalePercent: 70,
         effect: {
           type: 'slideIn',
           durationMs: 650,

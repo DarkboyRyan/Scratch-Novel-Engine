@@ -8,7 +8,11 @@
 
 ## 包边界
 
-组件以受控 props 和回调工作：`VisualStage` 只渲染背景、立绘、对白与特效；`GameActionBar` 只发出保存、读取、快进和返回意图；`OptionsDialog` 与 `SaveSlotDialog` 不自行读写设置或存档。媒体通过 `MediaUrlResolver` 把 asset ID 解析为当前宿主允许的 URL，音量和音频生命周期由纯工具/Hook 组合。
+组件以受控 props 和回调工作：`VisualStage` 只渲染背景、立绘、对白与特效，并按 Runtime
+提供的 10%–300% 比例缩放剧情背景与立绘；背景围绕中心缩放，立绘保持底部中心锚点。
+`GameActionBar` 只发出保存、读取、快进和返回意图；`OptionsDialog` 与 `SaveSlotDialog` 不自行
+读写设置或存档。媒体通过 `MediaUrlResolver` 把 asset ID 解析为当前宿主允许的 URL，音量和
+音频生命周期由纯工具/Hook 组合。
 
 此包不提供全局主题 CSS。组件输出稳定 class，由 Player 的 [`player.css`](../../apps/player/src/renderer/styles/player.css) 或 Editor 自己的作用域样式决定外观。共享组件不得导入 Electron、Node.js 或 Player 的 Main/Preload 模块，也不应假设浏览器具备窗口大小或全屏能力。
 

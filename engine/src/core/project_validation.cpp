@@ -1,5 +1,5 @@
 // 文件职责：验证 Author 项目结构、资源引用、控制配对和安全路径。
-// 关键实现：validate_scene_logic_structure、validate_project 与 validate_project_aggregate。
+// 关键实现：validate_scene_logic_structure、图片缩放不变量与聚合资源校验。
 #include "vnengine/project.hpp"
 
 #include <cmath>
@@ -312,6 +312,15 @@ std::optional<std::string> validate_project(const Project& project) {
         scene.visuals.background_asset_id->empty()) {
       return "background Asset ID must not be empty";
     }
+    if (scene.visuals.background_scale_percent < kMinimumImageScalePercent ||
+        scene.visuals.background_scale_percent > kMaximumImageScalePercent) {
+      return "scene background scale must be between 10 and 300";
+    }
+    if (!scene.visuals.background_asset_id.has_value() &&
+        scene.visuals.background_scale_percent !=
+            kDefaultImageScalePercent) {
+      return "empty scene background scale must be 100";
+    }
 
     for (const CharacterVisualInstance& character :
          scene.visuals.characters) {
@@ -338,9 +347,19 @@ std::optional<std::string> validate_project(const Project& project) {
         return "entity IDs must be unique";
       }
       if (const auto* background = std::get_if<BackgroundNode>(&node);
-          background != nullptr && background->asset_id.has_value() &&
-          background->asset_id->empty()) {
-        return "background node Asset ID must not be empty";
+          background != nullptr) {
+        if (background->asset_id.has_value() &&
+            background->asset_id->empty()) {
+          return "background node Asset ID must not be empty";
+        }
+        if (background->scale_percent < kMinimumImageScalePercent ||
+            background->scale_percent > kMaximumImageScalePercent) {
+          return "background node scale must be between 10 and 300";
+        }
+        if (!background->asset_id.has_value() &&
+            background->scale_percent != kDefaultImageScalePercent) {
+          return "empty background node scale must be 100";
+        }
       }
       if (const auto* dialogue = std::get_if<Dialogue>(&node);
           dialogue != nullptr && dialogue->voice_asset_id.has_value() &&
@@ -378,6 +397,14 @@ std::optional<std::string> validate_project(const Project& project) {
              character->position->y < 0.0 ||
              character->position->y > 100.0)) {
           return "character node position must be between 0 and 100";
+        }
+        if (character->scale_percent < kMinimumImageScalePercent ||
+            character->scale_percent > kMaximumImageScalePercent) {
+          return "character node scale must be between 10 and 300";
+        }
+        if (character->mode == CharacterNodeMode::clear &&
+            character->scale_percent != kDefaultImageScalePercent) {
+          return "clear character node scale must be 100";
         }
         if (character->effect.has_value() &&
             !project_detail::is_valid_character_effect(*character->effect)) {

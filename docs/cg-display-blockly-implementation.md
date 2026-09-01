@@ -2,7 +2,7 @@
 
 # 显示 CG Blockly 实现
 
-> 实现状态：已完成。当前作者项目格式为 v20，导出为 runtime v10；桌面 Player、
+> 实现状态：已完成。当前作者项目格式为 v21，导出为 runtime v12；桌面 Player、
 > Web Player 与 Editor 正式预览共用同一套 CG 显示、对白和计时语义。显示 CG 首次
 > 引入的历史里程碑仍是 Author v17 / Runtime v8 / Snapshot v3。
 
@@ -21,6 +21,10 @@ CG 使用黑色底和 `object-fit: contain`，因此不会为了铺满窗口而�
 CG 上方，暂停菜单、选项、存读档和选择层仍位于对白上方。CG 整块可以放进 If 的
 Then/Else 或 Repeat body，但它自己的开口只接受对白，不能再嵌套逻辑、视频、选项、
 场景跳转、延伸或另一块 CG。
+
+Runtime v11 首次加入、当前 Author v21 / Runtime v12 延续的图片缩放只覆盖剧情背景与
+人物立绘；CG 仍按完整图片 contain 显示，不拥有 `scalePercent`，因此调整背景或立绘
+大小不会改变 CG 预览和正式播放。
 
 表单编辑会以只读缩进树展示 CG 和内部对白，并提示到图形化编辑修改。表单的静态画面
 预览无法假定播放时刻，因此到达第一个 CG 控制块后会冻结并提示使用正式运行预览；它
@@ -108,7 +112,7 @@ Main 的后端响应解析器同时认识并净化两个新节点；畸形响应
 
 ## 5. Runtime、计时与媒体生命周期
 
-Runtime v8 首次新增、当前 Runtime v10 继续使用以下阻塞状态与展示字段：
+Runtime v8 首次新增、当前 Runtime v12 继续使用以下阻塞状态与展示字段：
 
 ```ts
 status: 'waitingCgLeadIn' | /* existing states */;
@@ -139,16 +143,17 @@ CG 是视觉层，进入等待态不会停止或重置 BGM；没有对白时 voi
 
 ## 6. 保存、导出与兼容
 
-- Writer 固定写 author v20；Reader 支持 v1–v20，v1–v16 迁移后没有 CG 显示节点；
+- Writer 固定写 author v21；Reader 支持 v1–v21，v1–v16 迁移后没有 CG 显示节点；
 - 伪装成旧版本的 `cgDisplay` / `cgEndDisplay` 会被严格拒绝；
-- Editor Main 把 author v20 编译为 runtime v10，并把 CG 图片纳入导出资源闭包；
-- 当前 runtime v10 manifest 使用 `playerCompatibility: ">=10 <11"`；
-- Desktop/Web Player Reader 支持 runtime v1–v10，CG 节点从 v8 起可用；
-- 当前 Player 模板使用 `runtimeCompatibility: ">=1 <11"`。
+- Editor Main 把 author v21 编译为 runtime v12，并把 CG 图片纳入导出资源闭包；
+- 当前 runtime v12 manifest 使用 `playerCompatibility: ">=12 <13"`；
+- Desktop/Web Player Reader 支持 runtime v1–v12，CG 节点从 v8 起可用；
+- 当前 Player 模板使用 `runtimeCompatibility: ">=1 <13"`。
 
-游戏进度当前使用 `GameRuntimeSnapshot v4`，继续保存 snapshot v3 引入的 `cgAssetId`、
-`cgLeadInMs` 和 `cgSequence`，并增加人物特效的最终视觉状态。恢复时不会信任派生对白或
-任意图片路径，而是从当前 runtime Project 的配对范围重建并验证。v1–v3 仅按各自旧能力
+游戏进度当前使用 `GameRuntimeSnapshot v5`，继续保存 snapshot v3 引入的 `cgAssetId`、
+`cgLeadInMs` 和 `cgSequence` 以及 snapshot v4 引入的人物特效最终视觉状态，并增加剧情
+图片缩放。恢复时不会信任派生对白或任意图片路径，而是从当前 runtime Project 的配对范围
+重建并验证。v1–v4 仅按各自旧能力
 受限兼容，旧快照不能伪造更高版本状态。
 桌面存档的原子文件和 Web IndexedDB 共用同一快照解析器。
 
@@ -157,12 +162,12 @@ CG 是视觉层，进入等待态不会停止或重置 BGM；没有对白时 voi
 | 层 | 技术与职责 |
 | --- | --- |
 | C++ Core | C++20、`std::variant`、候选副本事务、paired range 校验 |
-| C++ Backend | nlohmann/json、JSONL、exact params、author v20 strict Reader/Writer |
+| C++ Backend | nlohmann/json、JSONL、exact params、author v21 strict Reader/Writer |
 | Electron | TypeScript protocol、trusted IPC、contextBridge、响应净化与即时 pending reject |
 | Editor | React 19、Blockly 13、C 形投影、图片下拉、秒↔整数毫秒转换、表单只读树 |
-| Runtime | 纯 TypeScript reducer、预编译控制流、`waitingCgLeadIn`、snapshot v4 |
+| Runtime | 纯 TypeScript reducer、预编译控制流、`waitingCgLeadIn`、snapshot v5 |
 | Player | React、HTML `<img>` load/decode、可暂停剩余时间、CSS 分层与本地化错误 |
-| Web | Vite Web Player、同源媒体 URL、IndexedDB 存档，与 Desktop 共用 runtime v10 |
+| Web | Vite Web Player、同源媒体 URL、IndexedDB 存档，与 Desktop 共用 runtime v12 |
 
 主要实现入口：
 
@@ -180,7 +185,7 @@ CG 是视觉层，进入等待态不会停止或重置 BGM；没有对白时 voi
 
 自动化回归覆盖空/多对白 body、0/60000 毫秒边界、错误资源类型、If Then/Else 与 Repeat
 内嵌、跨分支/分页拒绝、完整范围移动、失败 revision 原子性、Author/Runtime 版本门禁、
-Snapshot v4 round-trip、旧快照受限兼容、Desktop/Web 资源验证、图片延迟解析与解码、
+Snapshot v5 round-trip、旧快照受限兼容、Desktop/Web 资源验证、图片延迟解析与解码、
 暂停/模态层/隐藏页面的剩余时间、卸载 timer、BGM 连续性、图片错误态，以及 Blockly
 工具箱/投影/字段/拖放/删除/表单树的中英文行为。
 

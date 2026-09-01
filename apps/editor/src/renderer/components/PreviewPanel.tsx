@@ -9,13 +9,15 @@ import {
   VisualStage,
   type PreviewCharacter,
 } from './VisualStage';
-import { useEditorLabels } from '../i18n/editorLocalization';
+import { DEFAULT_IMAGE_SCALE_PERCENT } from '../../shared/projectTypes';
+import { useEditorI18n } from '../i18n/editorLocalization';
 
 type PreviewPanelProps = {
   speaker: string;
   text: string;
   backgroundUrl: string | null;
   backgroundName: string | null;
+  backgroundScalePercent?: number;
   cgUrl?: string | null;
   cgName?: string | null;
   showDialogue?: boolean;
@@ -33,6 +35,7 @@ export function PreviewPanel({
   text,
   backgroundUrl,
   backgroundName,
+  backgroundScalePercent = DEFAULT_IMAGE_SCALE_PERCENT,
   cgUrl = null,
   cgName = null,
   showDialogue = true,
@@ -42,7 +45,7 @@ export function PreviewPanel({
   isStartDisabled = false,
   onStartPreview,
 }: PreviewPanelProps) {
-  const labels = useEditorLabels();
+  const { labels, language } = useEditorI18n();
   const [cgImageFailed, setCgImageFailed] = useState(false);
 
   useEffect(() => {
@@ -78,10 +81,13 @@ export function PreviewPanel({
       ) : null}
 
       <VisualStage
+        language={language}
         speaker={speaker}
         text={text}
         backgroundUrl={backgroundUrl}
         backgroundName={backgroundName}
+        backgroundScalePercent={backgroundScalePercent}
+        placeholder={labels.preview.stagePlaceholder}
         showDialogue={showDialogue}
         characters={characters}
       >

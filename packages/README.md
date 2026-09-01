@@ -15,7 +15,7 @@
 
 | 子目录 | 框架 / 技术 | 主要作用 |
 | --- | --- | --- |
-| [`runtime/`](./runtime/README.md) | TypeScript、Vitest | 剧情执行、逻辑控制、CG、人物状态与 Snapshot v4。 |
+| [`runtime/`](./runtime/README.md) | TypeScript、Vitest | 剧情执行、逻辑控制、CG、图片缩放、人物状态与 Snapshot v5。 |
 | [`player-ui/`](./player-ui/README.md) | React、TypeScript、CSS | 标题、舞台、对白、选项、CG 和媒体展示组件。 |
 
 ## 核心工作流

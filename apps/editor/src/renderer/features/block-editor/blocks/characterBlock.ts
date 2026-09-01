@@ -1,6 +1,6 @@
 /**
- * 文件主要作用：注册人物立绘和清除立绘积木并读写位置与图片资源。
- * 包含实现：`CHARACTER_BLOCK_TYPE`、`CLEAR_CHARACTER_BLOCK_TYPE`、`CHARACTER_BLOCK_FIELDS`、`CHARACTER_BLOCK_INPUTS`、`applyCharacterBlockLocalization`、`setCharacterBlockAsset` 等 12 项。
+ * 文件主要作用：注册人物立绘和清除立绘积木并读写位置、图片与缩放。
+ * 包含实现：人物资源/位置/层级/缩放访问器、HMR 旧实例字段升级和积木注册。
  */
 
 import * as Blockly from 'blockly';
@@ -8,6 +8,11 @@ import * as Blockly from 'blockly';
 import type {
   CharacterPosition,
   CharacterSlot,
+} from '../../../../shared/projectTypes';
+import {
+  DEFAULT_IMAGE_SCALE_PERCENT,
+  MAX_IMAGE_SCALE_PERCENT,
+  MIN_IMAGE_SCALE_PERCENT,
 } from '../../../../shared/projectTypes';
 import {
   DEFAULT_EDITOR_LANGUAGE,
@@ -24,6 +29,7 @@ export const CHARACTER_BLOCK_FIELDS = {
   assetName: 'ASSET_NAME',
   slot: 'SLOT',
   layer: 'LAYER',
+  scalePercent: 'SCALE_PERCENT',
 } as const;
 
 export const CHARACTER_BLOCK_INPUTS = {
@@ -36,9 +42,11 @@ const LABEL_FIELDS = {
   position: 'VN_LABEL_POSITION',
   effect: 'VN_LABEL_EFFECT',
   layer: 'VN_LABEL_LAYER',
+  scale: 'VN_LABEL_SCALE',
   clear: 'VN_LABEL_CLEAR_CHARACTER',
   clearLayer: 'VN_LABEL_CLEAR_LAYER',
 } as const;
+const SCALE_INPUT = 'VN_CHARACTER_SCALE_INPUT';
 let currentLabels = getEditorLabels(DEFAULT_EDITOR_LANGUAGE);
 
 function characterSlotOptions(labels: EditorLabels): [string, string][] {
@@ -63,8 +71,10 @@ export function applyCharacterBlockLocalization(
     isClear ? LABEL_FIELDS.clearLayer : LABEL_FIELDS.layer,
   );
   if (!isClear) {
+    ensureCharacterScaleField(block, DEFAULT_IMAGE_SCALE_PERCENT);
     block.setFieldValue(labels.blockly.characterEffect, LABEL_FIELDS.effect);
     block.setFieldValue(labels.blockly.position, LABEL_FIELDS.position);
+    block.setFieldValue(labels.blockly.scale, LABEL_FIELDS.scale);
     if (getCharacterBlockAssetId(block) === null) {
       block.setFieldValue(labels.common.none, CHARACTER_BLOCK_FIELDS.assetName);
     }
@@ -135,6 +145,64 @@ export function getCharacterBlockLayer(block: Blockly.Block): number {
   return Number.isInteger(layer) && layer >= 1 && layer <= 10 ? layer : 1;
 }
 
+export function setCharacterBlockScalePercent(
+  block: Blockly.Block,
+  scalePercent: number,
+): void {
+  ensureCharacterScaleField(block, scalePercent).setValue(scalePercent);
+}
+
+function ensureCharacterScaleField(
+  block: Blockly.Block,
+  initialValue: number,
+): Blockly.FieldNumber {
+  let field = block.getField(CHARACTER_BLOCK_FIELDS.scalePercent);
+  if (field === null) {
+    const input = block.getInput(SCALE_INPUT) ??
+      block.appendDummyInput(SCALE_INPUT);
+    if (block.getField(LABEL_FIELDS.scale) === null) {
+      input.appendField(currentLabels.blockly.scale, LABEL_FIELDS.scale);
+    }
+    input
+      .appendField(
+        new Blockly.FieldNumber(
+          initialValue,
+          MIN_IMAGE_SCALE_PERCENT,
+          MAX_IMAGE_SCALE_PERCENT,
+          1,
+        ),
+        CHARACTER_BLOCK_FIELDS.scalePercent,
+      )
+      .appendField('%');
+    field = block.getField(CHARACTER_BLOCK_FIELDS.scalePercent);
+  }
+  if (!(field instanceof Blockly.FieldNumber)) {
+    throw new Error('character scale field is not a number input');
+  }
+  field.setConstraints(
+    MIN_IMAGE_SCALE_PERCENT,
+    MAX_IMAGE_SCALE_PERCENT,
+    1,
+  );
+  return field;
+}
+
+export function getCharacterBlockScalePercent(
+  block: Blockly.Block,
+): number | null {
+  if (block.type === CLEAR_CHARACTER_BLOCK_TYPE) {
+    return DEFAULT_IMAGE_SCALE_PERCENT;
+  }
+  const value = Number(
+    block.getFieldValue(CHARACTER_BLOCK_FIELDS.scalePercent),
+  );
+  return Number.isInteger(value) &&
+    value >= MIN_IMAGE_SCALE_PERCENT &&
+    value <= MAX_IMAGE_SCALE_PERCENT
+    ? value
+    : null;
+}
+
 export function isCharacterBlockType(type: string): boolean {
   return type === CHARACTER_BLOCK_TYPE || type === CLEAR_CHARACTER_BLOCK_TYPE;
 }
@@ -152,36 +220,47 @@ export function registerCharacterBlock(
   labels: EditorLabels = currentLabels,
 ): void {
   currentLabels = labels;
-  if (!Blockly.Blocks[CHARACTER_BLOCK_TYPE]) {
-    Blockly.Blocks[CHARACTER_BLOCK_TYPE] = {
-      init(): void {
-        const assetField = new AssetNameField(currentLabels.common.none);
+  // Blockly's global registry survives Renderer HMR. Replace the managed show
+  // definition; projection still upgrades already-instantiated stale blocks.
+  Blockly.Blocks[CHARACTER_BLOCK_TYPE] = {
+    init(): void {
+      const assetField = new AssetNameField(currentLabels.common.none);
 
-        this.appendValueInput(CHARACTER_BLOCK_INPUTS.effect)
-          .setCheck(CHARACTER_EFFECT_CONNECTION_TYPE)
-          .appendField(currentLabels.blockly.character, LABEL_FIELDS.character)
-          .appendField(assetField, CHARACTER_BLOCK_FIELDS.assetName)
-          .appendField(
-            currentLabels.blockly.characterEffect,
-            LABEL_FIELDS.effect,
-          );
-        this.appendDummyInput()
-          .appendField(currentLabels.blockly.position, LABEL_FIELDS.position)
-          .appendField(
-            new Blockly.FieldDropdown([...characterSlotOptions(currentLabels)]),
-            CHARACTER_BLOCK_FIELDS.slot,
-          )
-          .appendField(currentLabels.blockly.layer, LABEL_FIELDS.layer)
-          .appendField(createLayerField(), CHARACTER_BLOCK_FIELDS.layer);
+      this.appendValueInput(CHARACTER_BLOCK_INPUTS.effect)
+        .setCheck(CHARACTER_EFFECT_CONNECTION_TYPE)
+        .appendField(currentLabels.blockly.character, LABEL_FIELDS.character)
+        .appendField(assetField, CHARACTER_BLOCK_FIELDS.assetName)
+        .appendField(
+          currentLabels.blockly.characterEffect,
+          LABEL_FIELDS.effect,
+        );
+      this.appendDummyInput()
+        .appendField(currentLabels.blockly.position, LABEL_FIELDS.position)
+        .appendField(
+          new Blockly.FieldDropdown([...characterSlotOptions(currentLabels)]),
+          CHARACTER_BLOCK_FIELDS.slot,
+        )
+        .appendField(currentLabels.blockly.layer, LABEL_FIELDS.layer)
+        .appendField(createLayerField(), CHARACTER_BLOCK_FIELDS.layer)
+        .appendField(currentLabels.blockly.scale, LABEL_FIELDS.scale)
+        .appendField(
+          new Blockly.FieldNumber(
+            DEFAULT_IMAGE_SCALE_PERCENT,
+            MIN_IMAGE_SCALE_PERCENT,
+            MAX_IMAGE_SCALE_PERCENT,
+            1,
+          ),
+          CHARACTER_BLOCK_FIELDS.scalePercent,
+        )
+        .appendField('%');
 
-        this.setPreviousStatement(true);
-        this.setNextStatement(true);
-        this.setColour(285);
-        this.setTooltip(currentLabels.blockly.characterTooltip);
-        this.setHelpUrl('');
-      },
-    };
-  }
+      this.setPreviousStatement(true);
+      this.setNextStatement(true);
+      this.setColour(285);
+      this.setTooltip(currentLabels.blockly.characterTooltip);
+      this.setHelpUrl('');
+    },
+  };
 
   if (!Blockly.Blocks[CLEAR_CHARACTER_BLOCK_TYPE]) {
     Blockly.Blocks[CLEAR_CHARACTER_BLOCK_TYPE] = {

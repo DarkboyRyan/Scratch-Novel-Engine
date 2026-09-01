@@ -91,6 +91,7 @@ function resultFor(assetId = 'asset-1'): EngineMutationResult {
           id: 'scene-1',
           name: 'Scene 1',
           backgroundAssetId: null,
+          backgroundScalePercent: 100,
           nodes: [],
         },
       ],

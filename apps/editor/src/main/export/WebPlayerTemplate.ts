@@ -16,7 +16,7 @@ export type WebPlayerTemplateManifest = {
   templateVersion: typeof WEB_PLAYER_TEMPLATE_VERSION;
   payloadRoot: 'payload';
   entry: 'index.html';
-  runtimeCompatibility: '>=1 <11';
+  runtimeCompatibility: '>=1 <13';
   playerVersion: string;
   files: WebPlayerTemplateFile[];
 };
@@ -113,7 +113,7 @@ function parseTemplateManifest(source: string): WebPlayerTemplateManifest {
     parsed.templateVersion !== WEB_PLAYER_TEMPLATE_VERSION ||
     parsed.payloadRoot !== 'payload' ||
     parsed.entry !== 'index.html' ||
-    parsed.runtimeCompatibility !== '>=1 <11' ||
+    parsed.runtimeCompatibility !== '>=1 <13' ||
     typeof parsed.playerVersion !== 'string' ||
     !/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(
       parsed.playerVersion,

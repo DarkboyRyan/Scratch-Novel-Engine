@@ -13,6 +13,7 @@ const scene: SceneDocument = {
   id: 'scene-1',
   name: '场景 1',
   backgroundAssetId: 'initial',
+  backgroundScalePercent: 90,
   nodes: [
     {
       id: 'd1',
@@ -21,7 +22,7 @@ const scene: SceneDocument = {
       text: 'one',
       voiceAssetId: null,
     },
-    { id: 'b1', type: 'background', assetId: 'forest' },
+    { id: 'b1', type: 'background', assetId: 'forest', scalePercent: 80 },
     { id: 'extension-1', type: 'storyExtension' },
     {
       id: 'd2',
@@ -39,8 +40,9 @@ const scene: SceneDocument = {
       layer: 2,
       position: null,
       effect: null,
+      scalePercent: 135,
     },
-    { id: 'b2', type: 'background', assetId: 'room' },
+    { id: 'b2', type: 'background', assetId: 'room', scalePercent: 120 },
   ],
 };
 
@@ -48,6 +50,7 @@ describe('deriveTimelinePreview', () => {
   it('uses the initial scene background before the first background node', () => {
     expect(deriveTimelinePreview(scene, 'd1')).toEqual({
       backgroundAssetId: 'initial',
+      backgroundScalePercent: 90,
       cgAssetId: null,
       characters: [],
       showDialogue: true,
@@ -57,6 +60,7 @@ describe('deriveTimelinePreview', () => {
   it('keeps the latest background active until another background node', () => {
     expect(deriveTimelinePreview(scene, 'd2')).toEqual({
       backgroundAssetId: 'forest',
+      backgroundScalePercent: 80,
       cgAssetId: null,
       characters: [],
       showDialogue: true,
@@ -66,6 +70,7 @@ describe('deriveTimelinePreview', () => {
   it('keeps authoring-only story extensions invisible to preview semantics', () => {
     expect(deriveTimelinePreview(scene, 'd2')).toEqual({
       backgroundAssetId: 'forest',
+      backgroundScalePercent: 80,
       cgAssetId: null,
       characters: [],
       showDialogue: true,
@@ -77,7 +82,12 @@ describe('deriveTimelinePreview', () => {
       ...scene,
       nodes: [
         ...scene.nodes.slice(0, 3),
-        { id: 'clear', type: 'background', assetId: null },
+        {
+          id: 'clear',
+          type: 'background',
+          assetId: null,
+          scalePercent: 100,
+        },
         {
           id: 'd3',
           type: 'dialogue',
@@ -90,6 +100,7 @@ describe('deriveTimelinePreview', () => {
 
     expect(deriveTimelinePreview(clearScene, 'd3')).toEqual({
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       cgAssetId: null,
       characters: [],
       showDialogue: true,
@@ -109,6 +120,7 @@ describe('deriveTimelinePreview', () => {
           layer: 1,
           position: null,
           effect: null,
+          scalePercent: 90,
         },
         {
           id: 'bob',
@@ -119,6 +131,7 @@ describe('deriveTimelinePreview', () => {
           layer: 3,
           position: { x: 75, y: 90 },
           effect: null,
+          scalePercent: 110,
         },
         {
           id: 'replace',
@@ -129,6 +142,7 @@ describe('deriveTimelinePreview', () => {
           layer: 1,
           position: null,
           effect: null,
+          scalePercent: 150,
         },
         {
           id: 'clear',
@@ -139,6 +153,7 @@ describe('deriveTimelinePreview', () => {
           layer: 3,
           position: null,
           effect: null,
+          scalePercent: 100,
         },
       ],
     };
@@ -150,6 +165,7 @@ describe('deriveTimelinePreview', () => {
         slot: 'center',
         layer: 1,
         position: null,
+        scalePercent: 150,
         opacity: 1,
         effect: null,
         effectSequence: 0,
@@ -160,6 +176,7 @@ describe('deriveTimelinePreview', () => {
         slot: 'right',
         layer: 3,
         position: { x: 75, y: 90 },
+        scalePercent: 110,
         opacity: 1,
         effect: null,
         effectSequence: 0,
@@ -172,6 +189,7 @@ describe('deriveTimelinePreview', () => {
         slot: 'center',
         layer: 1,
         position: null,
+        scalePercent: 150,
         opacity: 1,
         effect: null,
         effectSequence: 0,
@@ -192,6 +210,7 @@ describe('deriveTimelinePreview', () => {
           layer: 2,
           position: null,
           effect: null,
+          scalePercent: 125,
         },
         {
           id: 'placeholder',
@@ -202,6 +221,7 @@ describe('deriveTimelinePreview', () => {
           layer: 2,
           position: null,
           effect: null,
+          scalePercent: 140,
         },
       ],
     };
@@ -215,6 +235,7 @@ describe('deriveTimelinePreview', () => {
         slot: 'left',
         layer: 2,
         position: null,
+        scalePercent: 125,
         opacity: 1,
         effect: null,
         effectSequence: 0,
@@ -235,6 +256,7 @@ describe('deriveTimelinePreview', () => {
           layer: 1,
           position: null,
           effect: { type: 'fadeOut', durationMs: 500 },
+          scalePercent: 175,
         },
       ],
     };
@@ -246,6 +268,7 @@ describe('deriveTimelinePreview', () => {
         slot: 'center',
         layer: 1,
         position: null,
+        scalePercent: 175,
         opacity: 0,
         effect: null,
         effectSequence: 0,
@@ -262,7 +285,12 @@ describe('deriveTimelinePreview', () => {
     const logicScene: SceneDocument = {
       ...scene,
       nodes: [
-        { id: 'before', type: 'background', assetId: 'safe-background' },
+        {
+          id: 'before',
+          type: 'background',
+          assetId: 'safe-background',
+          scalePercent: 70,
+        },
         {
           id: 'if-1',
           type: 'logicIf',
@@ -272,9 +300,19 @@ describe('deriveTimelinePreview', () => {
             right: { kind: 'literal', value: 'A' },
           },
         },
-        { id: 'then-bg', type: 'background', assetId: 'then-background' },
+        {
+          id: 'then-bg',
+          type: 'background',
+          assetId: 'then-background',
+          scalePercent: 150,
+        },
         { id: 'else-1', type: 'logicElse', ifNodeId: 'if-1' },
-        { id: 'else-bg', type: 'background', assetId: 'else-background' },
+        {
+          id: 'else-bg',
+          type: 'background',
+          assetId: 'else-background',
+          scalePercent: 160,
+        },
         { id: 'end-1', type: 'logicEndIf', ifNodeId: 'if-1' },
         {
           id: 'after',
@@ -288,6 +326,7 @@ describe('deriveTimelinePreview', () => {
 
     expect(deriveTimelinePreview(logicScene, 'else-bg')).toEqual({
       backgroundAssetId: 'safe-background',
+      backgroundScalePercent: 70,
       cgAssetId: null,
       characters: [],
       showDialogue: false,
@@ -295,6 +334,7 @@ describe('deriveTimelinePreview', () => {
     });
     expect(deriveTimelinePreview(logicScene, 'after')).toEqual({
       backgroundAssetId: 'safe-background',
+      backgroundScalePercent: 70,
       cgAssetId: null,
       characters: [],
       showDialogue: false,
@@ -306,7 +346,12 @@ describe('deriveTimelinePreview', () => {
     const cgScene: SceneDocument = {
       ...scene,
       nodes: [
-        { id: 'before', type: 'background', assetId: 'safe-background' },
+        {
+          id: 'before',
+          type: 'background',
+          assetId: 'safe-background',
+          scalePercent: 85,
+        },
         {
           id: 'cg-1',
           type: 'cgDisplay',
@@ -325,12 +370,18 @@ describe('deriveTimelinePreview', () => {
           type: 'cgEndDisplay',
           cgDisplayNodeId: 'cg-1',
         },
-        { id: 'after-bg', type: 'background', assetId: 'after-background' },
+        {
+          id: 'after-bg',
+          type: 'background',
+          assetId: 'after-background',
+          scalePercent: 115,
+        },
       ],
     };
 
     expect(deriveTimelinePreview(cgScene, 'cg-1')).toEqual({
       backgroundAssetId: 'safe-background',
+      backgroundScalePercent: 85,
       cgAssetId: 'cg-image',
       characters: [],
       showDialogue: false,
@@ -338,6 +389,7 @@ describe('deriveTimelinePreview', () => {
     });
     expect(deriveTimelinePreview(cgScene, 'cg-line')).toEqual({
       backgroundAssetId: 'safe-background',
+      backgroundScalePercent: 85,
       cgAssetId: 'cg-image',
       characters: [],
       showDialogue: true,
@@ -345,12 +397,14 @@ describe('deriveTimelinePreview', () => {
     });
     expect(deriveTimelinePreview(cgScene, 'after-bg')).toEqual({
       backgroundAssetId: 'after-background',
+      backgroundScalePercent: 115,
       cgAssetId: null,
       characters: [],
       showDialogue: false,
     });
     expect(deriveTimelinePreview(cgScene, null)).toEqual({
       backgroundAssetId: 'after-background',
+      backgroundScalePercent: 115,
       cgAssetId: null,
       characters: [],
       showDialogue: true,
@@ -361,7 +415,12 @@ describe('deriveTimelinePreview', () => {
     const nestedCgScene: SceneDocument = {
       ...scene,
       nodes: [
-        { id: 'before', type: 'background', assetId: 'safe-background' },
+        {
+          id: 'before',
+          type: 'background',
+          assetId: 'safe-background',
+          scalePercent: 95,
+        },
         {
           id: 'if-1',
           type: 'logicIf',
@@ -396,6 +455,7 @@ describe('deriveTimelinePreview', () => {
 
     expect(deriveTimelinePreview(nestedCgScene, 'cg-line')).toEqual({
       backgroundAssetId: 'safe-background',
+      backgroundScalePercent: 95,
       cgAssetId: null,
       characters: [],
       showDialogue: false,

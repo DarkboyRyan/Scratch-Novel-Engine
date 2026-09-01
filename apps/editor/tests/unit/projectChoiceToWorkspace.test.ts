@@ -23,6 +23,10 @@ import {
   CLEAR_CHARACTER_BLOCK_TYPE,
 } from '../../src/renderer/features/block-editor/blocks/characterBlock';
 import {
+  BACKGROUND_BLOCK_FIELDS,
+  BACKGROUND_BLOCK_TYPE,
+} from '../../src/renderer/features/block-editor/blocks/backgroundBlock';
+import {
   getSceneStartBlockId,
   SCENE_START_BLOCK_TYPE,
 } from '../../src/renderer/features/block-editor/blocks/sceneStartBlock';
@@ -69,12 +73,32 @@ class FakeBlock {
   movable = true;
   deletable = true;
   editable = true;
+  private readonly scaleField: Blockly.FieldNumber | null;
+  private readonly scaleFieldName: string | null;
 
   constructor(
     readonly id: string,
     readonly type: string,
     readonly workspace: FakeWorkspace,
   ) {
+    this.scaleFieldName = type === CHARACTER_BLOCK_TYPE
+      ? CHARACTER_BLOCK_FIELDS.scalePercent
+      : type === BACKGROUND_BLOCK_TYPE
+        ? BACKGROUND_BLOCK_FIELDS.scalePercent
+        : null;
+    this.scaleField = this.scaleFieldName
+      ? new Blockly.FieldNumber(100, 10, 300, 1)
+      : null;
+    if (this.scaleField) {
+      const setScaleValue = this.scaleField.setValue.bind(this.scaleField);
+      this.scaleField.setValue = (value) => {
+        setScaleValue(value);
+        this.fields.set(
+          this.scaleFieldName!,
+          String(this.scaleField?.getValue()),
+        );
+      };
+    }
     if (type === CHOICE_BLOCK_TYPE) {
       this.inputs.set(CHOICE_BLOCK_INPUTS.options, {
         connection: new FakeConnection(this),
@@ -122,8 +146,10 @@ class FakeBlock {
     return this.inputs.get(name)?.connection.target?.owner ?? null;
   }
 
-  getField(): Blockly.Field | null {
-    return null;
+  getField(name: string): Blockly.Field | null {
+    return name === this.scaleFieldName
+      ? this.scaleField
+      : null;
   }
 
   getNextBlock(): FakeBlock | null {
@@ -175,6 +201,7 @@ describe('choice scene projection', () => {
       id: 'scene-empty',
       name: '空场景',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [],
     };
     const workspace = new FakeWorkspace();
@@ -207,6 +234,7 @@ describe('choice scene projection', () => {
       id: 'scene-character',
       name: '人物立绘',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [
         {
           id: 'character-1',
@@ -217,6 +245,7 @@ describe('choice scene projection', () => {
           layer: 1,
           position: null,
           effect: null,
+          scalePercent: 145,
         },
       ],
     };
@@ -229,9 +258,51 @@ describe('choice scene projection', () => {
       [{ id: 'portrait-1', type: 'image', displayName: 'Alice' }],
     );
 
+    const portrait = workspace.blocks.find(
+      (block) => block.id === 'character-1',
+    );
+    expect(portrait?.type).toBe(CHARACTER_BLOCK_TYPE);
     expect(
-      workspace.blocks.find((block) => block.id === 'character-1')?.type,
-    ).toBe(CHARACTER_BLOCK_TYPE);
+      portrait?.fields.get(CHARACTER_BLOCK_FIELDS.scalePercent),
+    ).toBe('145');
+  });
+
+  it('projects a background-node scale into its number field', () => {
+    vi.spyOn(
+      Blockly.renderManagement,
+      'triggerQueuedRenders',
+    ).mockImplementation(() => {});
+    const scene: SceneDocument = {
+      schemaVersion: 1,
+      id: 'scene-background',
+      name: '背景',
+      backgroundAssetId: null,
+      backgroundScalePercent: 100,
+      nodes: [
+        {
+          id: 'background-1',
+          type: 'background',
+          assetId: 'room',
+          scalePercent: 75,
+        },
+      ],
+    };
+    const workspace = new FakeWorkspace();
+
+    projectSceneToWorkspace(
+      scene,
+      workspace as unknown as Blockly.WorkspaceSvg,
+      { x: 120, y: 80 },
+      [{ id: 'room', type: 'image', displayName: 'Room' }],
+    );
+
+    const background = workspace.blocks.find(
+      (block) => block.id === 'background-1',
+    );
+    expect(background?.type).toBe(BACKGROUND_BLOCK_TYPE);
+    expect(
+      background?.fields.get(BACKGROUND_BLOCK_FIELDS.scalePercent),
+    ).toBe('75');
   });
 
   it('keeps an unresolved show portrait in the story chain as a portrait block', () => {
@@ -244,6 +315,7 @@ describe('choice scene projection', () => {
       id: 'scene-unresolved-character',
       name: '未选图片的人物立绘',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [
         {
           id: 'character-placeholder',
@@ -254,6 +326,7 @@ describe('choice scene projection', () => {
           layer: 1,
           position: null,
           effect: null,
+          scalePercent: 100,
         },
         {
           id: 'dialogue-after-character',
@@ -290,6 +363,7 @@ describe('choice scene projection', () => {
       id: 'scene-clear-character',
       name: '清除立绘',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [
         {
           id: 'clear-character-1',
@@ -300,6 +374,7 @@ describe('choice scene projection', () => {
           layer: 4,
           position: null,
           effect: null,
+          scalePercent: 100,
         },
       ],
     };
@@ -329,6 +404,7 @@ describe('choice scene projection', () => {
       id: 'scene-1',
       name: '场景 1',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [
         {
           id: 'choice-1',
@@ -422,6 +498,7 @@ describe('choice scene projection', () => {
       id: 'scene-long',
       name: '长场景',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes,
     };
     const workspace = new FakeWorkspace();
@@ -485,6 +562,7 @@ describe('choice scene projection', () => {
       id: 'scene-after-extension-delete',
       name: '删除延伸后的场景',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [1, 2, 3, 4].map((index) => ({
         id: `dialogue-${index}`,
         type: 'dialogue' as const,
@@ -536,6 +614,7 @@ describe('choice scene projection', () => {
       id: 'scene-long-without-extension',
       name: '长场景',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes,
     };
     const workspace = new FakeWorkspace();
@@ -567,6 +646,7 @@ describe('choice scene projection', () => {
       id: 'scene-jump',
       name: '跳转场景',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [
         {
           id: 'dialogue-before',
@@ -621,6 +701,7 @@ describe('choice scene projection', () => {
       id: 'scene-logic',
       name: '逻辑场景',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [
         {
           id: 'set-1',
@@ -727,6 +808,7 @@ describe('choice scene projection', () => {
       id: 'scene-nested-cg',
       name: 'Nested CG',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [
         { id: 'repeat-1', type: 'logicRepeat', count: 2 },
         {

@@ -1,12 +1,15 @@
 /**
  * 文件主要作用：管理引擎项目加载、刷新、修订、错误和保存状态。
- * 包含实现：`OpenProjectStatus`、`ImportAssetStatus`、`ImportImageStatus`、`ExportGameStatus`、`useEngineProject`、`EngineProjectState`。
+ * 包含实现：项目默认值、旧 Preload 缩放保护、命令队列、导入导出和 `useEngineProject`。
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ImportAssetResult } from '../../shared/assetProtocol';
-import type { EngineMutationResult } from '../../shared/engineProtocol';
+import type {
+  EngineMutationResult,
+  VnEngineApi,
+} from '../../shared/engineProtocol';
 import type {
   ExportGameCompletedResult,
   GameExportRequest,
@@ -15,7 +18,11 @@ import type {
   AssetDocument,
   ProjectDocument,
 } from '../../shared/projectTypes';
-import { DEFAULT_START_SCREEN_EYEBROW } from '../../shared/projectTypes';
+import {
+  DEFAULT_IMAGE_SCALE_PERCENT,
+  DEFAULT_START_SCREEN_EYEBROW,
+  isImageScalePercent,
+} from '../../shared/projectTypes';
 import type { ProjectFileSessionSnapshot } from '../../shared/projectFileProtocol';
 import { createAuthoringActions } from '../application/createAuthoringActions';
 import {
@@ -92,25 +99,61 @@ function withRendererProjectDefaults(
           return true;
         }),
     );
-  let normalizedLegacyCharacter = false;
-  const scenes = project.scenes.map((scene) => ({
-    ...scene,
-    nodes: scene.nodes.map((node) => {
+  let normalizedLegacyImageScale = false;
+  const scenes = project.scenes.map((scene) => {
+    const legacyScene = scene as typeof scene & {
+      backgroundScalePercent?: unknown;
+    };
+    const backgroundScalePercent = scene.backgroundAssetId === null
+      ? DEFAULT_IMAGE_SCALE_PERCENT
+      : isImageScalePercent(legacyScene.backgroundScalePercent)
+        ? legacyScene.backgroundScalePercent
+        : DEFAULT_IMAGE_SCALE_PERCENT;
+    if (legacyScene.backgroundScalePercent !== backgroundScalePercent) {
+      normalizedLegacyImageScale = true;
+    }
+
+    return {
+      ...scene,
+      backgroundScalePercent,
+      nodes: scene.nodes.map((node) => {
+      if (node.type === 'background') {
+        const legacyNode = node as typeof node & { scalePercent?: unknown };
+        const scalePercent = node.assetId === null
+          ? DEFAULT_IMAGE_SCALE_PERCENT
+          : isImageScalePercent(legacyNode.scalePercent)
+            ? legacyNode.scalePercent
+            : DEFAULT_IMAGE_SCALE_PERCENT;
+        if (legacyNode.scalePercent !== scalePercent) {
+          normalizedLegacyImageScale = true;
+          return {
+            ...node,
+            scalePercent,
+          };
+        }
+      }
       if (node.type === 'character') {
         const legacyNode = node as typeof node & {
           mode?: unknown;
           effect?: unknown;
+          scalePercent?: unknown;
         };
         const mode = legacyNode.mode === 'show' || legacyNode.mode === 'clear'
           ? legacyNode.mode
           : node.assetId === null
             ? 'clear'
             : 'show';
+        const scalePercent = mode === 'clear'
+          ? DEFAULT_IMAGE_SCALE_PERCENT
+          : isImageScalePercent(legacyNode.scalePercent)
+            ? legacyNode.scalePercent
+            : DEFAULT_IMAGE_SCALE_PERCENT;
         const needsDefaults =
           legacyNode.mode !== mode ||
-          !Object.hasOwn(legacyNode, 'effect');
+          !Object.hasOwn(legacyNode, 'effect') ||
+          legacyNode.scalePercent !== scalePercent;
         if (needsDefaults) {
-          normalizedLegacyCharacter = true;
+          normalizedLegacyImageScale = true;
           return mode === 'clear'
             ? {
                 ...node,
@@ -118,6 +161,7 @@ function withRendererProjectDefaults(
                 assetId: null,
                 position: null,
                 effect: null,
+                scalePercent,
               }
             : node.assetId === null
               ? {
@@ -125,6 +169,7 @@ function withRendererProjectDefaults(
                   mode,
                   assetId: null,
                   effect: null,
+                  scalePercent,
                 }
               : {
                 ...node,
@@ -132,16 +177,18 @@ function withRendererProjectDefaults(
                 effect: Object.hasOwn(legacyNode, 'effect')
                   ? node.effect
                   : null,
+                  scalePercent,
                 };
         }
       }
       return node;
-    }),
-  }));
+      }),
+    };
+  });
   if (
     hasValidPages &&
     hasValidEyebrow &&
-    !normalizedLegacyCharacter
+    !normalizedLegacyImageScale
   ) {
     return project;
   }
@@ -193,7 +240,24 @@ function startScreenModuleError(error: unknown): Error {
   return new Error(`[start-screen-module] ${message}`, { cause: error });
 }
 
+function imageScaleContractError(): Error {
+  return new Error('[image-scale-contract] stale preload');
+}
+
+function hasImageScaleContract(engine: VnEngineApi): boolean {
+  return engine.imageScaleContractVersion === 1;
+}
+
 function readableError(error: unknown, labels: EditorLabels): string {
+  if (
+    error instanceof Error &&
+    error.message.includes('[image-scale-contract]')
+  ) {
+    return labels.locale === 'zh-CN'
+      ? '图片缩放功能已更新，请完全退出并重新启动 Editor 后再试。'
+      : 'Image scaling was updated. Fully quit and restart Editor, then try again.';
+  }
+
   if (isStartScreenModuleUnavailableError(error)) {
     return labels.messages.startScreenModuleUnavailable;
   }
@@ -289,13 +353,6 @@ function readableError(error: unknown, labels: EditorLabels): string {
 
   if (
     error instanceof Error &&
-    error.message.includes('dialogue text must not be empty')
-  ) {
-    return labels.messages.emptyDialogue;
-  }
-
-  if (
-    error instanceof Error &&
     error.message.includes('project name must not be empty')
   ) {
     return labels.messages.projectNameRequired;
@@ -371,6 +428,20 @@ export function useEngineProject(
     isFileOperating ||
     isSaving ||
     isExporting;
+
+  const authoringCommands = useMemo<VnEngineApi>(() => {
+    if (hasImageScaleContract(platform.engine)) {
+      return platform.engine;
+    }
+    const rejectStalePreload = () =>
+      Promise.reject<EngineMutationResult>(imageScaleContractError());
+    return {
+      ...platform.engine,
+      setSceneBackground: rejectStalePreload,
+      updateBackground: rejectStalePreload,
+      updateCharacter: rejectStalePreload,
+    } as VnEngineApi;
+  }, [platform.engine]);
 
   function applyResult(
     result: EngineMutationResult,
@@ -479,7 +550,7 @@ export function useEngineProject(
   }
 
   const authoringActions = createAuthoringActions({
-    commands: platform.engine,
+    commands: authoringCommands,
     run: runEngineAction,
     onSceneJumpUnavailable: () => {
       setEngineMessage(labelsRef.current.messages.sceneJumpModuleUnavailable);
@@ -669,9 +740,10 @@ export function useEngineProject(
   async function setSceneBackground(
     sceneId: string,
     assetId: string | null,
+    scalePercent: number,
   ): Promise<boolean> {
     const result = await runEngineAction(() =>
-      platform.engine.setSceneBackground(sceneId, assetId),
+      authoringCommands.setSceneBackground(sceneId, assetId, scalePercent),
     );
     return result !== null;
   }
@@ -815,7 +887,7 @@ export function useEngineProject(
     exportMessage,
     setEngineMessage,
     runEngineAction,
-    authoringCommands: platform.engine,
+    authoringCommands,
     ...authoringActions,
     createProject,
     openProject,

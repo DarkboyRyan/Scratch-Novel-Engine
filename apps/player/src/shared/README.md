@@ -8,9 +8,14 @@ Shared 是 Player 各执行环境之间的协议权威来源。这里的模块�
 
 ## 协议分层
 
-`playerProtocol.ts` 定义 IPC action、公开游戏视图、稳定错误码、设置版本与 Patch、存档槽位和结果联合类型。Preload 暴露的 `VnPlayerApi` 与 Renderer 使用的 Gateway 以此为基础，但磁盘路径、资源哈希和内部异常不属于公开协议。
+`playerProtocol.ts` 定义 IPC action、公开游戏视图、稳定错误码、设置版本与 Patch、存档槽位和结果联合类型。设置读取结果还携带 `default`/`stored` 语言来源，让 Renderer 能安全区分包默认语言与玩家偏好。Preload 暴露的 `VnPlayerApi` 与 Renderer 使用的 Gateway 以此为基础，但磁盘路径、资源哈希和内部异常不属于公开协议。
 
-`runtimeBundleSchema.ts` 对 `game.json` 与 `manifest.json` 做严格、版本化解析，验证精确字段、ID、场景控制流、逻辑限制、资源引用、兼容范围和清单元数据。`playerMediaContract.ts` 维护跨宿主一致的资源目录、MIME 和大小政策；`webExportProtocol.ts` 额外约束静态 Web 导出的描述文件和安全 game root。
+`runtimeBundleSchema.ts` 对 `game.json` 与 `manifest.json` 做严格、版本化解析，验证精确字段、
+ID、场景控制流、逻辑限制、资源引用、图片缩放、兼容范围和清单元数据。当前 Writer/Reader
+边界为 Runtime v12 / v1–v12；Runtime v11 是精确要求 10–300 整数缩放的历史
+里程碑，v12 还严格要求 `defaultLanguage`，旧 v1–v11 迁移为 `zh-CN`。
+`playerMediaContract.ts` 维护跨宿主一致的资源目录、MIME 和大小政策；`webExportProtocol.ts`
+额外约束静态 Web 导出的描述文件和安全 game root。
 
 ## 变更规则
 

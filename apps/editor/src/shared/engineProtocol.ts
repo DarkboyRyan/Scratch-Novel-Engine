@@ -32,6 +32,7 @@ export type AddDialogueParams = {
   sceneId: string;
   afterNodeId?: string | null;
   beforeNodeId?: string | null;
+  // Omitted and empty author fields are equivalent; neither gains defaults.
   speaker?: string;
   text?: string;
 };
@@ -46,6 +47,7 @@ export type UpdateBackgroundParams = {
   sceneId: string;
   nodeId: string;
   assetId: string | null;
+  scalePercent: number;
 };
 
 export type AddCharacterParams = {
@@ -64,6 +66,7 @@ export type UpdateCharacterParams = {
   slot: CharacterSlot;
   layer: number;
   position: CharacterPosition | null;
+  scalePercent: number;
 };
 
 export type UpdateCharacterEffectParams = {
@@ -401,6 +404,7 @@ export type EngineParamsByMethod = {
   'scene.setBackground': {
     sceneId: string;
     assetId: string | null;
+    scalePercent: number;
   };
   'dialogue.add': AddDialogueParams;
   'dialogue.update': {
@@ -524,6 +528,10 @@ export type BackendResponse =
 
 // Renderer 只能使用业务级 API，不能接触 ipcRenderer 或任意 IPC channel。
 export type VnEngineApi = {
+  // Renderer must refuse scale-bearing writes when an older live Preload is
+  // still attached after HMR; otherwise the extra arguments can be dropped
+  // silently and persisted as the backend default.
+  readonly imageScaleContractVersion?: 1;
   ensureProject(): Promise<EngineMutationResult>;
   getProject(): Promise<EngineMutationResult>;
   renameProject(name: string): Promise<EngineMutationResult>;
@@ -542,6 +550,7 @@ export type VnEngineApi = {
   setSceneBackground(
     sceneId: string,
     assetId: string | null,
+    scalePercent: number,
   ): Promise<EngineMutationResult>;
   addDialogue(
     params: AddDialogueParams,

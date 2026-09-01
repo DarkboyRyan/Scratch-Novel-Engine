@@ -187,6 +187,7 @@ export function GameScreen({
       slot: character.slot,
       layer: character.layer,
       position: character.position,
+      scalePercent: character.scalePercent,
       opacity: character.opacity,
       effect: character.effect,
       effectSequence: character.effectSequence,
@@ -534,6 +535,7 @@ export function GameScreen({
             : null
         }
         backgroundName={backgroundAsset?.displayName ?? null}
+        backgroundScalePercent={runtime.backgroundScalePercent}
         showDialogue={
           !paused && runtime.status === 'playing' && runtime.dialogue !== null
         }

@@ -17,6 +17,10 @@ import type {
 } from './projectTypes';
 import { isCharacterEffect } from './characterEffect';
 import {
+  DEFAULT_IMAGE_SCALE_PERCENT,
+  isImageScalePercent,
+} from './imageScale';
+import {
   isLogicCondition,
   isLogicValue,
   isLogicVariableName,
@@ -40,6 +44,7 @@ export type RuntimeCharacterState = {
   slot: CharacterSlot;
   layer: number;
   position: CharacterPosition | null;
+  scalePercent: number;
   /** Final opacity retained after the current effect finishes. */
   opacity: 0 | 1;
   /** Transient effect event for the presentation reached by this advance. */
@@ -65,7 +70,8 @@ export type RuntimeErrorCode =
   | 'logicStepLimit'
   | 'logicLoopState'
   | 'logicVariableBudget'
-  | 'characterEffectInvalid';
+  | 'characterEffectInvalid'
+  | 'imageScaleInvalid';
 
 export type GameRuntime = {
   status:
@@ -78,6 +84,7 @@ export type GameRuntime = {
   sceneId: string;
   nextNodeIndex: number;
   backgroundAssetId: string | null;
+  backgroundScalePercent: number;
   bgmAssetId: string | null;
   bgmSequence: number;
   dialogueSequence: number;
@@ -370,6 +377,7 @@ const ENGLISH_LOGIC_ERRORS: Readonly<Record<RuntimeErrorCode, string>> = {
   logicLoopState: 'The saved loop state does not match the current story.',
   logicVariableBudget: 'This project uses too many story variables.',
   characterEffectInvalid: 'The character effect configuration is invalid.',
+  imageScaleInvalid: 'The image scale configuration is invalid.',
 };
 
 export function getLocalizedRuntimeErrorMessage(
@@ -517,6 +525,7 @@ export function advanceGame(
       sceneId: current.sceneId,
       nextNodeIndex: current.nextNodeIndex,
       backgroundAssetId: current.backgroundAssetId,
+      backgroundScalePercent: current.backgroundScalePercent,
       bgmAssetId: current.bgmAssetId,
       bgmSequence: current.bgmSequence,
       dialogueSequence: current.dialogueSequence,
@@ -538,6 +547,7 @@ export function advanceGame(
     ]),
   );
   let backgroundAssetId = current.backgroundAssetId;
+  let backgroundScalePercent = current.backgroundScalePercent;
   let bgmAssetId = current.bgmAssetId;
   let bgmSequence = current.bgmSequence;
   const dialogueSequence = current.dialogueSequence;
@@ -566,6 +576,7 @@ export function advanceGame(
     sceneId,
     nextNodeIndex: index,
     backgroundAssetId,
+    backgroundScalePercent,
     bgmAssetId,
     bgmSequence,
     dialogueSequence,
@@ -592,6 +603,18 @@ export function advanceGame(
     if (!scene) {
       return error('跳转的目标场景不存在');
     }
+    if (
+      !isImageScalePercent(scene.backgroundScalePercent) ||
+      (
+        scene.backgroundAssetId === null &&
+        scene.backgroundScalePercent !== DEFAULT_IMAGE_SCALE_PERCENT
+      )
+    ) {
+      return error(
+        `场景 ${scene.id} 的初始背景缩放无效`,
+        'imageScaleInvalid',
+      );
+    }
     const controlFlow = cachedSceneControlFlow(scene.nodes);
     if (typeof controlFlow === 'string') {
       return error(controlFlow, 'logicInvalidStructure');
@@ -605,6 +628,7 @@ export function advanceGame(
         sceneId,
         nextNodeIndex: scene.nodes.length,
         backgroundAssetId,
+        backgroundScalePercent,
         bgmAssetId,
         bgmSequence,
         dialogueSequence,
@@ -638,10 +662,31 @@ export function advanceGame(
     const node = scene.nodes[nodeIndex]!;
     index += 1;
     if (node.type === 'background') {
+      if (
+        !isImageScalePercent(node.scalePercent) ||
+        (node.assetId === null && node.scalePercent !== DEFAULT_IMAGE_SCALE_PERCENT)
+      ) {
+        return error(
+          `背景节点 ${node.id} 的图片缩放无效`,
+          'imageScaleInvalid',
+        );
+      }
       backgroundAssetId = node.assetId;
+      backgroundScalePercent = node.assetId === null
+        ? DEFAULT_IMAGE_SCALE_PERCENT
+        : node.scalePercent;
       continue;
     }
     if (node.type === 'character') {
+      if (
+        !isImageScalePercent(node.scalePercent) ||
+        (node.assetId === null && node.scalePercent !== DEFAULT_IMAGE_SCALE_PERCENT)
+      ) {
+        return error(
+          `立绘节点 ${node.id} 的图片缩放无效`,
+          'imageScaleInvalid',
+        );
+      }
       if (node.assetId === null) {
         if (node.effect !== null) {
           return error(
@@ -670,6 +715,7 @@ export function advanceGame(
           slot: node.slot,
           layer: node.layer,
           position: node.position,
+          scalePercent: node.scalePercent,
           opacity: node.effect?.type === 'fadeOut' ? 0 : 1,
           effect: node.effect,
           effectSequence: characterEffectSequence,
@@ -784,6 +830,7 @@ export function advanceGame(
         sceneId,
         nextNodeIndex: index,
         backgroundAssetId,
+        backgroundScalePercent,
         bgmAssetId,
         bgmSequence,
         dialogueSequence,
@@ -821,6 +868,7 @@ export function advanceGame(
         sceneId,
         nextNodeIndex: index,
         backgroundAssetId,
+        backgroundScalePercent,
         bgmAssetId,
         bgmSequence,
         dialogueSequence,
@@ -846,6 +894,7 @@ export function advanceGame(
         sceneId,
         nextNodeIndex: index,
         backgroundAssetId,
+        backgroundScalePercent,
         bgmAssetId,
         bgmSequence,
         dialogueSequence,
@@ -872,6 +921,7 @@ export function advanceGame(
       sceneId = target.id;
       index = 0;
       backgroundAssetId = target.backgroundAssetId;
+      backgroundScalePercent = target.backgroundScalePercent;
       charactersByLayer.clear();
       loopStack = [];
       cgAssetId = null;
@@ -884,6 +934,7 @@ export function advanceGame(
       sceneId,
       nextNodeIndex: index,
       backgroundAssetId,
+      backgroundScalePercent,
       bgmAssetId,
       bgmSequence,
       dialogueSequence: dialogueSequence + 1,
@@ -931,6 +982,7 @@ export function completeCgLeadIn(
       sceneId: current.sceneId,
       nextNodeIndex: current.nextNodeIndex,
       backgroundAssetId: current.backgroundAssetId,
+      backgroundScalePercent: current.backgroundScalePercent,
       bgmAssetId: current.bgmAssetId,
       bgmSequence: current.bgmSequence,
       dialogueSequence: current.dialogueSequence,
@@ -980,6 +1032,7 @@ export function selectChoice(
     sceneId: target.id,
     nextNodeIndex: 0,
     backgroundAssetId: target.backgroundAssetId,
+    backgroundScalePercent: target.backgroundScalePercent,
     bgmAssetId: current.bgmAssetId,
     bgmSequence: current.bgmSequence,
     dialogueSequence: current.dialogueSequence,
@@ -1013,6 +1066,7 @@ export function startGameAtScene(
     sceneId: scene.id,
     nextNodeIndex: 0,
     backgroundAssetId: scene.backgroundAssetId,
+    backgroundScalePercent: scene.backgroundScalePercent,
     bgmAssetId: null,
     bgmSequence: 0,
     dialogueSequence: 0,

@@ -1,6 +1,6 @@
 /**
- * 文件主要作用：解析人物立绘积木新增、更新、移动和资源选择事件。
- * 包含实现：`resolveNewCharacterPlacement`、`CharacterFieldUpdate`、`getCharacterFieldUpdate`。
+ * 文件主要作用：解析人物立绘积木新增、字段更新和未失焦草稿。
+ * 包含实现：`resolveNewCharacterPlacement`、`getCharacterFieldUpdate`、`collectCharacterFieldDrafts`。
  */
 
 import * as Blockly from 'blockly';
@@ -11,12 +11,14 @@ import type {
   CharacterSlot,
   SceneDocument,
 } from '../../../shared/projectTypes';
+import { DEFAULT_IMAGE_SCALE_PERCENT } from '../../../shared/projectTypes';
 import {
   CHARACTER_BLOCK_FIELDS,
   CHARACTER_BLOCK_TYPE,
   CLEAR_CHARACTER_BLOCK_TYPE,
   getCharacterBlockAssetId,
   getCharacterBlockLayer,
+  getCharacterBlockScalePercent,
   getCharacterBlockSlot,
   isCharacterBlockType,
 } from './blocks/characterBlock';
@@ -46,7 +48,41 @@ export type CharacterFieldUpdate = {
   slot: CharacterSlot;
   layer: number;
   position: CharacterPosition | null;
+  scalePercent: number;
 };
+
+export type CharacterFieldDrafts = {
+  drafts: CharacterFieldUpdate[];
+  invalidNodeId: string | null;
+};
+
+function readCharacterFieldUpdate(
+  block: Blockly.Block,
+  node: Extract<SceneDocument['nodes'][number], { type: 'character' }>,
+): CharacterFieldUpdate | null {
+  const isClear = block.type === CLEAR_CHARACTER_BLOCK_TYPE;
+  const scalePercent = isClear
+    ? DEFAULT_IMAGE_SCALE_PERCENT
+    : getCharacterBlockScalePercent(block);
+  if (scalePercent === null) {
+    return null;
+  }
+  return {
+    nodeId: node.id,
+    mode: isClear ? 'clear' : 'show',
+    assetId: isClear ? null : getCharacterBlockAssetId(block),
+    slot:
+      block.getFieldValue(CHARACTER_BLOCK_FIELDS.slot) === 'custom'
+        ? node.slot
+        : getCharacterBlockSlot(block),
+    layer: getCharacterBlockLayer(block),
+    position:
+      block.getFieldValue(CHARACTER_BLOCK_FIELDS.slot) === 'custom'
+        ? node.position
+        : null,
+    scalePercent,
+  };
+}
 
 export function getCharacterFieldUpdate(
   event: Blockly.Events.Abstract,
@@ -62,7 +98,8 @@ export function getCharacterFieldUpdate(
     changeEvent.element !== 'field' ||
     !changeEvent.blockId ||
     (changeEvent.name !== CHARACTER_BLOCK_FIELDS.slot &&
-      changeEvent.name !== CHARACTER_BLOCK_FIELDS.layer)
+      changeEvent.name !== CHARACTER_BLOCK_FIELDS.layer &&
+      changeEvent.name !== CHARACTER_BLOCK_FIELDS.scalePercent)
   ) {
     return null;
   }
@@ -79,18 +116,40 @@ export function getCharacterFieldUpdate(
     return null;
   }
 
-  return {
-    nodeId: node.id,
-    mode: block.type === CLEAR_CHARACTER_BLOCK_TYPE ? 'clear' : 'show',
-    assetId: getCharacterBlockAssetId(block),
-    slot:
-      block.getFieldValue(CHARACTER_BLOCK_FIELDS.slot) === 'custom'
-        ? node.slot
-        : getCharacterBlockSlot(block),
-    layer: getCharacterBlockLayer(block),
-    position:
-      block.getFieldValue(CHARACTER_BLOCK_FIELDS.slot) === 'custom'
-        ? node.position
-        : null,
-  };
+  return readCharacterFieldUpdate(block, node);
+}
+
+export function collectCharacterFieldDrafts(
+  workspace: Blockly.WorkspaceSvg,
+  scene: SceneDocument,
+): CharacterFieldDrafts {
+  const drafts: CharacterFieldUpdate[] = [];
+  for (const node of scene.nodes) {
+    if (node.type !== 'character') {
+      continue;
+    }
+    const block = workspace.getBlockById(node.id);
+    if (!block || !isCharacterBlockType(block.type)) {
+      continue;
+    }
+    const draft = readCharacterFieldUpdate(block, node);
+    if (!draft) {
+      return { drafts, invalidNodeId: node.id };
+    }
+    if (
+      draft.mode !== node.mode ||
+      draft.assetId !== node.assetId ||
+      draft.slot !== node.slot ||
+      draft.layer !== node.layer ||
+      draft.scalePercent !== node.scalePercent ||
+      (draft.position === null) !== (node.position === null) ||
+      (draft.position !== null &&
+        node.position !== null &&
+        (draft.position.x !== node.position.x ||
+          draft.position.y !== node.position.y))
+    ) {
+      drafts.push(draft);
+    }
+  }
+  return { drafts, invalidNodeId: null };
 }

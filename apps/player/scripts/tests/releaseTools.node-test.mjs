@@ -72,7 +72,7 @@ function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-async function writeMediaBundle(root, runtimeVersion = 10) {
+async function writeMediaBundle(root, runtimeVersion = 12) {
   const png = Buffer.from([
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
     0x00, 0x00, 0x00, 0x0d,
@@ -90,6 +90,7 @@ async function writeMediaBundle(root, runtimeVersion = 10) {
         id: 'project',
         title: 'Test',
         entrySceneId: 'scene',
+        ...(runtimeVersion >= 12 ? { defaultLanguage: 'en-US' } : {}),
         ...(runtimeVersion >= 2
           ? {
               startScreen: {
@@ -123,6 +124,7 @@ async function writeMediaBundle(root, runtimeVersion = 10) {
         id: 'scene',
         name: 'Scene',
         backgroundAssetId: 'background',
+        ...(runtimeVersion >= 11 ? { backgroundScalePercent: 100 } : {}),
         nodes: [],
       }],
     }, null, 2)}\n`,
@@ -177,6 +179,37 @@ test('keeps release verification compatible with legacy runtime v1/v2/v5 bundles
   await assert.doesNotReject(verifyRuntimeBundle(v1Root));
   await assert.doesNotReject(verifyRuntimeBundle(v2Root));
   await assert.doesNotReject(verifyRuntimeBundle(v5Root));
+});
+
+test('enforces the exact runtime v12 default-language contract', async () => {
+  const root = await temporaryDirectory();
+  await writeMediaBundle(root, 12);
+  const gamePath = path.join(root, 'game.json');
+  const game = JSON.parse(await readFile(gamePath, 'utf8'));
+
+  assert.equal(game.game.defaultLanguage, 'en-US');
+  await assert.doesNotReject(verifyRuntimeBundle(root));
+
+  game.game.defaultLanguage = 'zh-CN';
+  await writeFile(gamePath, `${JSON.stringify(game, null, 2)}\n`);
+  await assert.doesNotReject(verifyRuntimeBundle(root));
+
+  delete game.game.defaultLanguage;
+  await writeFile(gamePath, `${JSON.stringify(game, null, 2)}\n`);
+  await assert.rejects(verifyRuntimeBundle(root), /game.*字段不符合/u);
+
+  game.game.defaultLanguage = 'fr-FR';
+  await writeFile(gamePath, `${JSON.stringify(game, null, 2)}\n`);
+  await assert.rejects(verifyRuntimeBundle(root), /defaultLanguage/u);
+
+  const legacyRoot = await temporaryDirectory();
+  await writeMediaBundle(legacyRoot, 11);
+  await assert.doesNotReject(verifyRuntimeBundle(legacyRoot));
+  const legacyGamePath = path.join(legacyRoot, 'game.json');
+  const legacyGame = JSON.parse(await readFile(legacyGamePath, 'utf8'));
+  legacyGame.game.defaultLanguage = 'zh-CN';
+  await writeFile(legacyGamePath, `${JSON.stringify(legacyGame, null, 2)}\n`);
+  await assert.rejects(verifyRuntimeBundle(legacyRoot), /game.*字段不符合/u);
 });
 
 test('enforces the exact runtime v10 start-screen eyebrow contract', async () => {

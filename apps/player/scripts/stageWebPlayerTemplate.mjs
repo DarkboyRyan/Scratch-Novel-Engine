@@ -22,7 +22,7 @@ import { commandOptions } from './lib/releaseTools.mjs';
 
 const TEMPLATE_FORMAT = 'vn-engine-web-player-template';
 const TEMPLATE_VERSION = 1;
-const RUNTIME_COMPATIBILITY = '>=1 <11';
+const RUNTIME_COMPATIBILITY = '>=1 <13';
 
 function sameFile(left, right) {
   return left.isFile() &&
@@ -78,6 +78,33 @@ function validatePayloadFiles(files) {
     if (file !== 'index.html' && !file.startsWith('player-assets/')) {
       throw new Error(`Web Player 构建包含未约定的根文件：${file}`);
     }
+  }
+}
+
+function validateEntryHtml(contents) {
+  let source;
+  try {
+    source = new TextDecoder('utf-8', { fatal: true }).decode(contents);
+  } catch {
+    throw new Error('Web Player index.html 不是有效 UTF-8');
+  }
+  const htmlTags = [...source.matchAll(/<html\b[^<>]*>/giu)];
+  if (htmlTags.length !== 1) {
+    throw new Error('Web Player index.html 缺少唯一的 html 根标签');
+  }
+  const rawLanguageAttributes = [
+    ...htmlTags[0][0].matchAll(/\s+lang\s*=/giu),
+  ];
+  const languageAttributes = [
+    ...htmlTags[0][0].matchAll(/(\s+)lang\s*=\s*(["'])([^"']*)\2/giu),
+  ];
+  if (
+    rawLanguageAttributes.length !== 1 ||
+    languageAttributes.length !== 1 ||
+    (languageAttributes[0][3] !== 'zh-CN' &&
+      languageAttributes[0][3] !== 'en-US')
+  ) {
+    throw new Error('Web Player index.html 语言属性不符合模板契约');
   }
 }
 
@@ -198,6 +225,9 @@ async function main() {
     const manifestFiles = [];
     for (const relativePath of files) {
       const contents = await stableFile(path.join(source, ...relativePath.split('/')));
+      if (relativePath === 'index.html') {
+        validateEntryHtml(contents);
+      }
       const destination = path.join(payload, ...relativePath.split('/'));
       await mkdir(path.dirname(destination), { recursive: true });
       await writeFile(destination, contents, { flag: 'wx', mode: 0o600 });

@@ -23,6 +23,7 @@ const scene: SceneDocument = {
   id: 'scene-with-three-extensions',
   name: '长场景',
   backgroundAssetId: null,
+  backgroundScalePercent: 100,
   nodes: [
     {
       id: 'dialogue-a',

@@ -36,6 +36,7 @@ const scene: SceneDocument = {
   id: 'scene-1',
   name: '场景 1',
   backgroundAssetId: null,
+  backgroundScalePercent: 100,
   nodes: [
     {
       id: 'node-1',
@@ -733,7 +734,12 @@ describe('getReorderedDialogueBlock', () => {
       ...scene,
       nodes: [
         scene.nodes[0],
-        { id: 'background-1', type: 'background', assetId: 'image-1' },
+        {
+          id: 'background-1',
+          type: 'background',
+          assetId: 'image-1',
+          scalePercent: 100,
+        },
         scene.nodes[1],
       ],
     };
@@ -768,6 +774,7 @@ describe('getReorderedDialogueBlock', () => {
           layer: 2,
           position: null,
           effect: null,
+          scalePercent: 100,
         },
         scene.nodes[1],
       ],

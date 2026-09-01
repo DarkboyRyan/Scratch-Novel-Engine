@@ -85,6 +85,7 @@ const project: ProjectDocument = {
       id: 'scene-1',
       name: '场景 1',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [],
     },
   ],
@@ -388,18 +389,27 @@ describe('CG gallery Editor', () => {
         <ResourcePanel
           assets={assets}
           backgroundAssetId={null}
+          backgroundScalePercent={100}
+          backgroundScaleDraft="100"
+          backgroundScaleDraftInvalid={false}
+          supportsBackgroundScale={false}
           previewUrls={{}}
           isBusy={false}
           imageSelectionPurpose="cg-gallery"
           onImportImage={async () => {}}
           onImportAudio={async () => {}}
           onImportVideo={async () => {}}
+          onBackgroundScaleDraftChange={() => {}}
+          onCommitBackgroundScaleDraft={async () => true}
           onSelectBackground={selectBackground}
         />,
       );
     });
 
     expect(container.textContent).not.toContain('点击图片加入 CG');
+    expect(
+      container.querySelector('[aria-label="背景缩放百分比"]'),
+    ).toBeNull();
     const imageButton = container.querySelector(
       '[aria-label="图片资源"] button',
     ) as HTMLButtonElement;

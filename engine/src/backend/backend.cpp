@@ -1,5 +1,5 @@
 // 文件职责：将精确校验后的 JSONL 命令映射到 C++ Core 原子操作。
-// 关键实现：Backend::handle、参数解析、业务错误码、revision 与项目快照提交。
+// 关键实现：Backend::handle、缩放等参数解析、业务错误码、revision 与项目快照提交。
 #include "backend.hpp"
 
 #include <algorithm>
@@ -399,6 +399,26 @@ int required_character_layer(const Json& object) {
   }
   throw ProtocolError(
       "invalid_params", "params.layer must be an integer between 1 and 10");
+}
+
+int required_image_scale_percent(const Json& object) {
+  if (!object.contains("scalePercent") ||
+      !object.at("scalePercent").is_number_integer()) {
+    throw ProtocolError(
+        "invalid_params",
+        "params.scalePercent must be an integer between 10 and 300");
+  }
+  try {
+    const int scale_percent = object.at("scalePercent").get<int>();
+    if (scale_percent >= kMinimumImageScalePercent &&
+        scale_percent <= kMaximumImageScalePercent) {
+      return scale_percent;
+    }
+  } catch (const Json::exception&) {
+  }
+  throw ProtocolError(
+      "invalid_params",
+      "params.scalePercent must be an integer between 10 and 300");
 }
 
 std::optional<CharacterPosition> required_character_position(
@@ -924,7 +944,12 @@ Json Backend::handle(const Json& request) {
   } else if (method == "scene.add") {
     std::optional<std::string> name;
     if (params.contains("name")) {
-      name = required_string(params, "name");
+      name = vnengine::normalize_scene_name(
+          required_string(params, "name"));
+      if (!name.has_value()) {
+        throw ProtocolError(
+            "scene_name_required", "scene name must not be empty");
+      }
     }
     const std::string scene_id =
         vnengine::add_scene(project, ids_, std::move(name));
@@ -945,11 +970,16 @@ Json Backend::handle(const Json& request) {
     if (vnengine::find_scene(project, scene_id) == nullptr) {
       throw ProtocolError("scene_not_found", "scene does not exist");
     }
-    changed = vnengine::rename_scene(
-        project,
-        scene_id,
+    const auto name = vnengine::normalize_scene_name(
         required_string(params, "name"));
+    if (!name.has_value()) {
+      throw ProtocolError(
+          "scene_name_required", "scene name must not be empty");
+    }
+    changed = vnengine::rename_scene(project, scene_id, *name);
   } else if (method == "scene.setBackground") {
+    require_exact_params(
+        params, {"sceneId", "assetId", "scalePercent"});
     const std::string scene_id = required_string(params, "sceneId");
     if (!params.contains("assetId") ||
         (!params.at("assetId").is_null() &&
@@ -964,7 +994,10 @@ Json Backend::handle(const Json& request) {
     }
 
     switch (vnengine::set_scene_background(
-        require_aggregate(), scene_id, std::move(asset_id))) {
+        require_aggregate(),
+        scene_id,
+        std::move(asset_id),
+        required_image_scale_percent(params))) {
       case vnengine::SetSceneBackgroundResult::changed:
         changed = true;
         break;
@@ -978,6 +1011,10 @@ Json Backend::handle(const Json& request) {
       case vnengine::SetSceneBackgroundResult::asset_not_image:
         throw ProtocolError(
             "asset_not_image", "scene background asset must be an image");
+      case vnengine::SetSceneBackgroundResult::invalid_scale:
+        throw ProtocolError(
+            "invalid_params",
+            "scene background scale must be 100 when empty, otherwise between 10 and 300");
     }
   } else if (method == "scene.delete") {
     const std::string scene_id = required_string(params, "sceneId");
@@ -1064,6 +1101,8 @@ Json Backend::handle(const Json& request) {
         scene_id,
         result.node_id);
   } else if (method == "background.update") {
+    require_exact_params(
+        params, {"sceneId", "nodeId", "assetId", "scalePercent"});
     const std::string scene_id = required_string(params, "sceneId");
     const std::string node_id = required_string(params, "nodeId");
     if (!params.contains("assetId") ||
@@ -1077,7 +1116,11 @@ Json Backend::handle(const Json& request) {
       asset_id = params.at("assetId").get<std::string>();
     }
     switch (vnengine::update_background_node(
-        require_aggregate(), scene_id, node_id, asset_id)) {
+        require_aggregate(),
+        scene_id,
+        node_id,
+        asset_id,
+        required_image_scale_percent(params))) {
       case vnengine::UpdateBackgroundNodeResult::changed:
         changed = true;
         break;
@@ -1094,6 +1137,10 @@ Json Backend::handle(const Json& request) {
       case vnengine::UpdateBackgroundNodeResult::asset_not_image:
         throw ProtocolError(
             "asset_not_image", "background node asset must be an image");
+      case vnengine::UpdateBackgroundNodeResult::invalid_scale:
+        throw ProtocolError(
+            "invalid_params",
+            "background scale must be 100 when empty, otherwise between 10 and 300");
     }
   } else if (method == "background.delete") {
     const std::string scene_id = required_string(params, "sceneId");
@@ -1218,6 +1265,7 @@ Json Backend::handle(const Json& request) {
           std::move(initial_asset_id),
           vnengine::CharacterSlot::center,
           1,
+          vnengine::kDefaultImageScalePercent,
           std::nullopt)) {
         case vnengine::UpdateCharacterNodeResult::changed:
           break;
@@ -1232,6 +1280,7 @@ Json Backend::handle(const Json& request) {
         case vnengine::UpdateCharacterNodeResult::invalid_slot:
         case vnengine::UpdateCharacterNodeResult::invalid_layer:
         case vnengine::UpdateCharacterNodeResult::invalid_position:
+        case vnengine::UpdateCharacterNodeResult::invalid_scale:
         case vnengine::UpdateCharacterNodeResult::invalid_mode:
           throw ProtocolError(
               "internal_error", "character.add initial asset update failed");
@@ -1253,7 +1302,8 @@ Json Backend::handle(const Json& request) {
   } else if (method == "character.update") {
     require_params_with_optional(
         params,
-        {"sceneId", "nodeId", "assetId", "slot", "layer", "position"},
+        {"sceneId", "nodeId", "assetId", "slot", "layer", "position",
+         "scalePercent"},
         {"mode"});
     const std::string scene_id = required_string(params, "sceneId");
     const std::string node_id = required_string(params, "nodeId");
@@ -1274,6 +1324,7 @@ Json Backend::handle(const Json& request) {
         std::move(asset_id),
         required_character_slot(params),
         required_character_layer(params),
+        required_image_scale_percent(params),
         required_character_position(params),
         params.contains("mode")
             ? std::optional<CharacterNodeMode>(
@@ -1298,6 +1349,7 @@ Json Backend::handle(const Json& request) {
       case vnengine::UpdateCharacterNodeResult::invalid_slot:
       case vnengine::UpdateCharacterNodeResult::invalid_layer:
       case vnengine::UpdateCharacterNodeResult::invalid_position:
+      case vnengine::UpdateCharacterNodeResult::invalid_scale:
       case vnengine::UpdateCharacterNodeResult::invalid_mode:
         throw ProtocolError("invalid_params", "character node fields are invalid");
     }
@@ -2408,35 +2460,22 @@ Json Backend::handle(const Json& request) {
           "dialogue_not_found", "before timeline node does not exist");
     }
 
-    const bool has_speaker = params.contains("speaker");
-    const bool has_text = params.contains("text");
-    std::string speaker = has_speaker
+    std::string speaker = params.contains("speaker")
         ? required_string(params, "speaker")
         : std::string{};
-    std::string text = has_text
+    std::string text = params.contains("text")
         ? required_string(params, "text")
         : std::string{};
-
-    // text 存在表示表单正在提交完整对白，必须通过内容校验。
-    // 只有 speaker 而没有 text 表示尚未连接的新积木草稿：保留角色名，
-    // 但仍允许空文本，连接后用户可以继续编辑。
-    if (has_text) {
-      const auto content = vnengine::normalize_dialogue_content(
-          std::move(speaker), std::move(text));
-      if (!content.has_value()) {
-        throw ProtocolError(
-            "dialogue_text_required", "dialogue text must not be empty");
-      }
-      speaker = content->speaker;
-      text = content->text;
-    }
+    const vnengine::DialogueContent content =
+        vnengine::normalize_dialogue_content(
+            std::move(speaker), std::move(text));
 
     const std::optional<std::string> node_id = vnengine::add_dialogue(
         project,
         ids_,
         scene_id,
-        speaker,
-        text,
+        content.speaker,
+        content.text,
         std::move(after_dialogue_id),
         std::move(before_dialogue_id));
     if (!node_id.has_value()) {
@@ -2463,40 +2502,20 @@ Json Backend::handle(const Json& request) {
     if (scene == nullptr) {
       throw ProtocolError("scene_not_found", "scene does not exist");
     }
-    vnengine::Dialogue* dialogue = vnengine::find_dialogue(*scene, node_id);
-    if (dialogue == nullptr) {
+    if (vnengine::find_dialogue(*scene, node_id) == nullptr) {
       throw ProtocolError("dialogue_not_found", "dialogue does not exist");
     }
 
-    std::string speaker = required_string(params, "speaker");
-    std::string text = required_string(params, "text");
-    const auto content = vnengine::normalize_dialogue_content(
-        speaker,
-        text);
-    if (!content.has_value()) {
-      // An empty node created by "+" is an editing placeholder. Persisting a
-      // speaker-first edit keeps Blockly and C++ in sync without turning the
-      // placeholder into committed dialogue. Once text has been committed,
-      // clearing it is still rejected.
-      if (!dialogue->text.empty()) {
-        throw ProtocolError(
-            "dialogue_text_required", "dialogue text must not be empty");
-      }
-
-      changed = vnengine::update_dialogue(
-          project,
-          scene_id,
-          node_id,
-          std::move(speaker),
-          {});
-    } else {
-      changed = vnengine::update_dialogue(
-          project,
-          scene_id,
-          node_id,
-          content->speaker,
-          content->text);
-    }
+    const vnengine::DialogueContent content =
+        vnengine::normalize_dialogue_content(
+            required_string(params, "speaker"),
+            required_string(params, "text"));
+    changed = vnengine::update_dialogue(
+        project,
+        scene_id,
+        node_id,
+        content.speaker,
+        content.text);
   } else if (method == "dialogue.setVoice") {
     const std::string scene_id = required_string(params, "sceneId");
     const std::string node_id = required_string(params, "nodeId");

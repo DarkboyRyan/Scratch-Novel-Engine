@@ -26,6 +26,7 @@ const scene: SceneDocument = {
   id: 'scene-1',
   name: '场景 1',
   backgroundAssetId: null,
+  backgroundScalePercent: 100,
   nodes: [
     {
       id: 'choice-1',

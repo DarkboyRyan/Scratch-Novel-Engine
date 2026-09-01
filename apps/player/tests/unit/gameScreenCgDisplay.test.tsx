@@ -43,6 +43,7 @@ const project: ProjectDocument = {
     id: 'entry',
     name: 'Entry',
     backgroundAssetId: null,
+    backgroundScalePercent: 100,
     nodes: [
       { id: 'cg', type: 'cgDisplay', assetId: 'cg-image', leadInMs: 1000 },
       {

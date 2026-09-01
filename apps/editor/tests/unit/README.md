@@ -15,18 +15,20 @@
 | 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
 | --- | --- | --- | --- |
 | [assetPreviewService.test.ts](./assetPreviewService.test.ts) | Vitest + TypeScript | 验证 AssetPreviewService 的行为 | `AssetPreviewService` |
-| [authorProjectCompiler.test.ts](./authorProjectCompiler.test.ts) | Vitest + TypeScript | 验证 author project v20 compiler、标题上方文字、人物模式迁移和 Runtime 投影 | `author project v20 compiler` |
+| [authorProjectCompiler.test.ts](./authorProjectCompiler.test.ts) | Vitest + TypeScript | 验证 author project v21 compiler、标题上方文字、图片缩放、人物模式迁移和 Runtime 投影 | `author project v21 compiler` |
 | [backendClientTimeout.test.ts](./backendClientTimeout.test.ts) | Vitest + TypeScript | 验证 backend request timeout 的行为 | `backend request timeout` |
 | [backendResponse.test.ts](./backendResponse.test.ts) | Vitest + TypeScript | 验证 backend response validation 的行为 | `backend response validation` |
+| [backgroundBlockEvents.test.ts](./backgroundBlockEvents.test.ts) | Vitest + TypeScript + Blockly | 验证背景缩放字段、草稿收集和 HMR 旧积木升级 | `getBackgroundFieldUpdate`、`collectBackgroundFieldDrafts` |
 | [blockEditorLayout.test.ts](./blockEditorLayout.test.ts) | Vitest + TypeScript + Blockly | 验证 captureSceneWorkspaceLayout、restoreSceneWorkspaceViewport 的行为 | `captureSceneWorkspaceLayout`、`restoreSceneWorkspaceViewport` |
 | [blockGroupDrag.test.ts](./blockGroupDrag.test.ts) | Vitest + TypeScript + Blockly + JSDOM | 验证 logic-aware block group selection 的行为 | `logic-aware block group selection` |
 | [blocklyWorkspaceCgDisplayIntegration.test.tsx](./blocklyWorkspaceCgDisplayIntegration.test.tsx) | Vitest + React + TypeScript + Blockly + JSDOM | 验证 BlocklyWorkspace CG-display action integration 的行为 | `BlocklyWorkspace CG-display action integration` |
 | [blocklyWorkspaceCharacterEffectIntegration.test.tsx](./blocklyWorkspaceCharacterEffectIntegration.test.tsx) | Vitest + React + TypeScript + Blockly + JSDOM | 验证 BlocklyWorkspace portrait-effect action integration 的行为 | `BlocklyWorkspace portrait-effect action integration` |
-| [blocklyWorkspaceLogicIntegration.test.tsx](./blocklyWorkspaceLogicIntegration.test.tsx) | Vitest + React + TypeScript + Blockly + JSDOM | 验证 BlocklyWorkspace logic action integration 的行为 | `BlocklyWorkspace logic action integration` |
+| [blocklyWorkspaceLogicIntegration.test.tsx](./blocklyWorkspaceLogicIntegration.test.tsx) | Vitest + React + TypeScript + Blockly + JSDOM | 验证逻辑命令、项目级 If 变量候选、前缀搜索及选择后的后端更新 | `BlocklyWorkspace logic action integration` |
+| [blocklyWorkspaceVariableIntegration.test.tsx](./blocklyWorkspaceVariableIntegration.test.tsx) | Vitest + React + TypeScript + Blockly + JSDOM | 验证项目级变量候选、孤立引用兼容、空占位及新增/更新恢复 | `BlocklyWorkspace variable dropdown integration` |
 | [cgDisplayBlock.test.ts](./cgDisplayBlock.test.ts) | Vitest + TypeScript + Blockly | 验证 CG display block 的行为 | `CG display block` |
 | [cgDisplayBlockEvents.test.ts](./cgDisplayBlockEvents.test.ts) | Vitest + TypeScript + Blockly | 验证 CG display dialogue-only body drops 的行为 | `CG display dialogue-only body drops` |
 | [cgGalleryEditor.test.tsx](./cgGalleryEditor.test.tsx) | Vitest + React + TypeScript + Blockly + JSDOM | 验证 CG gallery Editor 的行为 | `CG gallery Editor` |
-| [characterBlockEvents.test.ts](./characterBlockEvents.test.ts) | Vitest + TypeScript + Blockly | 验证人物占位/清除新增语义及字段更新 | `resolveNewCharacterPlacement`、`getCharacterFieldUpdate` |
+| [characterBlockEvents.test.ts](./characterBlockEvents.test.ts) | Vitest + TypeScript + Blockly | 验证人物占位/清除语义、缩放草稿及 HMR 升级 | `resolveNewCharacterPlacement`、`getCharacterFieldUpdate`、`collectCharacterFieldDrafts` |
 | [characterEffectBlock.test.ts](./characterEffectBlock.test.ts) | Vitest + TypeScript + Blockly | 验证 character portrait effect blocks 的行为 | `character portrait effect blocks` |
 | [characterEffectBlockEvents.test.ts](./characterEffectBlockEvents.test.ts) | Vitest + TypeScript + Blockly | 验证 character effect block events 的行为 | `character effect block events` |
 | [characterPositionForm.test.tsx](./characterPositionForm.test.tsx) | Vitest + React + TypeScript + JSDOM | 验证 character position form controls 的行为 | `character position form controls` |
@@ -48,12 +50,12 @@
 | [formChoiceCompatibility.test.tsx](./formChoiceCompatibility.test.tsx) | Vitest + React + TypeScript + JSDOM | 验证 form editor choice compatibility 的行为 | `form editor choice compatibility` |
 | [formLogicTree.test.ts](./formLogicTree.test.ts) | Vitest + TypeScript | 验证 form logic tree 的行为 | `form logic tree` |
 | [gamePreviewCgDisplay.test.tsx](./gamePreviewCgDisplay.test.tsx) | Vitest + React + TypeScript + JSDOM | 验证 Editor formal preview CG lead-in 的行为 | `Editor formal preview CG lead-in` |
-| [gamePreviewCharacterEffects.test.tsx](./gamePreviewCharacterEffects.test.tsx) | Vitest + React + TypeScript + JSDOM | 验证 Editor character effect previews 的行为 | `Editor character effect previews` |
+| [gamePreviewCharacterEffects.test.tsx](./gamePreviewCharacterEffects.test.tsx) | Vitest + React + TypeScript + JSDOM | 验证静态/正式预览的背景、立绘缩放边界与人物特效组合 | `PreviewPanel`、`GamePreview`、`VisualStage` |
 | [gamePreviewChoice.test.tsx](./gamePreviewChoice.test.tsx) | Vitest + React + TypeScript + JSDOM | 验证 GamePreview choices 的行为 | `GamePreview choices` |
 | [gamePreviewVideoInput.test.tsx](./gamePreviewVideoInput.test.tsx) | Vitest + React + TypeScript + JSDOM | 验证 GamePreview video input 的行为 | `GamePreview video input` |
 | [installApplicationMenu.test.ts](./installApplicationMenu.test.ts) | Vitest + TypeScript + Electron | 验证 application menu 的行为 | `application menu` |
 | [logicBlockEvents.test.ts](./logicBlockEvents.test.ts) | Vitest + TypeScript + Blockly | 验证 logic Blockly backend-first events 的行为 | `logic Blockly backend-first events` |
-| [logicBlocks.test.ts](./logicBlocks.test.ts) | Vitest + TypeScript + Blockly | 验证 logic and variable Blockly definitions 的行为 | `logic and variable Blockly definitions` |
+| [logicBlocks.test.ts](./logicBlocks.test.ts) | Vitest + TypeScript + Blockly | 验证逻辑/变量积木、动态操作数字段、空候选和孤立引用兼容 | `logic and variable Blockly definitions` |
 | [logicStructure.test.ts](./logicStructure.test.ts) | Vitest + TypeScript | 验证 flat logic marker structure 的行为 | `flat logic marker structure` |
 | [mediaPolicy.test.ts](./mediaPolicy.test.ts) | Vitest + TypeScript | 验证 MediaFormat、parseSingleByteRange 的行为 | `MediaFormat`、`parseSingleByteRange` |
 | [preloadBundle.test.ts](./preloadBundle.test.ts) | Vitest + TypeScript | 验证 sandboxed preload bundle 的行为 | `sandboxed preload bundle` |
@@ -74,6 +76,7 @@
 | [registerExportIpc.test.ts](./registerExportIpc.test.ts) | Vitest + TypeScript | 验证 game export IPC 的行为 | `game export IPC` |
 | [registerProjectFileIpc.test.ts](./registerProjectFileIpc.test.ts) | Vitest + TypeScript | 验证 project folder IPC 的行为 | `project folder IPC` |
 | [rendererErrorBoundary.test.tsx](./rendererErrorBoundary.test.tsx) | Vitest + React + TypeScript + JSDOM | 验证 RendererErrorBoundary 的行为 | `RendererErrorBoundary` |
+| [resourceBackgroundScale.test.tsx](./resourceBackgroundScale.test.tsx) | Vitest + React + TypeScript + JSDOM | 验证场景初始背景缩放、清空归一化和标题页隐藏 | `ResourcePanel` |
 | [runtimeBundleExporter.test.ts](./runtimeBundleExporter.test.ts) | Vitest + TypeScript | 验证 runtime bundle exporter 的行为 | `runtime bundle exporter` |
 | [runtimeBundleFileProviderStability.test.ts](./runtimeBundleFileProviderStability.test.ts) | Vitest + TypeScript | 验证 runtime Bundle File Provider Stability 的关键行为与回归边界 | 关键成功、失败与边界场景 |
 | [sceneJumpBlockEvents.test.ts](./sceneJumpBlockEvents.test.ts) | Vitest + TypeScript + Blockly | 验证 scene jump Blockly field events 的行为 | `scene jump Blockly field events` |

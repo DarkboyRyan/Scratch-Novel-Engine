@@ -80,7 +80,7 @@ export function registerDialogueBlock(
       this.appendDummyInput()
         .appendField(currentLabels.blockly.dialogueSpeaker, LABEL_FIELDS.speaker)
         .appendField(
-          new Blockly.FieldTextInput(currentLabels.blockly.narrator),
+          new Blockly.FieldTextInput(''),
           DIALOGUE_BLOCK_FIELDS.speaker,
         );
       this.appendDummyInput()

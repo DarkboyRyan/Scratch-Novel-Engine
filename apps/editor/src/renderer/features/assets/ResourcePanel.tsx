@@ -1,9 +1,15 @@
 /**
- * 文件主要作用：展示项目资源并支持导入、删除、预览和拖拽图片资源。
+ * 文件主要作用：展示项目资源并支持导入、预览、拖拽及场景初始背景缩放。
  * 包含实现：`ResourcePanel`。
  */
 
 import type { AssetDocument } from '../../../shared/projectTypes';
+import {
+  DEFAULT_IMAGE_SCALE_PERCENT,
+  isImageScalePercent,
+  MAX_IMAGE_SCALE_PERCENT,
+  MIN_IMAGE_SCALE_PERCENT,
+} from '../../../shared/projectTypes';
 import {
   VN_AUDIO_ASSET_DRAG_TYPE,
   VN_IMAGE_ASSET_DRAG_TYPE,
@@ -14,24 +20,39 @@ import { useEditorLabels } from '../../i18n/editorLocalization';
 type ResourcePanelProps = {
   assets: AssetDocument[];
   backgroundAssetId: string | null;
+  backgroundScalePercent: number;
+  backgroundScaleDraft: string;
+  backgroundScaleDraftInvalid: boolean;
+  supportsBackgroundScale: boolean;
   previewUrls: Readonly<Record<string, string>>;
   isBusy: boolean;
   imageSelectionPurpose?: 'background' | 'cg-gallery';
   onImportImage: () => Promise<void>;
   onImportAudio: () => Promise<void>;
   onImportVideo: () => Promise<void>;
-  onSelectBackground: (assetId: string | null) => Promise<void>;
+  onBackgroundScaleDraftChange: (value: string) => void;
+  onCommitBackgroundScaleDraft: () => Promise<boolean>;
+  onSelectBackground: (next: {
+    assetId: string | null;
+    scalePercent: number;
+  }) => Promise<void>;
 };
 
 export function ResourcePanel({
   assets,
   backgroundAssetId,
+  backgroundScalePercent,
+  backgroundScaleDraft,
+  backgroundScaleDraftInvalid,
+  supportsBackgroundScale,
   previewUrls,
   isBusy,
   imageSelectionPurpose = 'background',
   onImportImage,
   onImportAudio,
   onImportVideo,
+  onBackgroundScaleDraftChange,
+  onCommitBackgroundScaleDraft,
   onSelectBackground,
 }: ResourcePanelProps) {
   const labels = useEditorLabels();
@@ -74,15 +95,68 @@ export function ResourcePanel({
       </button>
 
       {imageSelectionPurpose === 'background' ? (
-        <button
-          type="button"
-          className="resource-clear-background"
-          aria-pressed={backgroundAssetId === null}
-          disabled={isBusy || backgroundAssetId === null}
-          onClick={() => void onSelectBackground(null)}
-        >
-          {labels.resource.noBackground}
-        </button>
+        <>
+          <button
+            type="button"
+            className="resource-clear-background"
+            aria-pressed={backgroundAssetId === null}
+            disabled={isBusy || backgroundAssetId === null}
+            onClick={() =>
+              void onSelectBackground({
+                assetId: null,
+                scalePercent: DEFAULT_IMAGE_SCALE_PERCENT,
+              })
+            }
+          >
+            {labels.resource.noBackground}
+          </button>
+          {supportsBackgroundScale ? (
+            <label className="resource-background-scale">
+              <span>{labels.inspector.scale}</span>
+              <input
+                type="number"
+                min={MIN_IMAGE_SCALE_PERCENT}
+                max={MAX_IMAGE_SCALE_PERCENT}
+                step="1"
+                value={backgroundScaleDraft}
+                disabled={isBusy || backgroundAssetId === null}
+                aria-label={labels.inspector.backgroundScaleAria}
+                aria-invalid={backgroundScaleDraftInvalid || undefined}
+                aria-describedby={
+                  backgroundScaleDraftInvalid
+                    ? 'resource-background-scale-error'
+                    : undefined
+                }
+                onChange={(event) =>
+                  onBackgroundScaleDraftChange(event.currentTarget.value)
+                }
+                onBlur={(event) => {
+                  // Mutating click targets call the shared prepare boundary.
+                  // Let that click run before Engine busy state disables it.
+                  if (event.relatedTarget === null) {
+                    void onCommitBackgroundScaleDraft();
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    void onCommitBackgroundScaleDraft();
+                  }
+                }}
+              />
+              <span aria-hidden="true">%</span>
+              {backgroundScaleDraftInvalid ? (
+                <span
+                  id="resource-background-scale-error"
+                  className="resource-background-scale-error"
+                  role="alert"
+                >
+                  {labels.inspector.scaleInvalid}
+                </span>
+              ) : null}
+            </label>
+          ) : null}
+        </>
       ) : null}
 
       <div className="resource-list" aria-label={labels.resource.importedAssets}>
@@ -129,7 +203,20 @@ export function ResourcePanel({
                     }}
                     onClick={() => {
                       if (imageSelectionPurpose === 'background') {
-                        void onSelectBackground(asset.id);
+                        void onSelectBackground({
+                          assetId: asset.id,
+                          scalePercent: (() => {
+                            if (backgroundAssetId === null) {
+                              return DEFAULT_IMAGE_SCALE_PERCENT;
+                            }
+                            const draftScalePercent = Number(
+                              backgroundScaleDraft,
+                            );
+                            return isImageScalePercent(draftScalePercent)
+                              ? draftScalePercent
+                              : backgroundScalePercent;
+                          })(),
+                        });
                       }
                     }}
                   >

@@ -339,9 +339,9 @@ const ZH_CN_LABELS: PlayerUiLabels = {
     noSummary: '暂无摘要',
     saveSlotHint: '选择此槽位保存当前进度',
     loadSlotHint: '此槽位尚无存档',
-    dialogueSummary: (speaker, text) => speaker.length > 0
+    dialogueSummary: (speaker, text) => speaker.length > 0 && text.length > 0
       ? `${speaker}：${text}`
-      : text,
+      : speaker || text || '剧情进行中',
     progressSummary: '剧情进行中',
     choosingSummary: '等待选择',
     playingVideoSummary: '正在播放过场动画',
@@ -538,9 +538,9 @@ const EN_US_LABELS: PlayerUiLabels = {
     noSummary: 'No Summary',
     saveSlotHint: 'Select this slot to save current progress',
     loadSlotHint: 'This slot has no saved game',
-    dialogueSummary: (speaker, text) => speaker.length > 0
+    dialogueSummary: (speaker, text) => speaker.length > 0 && text.length > 0
       ? `${speaker}: ${text}`
-      : text,
+      : speaker || text || 'Story in Progress',
     progressSummary: 'Story in Progress',
     choosingSummary: 'Waiting for a Choice',
     playingVideoSummary: 'Playing a Cutscene',

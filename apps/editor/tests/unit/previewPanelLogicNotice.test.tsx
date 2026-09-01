@@ -61,6 +61,16 @@ function renderCgPreview(language: 'zh-CN' | 'en-US'): string {
 }
 
 describe('PreviewPanel logic uncertainty notice', () => {
+  it('localizes the empty static-stage placeholder with the Editor language', () => {
+    const chinese = renderPreview('zh-CN', false);
+    const english = renderPreview('en-US', false);
+
+    expect(chinese).toContain('<p class="preview-placeholder">预览</p>');
+    expect(chinese).not.toContain('>Preview</p>');
+    expect(english).toContain('<p class="preview-placeholder">Preview</p>');
+    expect(english).not.toContain('预览界面');
+  });
+
   it('shows a visible bilingual instruction when form preview reaches logic', () => {
     expect(renderPreview('zh-CN', true)).toContain(
       '当前位置包含逻辑分支，请使用运行预览查看实际结果。',

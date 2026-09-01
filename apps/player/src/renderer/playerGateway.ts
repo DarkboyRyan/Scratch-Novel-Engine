@@ -10,6 +10,7 @@ import type { MediaUrlResolver } from '@vnengine/player-ui';
 import type {
   PlayerManualSaveSlotId,
   PlayerErrorCode,
+  PlayerLanguage,
   PlayerMode,
   PlayerSaveListResult,
   PlayerSaveLoadResult,
@@ -26,6 +27,7 @@ export type PlayerAssetView = {
 };
 
 export type PlayerGameView = {
+  defaultLanguage: PlayerLanguage;
   project: ProjectDocument;
   assets: readonly PlayerAssetView[];
 };
@@ -47,6 +49,9 @@ export type PlayerGateway = {
   // browser fullscreen without pretending they can resize an OS window.
   fullscreenControlsEnabled?: boolean;
   windowSizeControlsEnabled?: boolean;
+  // Web stores an explicit language preference per game/default-language
+  // scope. Desktop settings remain one application-wide document.
+  gameScopedLanguagePreferences?: boolean;
   loadGame(): Promise<PlayerLoadViewResult>;
   openGame(): Promise<PlayerOpenViewResult>;
   listSaveSlots(): Promise<PlayerSaveListResult>;

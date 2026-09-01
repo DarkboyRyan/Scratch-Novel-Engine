@@ -18,6 +18,7 @@ import {
 
 class MemoryDocuments implements WebDocumentStore {
   readonly values = new Map<string, unknown>();
+  readonly putManyCalls: Array<Array<{ key: string; value: unknown }>> = [];
 
   async get(key: string): Promise<unknown | undefined> {
     return this.values.get(key);
@@ -25,6 +26,17 @@ class MemoryDocuments implements WebDocumentStore {
 
   async put(key: string, value: unknown): Promise<void> {
     this.values.set(key, structuredClone(value));
+  }
+
+  async putMany(records: readonly { key: string; value: unknown }[]): Promise<void> {
+    const copies = records.map(({ key, value }) => ({
+      key,
+      value: structuredClone(value),
+    }));
+    this.putManyCalls.push(copies);
+    for (const { key, value } of copies) {
+      this.values.set(key, value);
+    }
   }
 }
 
@@ -45,6 +57,7 @@ const project: ProjectDocument = {
     id: 'scene-1',
     name: 'First scene',
     backgroundAssetId: null,
+    backgroundScalePercent: 100,
     nodes: [{
       id: 'dialogue-1',
       type: 'dialogue',
@@ -55,11 +68,18 @@ const project: ProjectDocument = {
   }],
 };
 
-function active(fingerprint = 'a'.repeat(64)): WebStorageGame {
+function active(
+  fingerprint = 'a'.repeat(64),
+  defaultLanguage: WebStorageGame['game']['defaultLanguage'] = 'zh-CN',
+  projectId = project.id,
+): WebStorageGame {
+  const activeProject = projectId === project.id
+    ? project
+    : { ...project, id: projectId };
   return {
-    game: { project, assets: [] },
+    game: { defaultLanguage, project: activeProject, assets: [] },
     identity: {
-      projectId: project.id,
+      projectId,
       runtimeVersion: 6,
       contentFingerprint: fingerprint,
     },
@@ -113,6 +133,60 @@ describe('Web Player storage', () => {
     });
   });
 
+  it('loads a strict snapshot v4 save with legacy 100% image scales', async () => {
+    const documents = new MemoryDocuments();
+    const storage = new WebPlayerStorage(documents);
+    const activeGame = active();
+    const runtime = startGame(project)!;
+    const current = createGameRuntimeSnapshot(project, runtime)!;
+    const snapshotV4 = {
+      snapshotVersion: 4,
+      status: current.status,
+      sceneId: current.sceneId,
+      nextNodeIndex: current.nextNodeIndex,
+      backgroundAssetId: current.backgroundAssetId,
+      bgmAssetId: current.bgmAssetId,
+      bgmSequence: current.bgmSequence,
+      dialogueSequence: current.dialogueSequence,
+      characterEffectSequence: current.characterEffectSequence,
+      videoSequence: current.videoSequence,
+      cgAssetId: current.cgAssetId,
+      cgLeadInMs: current.cgLeadInMs,
+      cgSequence: current.cgSequence,
+      characters: current.characters.map((character) => ({
+        nodeId: character.nodeId,
+        assetId: character.assetId,
+        slot: character.slot,
+        layer: character.layer,
+        position: character.position,
+        opacity: character.opacity,
+        effectSequence: character.effectSequence,
+      })),
+      variables: current.variables,
+      loopStack: current.loopStack,
+    };
+    const key = [
+      'save-v1',
+      activeGame.identity.projectId,
+      String(activeGame.identity.runtimeVersion),
+      activeGame.identity.contentFingerprint,
+      '1',
+    ].join('\0');
+    documents.values.set(key, {
+      format: 'vn-engine-player-save',
+      saveVersion: 1,
+      game: activeGame.identity,
+      slotId: 1,
+      savedAt: '2026-08-25T08:00:00.000Z',
+      snapshot: snapshotV4,
+    });
+
+    await expect(storage.loadSave(activeGame, 1)).resolves.toEqual({
+      status: 'loaded',
+      runtime,
+    });
+  });
+
   it('rejects forged snapshots without publishing them', async () => {
     const documents = new MemoryDocuments();
     const storage = new WebPlayerStorage(documents);
@@ -132,19 +206,25 @@ describe('Web Player storage', () => {
     documents.values.set('settings-v1', { privatePath: '/private/settings' });
     const storage = new WebPlayerStorage(documents);
 
-    await expect(storage.readSettings()).resolves.toEqual({
+    await expect(storage.readSettings(active())).resolves.toEqual({
       status: 'ready',
       settings: DEFAULT_PLAYER_SETTINGS,
+      languageSource: 'default',
     });
-    await expect(storage.writeSettings({
-      ...DEFAULT_PLAYER_SETTINGS,
-      bgmVolume: 0.4,
-    })).resolves.toMatchObject({
+    await expect(storage.writeSettings(
+      active(),
+      {
+        ...DEFAULT_PLAYER_SETTINGS,
+        bgmVolume: 0.4,
+      },
+      false,
+    )).resolves.toMatchObject({
       status: 'updated',
       settings: { bgmVolume: 0.4 },
     });
-    await expect(storage.readSettings()).resolves.toMatchObject({
+    await expect(storage.readSettings(active())).resolves.toMatchObject({
       status: 'ready',
+      languageSource: 'default',
       settings: { bgmVolume: 0.4 },
     });
     expect(documents.values.get('settings-v2')).toEqual({
@@ -159,6 +239,111 @@ describe('Web Player storage', () => {
         windowMode: 'windowed',
         windowSizePreset: 'medium',
       },
+    });
+  });
+
+  it('treats an old unscoped v2 language as a default for a newly exported game', async () => {
+    const documents = new MemoryDocuments();
+    documents.values.set('settings-v2', {
+      format: 'vn-engine-player-settings',
+      settingsVersion: 2,
+      settings: {
+        language: 'zh-CN',
+        masterVolume: 0.45,
+        bgmVolume: 0.55,
+        voiceVolume: 0.65,
+        videoVolume: 0.75,
+        windowMode: 'windowed',
+        windowSizePreset: 'large',
+      },
+    });
+    const storage = new WebPlayerStorage(documents);
+
+    await expect(storage.readSettings(
+      active('b'.repeat(64), 'en-US'),
+    )).resolves.toEqual({
+      status: 'ready',
+      languageSource: 'default',
+      settings: {
+        settingsVersion: 2,
+        language: 'en-US',
+        masterVolume: 0.45,
+        bgmVolume: 0.55,
+        voiceVolume: 0.65,
+        videoVolume: 0.75,
+        windowMode: 'windowed',
+        windowSizePreset: 'large',
+      },
+    });
+  });
+
+  it('keeps an explicit language override for the same project and bundle default', async () => {
+    const documents = new MemoryDocuments();
+    const storage = new WebPlayerStorage(documents);
+    const englishGame = active('a'.repeat(64), 'en-US');
+    const chineseOverride = {
+      ...DEFAULT_PLAYER_SETTINGS,
+      language: 'zh-CN' as const,
+      masterVolume: 0.6,
+    };
+
+    await expect(storage.writeSettings(
+      englishGame,
+      chineseOverride,
+      true,
+    )).resolves.toMatchObject({
+      status: 'updated',
+      settings: { language: 'zh-CN', masterVolume: 0.6 },
+    });
+    expect(documents.putManyCalls.at(-1)?.map(({ key }) => key)).toEqual([
+      'settings-v2',
+      `language-v1\0${project.id}\0en-US`,
+    ]);
+    await expect(storage.readSettings(
+      active('b'.repeat(64), 'en-US'),
+    )).resolves.toMatchObject({
+      status: 'ready',
+      languageSource: 'stored',
+      settings: { language: 'zh-CN', masterVolume: 0.6 },
+    });
+    await expect(storage.readSettings(
+      active('c'.repeat(64), 'en-US', 'another-project'),
+    )).resolves.toMatchObject({
+      status: 'ready',
+      languageSource: 'default',
+      settings: { language: 'en-US', masterVolume: 0.6 },
+    });
+    await expect(storage.readSettings(
+      active('d'.repeat(64), 'zh-CN'),
+    )).resolves.toMatchObject({
+      status: 'ready',
+      languageSource: 'default',
+      settings: { language: 'zh-CN', masterVolume: 0.6 },
+    });
+  });
+
+  it('does not turn a volume-only write into a cross-bundle language override', async () => {
+    const documents = new MemoryDocuments();
+    const storage = new WebPlayerStorage(documents);
+
+    await expect(storage.writeSettings(
+      active('a'.repeat(64), 'zh-CN'),
+      {
+        ...DEFAULT_PLAYER_SETTINGS,
+        language: 'zh-CN',
+        masterVolume: 0.35,
+      },
+      false,
+    )).resolves.toMatchObject({
+      status: 'updated',
+      settings: { language: 'zh-CN', masterVolume: 0.35 },
+    });
+    await expect(storage.readSettings(
+      active('b'.repeat(64), 'en-US'),
+    )).resolves.toMatchObject({
+      status: 'ready',
+      languageSource: 'default',
+      settings: { language: 'en-US', masterVolume: 0.35 },
     });
   });
 
@@ -178,8 +363,9 @@ describe('Web Player storage', () => {
     });
     const storage = new WebPlayerStorage(documents);
 
-    await expect(storage.readSettings()).resolves.toEqual({
+    await expect(storage.readSettings(active())).resolves.toEqual({
       status: 'ready',
+      languageSource: 'default',
       settings: {
         settingsVersion: 2,
         language: 'zh-CN',
@@ -191,16 +377,20 @@ describe('Web Player storage', () => {
         windowSizePreset: 'large',
       },
     });
-    await storage.writeSettings({
-      settingsVersion: 2,
-      language: 'en-US',
-      masterVolume: 0.8,
-      bgmVolume: 0.7,
-      voiceVolume: 0.6,
-      videoVolume: 0.5,
-      windowMode: 'windowed',
-      windowSizePreset: 'large',
-    });
+    await storage.writeSettings(
+      active(),
+      {
+        settingsVersion: 2,
+        language: 'en-US',
+        masterVolume: 0.8,
+        bgmVolume: 0.7,
+        voiceVolume: 0.6,
+        videoVolume: 0.5,
+        windowMode: 'windowed',
+        windowSizePreset: 'large',
+      },
+      true,
+    );
     expect(documents.values.get('settings-v2')).toEqual({
       format: 'vn-engine-player-settings',
       settingsVersion: 2,
@@ -228,7 +418,7 @@ describe('Web Player storage', () => {
     });
   });
 
-  it('prefers current v2 settings over a stale legacy v1 record', async () => {
+  it('prefers current v2 values over stale v1 while deriving its language from the game', async () => {
     const documents = new MemoryDocuments();
     documents.values.set('settings-v1', {
       format: 'vn-engine-player-settings',
@@ -256,12 +446,15 @@ describe('Web Player storage', () => {
       },
     });
 
-    await expect(new WebPlayerStorage(documents).readSettings()).resolves
+    await expect(new WebPlayerStorage(documents).readSettings(
+      active('a'.repeat(64), 'zh-CN'),
+    )).resolves
       .toMatchObject({
         status: 'ready',
+        languageSource: 'default',
         settings: {
           settingsVersion: 2,
-          language: 'en-US',
+          language: 'zh-CN',
           masterVolume: 0.9,
           windowSizePreset: 'large',
         },
@@ -272,9 +465,10 @@ describe('Web Player storage', () => {
     const failing: WebDocumentStore = {
       get: async () => { throw new Error('/private/database'); },
       put: async () => { throw new Error('/private/database'); },
+      putMany: async () => { throw new Error('/private/database'); },
     };
     const storage = new WebPlayerStorage(failing);
-    await expect(storage.readSettings()).resolves.toEqual({
+    await expect(storage.readSettings(active())).resolves.toEqual({
       status: 'rejected',
       error: 'settings-storage-unavailable',
     });

@@ -11,8 +11,8 @@
 
 运行规则：
 
-- 背景节点自动执行，不消耗玩家点击。
-- 人物立绘节点自动执行，不消耗玩家点击。
+- 背景节点自动执行并应用 10%–300% 整数缩放，不消耗玩家点击。
+- 人物立绘节点自动执行并应用 10%–300% 整数缩放，不消耗玩家点击。
 - BGM 节点自动切换/停止循环音乐，不消耗玩家点击。
 - 变量 Set/Change 自动执行；If/Else 只执行条件命中的分支，Repeat 按固定次数执行内部剧情。
 - 空视频节点自动跳过；绑定视频的节点阻塞播放，ended 或按 Enter 后继续。
@@ -21,7 +21,7 @@
 - 对白若绑定语音，会从头播放一次；推进时停止旧语音。
 - 玩家在游戏画面点击鼠标，继续执行到下一条对白。
 - 执行到场景跳转节点时进入目标场景，并继续自动扫描到下一条对白。
-- 玩家选择后进入该选项的目标场景；目标背景和人物重置，BGM 延续。
+- 玩家选择后进入该选项的目标场景；目标初始背景及其缩放生效，人物重置，BGM 延续。
 - 到达场景末尾且没有跳转节点时显示“预览结束”，绝不根据 Scene 数组顺序隐式跳转。
 - 正式 Player 仍先显示主界面，点击“开始游戏”后从 `entrySceneId` 进入剧情；Editor 的普通场景预览不改变这一正式入口语义，主界面整体预览则刻意复现它。
 - 主界面标题、五个纵向按钮与间距作为一个整体，按实际 Player 窗口或 Editor 预览容器的可用宽高等比缩放；内嵌 16:9 预览不会依赖浏览器窗口的媒体查询，因此在窄栏和低高度下也不会裁掉按钮。
@@ -70,6 +70,7 @@ type GamePreviewRuntime = {
   sceneId: string;
   nextNodeIndex: number;
   backgroundAssetId: string | null;
+  backgroundScalePercent: number;
   bgmAssetId: string | null;
   bgmSequence: number;
   dialogueSequence: number;
@@ -90,22 +91,22 @@ type GamePreviewRuntime = {
 启动和每次点击都调用同一个 `advanceGamePreview`：
 
 1. 从 `nextNodeIndex` 开始扫描。
-2. 背景节点修改当前背景后继续扫描。
-3. 立绘节点设置、替换或清除对应 layer 后继续扫描。
+2. 背景节点修改当前背景和缩放后继续扫描；空背景规范化为 100%。
+3. 立绘节点设置、替换或清除对应 layer 及缩放后继续扫描；clear 规范化为 100%。
 4. BGM 节点更新 BGM ID 和播放序号，之后继续扫描。
 5. VariableSet 写入严格值；VariableChange 从现值或默认 `0` 增减，非数字或溢出进入错误态。
 6. LogicIf 严格比较变量/字面量并跳到 Then 或 Else；LogicElse 跳到配对 EndIf。
 7. LogicRepeat 推入显式循环帧；EndRepeat 减少剩余次数并回到 body，结束后弹栈。
 8. 空 VideoNode 直接跳过；非空 VideoNode 增加 occurrence 序号并返回 `playingVideo`，index 已指向视频之后。
 9. 空 ChoiceNode 直接跳过；非空 ChoiceNode 返回 `choosing`，index 已指向选项节点之后。
-10. 场景跳转节点切换 `sceneId`、把 index 设为 0、清空人物并载入目标场景初始背景；BGM 保持。
+10. 场景跳转节点切换 `sceneId`、把 index 设为 0、清空人物并载入目标场景初始背景及缩放；BGM 保持。
 11. 使用包含变量与循环栈的执行签名检测重复状态；每次推进最多自动执行 10000 步。
 12. 遇到对白节点时保存对白并增加 occurrence 序号，把 index 移到其后，然后返回等待玩家。
 13. 视频 ended 或 Enter 跳过由 `completeVideo()` 从已保存的 index 继续扫描。
 14. `selectGamePreviewChoice()` 用 optionId 验证当前阻塞节点和目标场景，然后按场景跳转语义继续扫描。
 15. 扫描到结尾且没有跳转时返回 `finished`。
 
-选择跳转和 SceneJumpNode 共享视觉边界：目标场景使用自己的初始背景、清空上一
+选择跳转和 SceneJumpNode 共享视觉边界：目标场景使用自己的初始背景与缩放、清空上一
 场景人物层，同时保留跨场景 BGM。选择界面会停止上一句对白语音。
 
 ## 组件结构
@@ -134,6 +135,9 @@ renderer/components/
 阻塞视频 z=50
 全局退出控件 z=1040
 ```
+
+剧情背景围绕舞台中心缩放，人物围绕底部中心锚点缩放；人物 effect 留在内部图片层，
+因此持续缩放不会被动画 transform 覆盖。标题页背景和 CG 不使用剧情缩放字段。
 
 ## 启动事务
 

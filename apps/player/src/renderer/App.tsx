@@ -43,6 +43,7 @@ import type {
   PlayerSaveSummary,
   PlayerSaveSummaryContent,
   PlayerSettings,
+  PlayerSettingsLanguageSource,
   PlayerSettingsPatch,
 } from '../shared/playerProtocol';
 import { createDefaultPlayerSettings } from '../shared/playerProtocol';
@@ -286,6 +287,21 @@ function changedSettingsPatch(
     : patch as PlayerSettingsPatch;
 }
 
+function withGameDefaultLanguage(
+  settings: PlayerSettings,
+  languageSource: PlayerSettingsLanguageSource,
+  game: PlayerGameView | null,
+): PlayerSettings {
+  if (
+    languageSource === 'stored' ||
+    game === null ||
+    settings.language === game.defaultLanguage
+  ) {
+    return settings;
+  }
+  return { ...settings, language: game.defaultLanguage };
+}
+
 function visibleSaveSlots(
   slots: readonly PlayerSaveSummary[],
 ): PlayerSaveSummary[] {
@@ -345,8 +361,12 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
   const settingsOperationRef = useRef(false);
   const settingsRequestEpochRef = useRef(0);
   const settingsRefreshEpochRef = useRef(0);
+  const settingsLanguageSourceRef = useRef<PlayerSettingsLanguageSource>(
+    'default',
+  );
   const committedSettingsRef = useRef(settings);
   const settingsRef = useRef(settings);
+  const activeGameRef = useRef<PlayerGameView | null>(null);
   const optionsTriggerRef = useRef<HTMLElement | null>(null);
   const openGameTriggerRef = useRef<HTMLElement | null>(null);
   const storageRequestEpochRef = useRef(0);
@@ -357,6 +377,20 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
   const labels = getPlayerUiLabels(settings.language);
   stateRef.current = state;
   settingsRef.current = settings;
+
+  const publishSettings = useCallback((next: PlayerSettings): void => {
+    settingsRef.current = next;
+    setSettings(next);
+  }, []);
+
+  const publishCommittedSettings = useCallback((
+    next: PlayerSettings,
+    languageSource: PlayerSettingsLanguageSource,
+  ): void => {
+    settingsLanguageSourceRef.current = languageSource;
+    committedSettingsRef.current = next;
+    publishSettings(next);
+  }, [publishSettings]);
 
   useEffect(() => {
     const documentElement = document.documentElement;
@@ -376,33 +410,45 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
         return;
       }
       if (result.status === 'ready') {
-        committedSettingsRef.current = result.settings;
-        setSettings(result.settings);
+        const effective = withGameDefaultLanguage(
+          result.settings,
+          result.languageSource,
+          activeGameRef.current,
+        );
+        publishCommittedSettings(effective, result.languageSource);
         setSettingsError(null);
       } else {
-        const defaults = createDefaultPlayerSettings();
-        committedSettingsRef.current = defaults;
-        setSettings(defaults);
+        const defaults = withGameDefaultLanguage(
+          createDefaultPlayerSettings(),
+          'default',
+          activeGameRef.current,
+        );
+        publishCommittedSettings(defaults, 'default');
         setSettingsError(protocolError(result.error));
       }
     } catch {
       if (requestEpoch !== settingsRequestEpochRef.current) {
         return;
       }
-      const defaults = createDefaultPlayerSettings();
-      committedSettingsRef.current = defaults;
-      setSettings(defaults);
+      const defaults = withGameDefaultLanguage(
+        createDefaultPlayerSettings(),
+        'default',
+        activeGameRef.current,
+      );
+      publishCommittedSettings(defaults, 'default');
       setSettingsError(shellMessage('settingsReadFallback'));
     } finally {
       if (requestEpoch === settingsRequestEpochRef.current) {
         setSettingsSettled(true);
       }
     }
-  }, [gateway]);
+  }, [gateway, publishCommittedSettings]);
 
   const activateGameBundle = useCallback((game: PlayerGameView) => {
+    activeGameRef.current = game;
     bundleGenerationRef.current += 1;
     storageRequestEpochRef.current += 1;
+    settingsRefreshEpochRef.current += 1;
     saveDialogOpenRef.current = false;
     saveDialogOpeningRef.current = false;
     saveSlotOperationRef.current = false;
@@ -412,13 +458,21 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
     setSaveDialog(null);
     setQuickOperation(null);
     setSaveToast(null);
+    if (settingsLanguageSourceRef.current === 'default') {
+      const effective = withGameDefaultLanguage(
+        committedSettingsRef.current,
+        'default',
+        game,
+      );
+      publishCommittedSettings(effective, 'default');
+    }
     titleGenerationRef.current += 1;
     setState({
       kind: 'title',
       game,
       generation: titleGenerationRef.current,
     });
-  }, []);
+  }, [publishCommittedSettings]);
 
   const activateRuntime = useCallback((
     game: PlayerGameView,
@@ -535,8 +589,12 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
               return;
             }
             if (result.status === 'ready') {
-              committedSettingsRef.current = result.settings;
-              setSettings(result.settings);
+              const effective = withGameDefaultLanguage(
+                result.settings,
+                result.languageSource,
+                activeGameRef.current,
+              );
+              publishCommittedSettings(effective, result.languageSource);
               setSettingsError(null);
             } else {
               setSettingsError(protocolError(result.error));
@@ -565,29 +623,44 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
       window.removeEventListener('focus', scheduleRefresh);
       window.removeEventListener('resize', scheduleRefresh);
     };
-  }, [gateway, optionsOpen]);
+  }, [gateway, optionsOpen, publishCommittedSettings]);
 
   const previewSettings = useCallback((next: PlayerSettings) => {
     if (!settingsOperationRef.current) {
-      setSettings(next);
+      publishSettings(next);
       setSettingsError(null);
     }
-  }, []);
+  }, [publishSettings]);
 
-  const commitSettings = useCallback(async (next: PlayerSettings) => {
+  const commitSettings = useCallback(async (
+    next: PlayerSettings,
+    forceStoredLanguage = false,
+  ) => {
     if (settingsOperationRef.current) {
       return;
     }
     const previous = committedSettingsRef.current;
-    const patch = changedSettingsPatch(previous, next);
+    let patch = changedSettingsPatch(previous, next);
+    if (
+      patch?.language === undefined &&
+      (forceStoredLanguage ||
+        (patch !== null &&
+          settingsLanguageSourceRef.current === 'default' &&
+          gateway.gameScopedLanguagePreferences !== true))
+    ) {
+      patch = {
+        ...(patch ?? {}),
+        language: next.language,
+      };
+    }
     if (patch === null) {
-      setSettings(previous);
+      publishSettings(previous);
       return;
     }
     settingsOperationRef.current = true;
     settingsRefreshEpochRef.current += 1;
     const requestEpoch = ++settingsRequestEpochRef.current;
-    setSettings(next);
+    publishSettings(next);
     setSettingsBusy(true);
     setSettingsError(null);
     try {
@@ -596,15 +669,19 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
         return;
       }
       if (result.status === 'updated') {
-        committedSettingsRef.current = result.settings;
-        setSettings(result.settings);
+        publishCommittedSettings(
+          result.settings,
+          patch.language === undefined
+            ? settingsLanguageSourceRef.current
+            : 'stored',
+        );
       } else {
-        setSettings(previous);
+        publishSettings(previous);
         setSettingsError(protocolError(result.error));
       }
     } catch {
       if (requestEpoch === settingsRequestEpochRef.current) {
-        setSettings(previous);
+        publishSettings(previous);
         setSettingsError(shellMessage('settingsApplyFailed'));
       }
     } finally {
@@ -613,13 +690,18 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
         setSettingsBusy(false);
       }
     }
-  }, [gateway]);
+  }, [gateway, publishCommittedSettings, publishSettings]);
 
   const resetSettings = useCallback(() => {
-    const defaults = createDefaultPlayerSettings();
-    setSettings(defaults);
-    void commitSettings(defaults);
-  }, [commitSettings]);
+    const baseDefaults = createDefaultPlayerSettings();
+    const defaults = {
+      ...baseDefaults,
+      language: activeGameRef.current?.defaultLanguage ??
+        baseDefaults.language,
+    } satisfies PlayerSettings;
+    publishSettings(defaults);
+    void commitSettings(defaults, true);
+  }, [commitSettings, publishSettings]);
 
   const closeOpenError = useCallback(() => {
     if (openingRef.current) {
@@ -1002,6 +1084,9 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
 
   let content: ReactNode;
   if (state.kind === 'loading' || !settingsSettled) {
+    const loadingLanguageKnown = settingsSettled &&
+      (settingsLanguageSourceRef.current === 'stored' ||
+        activeGameRef.current !== null);
     content = (
       <main
         className="player-shell player-loading"
@@ -1009,7 +1094,7 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
       >
         <section className="player-loading-status" role="status">
           <span className="player-loading-mark" aria-hidden="true" />
-          <p>{labels.shell.loadingGame}</p>
+          {loadingLanguageKnown ? <p>{labels.shell.loadingGame}</p> : null}
         </section>
       </main>
     );

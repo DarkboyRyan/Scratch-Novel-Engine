@@ -92,6 +92,7 @@ const vnAssets: VnAssetsApi = {
 };
 
 const vnEngine: VnEngineApi = {
+  imageScaleContractVersion: 1,
   ensureProject: () =>
     invokeEngine({ method: 'project.ensure', params: {} }),
   getProject: () =>
@@ -114,10 +115,10 @@ const vnEngine: VnEngineApi = {
     }),
   deleteScene: (sceneId) =>
     invokeEngine({ method: 'scene.delete', params: { sceneId } }),
-  setSceneBackground: (sceneId, assetId) =>
+  setSceneBackground: (sceneId, assetId, scalePercent) =>
     invokeEngine({
       method: 'scene.setBackground',
-      params: { sceneId, assetId },
+      params: { sceneId, assetId, scalePercent },
     }),
   addDialogue: (params) =>
     invokeEngine({

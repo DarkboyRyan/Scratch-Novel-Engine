@@ -55,6 +55,21 @@ describe('preload background and timeline engine API', () => {
     electron.invoke.mockResolvedValue({});
   });
 
+  it('exposes the image scale contract and forwards scene scale', async () => {
+    expect(engine.imageScaleContractVersion).toBe(1);
+
+    await engine.setSceneBackground('scene-1', 'background-1', 125);
+
+    expect(electron.invoke).toHaveBeenCalledWith('vn-engine:request', {
+      method: 'scene.setBackground',
+      params: {
+        sceneId: 'scene-1',
+        assetId: 'background-1',
+        scalePercent: 125,
+      },
+    });
+  });
+
   it('forwards fixed CG pages through the engine channel', async () => {
     const pages = [{
       imageAssetIds: ['image-2', null, 'image-1', null, null, null, null, null, null],
@@ -95,6 +110,7 @@ describe('preload background and timeline engine API', () => {
         sceneId: 'scene-1',
         nodeId: 'background-1',
         assetId: 'asset-2',
+        scalePercent: 80,
       },
       'background.update',
     ],
@@ -128,6 +144,8 @@ describe('preload background and timeline engine API', () => {
         assetId: 'asset-2',
         slot: 'right',
         layer: 3,
+        position: null,
+        scalePercent: 125,
       },
       'character.update',
     ],

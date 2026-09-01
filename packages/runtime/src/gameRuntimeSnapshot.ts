@@ -13,6 +13,10 @@ import type {
 } from './projectTypes';
 import { isCharacterEffect } from './characterEffect';
 import {
+  DEFAULT_IMAGE_SCALE_PERCENT,
+  isImageScalePercent,
+} from './imageScale';
+import {
   compileSceneControlFlow,
   type GameRuntime,
   MAX_CG_LEAD_IN_MS,
@@ -29,7 +33,7 @@ import {
   utf8ByteLength,
 } from './logicValidation';
 
-export const GAME_RUNTIME_SNAPSHOT_VERSION = 4 as const;
+export const GAME_RUNTIME_SNAPSHOT_VERSION = 5 as const;
 
 export type LegacyGameRuntimeSnapshot = {
   snapshotVersion: 1;
@@ -55,9 +59,13 @@ export type LegacyRuntimeCharacterSnapshot = {
   position: CharacterPosition | null;
 };
 
-export type RuntimeCharacterSnapshot = LegacyRuntimeCharacterSnapshot & {
+export type EffectRuntimeCharacterSnapshot = LegacyRuntimeCharacterSnapshot & {
   opacity: 0 | 1;
   effectSequence: number;
+};
+
+export type RuntimeCharacterSnapshot = EffectRuntimeCharacterSnapshot & {
+  scalePercent: number;
 };
 
 export type LogicGameRuntimeSnapshot = {
@@ -88,12 +96,22 @@ export type CgGameRuntimeSnapshot = Omit<
   cgSequence: number;
 };
 
-export type CurrentGameRuntimeSnapshot = Omit<
+export type EffectGameRuntimeSnapshot = Omit<
   CgGameRuntimeSnapshot,
   'snapshotVersion' | 'characters'
 > & {
-  snapshotVersion: typeof GAME_RUNTIME_SNAPSHOT_VERSION;
+  snapshotVersion: 4;
   characterEffectSequence: number;
+  characters: EffectRuntimeCharacterSnapshot[];
+};
+
+export type CurrentGameRuntimeSnapshot = Omit<
+  EffectGameRuntimeSnapshot,
+  'snapshotVersion' | 'backgroundAssetId' | 'characters'
+> & {
+  snapshotVersion: typeof GAME_RUNTIME_SNAPSHOT_VERSION;
+  backgroundAssetId: string | null;
+  backgroundScalePercent: number;
   characters: RuntimeCharacterSnapshot[];
 };
 
@@ -101,6 +119,7 @@ export type GameRuntimeSnapshot =
   | LegacyGameRuntimeSnapshot
   | LogicGameRuntimeSnapshot
   | CgGameRuntimeSnapshot
+  | EffectGameRuntimeSnapshot
   | CurrentGameRuntimeSnapshot;
 
 export type SaveableGameRuntime = GameRuntime & {
@@ -190,6 +209,7 @@ function isRuntimeCharacter(value: unknown): value is RuntimeCharacterState {
       'slot',
       'layer',
       'position',
+      'scalePercent',
       'opacity',
       'effect',
       'effectSequence',
@@ -201,15 +221,16 @@ function isRuntimeCharacter(value: unknown): value is RuntimeCharacterState {
     (value.layer as number) >= 1 &&
     (value.layer as number) <= 10 &&
     isPosition(value.position) &&
+    isImageScalePercent(value.scalePercent) &&
     (value.opacity === 0 || value.opacity === 1) &&
     (value.effect === null || isCharacterEffect(value.effect)) &&
     isSequence(value.effectSequence) &&
     (value.effectSequence as number) >= 1;
 }
 
-function isRuntimeCharacterSnapshot(
+function isEffectRuntimeCharacterSnapshot(
   value: unknown,
-): value is RuntimeCharacterSnapshot {
+): value is EffectRuntimeCharacterSnapshot {
   return isObject(value) &&
     hasExactFields(value, [
       'nodeId',
@@ -227,6 +248,33 @@ function isRuntimeCharacterSnapshot(
     (value.layer as number) >= 1 &&
     (value.layer as number) <= 10 &&
     isPosition(value.position) &&
+    (value.opacity === 0 || value.opacity === 1) &&
+    isSequence(value.effectSequence) &&
+    (value.effectSequence as number) >= 1;
+}
+
+function isRuntimeCharacterSnapshot(
+  value: unknown,
+): value is RuntimeCharacterSnapshot {
+  return isObject(value) &&
+    hasExactFields(value, [
+      'nodeId',
+      'assetId',
+      'slot',
+      'layer',
+      'position',
+      'scalePercent',
+      'opacity',
+      'effectSequence',
+    ]) &&
+    isId(value.nodeId) &&
+    isId(value.assetId) &&
+    (value.slot === 'left' || value.slot === 'center' || value.slot === 'right') &&
+    Number.isInteger(value.layer) &&
+    (value.layer as number) >= 1 &&
+    (value.layer as number) <= 10 &&
+    isPosition(value.position) &&
+    isImageScalePercent(value.scalePercent) &&
     (value.opacity === 0 || value.opacity === 1) &&
     isSequence(value.effectSequence) &&
     (value.effectSequence as number) >= 1;
@@ -301,6 +349,7 @@ export function isSaveableGameRuntime(
     'sceneId',
     'nextNodeIndex',
     'backgroundAssetId',
+    'backgroundScalePercent',
     'bgmAssetId',
     'bgmSequence',
     'dialogueSequence',
@@ -327,6 +376,9 @@ export function isSaveableGameRuntime(
     !isId(value.sceneId) ||
     !isSequence(value.nextNodeIndex) ||
     !isNullableId(value.backgroundAssetId) ||
+    !isImageScalePercent(value.backgroundScalePercent) ||
+    (value.backgroundAssetId === null &&
+      value.backgroundScalePercent !== DEFAULT_IMAGE_SCALE_PERCENT) ||
     !isNullableId(value.bgmAssetId) ||
     !isSequence(value.bgmSequence) ||
     !isSequence(value.dialogueSequence) ||
@@ -449,18 +501,25 @@ function parseLogicSnapshot(value: JsonObject): LogicGameRuntimeSnapshot | null 
 
 function parseCgSnapshot(
   value: JsonObject,
-): CgGameRuntimeSnapshot | CurrentGameRuntimeSnapshot | null {
-  const isCurrent = value.snapshotVersion === GAME_RUNTIME_SNAPSHOT_VERSION;
+):
+  | CgGameRuntimeSnapshot
+  | EffectGameRuntimeSnapshot
+  | CurrentGameRuntimeSnapshot
+  | null {
+  const hasEffects = value.snapshotVersion === 4 ||
+    value.snapshotVersion === GAME_RUNTIME_SNAPSHOT_VERSION;
+  const hasImageScale = value.snapshotVersion === GAME_RUNTIME_SNAPSHOT_VERSION;
   if (!hasExactFields(value, [
     'snapshotVersion',
     'status',
     'sceneId',
     'nextNodeIndex',
     'backgroundAssetId',
+    ...(hasImageScale ? ['backgroundScalePercent'] : []),
     'bgmAssetId',
     'bgmSequence',
     'dialogueSequence',
-    ...(isCurrent ? ['characterEffectSequence'] : []),
+    ...(hasEffects ? ['characterEffectSequence'] : []),
     'videoSequence',
     'cgAssetId',
     'cgLeadInMs',
@@ -472,7 +531,7 @@ function parseCgSnapshot(
     return null;
   }
   if (
-    (value.snapshotVersion !== 3 && !isCurrent) ||
+    (value.snapshotVersion !== 3 && !hasEffects) ||
     (value.status !== 'playing' &&
       value.status !== 'playingVideo' &&
       value.status !== 'waitingCgLeadIn' &&
@@ -481,10 +540,13 @@ function parseCgSnapshot(
     !isId(value.sceneId) ||
     !isSequence(value.nextNodeIndex) ||
     !isNullableId(value.backgroundAssetId) ||
+    (hasImageScale && !isImageScalePercent(value.backgroundScalePercent)) ||
+    (hasImageScale && value.backgroundAssetId === null &&
+      value.backgroundScalePercent !== DEFAULT_IMAGE_SCALE_PERCENT) ||
     !isNullableId(value.bgmAssetId) ||
     !isSequence(value.bgmSequence) ||
     !isSequence(value.dialogueSequence) ||
-    (isCurrent && !isSequence(value.characterEffectSequence)) ||
+    (hasEffects && !isSequence(value.characterEffectSequence)) ||
     !isSequence(value.videoSequence) ||
     !isNullableId(value.cgAssetId) ||
     !isSequence(value.cgLeadInMs) ||
@@ -493,11 +555,13 @@ function parseCgSnapshot(
     !Array.isArray(value.characters) ||
     value.characters.length > 10 ||
     !value.characters.every(
-      isCurrent
+      hasImageScale
         ? isRuntimeCharacterSnapshot
-        : isLegacyRuntimeCharacter,
+        : hasEffects
+          ? isEffectRuntimeCharacterSnapshot
+          : isLegacyRuntimeCharacter,
     ) ||
-    (isCurrent && (value.characters as RuntimeCharacterSnapshot[]).some(
+    (hasEffects && (value.characters as EffectRuntimeCharacterSnapshot[]).some(
       (character) => character.effectSequence >
         (value.characterEffectSequence as number),
     )) ||
@@ -523,7 +587,10 @@ function parseCgSnapshot(
   ) {
     return null;
   }
-  return value as CgGameRuntimeSnapshot | CurrentGameRuntimeSnapshot;
+  return value as
+    | CgGameRuntimeSnapshot
+    | EffectGameRuntimeSnapshot
+    | CurrentGameRuntimeSnapshot;
 }
 
 function parseSnapshot(value: unknown): GameRuntimeSnapshot | null {
@@ -590,15 +657,20 @@ export function areGameRuntimeSnapshotsEqual(
   if (!cgEqual) {
     return false;
   }
-  if (
-    left.snapshotVersion === GAME_RUNTIME_SNAPSHOT_VERSION ||
-    right.snapshotVersion === GAME_RUNTIME_SNAPSHOT_VERSION
-  ) {
-    return left.snapshotVersion === GAME_RUNTIME_SNAPSHOT_VERSION &&
-      right.snapshotVersion === GAME_RUNTIME_SNAPSHOT_VERSION &&
-      left.characterEffectSequence === right.characterEffectSequence;
+  if (left.snapshotVersion === 3 || right.snapshotVersion === 3) {
+    return left.snapshotVersion === 3 && right.snapshotVersion === 3;
   }
-  return true;
+  if (
+    left.characterEffectSequence !== right.characterEffectSequence ||
+    left.snapshotVersion !== right.snapshotVersion
+  ) {
+    return false;
+  }
+  return left.snapshotVersion !== GAME_RUNTIME_SNAPSHOT_VERSION ||
+    (
+      right.snapshotVersion === GAME_RUNTIME_SNAPSHOT_VERSION &&
+      left.backgroundScalePercent === right.backgroundScalePercent
+    );
 }
 
 function sameDialogue(
@@ -630,6 +702,7 @@ function sameChoices(
 
 type ComparableCharacter =
   | LegacyRuntimeCharacterSnapshot
+  | EffectRuntimeCharacterSnapshot
   | RuntimeCharacterSnapshot
   | RuntimeCharacterState;
 
@@ -644,6 +717,12 @@ function sameCharacters(
       character.assetId === candidate.assetId &&
       character.slot === candidate.slot &&
       character.layer === candidate.layer &&
+      (
+        !('scalePercent' in character) && !('scalePercent' in candidate) ||
+        'scalePercent' in character &&
+        'scalePercent' in candidate &&
+        character.scalePercent === candidate.scalePercent
+      ) &&
       (
         !('opacity' in character) && !('opacity' in candidate) ||
         'opacity' in character &&
@@ -709,6 +788,7 @@ function applyCharacter(
     slot: node.slot,
     layer: node.layer,
     position: node.position,
+    scalePercent: DEFAULT_IMAGE_SCALE_PERCENT,
     opacity: 1,
     effect: null,
     effectSequence: previousSequence + 1,
@@ -841,6 +921,7 @@ function restoreLegacyGameRuntimeSnapshot(
     sceneId: snapshot.sceneId,
     nextNodeIndex: snapshot.nextNodeIndex,
     backgroundAssetId,
+    backgroundScalePercent: DEFAULT_IMAGE_SCALE_PERCENT,
     bgmAssetId: snapshot.bgmAssetId,
     bgmSequence: snapshot.bgmSequence,
     dialogueSequence: snapshot.dialogueSequence,
@@ -867,6 +948,10 @@ function characterMatchesProject(
     node.assetId === character.assetId &&
     node.slot === character.slot &&
     node.layer === character.layer &&
+    (
+      !('scalePercent' in character) ||
+      node.scalePercent === character.scalePercent
+    ) &&
     (node.position === character.position || (
       node.position !== null &&
       character.position !== null &&
@@ -885,6 +970,7 @@ function restoreCurrentGameRuntimeSnapshot(
   snapshot:
     | LogicGameRuntimeSnapshot
     | CgGameRuntimeSnapshot
+    | EffectGameRuntimeSnapshot
     | CurrentGameRuntimeSnapshot,
 ): GameRuntime | null {
   const declaredVariableNames = projectLogicVariableNames(project);
@@ -910,7 +996,7 @@ function restoreCurrentGameRuntimeSnapshot(
     return null;
   }
   if (
-    snapshot.snapshotVersion < GAME_RUNTIME_SNAPSHOT_VERSION &&
+    snapshot.snapshotVersion < 4 &&
     scene.nodes.some((node) => node.type === 'character' && node.effect !== null)
   ) {
     return null;
@@ -931,10 +1017,7 @@ function restoreCurrentGameRuntimeSnapshot(
   let cgAssetId: string | null = null;
   let cgLeadInMs = 0;
   let cgSequence = 0;
-  if (
-    snapshot.snapshotVersion === 3 ||
-    snapshot.snapshotVersion === GAME_RUNTIME_SNAPSHOT_VERSION
-  ) {
+  if (snapshot.snapshotVersion !== 2) {
     cgSequence = snapshot.cgSequence;
     if (snapshot.status === 'waitingCgLeadIn') {
       const display = scene.nodes[blockingIndex];
@@ -1002,13 +1085,23 @@ function restoreCurrentGameRuntimeSnapshot(
   }
 
   const allowedBackgrounds = new Set<string | null>([scene.backgroundAssetId]);
+  const allowedScaledBackgrounds = new Set<string>([
+    `${scene.backgroundAssetId ?? ''}\0${scene.backgroundScalePercent}`,
+  ]);
   for (const node of scene.nodes) {
     if (node.type === 'background') {
       allowedBackgrounds.add(node.assetId);
+      allowedScaledBackgrounds.add(`${node.assetId ?? ''}\0${node.scalePercent}`);
     }
   }
   if (
     !allowedBackgrounds.has(snapshot.backgroundAssetId) ||
+    (
+      snapshot.snapshotVersion === GAME_RUNTIME_SNAPSHOT_VERSION &&
+      !allowedScaledBackgrounds.has(
+        `${snapshot.backgroundAssetId ?? ''}\0${snapshot.backgroundScalePercent}`,
+      )
+    ) ||
     !snapshot.characters.every((character) =>
       characterMatchesProject(scene, character))
   ) {
@@ -1019,13 +1112,18 @@ function restoreCurrentGameRuntimeSnapshot(
     ...character,
     position: character.position === null ? null : { ...character.position },
     opacity: 'opacity' in character ? character.opacity : 1,
+    scalePercent: 'scalePercent' in character
+      ? character.scalePercent
+      : DEFAULT_IMAGE_SCALE_PERCENT,
     effect: null,
     effectSequence: 'effectSequence' in character
       ? character.effectSequence
       : 1,
   }));
-  const characterEffectSequence = snapshot.snapshotVersion ===
-    GAME_RUNTIME_SNAPSHOT_VERSION
+  const characterEffectSequence = (
+    snapshot.snapshotVersion === 4 ||
+    snapshot.snapshotVersion === GAME_RUNTIME_SNAPSHOT_VERSION
+  )
     ? snapshot.characterEffectSequence
     : maxCharacterEffectSequence(characters);
 
@@ -1034,6 +1132,10 @@ function restoreCurrentGameRuntimeSnapshot(
     sceneId: snapshot.sceneId,
     nextNodeIndex: snapshot.nextNodeIndex,
     backgroundAssetId: snapshot.backgroundAssetId,
+    backgroundScalePercent: snapshot.snapshotVersion ===
+      GAME_RUNTIME_SNAPSHOT_VERSION
+      ? snapshot.backgroundScalePercent
+      : DEFAULT_IMAGE_SCALE_PERCENT,
     bgmAssetId: snapshot.bgmAssetId,
     bgmSequence: snapshot.bgmSequence,
     dialogueSequence: snapshot.dialogueSequence,
@@ -1083,6 +1185,7 @@ export function createGameRuntimeSnapshot(
     sceneId: current.sceneId,
     nextNodeIndex: current.nextNodeIndex,
     backgroundAssetId: current.backgroundAssetId,
+    backgroundScalePercent: current.backgroundScalePercent,
     bgmAssetId: current.bgmAssetId,
     bgmSequence: current.bgmSequence,
     dialogueSequence: current.dialogueSequence,
@@ -1097,6 +1200,7 @@ export function createGameRuntimeSnapshot(
       slot: character.slot,
       layer: character.layer,
       position: character.position === null ? null : { ...character.position },
+      scalePercent: character.scalePercent,
       opacity: character.opacity,
       effectSequence: character.effectSequence,
     })),
@@ -1113,6 +1217,7 @@ export function createGameRuntimeSnapshot(
     restored.sceneId !== current.sceneId ||
     restored.nextNodeIndex !== current.nextNodeIndex ||
     restored.backgroundAssetId !== current.backgroundAssetId ||
+    restored.backgroundScalePercent !== current.backgroundScalePercent ||
     restored.bgmAssetId !== current.bgmAssetId ||
     restored.bgmSequence !== current.bgmSequence ||
     restored.dialogueSequence !== current.dialogueSequence ||

@@ -29,6 +29,8 @@ export {
   type GameRuntimeSnapshot,
   type CurrentGameRuntimeSnapshot,
   type CgGameRuntimeSnapshot,
+  type EffectGameRuntimeSnapshot,
+  type EffectRuntimeCharacterSnapshot,
   type LegacyGameRuntimeSnapshot,
   type LegacyRuntimeCharacterSnapshot,
   type LogicGameRuntimeSnapshot,
@@ -54,6 +56,13 @@ export {
 } from './logicValidation';
 
 export { MAX_CG_LEAD_IN_MS } from './gameRuntime';
+
+export {
+  DEFAULT_IMAGE_SCALE_PERCENT,
+  isImageScalePercent,
+  MAX_IMAGE_SCALE_PERCENT,
+  MIN_IMAGE_SCALE_PERCENT,
+} from './imageScale';
 
 export type {
   BackgroundNode,

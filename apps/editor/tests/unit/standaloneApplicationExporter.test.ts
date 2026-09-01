@@ -148,6 +148,7 @@ const project = {
       id: 'scene-1',
       name: 'Scene 1',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [],
     },
   ],
@@ -229,7 +230,7 @@ function platformTemplateManifest(overrides: Record<string, unknown> = {}) {
     platform: process.platform,
     arch: process.arch,
     playerVersion: '0.1.0',
-    runtimeCompatibility: '>=1 <11',
+    runtimeCompatibility: '>=1 <13',
     payloadRoot: 'payload',
     artifactEntry: macos ? 'VN Engine Player.app' : 'vn-engine-player',
     gameResourceDirectory: macos
@@ -361,6 +362,7 @@ describe.runIf(process.platform === 'darwin')('standalone application exporter',
         .digest('hex'),
       expectedProject: project,
       expectedAssets: [],
+      defaultLanguage: 'en-US' as const,
       application: {
         name: 'Story',
         version: '1.2.3',
@@ -476,6 +478,9 @@ describe.runIf(process.platform === 'darwin')('standalone application exporter',
       platform: process.platform,
       arch: process.arch,
     });
+    expect(runtimeMocks.exportRuntimeBundle).toHaveBeenCalledWith(
+      expect.objectContaining({ defaultLanguage: 'en-US' }),
+    );
     expect(gameContents).toContain('vn-engine-runtime');
     expect(metadata).toEqual({
       format: STANDALONE_APPLICATION_FORMAT,
@@ -665,6 +670,7 @@ try {
       .digest('hex'),
     expectedProject: expectedSnapshot.sourceProject,
     expectedAssets: expectedSnapshot.publicAssets,
+    defaultLanguage: 'en-US',
     application: {
       name: 'Story',
       version: '1.2.3',

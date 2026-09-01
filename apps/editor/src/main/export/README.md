@@ -14,7 +14,7 @@
 
 | 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
 | --- | --- | --- | --- |
-| [`AuthorProjectCompiler.ts`](./AuthorProjectCompiler.ts) | TypeScript、Runtime DTO | 将作者工程编译为 Runtime v10 文档。 | `compileAuthorProjectV15` 直接严格读取 v14–v20；v1–v13 先由 `RuntimeBundleExporter` 通过 C++ canonical snapshot 迁移。随后投影标题上方文字、过滤编辑节点，并校验控制流、CG、特效和资产引用。 |
+| [`AuthorProjectCompiler.ts`](./AuthorProjectCompiler.ts) | TypeScript、Runtime DTO | 将作者工程编译为 Runtime v12 文档。 | `compileAuthorProjectV15` 直接严格读取 v14–v21；v1–v13 先由 `RuntimeBundleExporter` 通过 C++ canonical snapshot 迁移。随后投影标题上方文字、剧情图片缩放与 Main 权威 Editor 语言、过滤编辑节点，并校验控制流、CG、特效和资产引用。 |
 | [`ExportFileLock.ts`](./ExportFileLock.ts) | Node.js FS、Process、Net | 避免多个进程同时写入同一导出目标。 | `acquireExportFileLock`；校验锁持有者并返回幂等释放租约。 |
 | [`ExportGameWorkflow.ts`](./ExportGameWorkflow.ts) | Electron Dialog | 统一编排三种导出模式。 | `runExportGameWorkflow`；选择目标、加载 Player 模板并路由导出器。 |
 | [`RuntimeBundleExporter.ts`](./RuntimeBundleExporter.ts) | Node.js FS、Crypto | 生成 `game.json`、资产和完整性清单。 | `exportRuntimeBundle`；稳定复制、SHA-256、暂存验证、目录同步和原子提交。 |
@@ -26,5 +26,10 @@
 ## 开发与验证
 
 - 导出必须保持确定性、路径逃逸防护和失败不覆盖旧产物；模板或文件在校验后发生变化时应拒绝发布。
+- Runtime v12 bundle manifest 必须声明 `playerCompatibility: ">=12 <13"`；桌面和 Web
+  模板声明 `runtimeCompatibility: ">=1 <13"`。`game.defaultLanguage` 必须来自导出时
+  Main 权威 Editor 语言，不从 Renderer 导出 payload 接受；Web ZIP 的根
+  `index.html` 也必须写入同一 `<html lang>`，避免启动前暴露错误文档语言。Runtime v11 仍是剧情图片
+  缩放的历史里程碑；场景初始背景、时间线背景与人物立绘缩放必须保留，标题页背景和 CG 不增加缩放字段。
 - 修改作者格式或 Runtime 格式时，同步检查 [`../../shared/projectTypes.ts`](../../shared/projectTypes.ts) 和 Player Loader 兼容性。
 - 运行 `pnpm --dir apps/editor exec vitest run tests/unit/authorProjectCompiler.test.ts tests/unit/runtimeBundleExporter.test.ts tests/unit/webPlayerExporter.test.ts`；跨应用验证使用 `pnpm --dir apps/editor test:integration`。

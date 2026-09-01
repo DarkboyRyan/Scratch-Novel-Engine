@@ -1,6 +1,6 @@
 /**
  * 主要作用：渲染背景、人物立绘、对白和人物动画特效。
- * 关键函数与实现：`PreviewCharacter`、`VisualStageProps`、`VisualStage`；基于 React 组件、Hooks、可访问交互与受控状态实现。
+ * 关键函数与实现：`DEFAULT_CHARACTER_SLOT_POSITIONS`、`PreviewCharacter`、`VisualStageProps`、`VisualStage`；基于统一锚点、React Hooks 与受控状态实现。
  */
 import {
   useCallback,
@@ -11,7 +11,11 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react';
-import type { CharacterEffect } from '@vnengine/runtime';
+import {
+  DEFAULT_IMAGE_SCALE_PERCENT,
+  isImageScalePercent,
+  type CharacterEffect,
+} from '@vnengine/runtime';
 
 import type { PlayerUiLocalizationProps } from './localization';
 import { usePlayerUiLabels } from './PlayerUiProvider';
@@ -23,16 +27,28 @@ export type PreviewCharacter = {
   slot: 'left' | 'center' | 'right';
   layer: number;
   position: { x: number; y: number } | null;
+  /** Omitted legacy callers render at the canonical 100% scale. */
+  scalePercent?: number;
   opacity: 0 | 1;
   effect: CharacterEffect | null;
   effectSequence: number;
 };
+
+export const DEFAULT_CHARACTER_SLOT_POSITIONS = {
+  left: { x: 20, y: 100 },
+  center: { x: 50, y: 100 },
+  right: { x: 80, y: 100 },
+} as const satisfies Readonly<
+  Record<PreviewCharacter['slot'], Readonly<{ x: number; y: number }>>
+>;
 
 export type VisualStageProps = PlayerUiLocalizationProps & {
   speaker: string;
   text: string;
   backgroundUrl: string | null;
   backgroundName: string | null;
+  /** Omitted legacy callers render backgrounds at the canonical 100% scale. */
+  backgroundScalePercent?: number;
   showDialogue?: boolean;
   characters?: PreviewCharacter[];
   animateCharacters?: boolean;
@@ -41,6 +57,12 @@ export type VisualStageProps = PlayerUiLocalizationProps & {
   placeholder?: string;
   children?: ReactNode;
 };
+
+function safeScalePercent(value: number | undefined): number {
+  return isImageScalePercent(value)
+    ? value
+    : DEFAULT_IMAGE_SCALE_PERCENT;
+}
 
 type CharacterEffectStyle = CSSProperties & {
   '--character-effect-duration'?: string;
@@ -165,16 +187,17 @@ function CharacterPortrait({
     return null;
   }
 
-  const anchorStyle: CSSProperties = character.position
-    ? {
-        zIndex: 10 + character.layer,
-        left: `${character.position.x}%`,
-        top: `${character.position.y}%`,
-        right: 'auto',
-        bottom: 'auto',
-        transform: 'translate(-50%, -100%)',
-      }
-    : { zIndex: 10 + character.layer };
+  const position =
+    character.position ?? DEFAULT_CHARACTER_SLOT_POSITIONS[character.slot];
+  const scalePercent = safeScalePercent(character.scalePercent);
+  const anchorStyle: CSSProperties = {
+    zIndex: 10 + character.layer,
+    left: `${position.x}%`,
+    top: `${position.y}%`,
+    right: 'auto',
+    bottom: 'auto',
+    transform: 'translate(-50%, -100%)',
+  };
 
   return (
     <div
@@ -182,26 +205,37 @@ function CharacterPortrait({
       style={anchorStyle}
       data-character-layer={character.layer}
     >
-      <img
-        ref={imageElement}
-        key={renderKey}
-        className={`preview-character-image${
-          ready && animate && character.effect !== null
-            ? ` preview-character-effect preview-character-effect-${character.effect.type}`
-            : ''
-        }`}
+      <div
+        className="preview-character-scale"
         style={{
-          ...effectStyle(ready && animate ? character.effect : null),
-          opacity: character.opacity,
-          visibility: ready ? undefined : 'hidden',
+          width: '100%',
+          height: '100%',
+          transform: `scale(${scalePercent / 100})`,
+          transformOrigin: 'center bottom',
         }}
-        src={character.url}
-        alt={character.name}
-        data-effect-sequence={character.effectSequence}
-        data-character-image-status={ready ? 'ready' : 'loading'}
-        onLoad={(event) => revealAfterDecode(event.currentTarget)}
-        onError={() => setFailedKey(renderKey)}
-      />
+        data-scale-percent={scalePercent}
+      >
+        <img
+          ref={imageElement}
+          key={renderKey}
+          className={`preview-character-image${
+            ready && animate && character.effect !== null
+              ? ` preview-character-effect preview-character-effect-${character.effect.type}`
+              : ''
+          }`}
+          style={{
+            ...effectStyle(ready && animate ? character.effect : null),
+            opacity: character.opacity,
+            visibility: ready ? undefined : 'hidden',
+          }}
+          src={character.url}
+          alt={character.name}
+          data-effect-sequence={character.effectSequence}
+          data-character-image-status={ready ? 'ready' : 'loading'}
+          onLoad={(event) => revealAfterDecode(event.currentTarget)}
+          onError={() => setFailedKey(renderKey)}
+        />
+      </div>
     </div>
   );
 }
@@ -213,6 +247,7 @@ export function VisualStage({
   text,
   backgroundUrl,
   backgroundName,
+  backgroundScalePercent = DEFAULT_IMAGE_SCALE_PERCENT,
   showDialogue = true,
   characters = [],
   animateCharacters = false,
@@ -229,6 +264,9 @@ export function VisualStage({
   }, [backgroundUrl]);
 
   const showBackground = Boolean(backgroundUrl) && !backgroundFailed;
+  const safeBackgroundScalePercent = safeScalePercent(
+    backgroundScalePercent,
+  );
 
   return (
     <div
@@ -240,6 +278,11 @@ export function VisualStage({
           className="preview-background"
           src={backgroundUrl}
           alt=""
+          style={{
+            transform: `scale(${safeBackgroundScalePercent / 100})`,
+            transformOrigin: 'center center',
+          }}
+          data-scale-percent={safeBackgroundScalePercent}
           onError={() => setBackgroundFailed(true)}
         />
       ) : (
@@ -264,7 +307,7 @@ export function VisualStage({
 
       {showDialogue ? (
         <div className="dialogue-box">
-          <strong>{speaker}</strong>
+          {speaker ? <strong>{speaker}</strong> : null}
           <p>{text}</p>
         </div>
       ) : null}

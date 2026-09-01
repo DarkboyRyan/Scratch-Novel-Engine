@@ -30,12 +30,12 @@ pnpm --dir apps/player exec vitest run tests/unit/playerRenderer.test.tsx
 | [`playerMediaService.test.ts`](./playerMediaService.test.ts) | Vitest、Streams | 验证媒体令牌、Range、MIME 与失效会话 | `makeService`、协议 mock |
 | [`playerMediaVolume.test.tsx`](./playerMediaVolume.test.tsx) | Vitest、jsdom | 验证主音量与通道音量同步 | HTMLMediaElement mock、React 渲染 |
 | [`playerPreload.test.ts`](./playerPreload.test.ts) | Vitest | 验证最小 Preload API 与 IPC 通道 | Electron hoisted mock |
-| [`playerRenderer.test.tsx`](./playerRenderer.test.tsx) | Vitest、jsdom、React | 覆盖标题、游戏、存读档、选项和快进主流程 | Gateway mock、键盘/按钮交互 |
+| [`playerRenderer.test.tsx`](./playerRenderer.test.tsx) | Vitest、jsdom、React | 覆盖标题、游戏、包默认语言加载竞态、背景/立绘缩放、存读档、选项和快进主流程 | Gateway mock、键盘/按钮交互 |
 | [`playerSaveStore.test.ts`](./playerSaveStore.test.ts) | Vitest、Node.js | 验证原子存档、安全恢复、兼容和错误处理 | `makeStore`、真实文件夹具 |
-| [`playerSettingsManager.test.ts`](./playerSettingsManager.test.ts) | Vitest、Electron mock | 验证窗口预设、全屏和写入协调 | `FakeWindow`、`FakeSettingsStore` |
+| [`playerSettingsManager.test.ts`](./playerSettingsManager.test.ts) | Vitest、Electron mock | 验证语言来源、窗口预设、全屏和写入协调 | `FakeWindow`、`FakeSettingsStore` |
 | [`playerSettingsProtocol.test.ts`](./playerSettingsProtocol.test.ts) | Vitest | 验证设置版本、Patch 和存档摘要协议 | 类型守卫、默认值、迁移输入 |
 | [`playerSettingsQuitCoordinator.test.ts`](./playerSettingsQuitCoordinator.test.ts) | Vitest | 验证并发退出只刷盘一次 | `deferred`、事件 mock |
-| [`playerSettingsStore.test.ts`](./playerSettingsStore.test.ts) | Vitest、Node.js | 验证设置原子写入、备份、迁移和链接防护 | `makeStore`、临时目录 |
+| [`playerSettingsStore.test.ts`](./playerSettingsStore.test.ts) | Vitest、Node.js | 验证设置来源、原子写入、备份、迁移和链接防护 | `makeStore`、临时目录 |
 | [`playerStartupContent.test.ts`](./playerStartupContent.test.ts) | Vitest、Node.js | 验证开发、通用和嵌入启动模式 | 环境 mock、目录/链接夹具 |
 | [`playerTypographyScale.test.ts`](./playerTypographyScale.test.ts) | Vitest、CSS 契约 | 验证窗口预设同步缩放整体字号 | CSS 规则读取与断言 |
 | [`playerUiLocalization.test.tsx`](./playerUiLocalization.test.tsx) | Vitest、jsdom、React | 验证中英文 UI、ARIA 与错误文本 | Provider/组件渲染、控件交互 |
@@ -48,5 +48,5 @@ pnpm --dir apps/player exec vitest run tests/unit/playerRenderer.test.tsx
 | [`webBundleLoader.test.ts`](./webBundleLoader.test.ts) | Vitest、Web Crypto | 验证 Web 文档加载、限制、哈希和路径 | Fetch mock、`fetchDocuments` |
 | [`webExportProtocol.test.ts`](./webExportProtocol.test.ts) | Vitest | 验证 Web 描述文件严格字段和兼容范围 | `validDescriptor`、parser 断言 |
 | [`webOptionsCapabilities.test.tsx`](./webOptionsCapabilities.test.tsx) | Vitest、jsdom | 验证浏览器显示能力下的选项状态 | Fullscreen mock、React 交互 |
-| [`webPlayerGateway.test.ts`](./webPlayerGateway.test.ts) | Vitest、jsdom | 验证浏览器 Gateway 的全屏、设置、存档和加载 | 内存文档库、Fullscreen mock |
-| [`webStorage.test.ts`](./webStorage.test.ts) | Vitest | 验证 Web 存储隔离、槽位、指纹和设置 | `MemoryDocuments`、Runtime 快照 |
+| [`webPlayerGateway.test.ts`](./webPlayerGateway.test.ts) | Vitest、jsdom | 验证浏览器 Gateway 的全屏、设置来源、存档和加载 | 内存文档库、Fullscreen mock |
+| [`webStorage.test.ts`](./webStorage.test.ts) | Vitest | 验证 Web 存储隔离、槽位、指纹和设置来源 | `MemoryDocuments`、Runtime 快照 |

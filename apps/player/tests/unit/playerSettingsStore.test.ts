@@ -42,11 +42,14 @@ describe('Player settings storage', () => {
   it('uses immutable defaults when missing and atomically round-trips v2', async () => {
     const { root, store } = await makeStore();
     const defaults = await store.load();
-    expect(defaults).toEqual(DEFAULT_PLAYER_SETTINGS);
-    expect(defaults).not.toBe(DEFAULT_PLAYER_SETTINGS);
+    expect(defaults).toEqual({
+      settings: DEFAULT_PLAYER_SETTINGS,
+      languageSource: 'default',
+    });
+    expect(defaults.settings).not.toBe(DEFAULT_PLAYER_SETTINGS);
 
     const settings = {
-      ...defaults,
+      ...defaults.settings,
       masterVolume: 0.75,
       bgmVolume: 0.5,
       voiceVolume: 0.25,
@@ -55,7 +58,10 @@ describe('Player settings storage', () => {
       windowSizePreset: 'large' as const,
     };
     await expect(store.write(settings)).resolves.toEqual(settings);
-    await expect(store.load()).resolves.toEqual(settings);
+    await expect(store.load()).resolves.toEqual({
+      settings,
+      languageSource: 'stored',
+    });
 
     const document = JSON.parse(
       await readFile(path.join(root, 'settings.json'), 'utf8'),
@@ -94,18 +100,21 @@ describe('Player settings storage', () => {
 
     const migrated = await store.load();
     expect(migrated).toEqual({
-      settingsVersion: 2,
-      language: 'zh-CN',
-      masterVolume: 0.7,
-      bgmVolume: 0.6,
-      voiceVolume: 0.5,
-      videoVolume: 0.4,
-      windowMode: 'windowed',
-      windowSizePreset: 'large',
+      languageSource: 'default',
+      settings: {
+        settingsVersion: 2,
+        language: 'zh-CN',
+        masterVolume: 0.7,
+        bgmVolume: 0.6,
+        voiceVolume: 0.5,
+        videoVolume: 0.4,
+        windowMode: 'windowed',
+        windowSizePreset: 'large',
+      },
     });
     expect(reportError).not.toHaveBeenCalled();
 
-    await store.write(migrated);
+    await store.write(migrated.settings);
     const rewritten = JSON.parse(
       await readFile(path.join(root, 'settings.json'), 'utf8'),
     ) as Record<string, unknown>;
@@ -199,7 +208,10 @@ describe('Player settings storage', () => {
 
     for (const document of invalidDocuments) {
       await writeFile(filePath, document);
-      await expect(store.load()).resolves.toEqual(DEFAULT_PLAYER_SETTINGS);
+      await expect(store.load()).resolves.toEqual({
+        settings: DEFAULT_PLAYER_SETTINGS,
+        languageSource: 'default',
+      });
     }
     expect(reportError).toHaveBeenCalled();
   });
@@ -212,7 +224,10 @@ describe('Player settings storage', () => {
     await store.write(second);
     await writeFile(path.join(root, 'settings.json'), '{incomplete');
 
-    await expect(store.load()).resolves.toEqual(first);
+    await expect(store.load()).resolves.toEqual({
+      settings: first,
+      languageSource: 'stored',
+    });
   });
 
   it('never follows a symlinked settings file or settings directory', async () => {
@@ -225,7 +240,10 @@ describe('Player settings storage', () => {
     await writeFile(outsideFile, '{"private":true}');
     await rm(path.join(first.root, 'settings.json'));
     await symlink(outsideFile, path.join(first.root, 'settings.json'));
-    await expect(first.store.load()).resolves.toEqual(DEFAULT_PLAYER_SETTINGS);
+    await expect(first.store.load()).resolves.toEqual({
+      settings: DEFAULT_PLAYER_SETTINGS,
+      languageSource: 'default',
+    });
     await expect(first.store.write({
       ...DEFAULT_PLAYER_SETTINGS,
       masterVolume: 0.5,
@@ -235,7 +253,10 @@ describe('Player settings storage', () => {
     const second = await makeStore();
     const redirected = path.join(path.dirname(second.root), 'redirected');
     await symlink(redirected, second.root, 'dir');
-    await expect(second.store.load()).resolves.toEqual(DEFAULT_PLAYER_SETTINGS);
+    await expect(second.store.load()).resolves.toEqual({
+      settings: DEFAULT_PLAYER_SETTINGS,
+      languageSource: 'default',
+    });
     await expect(second.store.write({
       ...DEFAULT_PLAYER_SETTINGS,
       masterVolume: 0.5,

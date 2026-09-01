@@ -65,6 +65,10 @@ const GAME_METADATA_FIELDS_V5 = [
   ...GAME_METADATA_FIELDS_V2,
   'cgGallery',
 ];
+const GAME_METADATA_FIELDS_V12 = [
+  ...GAME_METADATA_FIELDS_V5,
+  'defaultLanguage',
+];
 const START_SCREEN_FIELDS_V2 = ['backgroundAssetId', 'musicAssetId'];
 const START_SCREEN_FIELDS_V3 = [
   'title',
@@ -561,7 +565,9 @@ function validateGameDocument(input) {
       root.runtimeVersion !== 7 &&
       root.runtimeVersion !== 8 &&
       root.runtimeVersion !== 9 &&
-      root.runtimeVersion !== 10
+      root.runtimeVersion !== 10 &&
+      root.runtimeVersion !== 11 &&
+      root.runtimeVersion !== 12
     )
   ) {
     throw new Error('game.json 的格式或版本不受支持');
@@ -573,11 +579,23 @@ function validateGameDocument(input) {
       ? GAME_METADATA_FIELDS_V1
       : root.runtimeVersion < 5
         ? GAME_METADATA_FIELDS_V2
-        : GAME_METADATA_FIELDS_V5,
+        : root.runtimeVersion < 12
+          ? GAME_METADATA_FIELDS_V5
+          : GAME_METADATA_FIELDS_V12,
     'game.json.game',
   );
   const projectId = boundedString(metadata.id, 'game.json.game.id', 256);
   boundedString(metadata.title, 'game.json.game.title');
+  let defaultLanguage = 'zh-CN';
+  if (root.runtimeVersion >= 12) {
+    if (
+      metadata.defaultLanguage !== 'zh-CN' &&
+      metadata.defaultLanguage !== 'en-US'
+    ) {
+      throw new Error('game.json.game.defaultLanguage 无效');
+    }
+    defaultLanguage = metadata.defaultLanguage;
+  }
   const entrySceneId = boundedString(metadata.entrySceneId, 'game.json.game.entrySceneId', 256);
   if (!Array.isArray(root.scenes) || root.scenes.length === 0) {
     throw new Error('game.json 至少需要一个场景');
@@ -683,6 +701,7 @@ function validateGameDocument(input) {
   return {
     projectId,
     runtimeVersion: root.runtimeVersion,
+    defaultLanguage,
     startScreen,
     cgGallery,
   };

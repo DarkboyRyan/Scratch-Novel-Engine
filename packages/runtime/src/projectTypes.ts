@@ -8,7 +8,9 @@
 export type DialogueNode = {
   id: string;
   type: 'dialogue';
+  /** Empty means the dialogue is intentionally shown without a name label. */
   speaker: string;
+  /** Empty dialogue remains a valid timeline pause and can still own voice. */
   text: string;
   voiceAssetId: string | null;
 };
@@ -17,6 +19,8 @@ export type BackgroundNode = {
   id: string;
   type: 'background';
   assetId: string | null;
+  /** Integer percentage in the inclusive range 10..300. */
+  scalePercent: number;
 };
 
 export type CharacterSlot = 'left' | 'center' | 'right';
@@ -54,6 +58,8 @@ export type CharacterNode = {
   slot: CharacterSlot;
   layer: number;
   position: CharacterPosition | null;
+  /** Integer percentage in the inclusive range 10..300. */
+  scalePercent: number;
   effect: CharacterEffect | null;
 };
 
@@ -187,6 +193,8 @@ export type SceneDocument = {
   id: string;
   name: string;
   backgroundAssetId: string | null;
+  /** Scale for the scene-initial background; null backgrounds require 100. */
+  backgroundScalePercent: number;
   nodes: SceneNode[];
 };
 

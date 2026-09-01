@@ -46,6 +46,7 @@ function runtime(
     sceneId: 'scene-1',
     nextNodeIndex: 1,
     backgroundAssetId: null,
+    backgroundScalePercent: 100,
     bgmAssetId: 'bgm-1',
     bgmSequence,
     dialogueSequence,

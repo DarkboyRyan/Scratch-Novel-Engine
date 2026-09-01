@@ -227,6 +227,7 @@ export async function runExportGameWorkflow(
       sourceRevision: frozen.revision,
       expectedProject: current.project,
       expectedAssets: current.assets,
+      defaultLanguage: language,
       expectedManifestSha256: frozen.manifestSha256,
       assertSourceStillCurrent: () => {
         const session = context.projectFileSession.snapshot();

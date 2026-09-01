@@ -12,7 +12,10 @@ import type * as PlayerUi from '@vnengine/player-ui';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from '../../src/renderer/App';
-import type { PlayerGateway } from '../../src/renderer/playerGateway';
+import type {
+  PlayerGameView,
+  PlayerGateway,
+} from '../../src/renderer/playerGateway';
 import {
   createDefaultPlayerSettings,
   type PlayerErrorCode,
@@ -43,8 +46,14 @@ const project: ProjectDocument = {
       id: 'entry',
       name: '序章',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [
-        { id: 'background', type: 'background', assetId: 'background-1' },
+        {
+          id: 'background',
+          type: 'background',
+          assetId: 'background-1',
+          scalePercent: 125,
+        },
         {
           id: 'character',
           type: 'character',
@@ -52,6 +61,7 @@ const project: ProjectDocument = {
           slot: 'center',
           layer: 2,
           position: { x: 37, y: 89 },
+          scalePercent: 70,
           effect: null,
         },
         { id: 'bgm', type: 'bgm', assetId: 'bgm-1' },
@@ -76,6 +86,7 @@ const project: ProjectDocument = {
       id: 'movie',
       name: '过场',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [
         { id: 'video', type: 'video', assetId: 'video-1' },
         { id: 'video-skip', type: 'video', assetId: 'video-2' },
@@ -87,6 +98,7 @@ const project: ProjectDocument = {
       id: 'ending',
       name: '终章',
       backgroundAssetId: 'background-2',
+      backgroundScalePercent: 80,
       nodes: [
         {
           id: 'goodbye',
@@ -101,6 +113,7 @@ const project: ProjectDocument = {
 };
 
 const game = {
+  defaultLanguage: 'zh-CN' as const,
   project,
   assets: [
     { id: 'background-1', type: 'image' as const, displayName: '教室' },
@@ -194,6 +207,7 @@ function dialogueOnlyGame(lineCount = 12) {
       id: 'entry',
       name: '快进测试',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: Array.from({ length: lineCount }, (_, index) => ({
         id: `line-${index + 1}`,
         type: 'dialogue' as const,
@@ -203,7 +217,11 @@ function dialogueOnlyGame(lineCount = 12) {
       })),
     }],
   };
-  return { project: dialogueProject, assets: [] };
+  return {
+    defaultLanguage: 'zh-CN' as const,
+    project: dialogueProject,
+    assets: [],
+  };
 }
 
 describe('Player Renderer', () => {
@@ -266,6 +284,7 @@ describe('Player Renderer', () => {
     getSettings = vi.fn().mockResolvedValue({
       status: 'ready',
       settings: storedSettings,
+      languageSource: 'stored',
     });
     updateSettings = vi.fn().mockImplementation(async (patch) => {
       storedSettings = { ...storedSettings, ...patch };
@@ -319,6 +338,14 @@ describe('Player Renderer', () => {
     expect(portrait?.style.left).toBe('37%');
     expect(portrait?.style.top).toBe('89%');
     expect(portrait?.style.transform).toBe('translate(-50%, -100%)');
+    expect(
+      container.querySelector<HTMLElement>('.preview-character-scale')?.style
+        .transform,
+    ).toBe('scale(0.7)');
+    expect(
+      container.querySelector<HTMLImageElement>('.preview-background')?.style
+        .transform,
+    ).toBe('scale(1.25)');
     expect(resolveMediaUrl).toHaveBeenCalledWith('background-1');
     expect(resolveMediaUrl).toHaveBeenCalledWith('character-1');
 
@@ -347,6 +374,10 @@ describe('Player Renderer', () => {
     await act(async () => window.dispatchEvent(keyboard('Enter')));
     expect(container.textContent).toContain('下次再见。');
     expect(resolveMediaUrl).toHaveBeenCalledWith('background-2');
+    expect(
+      container.querySelector<HTMLImageElement>('.preview-background')?.style
+        .transform,
+    ).toBe('scale(0.8)');
 
     await act(async () => window.dispatchEvent(keyboard(' ')));
     expect(container.querySelector('[aria-label="游戏结束"]')).not.toBeNull();
@@ -431,6 +462,7 @@ describe('Player Renderer', () => {
     const settingsRequest = deferred<{
       status: 'ready';
       settings: ReturnType<typeof createDefaultPlayerSettings>;
+      languageSource: 'stored';
     }>();
     const quietSettings = {
       ...createDefaultPlayerSettings(),
@@ -471,7 +503,7 @@ describe('Player Renderer', () => {
     });
 
     await act(async () => root.render(<App gateway={gateway} />));
-    expect(container.textContent).toContain('正在载入游戏');
+    expect(container.querySelector('.player-loading-status p')).toBeNull();
     expect(container.querySelector('.player-loading')?.getAttribute('aria-busy'))
       .toBe('true');
     expect(container.querySelector('[role="status"]')?.className)
@@ -481,6 +513,7 @@ describe('Player Renderer', () => {
     await act(async () => settingsRequest.resolve({
       status: 'ready',
       settings: quietSettings,
+      languageSource: 'stored',
     }));
     await act(async () => undefined);
 
@@ -516,6 +549,217 @@ describe('Player Renderer', () => {
     );
   });
 
+  it('uses a game-first bundle default without persisting it on a volume update', async () => {
+    gateway.gameScopedLanguagePreferences = true;
+    const settingsRequest = deferred<{
+      status: 'ready';
+      settings: ReturnType<typeof createDefaultPlayerSettings>;
+      languageSource: 'default';
+    }>();
+    getSettings.mockReturnValue(settingsRequest.promise);
+    gateway.loadGame = vi.fn().mockResolvedValue({
+      status: 'loaded',
+      mode: 'generic',
+      game: { ...game, defaultLanguage: 'en-US' },
+    });
+    updateSettings.mockResolvedValueOnce({
+      status: 'updated',
+      settings: {
+        ...createDefaultPlayerSettings(),
+        language: 'en-US',
+        masterVolume: 0.5,
+      },
+    });
+
+    await act(async () => root.render(<App gateway={gateway} />));
+    await act(async () => settingsRequest.resolve({
+      status: 'ready',
+      settings: {
+        ...createDefaultPlayerSettings(),
+        masterVolume: 0.4,
+      },
+      languageSource: 'default',
+    }));
+
+    expect(document.documentElement.lang).toBe('en-US');
+    await act(async () => exactButton(container, 'Options').click());
+    const master = container.querySelector<HTMLInputElement>(
+      '[aria-label="Master Volume"]',
+    );
+    await act(async () => {
+      if (master) {
+        setInputValue(master, '50');
+        master.dispatchEvent(new MouseEvent('pointerup', {
+          bubbles: true,
+          button: 0,
+        }));
+      }
+      await Promise.resolve();
+    });
+
+    expect(updateSettings).toHaveBeenLastCalledWith({ masterVolume: 0.5 });
+    expect(document.documentElement.lang).toBe('en-US');
+  });
+
+  it('persists the active bundle language with a desktop volume update', async () => {
+    getSettings.mockResolvedValue({
+      status: 'ready',
+      settings: createDefaultPlayerSettings(),
+      languageSource: 'default',
+    });
+    gateway.loadGame = vi.fn().mockResolvedValue({
+      status: 'loaded',
+      mode: 'embedded',
+      game: { ...game, defaultLanguage: 'en-US' },
+    });
+
+    await act(async () => root.render(<App gateway={gateway} />));
+    await act(async () => exactButton(container, 'Options').click());
+    const master = container.querySelector<HTMLInputElement>(
+      '[aria-label="Master Volume"]',
+    );
+    await act(async () => {
+      if (master) {
+        setInputValue(master, '50');
+        master.dispatchEvent(new MouseEvent('pointerup', {
+          bubbles: true,
+          button: 0,
+        }));
+      }
+      await Promise.resolve();
+    });
+
+    expect(updateSettings).toHaveBeenLastCalledWith({
+      language: 'en-US',
+      masterVolume: 0.5,
+    });
+    expect(document.documentElement.lang).toBe('en-US');
+  });
+
+  it('applies a settings-first game default and keeps it through options refresh', async () => {
+    const gameRequest = deferred<{
+      status: 'loaded';
+      mode: PlayerMode;
+      game: PlayerGameView;
+    }>();
+    getSettings.mockResolvedValue({
+      status: 'ready',
+      settings: createDefaultPlayerSettings(),
+      languageSource: 'default',
+    });
+    gateway.loadGame = vi.fn().mockReturnValue(gameRequest.promise);
+
+    await act(async () => root.render(<App gateway={gateway} />));
+    await act(async () => undefined);
+    expect(document.documentElement.lang).toBe('zh-CN');
+    expect(
+      container.querySelector('.player-loading-status p'),
+    ).toBeNull();
+
+    await act(async () => gameRequest.resolve({
+      status: 'loaded',
+      mode: 'generic',
+      game: { ...game, defaultLanguage: 'en-US' },
+    }));
+    expect(document.documentElement.lang).toBe('en-US');
+
+    await act(async () => exactButton(container, 'Options').click());
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 70)));
+    expect(getSettings).toHaveBeenCalledTimes(2);
+    expect(document.documentElement.lang).toBe('en-US');
+    expect(container.querySelector<HTMLSelectElement>(
+      '[aria-label="Interface Language"]',
+    )?.value).toBe('en-US');
+  });
+
+  it('keeps default language provenance after a volume-only update', async () => {
+    gateway.gameScopedLanguagePreferences = true;
+    getSettings.mockResolvedValue({
+      status: 'ready',
+      settings: createDefaultPlayerSettings(),
+      languageSource: 'default',
+    });
+    gateway.openGame = vi.fn().mockResolvedValue({
+      status: 'opened',
+      game: { ...game, defaultLanguage: 'en-US' },
+    });
+
+    await act(async () => root.render(<App gateway={gateway} />));
+    await act(async () => exactButton(container, '选项').click());
+    const master = container.querySelector<HTMLInputElement>(
+      '[aria-label="主音量"]',
+    );
+    await act(async () => {
+      if (master) {
+        setInputValue(master, '50');
+        master.dispatchEvent(new MouseEvent('pointerup', {
+          bubbles: true,
+          button: 0,
+        }));
+      }
+      await Promise.resolve();
+    });
+
+    expect(updateSettings).toHaveBeenLastCalledWith({ masterVolume: 0.5 });
+    expect(document.documentElement.lang).toBe('zh-CN');
+
+    await act(async () => exactButton(container, '打开其他游戏').click());
+
+    expect(document.documentElement.lang).toBe('en-US');
+    expect(container.textContent).toContain('Start Game');
+  });
+
+  it('lets stored language override the game and resets to that game default', async () => {
+    const customized = {
+      ...createDefaultPlayerSettings(),
+      language: 'zh-CN' as const,
+      masterVolume: 0.4,
+      bgmVolume: 0.5,
+      voiceVolume: 0.6,
+      videoVolume: 0.7,
+      windowMode: 'fullscreen' as const,
+      windowSizePreset: 'large' as const,
+    };
+    let persisted = customized;
+    getSettings.mockResolvedValue({
+      status: 'ready',
+      settings: customized,
+      languageSource: 'stored',
+    });
+    updateSettings.mockImplementation(async (patch) => {
+      persisted = { ...persisted, ...patch };
+      return { status: 'updated', settings: persisted };
+    });
+    gateway.loadGame = vi.fn().mockResolvedValue({
+      status: 'loaded',
+      mode: 'generic',
+      game: { ...game, defaultLanguage: 'en-US' },
+    });
+    gateway.openGame = vi.fn().mockResolvedValue({
+      status: 'opened',
+      game: { ...game, defaultLanguage: 'zh-CN' },
+    });
+
+    await act(async () => root.render(<App gateway={gateway} />));
+    expect(document.documentElement.lang).toBe('zh-CN');
+    await act(async () => exactButton(container, '选项').click());
+    await act(async () => exactButton(container, '恢复默认').click());
+
+    expect(updateSettings).toHaveBeenLastCalledWith({
+      language: 'en-US',
+      masterVolume: 1,
+      bgmVolume: 1,
+      voiceVolume: 1,
+      videoVolume: 1,
+      windowMode: 'windowed',
+      windowSizePreset: 'medium',
+    });
+    expect(document.documentElement.lang).toBe('en-US');
+
+    await act(async () => exactButton(container, 'Open Another Game').click());
+    expect(document.documentElement.lang).toBe('en-US');
+  });
+
   it('keeps the localized loading shell visible while the bundle is pending', async () => {
     const gameRequest = deferred<{
       status: 'loaded';
@@ -528,6 +772,7 @@ describe('Player Renderer', () => {
         ...createDefaultPlayerSettings(),
         language: 'en-US',
       },
+      languageSource: 'stored',
     });
     gateway.loadGame = vi.fn().mockReturnValue(gameRequest.promise);
 
@@ -555,6 +800,7 @@ describe('Player Renderer', () => {
         ...createDefaultPlayerSettings(),
         masterVolume: 0.4,
       },
+      languageSource: 'stored',
     });
     await act(async () => root.render(<App gateway={gateway} />));
     const optionsTrigger = exactButton(container, '选项');
@@ -668,6 +914,7 @@ describe('Player Renderer', () => {
     const pendingSettings = deferred<{
       status: 'ready';
       settings: ReturnType<typeof createDefaultPlayerSettings>;
+      languageSource: 'stored';
     }>();
     getSettings.mockReturnValue(pendingSettings.promise);
     gateway.loadGame = vi.fn().mockResolvedValue({
@@ -677,7 +924,7 @@ describe('Player Renderer', () => {
     });
 
     await act(async () => root.render(<App gateway={gateway} />));
-    expect(container.textContent).toContain('正在载入游戏');
+    expect(container.querySelector('.player-loading-status p')).toBeNull();
 
     await act(async () => pendingSettings.resolve({
       status: 'ready',
@@ -685,6 +932,7 @@ describe('Player Renderer', () => {
         ...createDefaultPlayerSettings(),
         language: 'en-US',
       },
+      languageSource: 'stored',
     }));
 
     expect(document.documentElement.lang).toBe('en-US');
@@ -702,6 +950,7 @@ describe('Player Renderer', () => {
         ...createDefaultPlayerSettings(),
         windowMode: 'fullscreen',
       },
+      languageSource: 'stored',
     });
     await act(async () => exactButton(container, '选项').click());
     await act(async () => new Promise((resolve) => window.setTimeout(resolve, 70)));
@@ -714,6 +963,7 @@ describe('Player Renderer', () => {
     getSettings.mockResolvedValue({
       status: 'ready',
       settings: createDefaultPlayerSettings(),
+      languageSource: 'stored',
     });
     await act(async () => {
       window.dispatchEvent(new Event('resize'));
@@ -729,6 +979,7 @@ describe('Player Renderer', () => {
         ...createDefaultPlayerSettings(),
         masterVolume: 0.5,
       },
+      languageSource: 'stored',
     });
     const pendingUpdate = deferred<{
       status: 'rejected';
@@ -805,6 +1056,7 @@ describe('Player Renderer', () => {
 
     await act(async () => exactButton(container, '恢复默认').click());
     expect(updateSettings).toHaveBeenLastCalledWith({
+      language: 'zh-CN',
       windowMode: 'windowed',
       windowSizePreset: 'medium',
     });
@@ -878,6 +1130,7 @@ describe('Player Renderer', () => {
         voiceVolume: 0.6,
         videoVolume: 0.8,
       },
+      languageSource: 'stored',
     });
     await act(async () => root.render(<App gateway={gateway} />));
     await act(async () => button(container, '开始游戏').click());
@@ -1428,7 +1681,7 @@ describe('Player Renderer', () => {
     expect(saveGame).toHaveBeenCalledOnce();
     expect(saveGame.mock.calls[0]?.[0]).toBe(1);
     expect(saveGame.mock.calls[0]?.[1]).toMatchObject({
-      snapshotVersion: 4,
+      snapshotVersion: 5,
       sceneId: 'entry',
       status: 'playing',
     });
@@ -1856,6 +2109,7 @@ describe('Player Renderer', () => {
           id: 'entry',
           name: '短篇',
           backgroundAssetId: null,
+          backgroundScalePercent: 100,
           nodes: [{
             id: 'only-line',
             type: 'dialogue' as const,
@@ -2014,6 +2268,7 @@ describe('Player Renderer', () => {
       status: 'loaded',
       mode: 'generic',
       game: {
+        defaultLanguage: 'zh-CN',
         project: { ...project, entrySceneId: 'missing' },
         assets: [],
       },

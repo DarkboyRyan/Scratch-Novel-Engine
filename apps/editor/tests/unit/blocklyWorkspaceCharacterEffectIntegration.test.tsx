@@ -60,6 +60,7 @@ function sceneWithEffects(
     id: 'scene-1',
     name: 'Scene 1',
     backgroundAssetId: null,
+    backgroundScalePercent: 100,
     nodes: [
       {
         id: 'portrait-a',
@@ -70,6 +71,7 @@ function sceneWithEffects(
         layer: 1,
         position: null,
         effect: firstEffect,
+        scalePercent: 100,
       },
       {
         id: 'portrait-b',
@@ -80,6 +82,7 @@ function sceneWithEffects(
         layer: 2,
         position: null,
         effect: secondEffect,
+        scalePercent: 100,
       },
     ],
   };

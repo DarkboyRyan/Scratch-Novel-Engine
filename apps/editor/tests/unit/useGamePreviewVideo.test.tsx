@@ -32,6 +32,7 @@ const project: ProjectDocument = {
       id: 'scene-1',
       name: 'Scene 1',
       backgroundAssetId: null,
+      backgroundScalePercent: 100,
       nodes: [
         { id: 'video-1', type: 'video', assetId: 'asset-video' },
         { id: 'extension-1', type: 'storyExtension' },
@@ -49,6 +50,7 @@ const project: ProjectDocument = {
       id: 'scene-2',
       name: 'Scene 2',
       backgroundAssetId: 'scene-2-background',
+      backgroundScalePercent: 100,
       nodes: [
         {
           id: 'dialogue-2',

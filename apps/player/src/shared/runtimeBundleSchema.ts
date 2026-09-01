@@ -15,7 +15,9 @@ import type {
 import {
   isLogicValue,
   isCharacterEffect,
+  isImageScalePercent,
   isLogicVariableName,
+  DEFAULT_IMAGE_SCALE_PERCENT,
   MAX_CG_LEAD_IN_MS,
   MAX_REPEAT_COUNT,
   validateProjectLogicVariableBudget,
@@ -26,6 +28,7 @@ import type {
   PlayerAsset,
   PlayerAssetType,
   PlayerGameData,
+  PlayerLanguage,
 } from './playerProtocol';
 import {
   expectedAssetDirectory,
@@ -48,13 +51,15 @@ export type ParsedRuntimeBundle = {
   buildId: string;
 };
 
-type SupportedRuntimeVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+type SupportedRuntimeVersion =
+  1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
 
 const LEGACY_START_SCREEN_EYEBROW = 'A VN ENGINE STORY';
 const UTF8_ENCODER = new TextEncoder();
 
 type ParsedRuntimeGame = {
   project: ProjectDocument;
+  defaultLanguage: PlayerLanguage;
   runtimeVersion: SupportedRuntimeVersion;
 };
 
@@ -210,6 +215,10 @@ function playerCompatibilityForRuntime(
       return '>=9 <10';
     case 10:
       return '>=10 <11';
+    case 11:
+      return '>=11 <12';
+    case 12:
+      return '>=12 <13';
   }
 }
 
@@ -314,13 +323,41 @@ function parseSceneNode(
         }),
         voiceAssetId: nullableId(value, 'voiceAssetId', context),
       };
-    case 'background':
-      exactFields(value, ['id', 'type', 'assetId'], context);
-      return { id, type, assetId: nullableId(value, 'assetId', context) };
+    case 'background': {
+      exactFields(
+        value,
+        runtimeVersion >= 11
+          ? ['id', 'type', 'assetId', 'scalePercent']
+          : ['id', 'type', 'assetId'],
+        context,
+      );
+      const assetId = nullableId(value, 'assetId', context);
+      const scalePercent = runtimeVersion >= 11
+        ? value.scalePercent
+        : DEFAULT_IMAGE_SCALE_PERCENT;
+      if (!isImageScalePercent(scalePercent)) {
+        throw new Error(`${context}.scalePercent 必须是 10 到 300 的整数`);
+      }
+      if (assetId === null && scalePercent !== DEFAULT_IMAGE_SCALE_PERCENT) {
+        throw new Error(`${context}.scalePercent 清除背景时必须为 100`);
+      }
+      return { id, type, assetId, scalePercent };
+    }
     case 'character': {
       exactFields(
         value,
-        runtimeVersion >= 9
+        runtimeVersion >= 11
+          ? [
+              'id',
+              'type',
+              'assetId',
+              'slot',
+              'layer',
+              'position',
+              'effect',
+              'scalePercent',
+            ]
+          : runtimeVersion >= 9
           ? ['id', 'type', 'assetId', 'slot', 'layer', 'position', 'effect']
           : runtimeVersion >= 4
             ? ['id', 'type', 'assetId', 'slot', 'layer', 'position']
@@ -355,6 +392,12 @@ function parseSceneNode(
         position = { x, y };
       }
       const assetId = nullableId(value, 'assetId', context);
+      const scalePercent = runtimeVersion >= 11
+        ? value.scalePercent
+        : DEFAULT_IMAGE_SCALE_PERCENT;
+      if (!isImageScalePercent(scalePercent)) {
+        throw new Error(`${context}.scalePercent 必须是 10 到 300 的整数`);
+      }
       let effect: CharacterEffect | null = null;
       if (runtimeVersion >= 9 && value.effect !== null) {
         if (!isCharacterEffect(value.effect)) {
@@ -365,6 +408,9 @@ function parseSceneNode(
       if (assetId === null && effect !== null) {
         throw new Error(`${context}.effect 不能用于清除立绘节点`);
       }
+      if (assetId === null && scalePercent !== DEFAULT_IMAGE_SCALE_PERCENT) {
+        throw new Error(`${context}.scalePercent 清除立绘时必须为 100`);
+      }
       return {
         id,
         type,
@@ -372,6 +418,7 @@ function parseSceneNode(
         slot,
         layer: layer as number,
         position,
+        scalePercent,
         effect,
       };
     }
@@ -513,7 +560,16 @@ function parseScene(
   const value = objectValue(input, context);
   exactFields(
     value,
-    ['schemaVersion', 'id', 'name', 'backgroundAssetId', 'nodes'],
+    runtimeVersion >= 11
+      ? [
+          'schemaVersion',
+          'id',
+          'name',
+          'backgroundAssetId',
+          'backgroundScalePercent',
+          'nodes',
+        ]
+      : ['schemaVersion', 'id', 'name', 'backgroundAssetId', 'nodes'],
     context,
   );
   requireLiteral(value, 'schemaVersion', 1, context);
@@ -526,11 +582,27 @@ function parseScene(
   if (controlError !== null) {
     throw new Error(`${context}.nodes ${controlError}`);
   }
+  const backgroundAssetId = nullableId(value, 'backgroundAssetId', context);
+  const backgroundScalePercent = runtimeVersion >= 11
+    ? value.backgroundScalePercent
+    : DEFAULT_IMAGE_SCALE_PERCENT;
+  if (!isImageScalePercent(backgroundScalePercent)) {
+    throw new Error(
+      `${context}.backgroundScalePercent 必须是 10 到 300 的整数`,
+    );
+  }
+  if (
+    backgroundAssetId === null &&
+    backgroundScalePercent !== DEFAULT_IMAGE_SCALE_PERCENT
+  ) {
+    throw new Error(`${context}.backgroundScalePercent 无背景时必须为 100`);
+  }
   return {
     schemaVersion: 1,
     id,
     name: stringValue(value, 'name', context, { maximum: 4096 }),
-    backgroundAssetId: nullableId(value, 'backgroundAssetId', context),
+    backgroundAssetId,
+    backgroundScalePercent,
     nodes,
   };
 }
@@ -549,7 +621,9 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
     root.runtimeVersion !== 7 &&
     root.runtimeVersion !== 8 &&
     root.runtimeVersion !== 9 &&
-    root.runtimeVersion !== 10
+    root.runtimeVersion !== 10 &&
+    root.runtimeVersion !== 11 &&
+    root.runtimeVersion !== 12
   ) {
     throw new Error('game.json.runtimeVersion 版本或格式不受支持');
   }
@@ -562,7 +636,16 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
       ? ['id', 'title', 'entrySceneId']
       : runtimeVersion < 5
         ? ['id', 'title', 'entrySceneId', 'startScreen']
-        : ['id', 'title', 'entrySceneId', 'startScreen', 'cgGallery'],
+        : runtimeVersion < 12
+          ? ['id', 'title', 'entrySceneId', 'startScreen', 'cgGallery']
+          : [
+              'id',
+              'title',
+              'entrySceneId',
+              'defaultLanguage',
+              'startScreen',
+              'cgGallery',
+            ],
     'game.json.game',
   );
   const projectId = idValue(metadata, 'id', 'game.json.game');
@@ -577,6 +660,16 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
   const projectName = stringValue(metadata, 'title', 'game.json.game', {
     maximum: 4096,
   });
+  let defaultLanguage: PlayerLanguage = 'zh-CN';
+  if (runtimeVersion >= 12) {
+    if (
+      metadata.defaultLanguage !== 'zh-CN' &&
+      metadata.defaultLanguage !== 'en-US'
+    ) {
+      throw new Error('game.json.game.defaultLanguage 无效');
+    }
+    defaultLanguage = metadata.defaultLanguage;
+  }
   let startScreen = {
     title: projectName,
     eyebrow: LEGACY_START_SCREEN_EYEBROW,
@@ -737,6 +830,7 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
   return {
     runtimeVersion,
     project,
+    defaultLanguage,
   };
 }
 
@@ -980,6 +1074,7 @@ export function parseRuntimeBundleDocuments(
   validateProjectReferences(parsedGame.project, manifest.files);
   return {
     game: {
+      defaultLanguage: parsedGame.defaultLanguage,
       project: parsedGame.project,
       assets: manifest.files.map(({ id, type, displayName }) => ({
         id,

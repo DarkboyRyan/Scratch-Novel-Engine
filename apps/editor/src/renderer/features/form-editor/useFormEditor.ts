@@ -1,6 +1,6 @@
 /**
  * 文件主要作用：集中管理表单编辑器选择状态、草稿和创作命令。
- * 包含实现：`useFormEditor`、`FormEditorState`。
+ * 包含实现：`useFormEditor`、`moveNode`、`FormEditorState`。
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -18,12 +18,36 @@ import type {
   VideoNode,
 } from '../../../shared/projectTypes';
 import {
+  DEFAULT_IMAGE_SCALE_PERCENT,
   formVisibleSceneNodes,
+  isImageScalePercent,
   isSemanticSceneNode,
 } from '../../../shared/projectTypes';
 import type { FormEditorPort } from '../../application/authoringPorts';
 import { useEditorLabels } from '../../i18n/editorLocalization';
-import { getCharacterGroupDialogueAnchorId } from './formLogicTree';
+import {
+  getCharacterInsertionPlan,
+  getFormNodeMovePlan,
+} from './formLogicTree';
+
+function trimAsciiWhitespace(value: string): string {
+  return value.replace(/^[\t-\r ]+|[\t-\r ]+$/gu, '');
+}
+
+type ImageScaleDraft = {
+  projectId: string;
+  sceneId: string;
+  nodeId: string;
+  value: string;
+};
+
+function parseImageScaleDraft(value: string): number | null {
+  if (value.trim().length === 0) {
+    return null;
+  }
+  const scalePercent = Number(value);
+  return isImageScalePercent(scalePercent) ? scalePercent : null;
+}
 
 // Controller hook 负责 Renderer 状态、选择规则以及调用 C++。
 // 组件只接收数据和事件，不直接知道 IPC 协议。
@@ -31,7 +55,6 @@ export function useFormEditor({
   project,
   isBusy,
   engineMessage,
-  setEngineMessage,
   runEngineAction,
   authoringCommands,
 }: FormEditorPort) {
@@ -42,6 +65,18 @@ export function useFormEditor({
   // 输入框草稿仍属于界面状态：输入时无需为每个按键都调用 C++。
   const [speaker, setSpeaker] = useState('');
   const [text, setText] = useState('');
+  const [imageScaleDraft, setImageScaleDraftState] =
+    useState<ImageScaleDraft | null>(null);
+  const imageScaleDraftRef = useRef<ImageScaleDraft | null>(null);
+  const [editingSceneId, setEditingSceneId] = useState<string | null>(null);
+  const [sceneNameDraft, setSceneNameDraftState] = useState('');
+  const [sceneRenameErrorKind, setSceneRenameErrorKind] = useState<
+    'required' | 'failed' | null
+  >(null);
+  const [isRenamingScene, setIsRenamingScene] = useState(false);
+  const sceneRenameCommitRef = useRef<Promise<boolean> | null>(null);
+  const sceneRenameGenerationRef = useRef(0);
+  const imageScaleCommitRef = useRef<Promise<boolean> | null>(null);
 
   // 后端操作可能删除当前场景；Project 快照改变后修正失效的 UI 选择。
   useEffect(() => {
@@ -71,6 +106,19 @@ export function useFormEditor({
   // branch labels and indentation separately.
   const storyNodes = scene ? formVisibleSceneNodes(scene) : [];
 
+  // A scene-name draft belongs to the selected form surface. Project or scene
+  // replacement discards that transient state; language changes retain the
+  // author's text and only retranslate surrounding labels and errors.
+  useEffect(() => {
+    sceneRenameGenerationRef.current += 1;
+    setEditingSceneId(null);
+    setSceneNameDraftState('');
+    setSceneRenameErrorKind(null);
+    setIsRenamingScene(false);
+    imageScaleDraftRef.current = null;
+    setImageScaleDraftState(null);
+  }, [project?.id, scene?.id]);
+
   const selectedNode = storyNodes.find((node) => node.id === selectedNodeId);
   const selectedDialogue =
     selectedNode?.type === 'dialogue' ? selectedNode : undefined;
@@ -85,6 +133,26 @@ export function useFormEditor({
     selectedNode?.type === 'video' ? selectedNode : undefined;
   const selectedChoice =
     selectedNode?.type === 'choice' ? selectedNode : undefined;
+  const selectedScalableImageNode = selectedBackground ??
+    (selectedCharacter?.mode === 'show' ? selectedCharacter : undefined);
+  const activeImageScaleDraft =
+    project && scene && selectedScalableImageNode &&
+      imageScaleDraft?.projectId === project.id &&
+      imageScaleDraft.sceneId === scene.id &&
+      imageScaleDraft.nodeId === selectedScalableImageNode.id
+      ? imageScaleDraft
+      : null;
+  const selectedImageScaleDraft = activeImageScaleDraft?.value ??
+    String(selectedScalableImageNode?.scalePercent ?? DEFAULT_IMAGE_SCALE_PERCENT);
+  const selectedImageScalePercent = parseImageScaleDraft(
+    selectedImageScaleDraft,
+  );
+  const imageScaleDraftDirty = Boolean(
+    selectedScalableImageNode &&
+      activeImageScaleDraft &&
+      activeImageScaleDraft.value !==
+        String(selectedScalableImageNode.scalePercent),
+  );
 
   // 图形化编辑器可能删除表单当前选中的节点。Project 更新后清理
   // 失效选择，避免切回表单时还显示已经删除的对白草稿。
@@ -100,6 +168,8 @@ export function useFormEditor({
     setSelectedNodeId(null);
     setSpeaker('');
     setText('');
+    imageScaleDraftRef.current = null;
+    setImageScaleDraftState(null);
   }, [scene, selectedNodeId]);
 
   // 如果其他编辑模式更新了当前节点，就用 C++ 最新快照刷新表单草稿。
@@ -126,36 +196,47 @@ export function useFormEditor({
     setSelectedNodeId(null);
     setSpeaker('');
     setText('');
+    imageScaleDraftRef.current = null;
+    setImageScaleDraftState(null);
   }
 
   function resetEditorState() {
     setSelectedSceneId(null);
+    cancelSceneRename();
     startNewDialogue();
   }
 
-  const draftDirty = selectedDialogue
+  const dialogueDraftDirty = selectedDialogue
     ? speaker !== selectedDialogue.speaker || text !== selectedDialogue.text
     : selectedNode
       ? false
       : speaker.length > 0 || text.length > 0;
+  const editingScene = project?.scenes.find(
+    (projectScene) => projectScene.id === editingSceneId,
+  );
+  const sceneRenameDraftDirty = Boolean(
+    editingScene && sceneNameDraft !== editingScene.name,
+  );
+  const sceneRenameError = sceneRenameErrorKind === 'required'
+    ? labels.scenes.sceneNameRequired
+    : sceneRenameErrorKind === 'failed'
+      ? labels.scenes.renameSceneFailed
+      : null;
+  const draftDirty =
+    dialogueDraftDirty || sceneRenameDraftDirty || imageScaleDraftDirty;
   const commitInProgressRef = useRef<Promise<boolean> | null>(null);
   // “+立绘”也可以提交尚未创建的对白。保留该次 C++ 分配的 ID，
-  // 让紧接着创建的人物节点仍能放到这条对白之前。
+  // 让紧接着创建的人物节点放到这条对白之后。
   const lastCreatedDialogueIdRef = useRef<string | null>(null);
 
-  async function commitPendingDraft(): Promise<boolean> {
+  async function commitDialogueDraft(forceCreate = false): Promise<boolean> {
     if (commitInProgressRef.current) {
       return commitInProgressRef.current;
     }
 
     const commit = async (): Promise<boolean> => {
-      if (!draftDirty) {
+      if (!dialogueDraftDirty && !forceCreate) {
         return true;
-      }
-
-      if (!text.trim()) {
-        setEngineMessage(labels.messages.emptyDialogue);
-        return false;
       }
 
       if (!scene) {
@@ -205,7 +286,224 @@ export function useFormEditor({
     }
   }
 
+  function setSelectedImageScaleDraft(value: string): void {
+    if (!project || !scene || !selectedScalableImageNode) {
+      return;
+    }
+    const nextDraft: ImageScaleDraft = {
+      projectId: project.id,
+      sceneId: scene.id,
+      nodeId: selectedScalableImageNode.id,
+      value,
+    };
+    imageScaleDraftRef.current = nextDraft;
+    setImageScaleDraftState(nextDraft);
+  }
+
+  function currentImageScaleDraftValue(
+    node: BackgroundNode | CharacterNode,
+  ): string {
+    const current = imageScaleDraftRef.current;
+    return project && scene &&
+        current?.projectId === project.id &&
+        current.sceneId === scene.id &&
+        current.nodeId === node.id
+      ? current.value
+      : String(node.scalePercent);
+  }
+
+  function clearCommittedImageScaleDraft(
+    owner: Pick<ImageScaleDraft, 'projectId' | 'sceneId' | 'nodeId'>,
+    committedValue: string,
+  ): void {
+    const matches = (candidate: ImageScaleDraft | null) =>
+      candidate?.projectId === owner.projectId &&
+      candidate.sceneId === owner.sceneId &&
+      candidate.nodeId === owner.nodeId &&
+      candidate.value === committedValue;
+    if (matches(imageScaleDraftRef.current)) {
+      imageScaleDraftRef.current = null;
+    }
+    setImageScaleDraftState((current) => matches(current) ? null : current);
+  }
+
+  async function commitSelectedImageScaleDraft(): Promise<boolean> {
+    if (imageScaleCommitRef.current) {
+      return imageScaleCommitRef.current;
+    }
+    if (!project || !scene || !selectedScalableImageNode) {
+      return true;
+    }
+
+    const owner = {
+      projectId: project.id,
+      sceneId: scene.id,
+      nodeId: selectedScalableImageNode.id,
+    };
+    const rawValue = currentImageScaleDraftValue(selectedScalableImageNode);
+    const scalePercent = parseImageScaleDraft(rawValue);
+    if (scalePercent === null) {
+      return false;
+    }
+    if (scalePercent === selectedScalableImageNode.scalePercent) {
+      clearCommittedImageScaleDraft(owner, rawValue);
+      return true;
+    }
+
+    const commit = (async (): Promise<boolean> => {
+      const result = selectedScalableImageNode.type === 'background'
+        ? await runEngineAction(() =>
+            authoringCommands.updateBackground({
+              sceneId: scene.id,
+              nodeId: selectedScalableImageNode.id,
+              assetId: selectedScalableImageNode.assetId,
+              scalePercent,
+            }))
+        : await runEngineAction(() =>
+            authoringCommands.updateCharacter({
+              sceneId: scene.id,
+              nodeId: selectedScalableImageNode.id,
+              mode: selectedScalableImageNode.mode,
+              assetId: selectedScalableImageNode.assetId,
+              slot: selectedScalableImageNode.slot,
+              layer: selectedScalableImageNode.layer,
+              position: selectedScalableImageNode.position,
+              scalePercent,
+            }));
+      if (result === null) {
+        return false;
+      }
+      clearCommittedImageScaleDraft(owner, rawValue);
+      return true;
+    })();
+    imageScaleCommitRef.current = commit;
+    try {
+      return await commit;
+    } finally {
+      if (imageScaleCommitRef.current === commit) {
+        imageScaleCommitRef.current = null;
+      }
+    }
+  }
+
+  function beginSceneRename(sceneId: string): void {
+    const targetScene = project?.scenes.find(
+      (projectScene) => projectScene.id === sceneId,
+    );
+    if (
+      !targetScene ||
+      targetScene.id !== scene?.id ||
+      isBusy ||
+      sceneRenameCommitRef.current
+    ) {
+      return;
+    }
+
+    sceneRenameGenerationRef.current += 1;
+    setEditingSceneId(targetScene.id);
+    setSceneNameDraftState(targetScene.name);
+    setSceneRenameErrorKind(null);
+  }
+
+  function setSceneNameDraft(name: string): void {
+    setSceneNameDraftState(name);
+    if (sceneRenameErrorKind) {
+      setSceneRenameErrorKind(null);
+    }
+  }
+
+  function cancelSceneRename(): void {
+    sceneRenameGenerationRef.current += 1;
+    setEditingSceneId(null);
+    setSceneNameDraftState('');
+    setSceneRenameErrorKind(null);
+    setIsRenamingScene(false);
+  }
+
+  async function commitSceneRenameDraft(): Promise<boolean> {
+    if (sceneRenameCommitRef.current) {
+      return sceneRenameCommitRef.current;
+    }
+
+    const commit = async (): Promise<boolean> => {
+      if (editingSceneId === null) {
+        return true;
+      }
+
+      const targetScene = project?.scenes.find(
+        (projectScene) => projectScene.id === editingSceneId,
+      );
+      if (!targetScene) {
+        return false;
+      }
+
+      // Keep Renderer and C++ normalization identical. JavaScript's trim()
+      // also removes Unicode spacing characters that the Engine deliberately
+      // preserves as authored content.
+      const normalizedName = trimAsciiWhitespace(sceneNameDraft);
+      if (!normalizedName) {
+        setSceneRenameErrorKind('required');
+        return false;
+      }
+      if (normalizedName === targetScene.name) {
+        cancelSceneRename();
+        return true;
+      }
+
+      const generation = sceneRenameGenerationRef.current;
+      setSceneRenameErrorKind(null);
+      setIsRenamingScene(true);
+      const result = await runEngineAction(() =>
+        authoringCommands.renameScene(targetScene.id, normalizedName),
+      );
+
+      // Project/scene navigation may have replaced this form surface while
+      // the serialized engine command was in flight. Its authoritative result
+      // may still update the project, but it must not restore stale UI state.
+      if (generation !== sceneRenameGenerationRef.current) {
+        return result !== null;
+      }
+
+      setIsRenamingScene(false);
+      if (result) {
+        cancelSceneRename();
+        return true;
+      }
+
+      setSceneRenameErrorKind('failed');
+      return false;
+    };
+
+    const pendingCommit = commit();
+    sceneRenameCommitRef.current = pendingCommit;
+    try {
+      return await pendingCommit;
+    } finally {
+      if (sceneRenameCommitRef.current === pendingCommit) {
+        sceneRenameCommitRef.current = null;
+      }
+    }
+  }
+
+  async function commitPendingDraft(forceCreate = false): Promise<boolean> {
+    // Keep the explicit empty-dialogue force-create flag scoped exclusively to
+    // the dialogue commit. Scene rename flushing must never create a dialogue.
+    if (!(await commitDialogueDraft(forceCreate))) {
+      return false;
+    }
+    if (!(await commitSelectedImageScaleDraft())) {
+      return false;
+    }
+    return commitSceneRenameDraft();
+  }
+
+  async function commitSceneRename(): Promise<boolean> {
+    return commitPendingDraft();
+  }
+
   function applyNodeSelection(node: FormVisibleSceneNode) {
+    imageScaleDraftRef.current = null;
+    setImageScaleDraftState(null);
     setSelectedNodeId(node.id);
     if (node.type === 'dialogue') {
       setSpeaker(node.speaker);
@@ -316,29 +614,27 @@ export function useFormEditor({
   }
 
   async function insertCharacter() {
-    // 人物节点在运行时会自动执行。放在对白之后会等玩家推进后才生效，
-    // 因此当前对白及其连续人物组都以“下一条对白”为插入锚点。
-    const wasCreatingDialogue = selectedNodeId === null && draftDirty;
-    const selectedIndex = storyNodes.findIndex(
-      (node) => node.id === selectedNodeId,
-    );
-    const selected = storyNodes[selectedIndex];
-    let dialogueAnchorId: string | null =
-      selected?.type === 'dialogue' ? selected.id : null;
-
-    if (selected?.type === 'character' && scene) {
-      dialogueAnchorId = getCharacterGroupDialogueAnchorId(scene, selected.id);
-    }
+    // 选中对白时，人物节点按表单中的视觉顺序插入到它下方。
+    // 选中已有立绘时仍保留连续立绘组；CG 内部则以隐藏结束标记
+    // 为 after anchor，避免把立绘塞进只允许对白的 CG body。
+    const wasCreatingDialogue =
+      selectedNodeId === null &&
+      (dialogueDraftDirty || commitInProgressRef.current !== null);
+    let insertionPlan = scene
+      ? getCharacterInsertionPlan(scene, selectedNodeId)
+      : null;
 
     if (wasCreatingDialogue) {
       lastCreatedDialogueIdRef.current = null;
     }
-    if (!scene || !(await commitPendingDraft())) {
+    if (!scene || !insertionPlan || !(await commitPendingDraft())) {
       return;
     }
 
     if (wasCreatingDialogue) {
-      dialogueAnchorId = lastCreatedDialogueIdRef.current;
+      insertionPlan = {
+        afterNodeId: lastCreatedDialogueIdRef.current,
+      };
       lastCreatedDialogueIdRef.current = null;
     }
 
@@ -347,9 +643,7 @@ export function useFormEditor({
         sceneId: scene.id,
         mode: 'show',
         assetId: null,
-        ...(dialogueAnchorId
-          ? { beforeNodeId: dialogueAnchorId }
-          : { afterNodeId: selectedNodeId }),
+        afterNodeId: insertionPlan.afterNodeId,
       }),
     );
 
@@ -412,19 +706,61 @@ export function useFormEditor({
 
   async function updateBackgroundNode(
     node: BackgroundNode,
-    assetId: string | null,
-  ) {
-    if (!scene || node.assetId === assetId) {
-      return;
+    next: {
+      assetId: string | null;
+      scalePercent: number;
+    },
+  ): Promise<boolean> {
+    if (!scene) {
+      return false;
+    }
+    const draft = imageScaleDraftRef.current;
+    const draftBelongsToNode = Boolean(
+      project && scene &&
+        draft?.projectId === project.id &&
+        draft.sceneId === scene.id &&
+        draft.nodeId === node.id,
+    );
+    const draftValue = draftBelongsToNode && draft
+      ? draft.value
+      : String(next.scalePercent);
+    const draftScalePercent = parseImageScaleDraft(draftValue);
+    if (draftBelongsToNode && draftScalePercent === null) {
+      return false;
+    }
+    const scalePercent = next.assetId === null
+      ? DEFAULT_IMAGE_SCALE_PERCENT
+      : (draftScalePercent ?? next.scalePercent);
+    if (
+      (node.assetId === next.assetId && node.scalePercent === scalePercent)
+    ) {
+      if (project && draftBelongsToNode) {
+        clearCommittedImageScaleDraft(
+          { projectId: project.id, sceneId: scene.id, nodeId: node.id },
+          draftValue,
+        );
+      }
+      return true;
     }
 
-    await runEngineAction(() =>
+    const result = await runEngineAction(() =>
       authoringCommands.updateBackground({
         sceneId: scene.id,
         nodeId: node.id,
-        assetId,
+        assetId: next.assetId,
+        scalePercent,
       }),
     );
+    if (result === null) {
+      return false;
+    }
+    if (project && draftBelongsToNode) {
+      clearCommittedImageScaleDraft(
+        { projectId: project.id, sceneId: scene.id, nodeId: node.id },
+        draftValue,
+      );
+    }
+    return true;
   }
 
   async function updateCharacterNode(
@@ -435,30 +771,68 @@ export function useFormEditor({
       slot: CharacterSlot;
       layer: number;
       position: CharacterPosition | null;
+      scalePercent: number;
     },
-  ) {
+  ): Promise<boolean> {
+    if (!scene) {
+      return false;
+    }
+    const draft = imageScaleDraftRef.current;
+    const draftBelongsToNode = Boolean(
+      project && scene &&
+        draft?.projectId === project.id &&
+        draft.sceneId === scene.id &&
+        draft.nodeId === node.id,
+    );
+    const draftValue = draftBelongsToNode && draft
+      ? draft.value
+      : String(next.scalePercent);
+    const draftScalePercent = parseImageScaleDraft(draftValue);
+    if (draftBelongsToNode && draftScalePercent === null) {
+      return false;
+    }
+    const scalePercent = next.mode === 'clear'
+      ? DEFAULT_IMAGE_SCALE_PERCENT
+      : (draftScalePercent ?? next.scalePercent);
     if (
-      !scene ||
-      ((next.mode === undefined || node.mode === next.mode) &&
+      (next.mode === undefined || node.mode === next.mode) &&
         node.assetId === next.assetId &&
         node.slot === next.slot &&
         node.layer === next.layer &&
+        node.scalePercent === scalePercent &&
         ((node.position === null && next.position === null) ||
           (node.position !== null &&
             next.position !== null &&
             node.position.x === next.position.x &&
-            node.position.y === next.position.y)))
+            node.position.y === next.position.y))
     ) {
-      return;
+      if (project && draftBelongsToNode) {
+        clearCommittedImageScaleDraft(
+          { projectId: project.id, sceneId: scene.id, nodeId: node.id },
+          draftValue,
+        );
+      }
+      return true;
     }
 
-    await runEngineAction(() =>
+    const result = await runEngineAction(() =>
       authoringCommands.updateCharacter({
         sceneId: scene.id,
         nodeId: node.id,
         ...next,
+        scalePercent,
       }),
     );
+    if (result === null) {
+      return false;
+    }
+    if (project && draftBelongsToNode) {
+      clearCommittedImageScaleDraft(
+        { projectId: project.id, sceneId: scene.id, nodeId: node.id },
+        draftValue,
+      );
+    }
+    return true;
   }
 
   async function updateSceneJumpNode(
@@ -524,16 +898,12 @@ export function useFormEditor({
       return;
     }
 
-    // 这是为了即时提示；C++ 也会执行同样的最终校验。
-    if (!text.trim()) {
-      setEngineMessage(labels.messages.emptyDialogue);
-      return;
-    }
-
+    // 普通保存、切换和预览不应凭空新建节点；但用户明确
+    // 点击“加入剧情”时，全空的说话人和对白也是一条合法剧情节点。
     // 点击提交和 Cmd/Ctrl+S 保存前提交共用同一个
     // single-flight Promise。否则“加入剧情”尚未返回时立刻保存，
     // 两条路径可能各自向 C++ 新增一次相同对白。
-    await commitPendingDraft();
+    await commitPendingDraft(!selectedDialogue && !dialogueDraftDirty);
   }
 
   async function deleteNode(nodeId: string) {
@@ -622,7 +992,9 @@ export function useFormEditor({
       return;
     }
 
-    const wasCreatingDialogue = selectedNodeId === null && draftDirty;
+    const wasCreatingDialogue =
+      selectedNodeId === null &&
+      (dialogueDraftDirty || commitInProgressRef.current !== null);
     if (!(await commitPendingDraft())) {
       return;
     }
@@ -634,27 +1006,28 @@ export function useFormEditor({
       return;
     }
 
-    const currentIndex = storyNodes.findIndex((node) => node.id === nodeId);
-    if (currentIndex < 0) {
+    const movePlan = getFormNodeMovePlan(scene, nodeId, direction);
+    if (!movePlan) {
+      return;
+    }
+    // Logic controls keep their existing Form limitation. Their plans are
+    // still structure-aware so nested CG boundaries remain analyzable, but
+    // only the Blockly surface currently exposes logic-control reordering.
+    if (movePlan.kind === 'logicControl') {
       return;
     }
 
-    const beforeNodeId =
-      direction === -1
-        ? storyNodes[currentIndex - 1]?.id
-        : (storyNodes[currentIndex + 2]?.id ?? null);
-
-    if (direction === -1 && !beforeNodeId) {
-      return;
-    }
-
-    await runEngineAction(() =>
-      authoringCommands.reorderTimelineNode({
-        sceneId: scene.id,
-        nodeId,
-        beforeNodeId,
-      }),
-    );
+    const params = {
+      sceneId: scene.id,
+      nodeId,
+      beforeNodeId: movePlan.beforeNodeId,
+    };
+    await runEngineAction(() => {
+      if (movePlan.kind === 'cgDisplay') {
+        return authoringCommands.reorderCgDisplay(params);
+      }
+      return authoringCommands.reorderTimelineNode(params);
+    });
   }
 
   return {
@@ -669,6 +1042,10 @@ export function useFormEditor({
     selectedVideo,
     selectedChoice,
     selectedNodeId,
+    selectedImageScaleDraft,
+    selectedImageScaleDraftInvalid:
+      selectedScalableImageNode !== undefined &&
+      selectedImageScalePercent === null,
     speaker,
     text,
     previewSpeaker: speaker.trim(),
@@ -676,9 +1053,18 @@ export function useFormEditor({
     isBusy,
     engineMessage,
     draftDirty,
+    editingSceneId,
+    sceneNameDraft,
+    sceneRenameError,
+    isRenamingScene,
     setSpeaker,
     setText,
+    setSelectedImageScaleDraft,
     addScene,
+    beginSceneRename,
+    setSceneNameDraft,
+    cancelSceneRename,
+    commitSceneRename,
     selectScene,
     insertEmptyDialogue,
     insertBackground,
@@ -696,6 +1082,7 @@ export function useFormEditor({
     deleteNode,
     moveNode,
     resetEditorState,
+    commitSelectedImageScaleDraft,
     commitPendingDraft,
   };
 }

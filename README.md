@@ -13,7 +13,8 @@ Web Player 因此共享同一套剧情语义。
 - **可视化创作**：表单编辑与 Blockly 图形化编辑可随时切换；积木按剧情、逻辑、变量、
   音乐、图片和特效分类。
 - **剧情与逻辑**：对白、选择分支、场景跳转、变量、If/Else，以及固定次数 Repeat。
-- **画面与媒体**：背景、人物立绘、语音、BGM、视频、九槽 CG 画廊和剧情内 CG 展示。
+- **画面与媒体**：背景、人物立绘、语音、BGM、视频、九槽 CG 画廊和剧情内 CG 展示；
+  场景初始背景、时间线背景与人物立绘可按 10%–300% 的整数比例缩放。
 - **人物演出**：震动、跳跃、淡入、淡出、滑入、呼吸和闪烁等立绘特效。
 - **标题页定制**：可编辑标题上方文字、游戏名称、背景和音乐；Editor 中可静态或完整预览。
 - **Player 功能**：手动存读档、快速存读档、快进、CG 画廊、音量与显示设置，以及中英文界面。
@@ -27,10 +28,10 @@ Web Player 因此共享同一套剧情语义。
       ▼
 Editor Renderer ──IPC──> Electron Main ──JSONL──> C++ Core
                                                    │
-                                            Author Project v20
+                                            Author Project v21
                                                    │ compile
                                                    ▼
-                                           Runtime Bundle v10
+                                           Runtime Bundle v12
                                                    │
                          ┌─────────────────────────┴─────────────────────────┐
                          ▼                                                   ▼
@@ -101,13 +102,20 @@ pnpm --dir apps/player start
 
 | 数据 | 当前写出 | 当前读取 |
 | --- | --- | --- |
-| Author Project | v20 | v1–v20 |
-| Runtime Bundle | v10 | v1–v10 |
-| Game Runtime Snapshot | v4 | v1–v4 |
+| Author Project | v21 | v1–v21 |
+| Runtime Bundle | v12 | v1–v12 |
+| Game Runtime Snapshot | v5 | v1–v5 |
 
 旧版本会在严格校验后迁移；不支持的未来版本、额外字段、失效资源引用或损坏快照会被拒绝，
 而不是静默降级。调整这些契约时，需要同步修改 C++ Reader/Writer、Editor Compiler、Player
 Schema、共享 Runtime 和兼容性测试。
+
+图片缩放字段在 Author v21 / Runtime v11 / Snapshot v5 引入。Author v1–v20、Runtime
+v1–v10 和 Snapshot v1–v4 迁移时统一采用 100%；无背景或清除立绘也必须规范化为 100%。
+标题页背景和 CG 不属于本轮缩放契约。当前 Runtime v12 在 `game.defaultLanguage`
+中固化导出时 Main 权威 Editor 语言；旧 Runtime v1–v11 迁移为 `zh-CN`。
+桌面和 Web Player 只在首次使用或没有持久语言时采用该包默认，玩家已保存的语言优先；
+这只影响 Player 外壳，不翻译作者标题、对白、说话人或 Choice。
 
 ## 开发验证
 

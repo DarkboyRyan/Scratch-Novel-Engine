@@ -36,6 +36,7 @@ function sceneWithEffects(): SceneDocument {
     id: 'scene-1',
     name: 'Scene',
     backgroundAssetId: null,
+    backgroundScalePercent: 100,
     nodes: [
       {
         id: 'portrait-a',
@@ -46,6 +47,7 @@ function sceneWithEffects(): SceneDocument {
         layer: 1,
         position: null,
         effect: shake,
+        scalePercent: 100,
       },
       {
         id: 'portrait-b',
@@ -56,6 +58,7 @@ function sceneWithEffects(): SceneDocument {
         layer: 2,
         position: null,
         effect: null,
+        scalePercent: 100,
       },
       {
         id: 'clear',
@@ -66,6 +69,7 @@ function sceneWithEffects(): SceneDocument {
         layer: 3,
         position: null,
         effect: null,
+        scalePercent: 100,
       },
     ],
   };

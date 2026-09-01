@@ -464,6 +464,7 @@ describe('createAuthoringActions', () => {
       slot: 'center' as const,
       layer: 1,
       position: null,
+      scalePercent: 100,
     };
     await expect(actions.updateCharacter(update))
       .rejects.toThrow('[character-mode-module]');

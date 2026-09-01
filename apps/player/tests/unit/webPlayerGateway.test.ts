@@ -28,6 +28,17 @@ class MemoryDocuments implements WebDocumentStore {
     await Promise.resolve();
     this.values.set(key, structuredClone(value));
   }
+
+  async putMany(records: readonly { key: string; value: unknown }[]): Promise<void> {
+    await Promise.resolve();
+    const copies = records.map(({ key, value }) => ({
+      key,
+      value: structuredClone(value),
+    }));
+    for (const { key, value } of copies) {
+      this.values.set(key, value);
+    }
+  }
 }
 
 class FakeFullscreenDocument extends EventTarget {
@@ -62,12 +73,14 @@ const project: ProjectDocument = {
     id: 'scene',
     name: 'Scene',
     backgroundAssetId: null,
+    backgroundScalePercent: 100,
     nodes: [],
   }],
 };
 
 const bundle: LoadedWebBundle = {
   game: {
+    defaultLanguage: 'zh-CN',
     project,
     assets: [{ id: 'background', type: 'image', displayName: 'Background' }],
   },
@@ -81,6 +94,17 @@ const bundle: LoadedWebBundle = {
     ['background', 'https://example.test/game/build-1/assets/images/bg.png'],
   ]),
 };
+
+function bundleWithLanguage(
+  defaultLanguage: LoadedWebBundle['game']['defaultLanguage'],
+  fingerprint = bundle.identity.contentFingerprint,
+): LoadedWebBundle {
+  return {
+    ...bundle,
+    game: { ...bundle.game, defaultLanguage },
+    identity: { ...bundle.identity, contentFingerprint: fingerprint },
+  };
+}
 
 describe('Web Player gateway', () => {
   it('loads one embedded game, resolves only declared media, and reloads on quit', async () => {
@@ -167,12 +191,173 @@ describe('Web Player gateway', () => {
     ]);
     await expect(gateway.getSettings()).resolves.toMatchObject({
       status: 'ready',
+      languageSource: 'stored',
       settings: {
         masterVolume: 0.3,
         bgmVolume: 0.4,
         language: 'en-US',
       },
     });
+  });
+
+  it('uses a new embedded bundle default instead of an old unscoped language', async () => {
+    const documents = new MemoryDocuments();
+    documents.values.set('settings-v2', {
+      format: 'vn-engine-player-settings',
+      settingsVersion: 2,
+      settings: {
+        language: 'zh-CN',
+        masterVolume: 0.4,
+        bgmVolume: 0.5,
+        voiceVolume: 0.6,
+        videoVolume: 0.7,
+        windowMode: 'windowed',
+        windowSizePreset: 'large',
+      },
+    });
+    const loadBundle = vi.fn(async () => bundleWithLanguage('en-US'));
+    const gateway = new WebPlayerGateway({
+      loadBundle,
+      storage: new WebPlayerStorage(documents),
+      fullscreenDocument: null,
+    });
+
+    await expect(gateway.getSettings()).resolves.toMatchObject({
+      status: 'ready',
+      languageSource: 'default',
+      settings: {
+        language: 'en-US',
+        masterVolume: 0.4,
+        windowSizePreset: 'large',
+      },
+    });
+    expect(loadBundle).toHaveBeenCalledOnce();
+  });
+
+  it('keeps an explicit bundle-scoped language after a gateway refresh', async () => {
+    const documents = new MemoryDocuments();
+    const englishBundle = bundleWithLanguage('en-US');
+    const first = new WebPlayerGateway({
+      loadBundle: async () => englishBundle,
+      storage: new WebPlayerStorage(documents),
+      fullscreenDocument: null,
+    });
+
+    await expect(first.getSettings()).resolves.toMatchObject({
+      status: 'ready',
+      languageSource: 'default',
+      settings: { language: 'en-US' },
+    });
+    await expect(first.updateSettings({ language: 'zh-CN' })).resolves
+      .toMatchObject({
+        status: 'updated',
+        settings: { language: 'zh-CN' },
+      });
+
+    const refreshed = new WebPlayerGateway({
+      loadBundle: async () => englishBundle,
+      storage: new WebPlayerStorage(documents),
+      fullscreenDocument: null,
+    });
+    await expect(refreshed.getSettings()).resolves.toMatchObject({
+      status: 'ready',
+      languageSource: 'stored',
+      settings: { language: 'zh-CN' },
+    });
+  });
+
+  it('carries volume but not an implicit language into another bundle default', async () => {
+    const documents = new MemoryDocuments();
+    const first = new WebPlayerGateway({
+      loadBundle: async () => bundleWithLanguage('zh-CN'),
+      storage: new WebPlayerStorage(documents),
+      fullscreenDocument: null,
+    });
+
+    await first.getSettings();
+    await expect(first.updateSettings({ masterVolume: 0.3 })).resolves
+      .toMatchObject({
+        status: 'updated',
+        settings: { language: 'zh-CN', masterVolume: 0.3 },
+      });
+
+    const next = new WebPlayerGateway({
+      loadBundle: async () => bundleWithLanguage('en-US', 'b'.repeat(64)),
+      storage: new WebPlayerStorage(documents),
+      fullscreenDocument: null,
+    });
+    await expect(next.getSettings()).resolves.toMatchObject({
+      status: 'ready',
+      languageSource: 'default',
+      settings: { language: 'en-US', masterVolume: 0.3 },
+    });
+  });
+
+  it('does not turn a native fullscreen default into a stored language preference', async () => {
+    const documents = new MemoryDocuments();
+    const storage = new WebPlayerStorage(documents);
+    const fullscreen = new FakeFullscreenDocument();
+    fullscreen.fullscreenElement = fullscreen.documentElement;
+    const gateway = new WebPlayerGateway({
+      loadBundle: async () => bundle,
+      storage,
+      fullscreenDocument: fullscreen as unknown as Document,
+    });
+
+    await expect(gateway.getSettings()).resolves.toMatchObject({
+      status: 'ready',
+      languageSource: 'default',
+      settings: { language: 'zh-CN', windowMode: 'fullscreen' },
+    });
+    expect(documents.values.has('settings-v2')).toBe(false);
+
+    await expect(gateway.updateSettings({
+      language: 'en-US',
+      masterVolume: 0.5,
+    })).resolves.toMatchObject({
+      status: 'updated',
+      settings: {
+        language: 'en-US',
+        masterVolume: 0.5,
+        windowMode: 'fullscreen',
+      },
+    });
+    await expect(storage.readSettings({
+      game: bundle.game,
+      identity: bundle.identity,
+    })).resolves.toMatchObject({
+      status: 'ready',
+      languageSource: 'stored',
+      settings: { language: 'en-US' },
+    });
+    gateway.dispose();
+  });
+
+  it('does not persist a language override for a native fullscreen event', async () => {
+    const documents = new MemoryDocuments();
+    const fullscreen = new FakeFullscreenDocument();
+    const gateway = new WebPlayerGateway({
+      loadBundle: async () => bundleWithLanguage('en-US'),
+      storage: new WebPlayerStorage(documents),
+      fullscreenDocument: fullscreen as unknown as Document,
+    });
+
+    await expect(gateway.getSettings()).resolves.toMatchObject({
+      status: 'ready',
+      languageSource: 'default',
+      settings: { language: 'en-US', windowMode: 'windowed' },
+    });
+    fullscreen.fullscreenElement = fullscreen.documentElement;
+    fullscreen.dispatchEvent(new Event('fullscreenchange'));
+    await expect(gateway.getSettings()).resolves.toMatchObject({
+      status: 'ready',
+      languageSource: 'default',
+      settings: { language: 'en-US', windowMode: 'fullscreen' },
+    });
+    expect(documents.values.has('settings-v2')).toBe(false);
+    expect([...documents.values.keys()].some((key) =>
+      key.startsWith('language-v1\0'))).toBe(false);
+    gateway.dispose();
   });
 
   it('uses Fullscreen API while leaving browser window sizing disabled', async () => {
@@ -209,9 +394,13 @@ describe('Web Player gateway', () => {
         status: 'rejected',
         error: 'fullscreen-denied',
       });
-    await expect(storage.readSettings()).resolves.toEqual({
+    await expect(storage.readSettings({
+      game: bundle.game,
+      identity: bundle.identity,
+    })).resolves.toEqual({
       status: 'ready',
       settings: DEFAULT_PLAYER_SETTINGS,
+      languageSource: 'default',
     });
     gateway.dispose();
   });

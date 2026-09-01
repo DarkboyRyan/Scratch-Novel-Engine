@@ -10,8 +10,10 @@
 
 Runtime 位于“内容校验”和“画面渲染”之间。上游 Loader/Compiler 负责把 Author 或 Bundle
 格式规范化为当前 `ProjectDocument`，Runtime 负责状态转换，下游 UI 根据状态播放媒体并
-把用户事件送回来。当前导出格式为 Runtime v10；进度快照写出 Snapshot v4，并可受限恢复
-旧 v1–v3 快照。
+把用户事件送回来。当前导出格式为 Runtime v12；Runtime v11 是剧情图片缩放的历史
+里程碑，v12 的 `game.defaultLanguage` 则由 Player 外壳在创建 Runtime 前消费。进度快照
+写出 Snapshot v5，并可受限恢复
+旧 v1–v4 快照。
 
 ## 核心工作流
 
@@ -19,20 +21,22 @@ Runtime 位于“内容校验”和“画面渲染”之间。上游 Loader/Comp
 2. 使用 `advanceGame(project, state)` 推进自动节点，直到遇到对白、选择、视频、CG 等待、
    完成或可本地化的运行错误。
 3. 选择分支调用 `selectChoice`；CG 图片就绪并完成 lead-in 后调用 `completeCgLeadIn`。
-4. 保存时用 `createGameRuntimeSnapshot` 生成 Snapshot v4；读取时先严格校验，再调用
+4. 保存时用 `createGameRuntimeSnapshot` 生成 Snapshot v5；读取时先严格校验，再调用
    `restoreGameRuntimeSnapshot` 恢复到当前项目。
 
 If/Else、Repeat 与 CG 范围在执行前编译为配对控制流。逻辑值只允许布尔、有限数字和
 受限字符串，不执行任意代码；嵌套深度、重复次数、自动步数和变量总量都设有预算。CG
 范围内只能包含对白，lead-in 最大为 60 秒。人物特效作为一次性事件输出，快照只保存最终
-透明度与单调序号，避免读档后重播瞬时动画。
+透明度与单调序号，避免读档后重播瞬时动画。场景初始背景、时间线背景与人物立绘使用
+10%–300% 的整数缩放；无背景与清除立绘必须为 100%，标题页背景和 CG 不属于该契约。
+Snapshot v5 保存实际缩放，旧快照恢复时采用 100% 默认值。
 
 ## 目录索引
 
 | 目录 | 框架 / 技术 | 主要作用 |
 | --- | --- | --- |
 | [`src/`](./src/README.md) | TypeScript | 项目类型、剧情状态机、逻辑校验、人物特效和快照。 |
-| [`tests/`](./tests/README.md) | Vitest | 执行合同、预算边界和 Snapshot v1–v4 兼容测试。 |
+| [`tests/`](./tests/README.md) | Vitest | 执行合同、预算边界和 Snapshot v1–v5 兼容测试。 |
 
 | 文件 | 主要作用 |
 | --- | --- |

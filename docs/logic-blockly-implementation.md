@@ -2,23 +2,32 @@
 
 # 逻辑 Blockly 实现
 
-> 实现状态：已完成。当前作者项目格式为 v20，导出为 runtime v10；桌面与 Web Player
-> 共用同一套严格逻辑模型、执行器和 `GameRuntimeSnapshot v4`。逻辑首次引入版本仍为
+> 实现状态：已完成。当前作者项目格式为 v21，导出为 runtime v12；桌面与 Web Player
+> 共用同一套严格逻辑模型、执行器和 `GameRuntimeSnapshot v5`。逻辑首次引入版本仍为
 > author v16 / runtime v7 / snapshot v2。
 
 ## 1. 功能范围
 
 剧情场景的 Toolbox 现在按“剧情 / 逻辑 / 变量 / 音乐 / 图片 / 特效”分类。首版逻辑功能包含：
 
-- “设置变量”：把布尔值、有限数字或字符串写入变量；
-- “增减变量”：给数值变量加上一个有限数字；
-- C 形“如果 / 则 / 否则”：比较变量或字面量并只执行一个分支；
+- “新建 / 设置变量”：自由输入名称，把布尔值、有限数字或字符串写入项目级变量；
+- “增减变量”：从项目内 Set 过的名称下拉选择，再给数值变量加上一个有限数字；
+- C 形“如果 / 则 / 否则”：比较变量或字面量并只执行一个分支；选择“现有变量”时，
+  两侧字段会列出项目级 Set 名称，并支持输入变量名开头快速筛选；
 - C 形“重复”：把内部剧情固定执行 1–1000 次；
 - 控制积木最多嵌套 16 层，可以在分支或循环体内继续放入普通剧情、变量和逻辑积木。
 
 本版没有任意脚本、`eval`、源码字符串、无限循环、`and/or/not`、表达式函数调用或
 条件选项副作用。这个范围让 C++ 作者模型、Editor、导出器和 Player 能对同一份数据做
 完整的结构校验。
+
+变量在运行时跨场景共享，分支中的 Set 也不保证执行，因此增减下拉不会伪造一条
+“控制流上已经执行”的声明链。候选按所有场景及节点的首次出现顺序收集 Set 名称并稳定
+去重；已有 Change 若引用旧名称，会保留该孤立值以兼容既有项目。项目尚未 Set 任何变量
+时，下拉只显示不可持久化的“请先新建变量”占位。If/Else 的变量选择器复用同一候选
+契约；输入的搜索文字只过滤菜单，不会创建变量或写入项目。变量没有静态类型，同名变量
+可以在不同路径被写为文本、数值或布尔，因此候选不会按 Set 的当前值类型过滤。文本、
+数值和布尔三种常量操作数仍使用普通输入框。
 
 ## 2. 作者数据模型
 
@@ -143,21 +152,24 @@ Player，所以三处的条件、循环和错误语义一致。
 
 ## 6. 保存、读取与版本兼容
 
-作者 Writer 当前固定写 `fileVersion: 20`。Reader 接受 v1–v20：v1–v15 按既有规则
+作者 Writer 当前固定写 `fileVersion: 21`。Reader 接受 v1–v21：v1–v15 按既有规则
 迁移为当前模型，但这些旧版本若伪造 v16 才有的逻辑节点会被拒绝；v16 首次保存变量、
 条件和 paired markers。v17 增加显示 CG 的配对节点；v18 增加人物 sidecar effect，v19
-增加人物 `show/clear` 意图；v20 新增标题页 eyebrow，这些升级均不改变既有逻辑 AST。
+增加人物 `show/clear` 意图；v20 新增标题页 eyebrow，v21 新增剧情背景/立绘缩放，这些
+升级均不改变既有逻辑 AST。
 
-Editor Main 直接严格读取 author v14–v20，并把已保存的当前 author v20 编译为 runtime
-v10。Player Reader 支持 runtime
-v1–v10；逻辑节点从 v7 起可用，显示 CG 节点从 v8 起可用，人物特效从 v9 起可用。
-当前 bundle manifest 声明 `playerCompatibility: ">=10 <11"`，桌面和 Web Player 模板声明
-`runtimeCompatibility: ">=1 <11"`，两者分别表示“本包需要哪个 Player”与“本模板能读取
+Editor Main 直接严格读取 author v14–v21，并把已保存的当前 author v21 编译为 runtime
+v12。Player Reader 支持 runtime
+v1–v12；逻辑节点从 v7 起可用，显示 CG 节点从 v8 起可用，人物特效从 v9 起可用，
+剧情图片缩放从 v11 起可用且 v1–v10 迁移为 100%。Runtime v12 还由 Main 写入导出时
+权威 Editor 语言作为 `game.defaultLanguage`；旧 v1–v11 迁移为 `zh-CN`。
+当前 bundle manifest 声明 `playerCompatibility: ">=12 <13"`，桌面和 Web Player 模板声明
+`runtimeCompatibility: ">=1 <13"`，两者分别表示“本包需要哪个 Player”与“本模板能读取
 哪些包”，不可互换。
 
-游戏进度当前使用 `GameRuntimeSnapshot v4`。v2 相较 v1 增加背景、立绘、变量表和活动
+游戏进度当前使用 `GameRuntimeSnapshot v5`。v2 相较 v1 增加背景、立绘、变量表和活动
 Repeat 栈；v3 再增加 CG 展示状态；v4 保存人物最终 opacity 与全局/分层特效序号，恢复时
-不重播瞬时 effect。恢复时会重新校验当前项目的控制结构、变量声明、
+不重播瞬时 effect；v5 保存剧情背景和人物缩放，v1–v4 恢复时补 100%。恢复时会重新校验当前项目的控制结构、变量声明、
 循环 owner 与剩余次数。snapshot v1 只为无逻辑的旧存档保留兼容；它没有变量和循环状态，因此当前 Scene 游标
 之前一旦包含逻辑节点就会被拒绝，其余旧进度仍按既有严格规则恢复。桌面存档和
 IndexedDB Web 存档都复用这套严格解析与恢复。
@@ -167,12 +179,12 @@ IndexedDB Web 存档都复用这套严格解析与恢复。
 | 层 | 技术与职责 |
 | --- | --- |
 | C++ Core | C++20、`std::variant`、候选副本事务；保存权威节点并校验 marker、嵌套、变量预算 |
-| C++ Backend | nlohmann/json、JSONL；author v20 strict Reader/Writer、exact params、业务错误码 |
+| C++ Backend | nlohmann/json、JSONL；author v21 strict Reader/Writer、exact params、业务错误码 |
 | Electron 边界 | typed shared protocol、Main IPC validator、contextBridge preload；逐层 exact-field 校验 |
 | Renderer | React 19、Blockly 13、TypeScript；分类 Toolbox、C 形投影、后端优先 actions、表单只读树 |
-| 导出 | Editor Main TypeScript strict compiler；author v20 → runtime v10，保留运行节点并剥离延伸 |
+| 导出 | Editor Main TypeScript strict compiler；author v21 → runtime v12，保留运行节点并剥离延伸 |
 | Runtime | 纯 TypeScript reducer、预编译控制流、变量表、显式 loop stack、10000 步预算 |
-| Player/存档 | Electron 与 Web 共用 runtime schema；`GameRuntimeSnapshot v4`、桌面原子文件与 IndexedDB |
+| Player/存档 | Electron 与 Web 共用 runtime schema；`GameRuntimeSnapshot v5`、桌面原子文件与 IndexedDB |
 
 主要实现位置：
 
@@ -195,8 +207,8 @@ IndexedDB Web 存档都复用这套严格解析与恢复。
 - 原子新增、更新、整棵删除与整体移动，以及通用 timeline 命令不能拆散控制结构；
 - NUL、UTF-8 多字节边界、NaN/Infinity、Repeat/嵌套/32 变量上限和 extra fields；
 - Blockly 投影、事件路由、分类 Toolbox、表单树和不确定静态预览；
-- Runtime 条件语义、循环、自动步骤预算、snapshot v4 round-trip 与旧 v1–v3 兼容；
-- author v20 → runtime v10 导出，以及桌面/Web Player v1–v10 Reader 和模板契约。
+- Runtime 条件语义、循环、自动步骤预算、snapshot v5 round-trip 与旧 v1–v4 兼容；
+- author v21 → runtime v12 导出，以及桌面/Web Player v1–v12 Reader 和模板契约。
 
 本次实现验收使用 CTest、Editor TypeScript typecheck/ESLint/Vitest、Runtime Vitest、
 Player Vitest 与 Player release-tools Node tests；逻辑链相关改动通过完整测试套件。

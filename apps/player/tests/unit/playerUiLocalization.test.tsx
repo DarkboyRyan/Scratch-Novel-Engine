@@ -94,6 +94,15 @@ describe('Player UI localization', () => {
     expect(
       getPlayerUiLabels('en-US').saves.dialogueSummary('作者', '原文'),
     ).toBe('作者: 原文');
+    expect(
+      getPlayerUiLabels('zh-CN').saves.dialogueSummary('', ''),
+    ).toBe('剧情进行中');
+    expect(
+      getPlayerUiLabels('en-US').saves.dialogueSummary('', ''),
+    ).toBe('Story in Progress');
+    expect(
+      getPlayerUiLabels('en-US').saves.dialogueSummary('Gregor', ''),
+    ).toBe('Gregor');
     expect(getPlayerUiLabels('en-US').saves.playingVideoSummary).toBe(
       'Playing a Cutscene',
     );
@@ -353,6 +362,8 @@ describe('Player UI localization', () => {
       </PlayerUiProvider>,
     ));
     expect(container.textContent).toContain('Preview');
+    expect(container.querySelector('.dialogue-box')).not.toBeNull();
+    expect(container.querySelector('.dialogue-box strong')).toBeNull();
   });
 
   it('retranslates an existing asynchronous video error without remounting', async () => {

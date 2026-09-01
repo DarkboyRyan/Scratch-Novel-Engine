@@ -38,6 +38,7 @@ const initialResult: EngineMutationResult = {
         id: 'scene-1',
         name: 'Scene 1',
         backgroundAssetId: null,
+        backgroundScalePercent: 100,
         nodes: [],
       },
     ],
@@ -115,6 +116,7 @@ const backgroundResult: EngineMutationResult = {
             id: 'background-1',
             type: 'background',
             assetId: 'asset-1',
+            scalePercent: 100,
           },
         ],
       },
@@ -265,6 +267,7 @@ describe('useEngineProject asset state', () => {
 
     platform = {
       engine: {
+        imageScaleContractVersion: 1,
         ensureProject: vi.fn().mockResolvedValue(initialResult),
         updateStartScreen,
         updateCgGallery,
@@ -427,6 +430,7 @@ describe('useEngineProject asset state', () => {
       layer: 1,
       position: null,
       effect: null,
+      scalePercent: 100,
     }]);
     let snapshot: Awaited<ReturnType<EngineProjectState['getProjectSnapshot']>>;
     await act(async () => {
@@ -435,6 +439,71 @@ describe('useEngineProject asset state', () => {
     expect(snapshot!.scenes[0]!.nodes[0]).toMatchObject({
       mode: 'show',
       effect: null,
+      scalePercent: 100,
+    });
+  });
+
+  it('normalizes stale or non-canonical live image scales', async () => {
+    const legacyProject = structuredClone(initialResult.project) as unknown as {
+      scenes: Array<{
+        backgroundScalePercent: number;
+        nodes: unknown[];
+      }>;
+    };
+    legacyProject.scenes[0]!.backgroundScalePercent = 200;
+    legacyProject.scenes[0]!.nodes = [
+      {
+        id: 'legacy-background',
+        type: 'background',
+        assetId: null,
+        scalePercent: 200,
+      },
+      {
+        id: 'legacy-clear',
+        type: 'character',
+        mode: 'clear',
+        assetId: null,
+        slot: 'center',
+        layer: 1,
+        position: null,
+        effect: null,
+        scalePercent: 200,
+      },
+      {
+        id: 'legacy-show',
+        type: 'character',
+        mode: 'show',
+        assetId: 'asset-1',
+        slot: 'center',
+        layer: 1,
+        position: null,
+        effect: null,
+        scalePercent: 999,
+      },
+    ];
+    const legacyResult = {
+      ...initialResult,
+      project: legacyProject,
+    } as unknown as EngineMutationResult;
+    platform = {
+      ...platform,
+      engine: {
+        ...platform.engine,
+        ensureProject: vi.fn().mockResolvedValue(legacyResult),
+      },
+    };
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    expect(current?.project?.scenes[0]).toMatchObject({
+      backgroundScalePercent: 100,
+      nodes: [
+        { id: 'legacy-background', scalePercent: 100 },
+        { id: 'legacy-clear', scalePercent: 100 },
+        { id: 'legacy-show', scalePercent: 100 },
+      ],
     });
   });
 
@@ -855,6 +924,7 @@ describe('useEngineProject asset state', () => {
           sceneId: 'scene-1',
           nodeId: 'background-1',
           assetId: 'asset-2',
+          scalePercent: 80,
         }),
       ).toBe(true);
       expect(
@@ -880,6 +950,7 @@ describe('useEngineProject asset state', () => {
       sceneId: 'scene-1',
       nodeId: 'background-1',
       assetId: 'asset-2',
+      scalePercent: 80,
     });
     expect(reorderBackground).toHaveBeenCalledWith({
       sceneId: 'scene-1',
@@ -894,8 +965,60 @@ describe('useEngineProject asset state', () => {
       id: 'background-1',
       type: 'background',
       assetId: 'asset-1',
+      scalePercent: 100,
     });
     expect(current?.session).toMatchObject(backgroundResult.session);
+  });
+
+  it('refuses scale writes from a stale live preload', async () => {
+    const setSceneBackground = vi.fn().mockResolvedValue(backgroundResult);
+    const staleUpdateBackground = vi.fn().mockResolvedValue(backgroundResult);
+    const staleUpdateCharacter = vi.fn().mockResolvedValue(backgroundResult);
+    platform = {
+      ...platform,
+      engine: {
+        ...platform.engine,
+        imageScaleContractVersion: undefined,
+        setSceneBackground,
+        updateBackground: staleUpdateBackground,
+        updateCharacter: staleUpdateCharacter,
+      },
+    };
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(
+        await current!.setSceneBackground('scene-1', 'asset-1', 80),
+      ).toBe(false);
+      expect(
+        await current!.updateBackground({
+          sceneId: 'scene-1',
+          nodeId: 'background-1',
+          assetId: 'asset-1',
+          scalePercent: 80,
+        }),
+      ).toBe(false);
+      expect(
+        await current!.updateCharacter({
+          sceneId: 'scene-1',
+          nodeId: 'character-1',
+          mode: 'show',
+          assetId: 'asset-1',
+          slot: 'center',
+          layer: 1,
+          position: null,
+          scalePercent: 125,
+        }),
+      ).toBe(false);
+    });
+
+    expect(setSceneBackground).not.toHaveBeenCalled();
+    expect(staleUpdateBackground).not.toHaveBeenCalled();
+    expect(staleUpdateCharacter).not.toHaveBeenCalled();
+    expect(current?.engineMessage).toContain('完全退出并重新启动 Editor');
   });
 
   it('queues video-node actions through the typed engine API', async () => {

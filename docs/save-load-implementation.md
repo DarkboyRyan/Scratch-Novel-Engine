@@ -48,10 +48,10 @@ Editor 的主界面整体预览继续复用同一个 `TitleScreen`，并显示�
 
 玩家存档仍与作者项目和导出内容分离；当前版本边界是：
 
-- `project.vn.json` 是 author v20；
-- `game.json` 是 runtime v10，Player Reader 兼容 runtime v1–v10；
+- `project.vn.json` 是 author v21；
+- `game.json` 是 runtime v12，Player Reader 兼容 runtime v1–v12；
 - 存档在 Player 用户数据目录中使用独立的 `saveVersion: 1`；
-- 新写入的进度是 `GameRuntimeSnapshot v4`；v1–v3 仅按各自旧能力受限兼容；
+- 新写入的进度是 `GameRuntimeSnapshot v5`；v1–v4 仅按各自旧能力受限兼容；
 - C++ 作者后端不参与存档，避免把玩家进度写回作者项目；
 - `.vngame` 和独立应用的 Resources 仍然只读。
 
@@ -76,15 +76,16 @@ Editor 的主界面整体预览继续复用同一个 `TitleScreen`，并显示�
 后，这些内容可能与当前 `game.json` 不一致；Renderer 进程也不应被信任为文件存储的
 权威来源。
 
-因此 `@vnengine/runtime` 当前定义独立的 `GameRuntimeSnapshot v4`：
+因此 `@vnengine/runtime` 当前定义独立的 `GameRuntimeSnapshot v5`：
 
 ```json
 {
-  "snapshotVersion": 4,
+  "snapshotVersion": 5,
   "status": "playing",
   "sceneId": "scene-1",
   "nextNodeIndex": 4,
   "backgroundAssetId": "room",
+  "backgroundScalePercent": 125,
   "bgmAssetId": "theme",
   "bgmSequence": 1,
   "dialogueSequence": 3,
@@ -107,9 +108,10 @@ Editor 的主界面整体预览继续复用同一个 `TitleScreen`，并显示�
 }
 ```
 
-v4 继续保存 snapshot v3 已有的背景、立绘、活动 CG、规范排序变量表和活动 Repeat，另外
-保存全局单调 `characterEffectSequence`，以及每个活动人物的最终 `opacity` 和分层
-`effectSequence`；它不保存瞬时 effect，也仍不复制对白文本、Choice 文案或视频 Asset。
+v4 是人物特效存档的历史里程碑：它在 snapshot v3 已有的背景、立绘、活动 CG、规范排序
+变量表和活动 Repeat 之外，保存全局单调 `characterEffectSequence`，以及每个活动人物的
+最终 `opacity` 和分层 `effectSequence`。当前 v5 延续这些字段，并保存背景和每个活动
+人物层的 `scalePercent`；它不保存瞬时 effect，也仍不复制对白文本、Choice 文案或视频 Asset。
 读取时 Runtime 会用
 当前已验证的 `ProjectDocument` 和预编译控制流核对快照，再从阻塞节点重新构建：
 
@@ -120,16 +122,16 @@ v4 继续保存 snapshot v3 已有的背景、立绘、活动 CG、规范排序�
 - `finished` 的游标必须精确位于 Scene 末尾；
 - 变量必须在当前项目逻辑节点中声明，名称/值和总预算必须合法；
 - Repeat 栈必须与当前游标所在的嵌套控制结构、root ID、次数上限完全一致；
-- 背景和立绘必须能由当前场景节点证明；
+- 背景、立绘及其 10–300 整数缩放必须能由当前场景节点证明；无背景状态必须为 100%；
 - 全局人物特效序号不得小于任一活动人物的分层序号；恢复后瞬时 effect 固定为 `null`，
-  避免读档重播，旧 v1–v3 以活动人物最大序号迁移全局计数；
+  避免读档重播，旧 v1–v3 以活动人物最大序号迁移全局计数；v1–v4 缩放统一迁移为 100%；
 - 缺失 Scene、越界游标、错误状态、未知字段和不可能状态都会被拒绝。
 
-Reader 仍解析 legacy `snapshotVersion: 1/2`。v1 没有变量或循环栈，只能恢复无逻辑的
+Reader 仍解析 legacy `snapshotVersion: 1/2/3/4`。v1 没有变量或循环栈，只能恢复无逻辑的
 旧进度；若当前 Scene 的游标前缀包含变量、If/Else、Repeat 或 SceneJump，就会
 fail closed，不会猜测缺失状态。先前场景如何进入当前 Scene 不由 v1 快照记录，也不会
 被这里误判。v2 能恢复逻辑状态，但没有 CG 字段，因此不能用于含显示 CG 节点的 v8
-项目。所有新保存固定写 v3。
+项目。v3 首次保存 CG，v4 首次保存人物特效最终状态；所有新保存固定写 v5。
 
 保存前 Renderer 用当前 Project 和 Runtime 生成规范快照；Electron Main 再次严格解析快照，
 并用当前 Main-owned 游戏会话恢复 Runtime。只有恢复结果可再次生成完全相同的规范快照时，
@@ -227,17 +229,18 @@ flowchart LR
   "saveVersion": 1,
   "game": {
     "projectId": "example-project",
-    "runtimeVersion": 10,
+    "runtimeVersion": 12,
     "contentFingerprint": "64位小写SHA-256"
   },
   "slotId": 1,
   "savedAt": "2026-08-24T06:00:00.000Z",
   "snapshot": {
-    "snapshotVersion": 4,
+    "snapshotVersion": 5,
     "status": "playing",
     "sceneId": "scene-1",
     "nextNodeIndex": 4,
     "backgroundAssetId": "room",
+    "backgroundScalePercent": 125,
     "bgmAssetId": "theme",
     "bgmSequence": 1,
     "dialogueSequence": 3,
@@ -256,7 +259,7 @@ flowchart LR
 ```
 
 Reader 对顶层、`game` 和 `snapshot` 都执行 exact-fields 校验；未来新增字段必须提升
-`saveVersion` 或 `snapshotVersion`，不能静默改变既有 v1/v2/v3/v4 语义。
+`saveVersion` 或 `snapshotVersion`，不能静默改变既有 v1/v2/v3/v4/v5 语义。
 
 ## 6. 技术栈
 
@@ -264,7 +267,7 @@ Reader 对顶层、`game` 和 `snapshot` 都执行 exact-fields 校验；未来�
 | --- | --- | --- |
 | UI | React 19、TypeScript 5.9 | 标题页入口、游戏底栏、槽位窗口、覆盖确认、busy/toast 状态 |
 | 共享组件 | `@vnengine/player-ui` | `TitleScreen`、`GameActionBar`、`SaveSlotDialog`，供 Player 使用并保持 Editor 预览无磁盘能力 |
-| 运行时 | `@vnengine/runtime` | 纯函数创建/严格恢复 `GameRuntimeSnapshot v4`，保存变量/循环栈/CG/人物最终视觉状态，并受限兼容旧 v1–v3 |
+| 运行时 | `@vnengine/runtime` | 纯函数创建/严格恢复 `GameRuntimeSnapshot v5`，保存变量/循环栈/CG/人物最终视觉状态与缩放，并受限兼容旧 v1–v4 |
 | 桌面边界 | Electron 43 Main / Preload / sandboxed Renderer | `contextBridge` 窄端口、可信 frame 校验、Main-owned 游戏身份 |
 | 本地存储 | Node.js `fs/promises`、`crypto`、`app.getPath('userData')` | SHA-256 命名、随机临时文件、fsync、rename、备份恢复和安全读取 |
 | 构建 | Vite 5、Electron Forge 7 | 打包 Main、Preload、Renderer；存档始终位于外部用户目录，不写 asar/Resources |
@@ -278,9 +281,10 @@ C++20 Backend 仍负责作者项目，而不参与 Player 存档。这一边界�
 
 自动测试覆盖以下关键路径：
 
-- Dialogue、Choice、Video、CG lead-in 和 finished 的 v4 快照创建/恢复，以及旧 v1–v3 兼容；
+- Dialogue、Choice、Video、CG lead-in 和 finished 的 v5 快照创建/恢复，以及旧 v1–v4 兼容；
 - 人物最终 opacity、全局/分层特效序号、恢复不重播与 clear→loop 后序号继续单调；
-- 从当前 Project 核对背景、BGM、立绘、自定义坐标、变量、Repeat 栈，并重建对白、选项和视频；
+- 从当前 Project 核对背景、背景/立绘缩放、BGM、立绘、自定义坐标、变量、Repeat 栈，
+  并重建对白、选项和视频；
 - 未声明变量、伪造循环 owner/剩余次数、逻辑路径上的 v1 快照和变量预算超限拒绝；
 - 错误 cursor、未知字段、伪造派生状态和 runtimeError 拒绝；
 - 3 个手动槽与 quick 槽保存/读取、覆盖和按游戏隔离；

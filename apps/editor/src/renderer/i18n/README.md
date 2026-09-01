@@ -10,6 +10,10 @@
 2. `EditorI18nProvider` 规范化语言，选择完整的 `EDITOR_LABELS` 字典并通过 React Context 提供给组件。
 3. 组件使用标签键渲染界面；设置切换后整棵 Renderer 树自动采用新字典。
 
+该设置同时决定新导出 Runtime v12 的 `game.defaultLanguage`，但导出时由 Main
+重新读取权威值，而不信任 Renderer 状态。项目名、标题、场景名、对白、说话人和 Choice
+仍原样导出。
+
 ## 文件
 
 | 文件 | 框架技术 | 主要作用 | 关键函数与实现 |

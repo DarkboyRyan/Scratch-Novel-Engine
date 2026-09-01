@@ -4,6 +4,7 @@
  */
 
 import type { FormEvent } from 'react';
+import { DEFAULT_CHARACTER_SLOT_POSITIONS } from '@vnengine/player-ui';
 
 import type {
   AssetDocument,
@@ -12,6 +13,11 @@ import type {
   CharacterPosition,
   SemanticSceneNode,
   SceneDocument,
+} from '../../../shared/projectTypes';
+import {
+  DEFAULT_IMAGE_SCALE_PERCENT,
+  MAX_IMAGE_SCALE_PERCENT,
+  MIN_IMAGE_SCALE_PERCENT,
 } from '../../../shared/projectTypes';
 import { useEditorLabels } from '../../i18n/editorLocalization';
 import { formatCharacterEffect } from '../block-editor/blocks/characterEffectBlock';
@@ -23,16 +29,24 @@ type InspectorPanelProps = {
   assets: AssetDocument[];
   speaker: string;
   text: string;
+  imageScaleDraft: string;
+  imageScaleDraftInvalid: boolean;
   isBusy: boolean;
   onSpeakerChange: (speaker: string) => void;
   onTextChange: (text: string) => void;
-  onBackgroundChange: (assetId: string | null) => Promise<void>;
+  onImageScaleDraftChange: (value: string) => void;
+  onImageScaleDraftCommit: () => Promise<boolean>;
+  onBackgroundChange: (next: {
+    assetId: string | null;
+    scalePercent: number;
+  }) => Promise<void>;
   onCharacterChange: (next: {
     mode?: CharacterMode;
     assetId: string | null;
     slot: CharacterSlot;
     layer: number;
     position: CharacterPosition | null;
+    scalePercent: number;
   }) => Promise<void>;
   onSceneJumpChange: (targetSceneId: string) => Promise<void>;
   onBgmChange: (assetId: string | null) => Promise<void>;
@@ -51,9 +65,13 @@ export function InspectorPanel({
   assets,
   speaker,
   text,
+  imageScaleDraft,
+  imageScaleDraftInvalid,
   isBusy,
   onSpeakerChange,
   onTextChange,
+  onImageScaleDraftChange,
+  onImageScaleDraftCommit,
   onBackgroundChange,
   onCharacterChange,
   onSceneJumpChange,
@@ -92,7 +110,12 @@ export function InspectorPanel({
             value={selectedNode.assetId ?? ''}
             disabled={isBusy}
             onChange={(event) =>
-              void onBackgroundChange(event.target.value || null)
+              void onBackgroundChange({
+                assetId: event.target.value || null,
+                scalePercent: event.target.value
+                  ? selectedNode.scalePercent
+                  : DEFAULT_IMAGE_SCALE_PERCENT,
+              })
             }
           >
             <option value="">{labels.inspector.noBackground}</option>
@@ -104,6 +127,15 @@ export function InspectorPanel({
           </select>
         </label>
 
+        <ScalePercentField
+          value={imageScaleDraft}
+          invalid={imageScaleDraftInvalid}
+          disabled={isBusy || selectedNode.assetId === null}
+          ariaLabel={labels.inspector.backgroundScaleAria}
+          onChange={onImageScaleDraftChange}
+          onCommit={onImageScaleDraftCommit}
+        />
+
         <p className="background-node-help">
           {labels.inspector.backgroundHelp}
         </p>
@@ -113,6 +145,8 @@ export function InspectorPanel({
 
   if (selectedNode?.type === 'character') {
     const imageAssets = assets.filter((asset) => asset.type === 'image');
+    const defaultPosition =
+      DEFAULT_CHARACTER_SLOT_POSITIONS[selectedNode.slot];
     const update = (
       next: Partial<{
         mode: CharacterMode;
@@ -120,6 +154,7 @@ export function InspectorPanel({
         slot: CharacterSlot;
         layer: number;
         position: CharacterPosition | null;
+        scalePercent: number;
       }>,
     ) =>
       onCharacterChange({
@@ -127,6 +162,7 @@ export function InspectorPanel({
         slot: selectedNode.slot,
         layer: selectedNode.layer,
         position: selectedNode.position,
+        scalePercent: selectedNode.scalePercent,
         ...next,
       });
 
@@ -202,12 +238,7 @@ export function InspectorPanel({
                   max="100"
                   step="0.1"
                   defaultValue={
-                    selectedNode.position?.x ??
-                    (selectedNode.slot === 'left'
-                      ? 20
-                      : selectedNode.slot === 'right'
-                        ? 80
-                        : 50)
+                    selectedNode.position?.x ?? defaultPosition.x
                   }
                   disabled={isBusy}
                   aria-label={labels.inspector.portraitX}
@@ -221,7 +252,7 @@ export function InspectorPanel({
                           '[data-coordinate="y"]',
                         )?.value ??
                         selectedNode.position?.y ??
-                        100,
+                        defaultPosition.y,
                     );
                     if (
                       Number.isFinite(x) &&
@@ -236,12 +267,7 @@ export function InspectorPanel({
                       });
                     } else {
                       event.currentTarget.value = String(
-                        selectedNode.position?.x ??
-                          (selectedNode.slot === 'left'
-                            ? 20
-                            : selectedNode.slot === 'right'
-                              ? 80
-                              : 50),
+                        selectedNode.position?.x ?? defaultPosition.x,
                       );
                     }
                   }}
@@ -255,7 +281,9 @@ export function InspectorPanel({
                   min="0"
                   max="100"
                   step="0.1"
-                  defaultValue={selectedNode.position?.y ?? 100}
+                  defaultValue={
+                    selectedNode.position?.y ?? defaultPosition.y
+                  }
                   disabled={isBusy}
                   aria-label={labels.inspector.portraitY}
                   data-coordinate="y"
@@ -268,11 +296,7 @@ export function InspectorPanel({
                           '[data-coordinate="x"]',
                         )?.value ??
                         selectedNode.position?.x ??
-                        (selectedNode.slot === 'left'
-                          ? 20
-                          : selectedNode.slot === 'right'
-                            ? 80
-                            : 50),
+                        defaultPosition.x,
                     );
                     if (
                       Number.isFinite(x) &&
@@ -287,13 +311,22 @@ export function InspectorPanel({
                       });
                     } else {
                       event.currentTarget.value = String(
-                        selectedNode.position?.y ?? 100,
+                        selectedNode.position?.y ?? defaultPosition.y,
                       );
                     }
                   }}
                 />
               </label>
             </fieldset>
+
+            <ScalePercentField
+              value={imageScaleDraft}
+              invalid={imageScaleDraftInvalid}
+              disabled={isBusy}
+              ariaLabel={labels.inspector.portraitScaleAria}
+              onChange={onImageScaleDraftChange}
+              onCommit={onImageScaleDraftCommit}
+            />
           </>
         ) : null}
 
@@ -580,6 +613,60 @@ export function InspectorPanel({
         </button>
       </form>
     </aside>
+  );
+}
+
+function ScalePercentField({
+  value,
+  invalid,
+  disabled,
+  ariaLabel,
+  onChange,
+  onCommit,
+}: {
+  value: string;
+  invalid: boolean;
+  disabled: boolean;
+  ariaLabel: string;
+  onChange: (value: string) => void;
+  onCommit: () => Promise<boolean>;
+}) {
+  const labels = useEditorLabels();
+  return (
+    <label>
+      {labels.inspector.scale}
+      <input
+        type="number"
+        min={MIN_IMAGE_SCALE_PERCENT}
+        max={MAX_IMAGE_SCALE_PERCENT}
+        step="1"
+        value={value}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        aria-invalid={invalid || undefined}
+        aria-describedby={invalid ? 'inspector-image-scale-error' : undefined}
+        onChange={(event) => onChange(event.currentTarget.value)}
+        onBlur={(event) => {
+          // Moving focus to another control will let that control's mutation
+          // flush this draft atomically. Starting an Engine command here would
+          // disable the click target between pointer-down and click.
+          if (event.relatedTarget === null) {
+            void onCommit();
+          }
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            void onCommit();
+          }
+        }}
+      />
+      {invalid ? (
+        <small id="inspector-image-scale-error" role="alert">
+          {labels.inspector.scaleInvalid}
+        </small>
+      ) : null}
+    </label>
   );
 }
 

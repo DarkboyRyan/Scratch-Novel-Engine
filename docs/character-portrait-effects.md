@@ -2,10 +2,10 @@
 
 # 人物立绘特效实现
 
-> 实现状态：已完成。当前作者项目为 Author v20，导出为 Runtime v10；桌面与 Web
-> Player Reader 支持 runtime v1–v10。当前存档为 `GameRuntimeSnapshot v4`，受限兼容
-> v1–v3。runtime v8 / snapshot v3 是“显示 CG”功能的历史里程碑，仍保留兼容读取，
-> 但不再是当前 Writer/Exporter 的版本。
+> 实现状态：已完成。当前作者项目为 Author v21，导出为 Runtime v12；桌面与 Web
+> Player Reader 支持 runtime v1–v12。当前存档为 `GameRuntimeSnapshot v5`，受限兼容
+> v1–v4。runtime v8 / snapshot v3 是“显示 CG”、Author v18 / Runtime v9 / Snapshot v4
+> 是人物特效的历史里程碑，仍保留兼容读取，但不再是当前 Writer/Exporter 的版本。
 
 本文记录人物立绘侧挂特效从 Blockly、Editor IPC、C++ 权威模型、严格持久化、Runtime、
 共享 Player UI、暂停/无障碍到 Desktop/Web 导出的完整实现。
@@ -84,6 +84,7 @@ type CharacterNodeBase = {
   type: 'character';
   slot: 'left' | 'center' | 'right';
   layer: number;
+  scalePercent: number;
 };
 
 type CharacterNode = CharacterNodeBase & (
@@ -135,6 +136,7 @@ struct CharacterNode {
   int layer;
   std::optional<CharacterPosition> position;
   std::optional<CharacterEffect> effect;
+  int scale_percent;
 };
 ```
 
@@ -145,7 +147,8 @@ C++ 用 optional 字段承载 tagged union，再由 Core aggregate validator、J
 ## 4. Author v18/v19、Runtime v9 里程碑与当前迁移
 
 Author v18 首次要求人物节点精确包含 `effect`；即使没有特效也必须明确写 `null`。
-Author v19 又要求精确包含 `mode`；当前 Author v20 继续使用相同人物联合：
+Author v19 又要求精确包含 `mode`；Author v20 加入标题页 eyebrow，当前 Author v21 在同一
+人物联合上精确增加 `scalePercent`：
 
 ```json
 {
@@ -156,6 +159,7 @@ Author v19 又要求精确包含 `mode`；当前 Author v20 继续使用相同�
   "slot": "left",
   "layer": 1,
   "position": null,
+  "scalePercent": 100,
   "effect": {
     "type": "slideIn",
     "durationMs": 650,
@@ -167,7 +171,7 @@ Author v19 又要求精确包含 `mode`；当前 Author v20 继续使用相同�
 
 迁移和防伪规则：
 
-- C++ Reader 接受 Author v1–v20，Writer 固定写 v20；
+- C++ Reader 接受 Author v1–v21，Writer 固定写 v21；
 - v1–v17 人物节点在内存中迁移为 `effect = null`；
 - 旧版本若伪造 `effect` 字段，会因 exact fields 被拒绝，而不是偷偷启用新语义；
 - v18 人物节点缺少 `effect` 同样拒绝；
@@ -176,15 +180,17 @@ Author v19 又要求精确包含 `mode`；当前 Author v20 继续使用相同�
 - `show + assetId:null` 是可保存的待选图 Author 占位，Editor 预览把它当 no-op；
   TypeScript Compiler 会以稳定 `character-image-required` 错误拒绝导出，绝不把它
   误编译为 Runtime clear；
-- `clear` 强制 `assetId`、`position`、`effect` 全为 `null`；
-- TypeScript Compiler 直接严格编译 v14–v20；v1–v13 复用窗口 C++ Reader 已迁移、
+- `clear` 强制 `assetId`、`position`、`effect` 全为 `null`，并强制 `scalePercent:100`；
+- v1–v20 人物缩放迁移为 100；v21 要求 10–300 的整数并拒绝缺失、越界或额外字段；
+- TypeScript Compiler 直接严格编译 v14–v21；v1–v13 复用窗口 C++ Reader 已迁移、
   aggregate-validated 且由 manifest hash 绑定的 canonical 快照；
 - Runtime v9 首次保存并执行人物特效；runtime v1–v8 人物节点由 Player Reader 补
   `effect: null`；
+- Runtime v11 首次保存并执行剧情背景/立绘缩放；runtime v1–v10 统一补 100%；
 - runtime v8 / Author v17 仍作为“显示 CG”paired range 的历史版本保留兼容测试。
 
-当前内容包 manifest 固定声明 `playerCompatibility: ">=10 <11"`；桌面和 Web Player
-模板固定声明 `runtimeCompatibility: ">=1 <11"`，表示同一模板严格读取 runtime v1–v10。
+当前内容包 manifest 固定声明 `playerCompatibility: ">=12 <13"`；桌面和 Web Player
+模板固定声明 `runtimeCompatibility: ">=1 <13"`，表示同一模板严格读取 runtime v1–v12。
 
 ## 5. IPC 与原子命令
 
@@ -198,12 +204,14 @@ character.update {
   assetId,
   slot,
   layer,
-  position
+  position,
+  scalePercent
 }
 ```
 
 它不接受 `effect` 参数；省略 mode 时保留现有模式，更新非空图片、位置或层级时保留已有
-特效。显式切换为 `clear` 时会在同一 mutation 中清空 assetId、position 和 effect；
+特效和缩放。显式切换为 `clear` 时会在同一 mutation 中清空 assetId、position 和 effect，
+并把 scalePercent 规范化为 100；
 把 show 的 assetId 改为 `null` 则形成待选图占位并清除 effect，但不会变成 clear。
 
 特效使用两个窄命令：
@@ -324,9 +332,9 @@ CSS 使用 `animation-play-state: paused` 保留当前动画进度；恢复后�
 表单时间线预览始终设置 `effect: null`、`effectSequence: 0`，只应用最终 opacity；它用于
 检查某播放头位置的静态构图，不会因切换表单字段反复播放动画。
 
-## 9. Snapshot v4 与保存/读取
+## 9. Snapshot v4 历史里程碑与当前 v5 保存/读取
 
-`GameRuntimeSnapshot v4` 保存全局单调 `characterEffectSequence`，并在每个活动人物层保存
+`GameRuntimeSnapshot v4` 首次保存全局单调 `characterEffectSequence`，并在每个活动人物层保存
 `opacity` 和该层最后一次分配到的 `effectSequence`，但不保存瞬时 `effect`。读取后恢复为：
 
 ```text
@@ -341,20 +349,26 @@ CSS 使用 `animation-play-state: paused` 保留当前动画进度；恢复后�
 仍严格递增；snapshot v3 是 CG 状态的历史版本。若旧快照无法证明人物特效执行后的最终
 opacity，尤其项目场景已包含 v18 起的特效节点时，会 fail closed，而不是猜测画面状态。
 
+当前 `GameRuntimeSnapshot v5` 延续全部 v4 特效语义，并额外保存背景和每个活动人物层的
+`scalePercent`。恢复 v1–v4 时缩放统一补 100%；恢复 v5 时严格要求 10–300 的整数。
+
 ## 10. Desktop、Web 与资源闭包
 
 特效本身不引用新媒体，只复用 CharacterNode 的 image Asset，所以 runtime bundle 的资源
-闭包算法不需要复制额外文件。当前 Author v20 Compiler 会：
+闭包算法不需要复制额外文件。当前 Author v21 Compiler 会：
 
 1. 严格解析 effect union 和清除节点不变量；
 2. 把 StoryExtension 剥离，并保留 CharacterNode.effect；
 3. 验证人物 `assetId` 指向 image；
-4. 输出 Runtime v10；
-5. 由 RuntimeBundleExporter 写 `>=10 <11` manifest；
-6. Desktop 与 Web 模板用 `>=1 <11` 门禁读取同一 game.json。
+4. 输出 Runtime v12，并保留人物 `scalePercent`；
+5. 由 RuntimeBundleExporter 写 `>=12 <13` manifest；
+6. Desktop 与 Web 模板用 `>=1 <13` 门禁读取同一 game.json。
 
-Web Player 使用同源 CSS keyframes、Fullscreen API 和 IndexedDB Snapshot v4；Desktop
+Web Player 使用同源 CSS keyframes、Fullscreen API 和 IndexedDB Snapshot v5；Desktop
 Player 使用 Electron Main 的原子存档。两者不复制人物特效状态机。
+
+为避免 `breathe`、`shake` 等动画覆盖作者缩放，`VisualStage` 把 10%–300% 的持久缩放放在
+人物底部中心锚点 wrapper 上，把瞬时 effect 保留在内部图片层；两种 transform 可独立组合。
 
 ## 11. 实现流程与技术栈
 
@@ -362,14 +376,14 @@ Player 使用 Electron Main 的原子存档。两者不复制人物特效状态�
 | --- | --- | --- |
 | 共享契约 | TypeScript 5.9 | discriminated union、严格 validator、公共 DTO |
 | 领域模型 | C++20 | enum/optional、aggregate invariant、原子 update/move |
-| 持久化 | nlohmann/json | Author v20 exact-fields、v1–v19 迁移与防伪；v18 effect / v19 mode 里程碑 |
+| 持久化 | nlohmann/json | Author v21 exact-fields、v1–v20 迁移与防伪；v18 effect / v19 mode / v20 eyebrow 里程碑 |
 | IPC | Electron Main/Preload、JSONL | typed methods、参数白名单、response sanitizer、HMR 提示 |
 | 图形化编辑 | Blockly 13 | typed value socket、七类 value block、owner ID、backend-first 事件 |
 | 表单编辑 | React 19 | 只读摘要、最终状态静态预览 |
 | Runtime | 纯 TypeScript reducer | effect event、effectSequence、opacity、循环重播 |
 | 展示层 | React、CSS keyframes | anchor/image 分层、暂停、reduced-motion、Desktop/Web 共享 |
-| 存档 | Snapshot v4 | 保存最终 opacity/sequence，读档不重播瞬时特效 |
-| 导出 | Node streams、SHA-256、事务 staging | Author v20 → Runtime v10、Desktop/Web 兼容门禁 |
+| 存档 | Snapshot v5 | 保存最终 opacity/sequence 与缩放，读档不重播瞬时特效 |
+| 导出 | Node streams、SHA-256、事务 staging | Author v21 → Runtime v12、Desktop/Web 兼容门禁 |
 
 主要实现路径：
 
@@ -405,9 +419,9 @@ Player 使用 Electron Main 的原子存档。两者不复制人物特效状态�
 - Preload/action/HMR 接线与业务错误不误判；
 - Blockly 创建、字段更新、拖离、跨人物原子移动和失败回投影；
 - Runtime 七类效果、Repeat 重播、fadeOut 最终 opacity；
-- Snapshot v4 round-trip、v3 条件兼容和读档不重播；
+- Snapshot v5 round-trip、v1–v4 条件兼容、旧版缩放补 100 和读档不重播；
 - VisualStage 定位/动画分层、pause 与 reduced-motion CSS；
-- Author v20 → Runtime v10 → Player strict Reader 的跨层集成；
+- Author v21 → Runtime v12 → Player strict Reader 的跨层集成；
 - Desktop/Web exporter 与模板版本门禁。
 
 推荐验证命令：

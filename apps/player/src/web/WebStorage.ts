@@ -24,6 +24,7 @@ import {
   type PlayerSaveSummary,
   type PlayerSaveWriteResult,
   type PlayerErrorCode,
+  type PlayerLanguage,
   type PlayerSettingsReadResult,
   type PlayerSettings,
   type PlayerSettingsWriteResult,
@@ -38,6 +39,9 @@ const SAVE_VERSION = 1;
 const SETTINGS_FORMAT = 'vn-engine-player-settings';
 const LEGACY_SETTINGS_KEY = 'settings-v1';
 const SETTINGS_KEY = 'settings-v2';
+const LANGUAGE_OVERRIDE_FORMAT = 'vn-engine-web-player-language';
+const LANGUAGE_OVERRIDE_VERSION = 1;
+const LANGUAGE_OVERRIDE_KEY_PREFIX = 'language-v1';
 const MAX_SAVE_BYTES = 256 * 1024;
 const SAVE_SLOTS: readonly PlayerSaveSlotId[] = [1, 2, 3, 'quick'];
 const SAVE_STORAGE_ERROR: PlayerErrorCode = 'save-storage-unavailable';
@@ -54,6 +58,7 @@ type StoredRecord = {
 export type WebDocumentStore = {
   get(key: string): Promise<unknown | undefined>;
   put(key: string, value: unknown): Promise<void>;
+  putMany(records: readonly StoredRecord[]): Promise<void>;
 };
 
 function requestResult<T>(request: IDBRequest<T>): Promise<T> {
@@ -95,14 +100,18 @@ export class IndexedDbDocumentStore implements WebDocumentStore {
   }
 
   async put(key: string, value: unknown): Promise<void> {
+    await this.putMany([{ key, value }]);
+  }
+
+  async putMany(records: readonly StoredRecord[]): Promise<void> {
     const database = await this.database();
     const transaction = database.transaction(DOCUMENT_STORE, 'readwrite');
     const finished = transactionFinished(transaction);
-    await requestResult(transaction.objectStore(DOCUMENT_STORE).put({
-      key,
-      value,
-    } satisfies StoredRecord));
-    await finished;
+    const store = transaction.objectStore(DOCUMENT_STORE);
+    await Promise.all([
+      ...records.map((record) => requestResult(store.put(record))),
+      finished,
+    ]);
   }
 
   private database(): Promise<IDBDatabase> {
@@ -157,8 +166,12 @@ export type WebPlayerStoragePort = {
     active: WebStorageGame,
     slotId: PlayerSaveSlotId,
   ): Promise<PlayerSaveLoadResult>;
-  readSettings(): Promise<PlayerSettingsReadResult>;
-  writeSettings(settings: PlayerSettings): Promise<PlayerSettingsWriteResult>;
+  readSettings(active: WebStorageGame): Promise<PlayerSettingsReadResult>;
+  writeSettings(
+    active: WebStorageGame,
+    settings: PlayerSettings,
+    persistLanguage: boolean,
+  ): Promise<PlayerSettingsWriteResult>;
 };
 
 type SaveDocument = {
@@ -174,6 +187,14 @@ type SettingsDocument = {
   format: typeof SETTINGS_FORMAT;
   settingsVersion: typeof PLAYER_SETTINGS_VERSION;
   settings: Omit<PlayerSettings, 'settingsVersion'>;
+};
+
+type LanguageOverrideDocument = {
+  format: typeof LANGUAGE_OVERRIDE_FORMAT;
+  languageVersion: typeof LANGUAGE_OVERRIDE_VERSION;
+  projectId: string;
+  defaultLanguage: PlayerLanguage;
+  language: PlayerLanguage;
 };
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -195,6 +216,7 @@ function sameSnapshot(left: GameRuntimeSnapshot, right: unknown): boolean {
     right.snapshotVersion === 1 ||
     right.snapshotVersion === 2 ||
     right.snapshotVersion === 3 ||
+    right.snapshotVersion === 4 ||
     areGameRuntimeSnapshotsEqual(left, right)
   );
 }
@@ -364,6 +386,51 @@ function parseSettings(
   return settings;
 }
 
+function languageOverrideKey(active: WebStorageGame): string {
+  return [
+    LANGUAGE_OVERRIDE_KEY_PREFIX,
+    active.identity.projectId,
+    active.game.defaultLanguage,
+  ].join('\0');
+}
+
+function languageOverrideDocument(
+  active: WebStorageGame,
+  language: PlayerLanguage,
+): LanguageOverrideDocument {
+  return {
+    format: LANGUAGE_OVERRIDE_FORMAT,
+    languageVersion: LANGUAGE_OVERRIDE_VERSION,
+    projectId: active.identity.projectId,
+    defaultLanguage: active.game.defaultLanguage,
+    language,
+  };
+}
+
+function parseLanguageOverride(
+  value: unknown,
+  active: WebStorageGame,
+): PlayerLanguage {
+  if (
+    !isObject(value) ||
+    !hasExactFields(value, [
+      'format',
+      'languageVersion',
+      'projectId',
+      'defaultLanguage',
+      'language',
+    ]) ||
+    value.format !== LANGUAGE_OVERRIDE_FORMAT ||
+    value.languageVersion !== LANGUAGE_OVERRIDE_VERSION ||
+    value.projectId !== active.identity.projectId ||
+    value.defaultLanguage !== active.game.defaultLanguage ||
+    (value.language !== 'zh-CN' && value.language !== 'en-US')
+  ) {
+    throw new Error('invalid language override');
+  }
+  return value.language;
+}
+
 function saveKey(identity: WebBundleIdentity, slotId: PlayerSaveSlotId): string {
   return [
     'save-v1',
@@ -473,8 +540,11 @@ export class WebPlayerStorage implements WebPlayerStoragePort {
     }
   }
 
-  async readSettings(): Promise<PlayerSettingsReadResult> {
+  async readSettings(
+    active: WebStorageGame,
+  ): Promise<PlayerSettingsReadResult> {
     let value: unknown | undefined;
+    let languageOverride: unknown | undefined;
     let version:
       | typeof LEGACY_PLAYER_SETTINGS_VERSION
       | typeof PLAYER_SETTINGS_VERSION = PLAYER_SETTINGS_VERSION;
@@ -484,23 +554,42 @@ export class WebPlayerStorage implements WebPlayerStoragePort {
         value = await this.documents.get(LEGACY_SETTINGS_KEY);
         version = LEGACY_PLAYER_SETTINGS_VERSION;
       }
+      languageOverride = await this.documents.get(languageOverrideKey(active));
     } catch {
       return { status: 'rejected', error: SETTINGS_STORAGE_ERROR };
     }
-    if (value === undefined) {
-      return { status: 'ready', settings: createDefaultPlayerSettings() };
-    }
+    let settings = createDefaultPlayerSettings();
     try {
-      return { status: 'ready', settings: parseSettings(value, version) };
+      if (value !== undefined) {
+        settings = parseSettings(value, version);
+      }
     } catch {
       // Corrupt values must not permanently lock the options screen. Return a
       // clean value that the next successful write can replace.
-      return { status: 'ready', settings: createDefaultPlayerSettings() };
+      settings = createDefaultPlayerSettings();
     }
+    let language = active.game.defaultLanguage;
+    let languageSource: 'default' | 'stored' = 'default';
+    if (languageOverride !== undefined) {
+      try {
+        language = parseLanguageOverride(languageOverride, active);
+        languageSource = 'stored';
+      } catch {
+        // A malformed or mismatched per-game preference must never override
+        // the default language authored into this exact Web export.
+      }
+    }
+    return {
+      status: 'ready',
+      settings: { ...settings, language },
+      languageSource,
+    };
   }
 
   async writeSettings(
+    active: WebStorageGame,
     settings: PlayerSettings,
+    persistLanguage: boolean,
   ): Promise<PlayerSettingsWriteResult> {
     if (!isPlayerSettings(settings)) {
       return { status: 'rejected', error: SETTINGS_INVALID_ERROR };
@@ -519,7 +608,17 @@ export class WebPlayerStorage implements WebPlayerStoragePort {
           ? 0
           : settings.videoVolume,
       };
-      await this.documents.put(SETTINGS_KEY, settingsDocument(canonical));
+      const records: StoredRecord[] = [{
+        key: SETTINGS_KEY,
+        value: settingsDocument(canonical),
+      }];
+      if (persistLanguage) {
+        records.push({
+          key: languageOverrideKey(active),
+          value: languageOverrideDocument(active, canonical.language),
+        });
+      }
+      await this.documents.putMany(records);
       return { status: 'updated', settings: canonical };
     } catch {
       return { status: 'rejected', error: SETTINGS_STORAGE_ERROR };

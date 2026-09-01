@@ -27,6 +27,7 @@ const logicScene: SceneDocument = {
   id: 'logic-selection-scene',
   name: 'Logic selection',
   backgroundAssetId: null,
+  backgroundScalePercent: 100,
   nodes: [
     {
       id: 'top-1',

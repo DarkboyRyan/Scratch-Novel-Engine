@@ -1,5 +1,5 @@
 // 文件职责：定义 VN Engine 的权威项目、资源、场景与时间线数据模型。
-// 关键实现：Project/Scene/SceneNode、逻辑控制、CG 展示及 CharacterEffect 判别结构。
+// 关键实现：Project/Scene/SceneNode、图片缩放、逻辑控制、CG 展示及 CharacterEffect 判别结构。
 #pragma once
 
 #include <array>
@@ -12,6 +12,9 @@
 namespace vnengine {
 
 inline constexpr int kSchemaVersion = 1;
+inline constexpr int kDefaultImageScalePercent = 100;
+inline constexpr int kMinimumImageScalePercent = 10;
+inline constexpr int kMaximumImageScalePercent = 300;
 
 struct Dialogue {
   std::string id;
@@ -98,6 +101,7 @@ struct CharacterEffect {
 struct BackgroundNode {
   std::string id;
   std::optional<std::string> asset_id;
+  int scale_percent = kDefaultImageScalePercent;
 
   bool operator==(const BackgroundNode&) const = default;
 };
@@ -113,6 +117,7 @@ struct CharacterNode {
   int layer = 1;
   std::optional<CharacterPosition> position;
   std::optional<CharacterEffect> effect;
+  int scale_percent = kDefaultImageScalePercent;
 
   bool operator==(const CharacterNode&) const = default;
 };
@@ -323,6 +328,7 @@ struct CharacterVisualInstance {
 
 struct SceneVisualState {
   std::optional<std::string> background_asset_id;
+  int background_scale_percent = kDefaultImageScalePercent;
   // Stable authoritative z-order: first is furthest back, last is foremost.
   std::vector<CharacterVisualInstance> characters;
 

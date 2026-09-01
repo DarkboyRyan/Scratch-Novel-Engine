@@ -9,6 +9,12 @@ Shared 定义 Main、Preload 与 Renderer 都能安全导入的 IPC 通道、DTO
 1. 协议文件定义调用动作、参数、结果和运行时守卫，Main 与 Preload 使用相同通道常量。
 2. Preload 将这些契约映射到 `window` 上的最小 API，Renderer 只通过 [`global.d.ts`](./global.d.ts) 看到能力。
 3. Main 在执行特权操作前重新做运行时校验；项目转换函数则把作者模型投影到明确的 Runtime 边界。
+4. 剧情图片缩放常量与守卫从 `@vnengine/runtime` 复用；协议要求 10–300 的整数，并让无
+   背景和 clear 立绘规范化为 100%。
+
+Editor 语言设置仍由 Main 持久。当前 Runtime v12 的 `game.defaultLanguage`
+在导出工作流内从 Main 权威设置注入，不是 `exportProtocol.ts` 中由 Renderer
+提供的参数；作者字段不因此翻译。
 
 ## 文件
 
