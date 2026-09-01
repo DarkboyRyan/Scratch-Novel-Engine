@@ -152,7 +152,24 @@ function safePnpmJavaScriptPath(candidate, platform, fileExists) {
     return null;
   }
   const baseName = pathApi.basename(candidate).toLowerCase();
-  if (baseName !== 'pnpm.cjs' && baseName !== 'pnpm.js') {
+  if (
+    baseName !== 'pnpm.cjs' &&
+    baseName !== 'pnpm.js' &&
+    baseName !== 'pnpm.mjs'
+  ) {
+    return null;
+  }
+  return fileExists(candidate) ? candidate : null;
+}
+
+function safePnpmNativePath(candidate, platform, fileExists) {
+  if (
+    platform !== 'win32' ||
+    typeof candidate !== 'string' ||
+    candidate.includes('\0') ||
+    !path.win32.isAbsolute(candidate) ||
+    path.win32.basename(candidate).toLowerCase() !== 'pnpm.exe'
+  ) {
     return null;
   }
   return fileExists(candidate) ? candidate : null;
@@ -173,11 +190,20 @@ export function resolvePnpmLauncher({
   if (lifecycleCli !== null) {
     return { command: nodeExecutable, args: [lifecycleCli] };
   }
+  const lifecycleNative = safePnpmNativePath(
+    npmExecPath,
+    platform,
+    fileExists,
+  );
+  if (lifecycleNative !== null) {
+    return { command: lifecycleNative, args: [] };
+  }
 
   if (typeof repositoryRoot === 'string' && repositoryRoot.length > 0) {
     const candidates = [
       path.join(repositoryRoot, 'node_modules', 'pnpm', 'bin', 'pnpm.cjs'),
       path.join(repositoryRoot, 'node_modules', 'pnpm', 'bin', 'pnpm.js'),
+      path.join(repositoryRoot, 'node_modules', 'pnpm', 'bin', 'pnpm.mjs'),
     ];
     try {
       const packagePath = require.resolve('pnpm/package.json', {
@@ -186,6 +212,7 @@ export function resolvePnpmLauncher({
       candidates.unshift(
         path.join(path.dirname(packagePath), 'bin', 'pnpm.cjs'),
         path.join(path.dirname(packagePath), 'bin', 'pnpm.js'),
+        path.join(path.dirname(packagePath), 'bin', 'pnpm.mjs'),
       );
     } catch {
       // pnpm is commonly supplied by Corepack or a user-level installation.
@@ -204,7 +231,7 @@ export function resolvePnpmLauncher({
 
   if (platform === 'win32') {
     throw new Error(
-      '无法定位安全的 pnpm JavaScript 入口；请通过 pnpm 运行 Editor 命令',
+      '无法定位安全的 pnpm 入口；请通过 pnpm 运行 Editor 命令',
     );
   }
   return { command: 'pnpm', args: [] };

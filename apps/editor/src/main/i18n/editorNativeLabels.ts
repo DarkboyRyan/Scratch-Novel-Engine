@@ -36,6 +36,7 @@ export type EditorNativeLabels = {
     button: string;
     webFilter: string;
     macFilter: string;
+    windowsFilter: string;
     characterImageRequired: string;
   };
   window: {
@@ -79,6 +80,7 @@ const zhCN: EditorNativeLabels = {
     button: '导出',
     webFilter: 'Web 游戏 ZIP',
     macFilter: 'macOS 游戏 ZIP',
+    windowsFilter: 'Windows 游戏 ZIP',
     characterImageRequired: '人物立绘尚未选择图片，请先选择图片后再导出',
   },
   window: {
@@ -122,6 +124,7 @@ const enUS: EditorNativeLabels = {
     button: 'Export',
     webFilter: 'Web Game ZIP',
     macFilter: 'macOS Game ZIP',
+    windowsFilter: 'Windows Game ZIP',
     characterImageRequired:
       'A character portrait has no image selected. Choose an image before exporting.',
   },

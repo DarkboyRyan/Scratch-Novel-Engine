@@ -8,7 +8,28 @@ import { MakerRpm } from '@electron-forge/maker-rpm';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
+
+const editorPackageDocument: unknown = JSON.parse(
+  readFileSync(path.resolve(__dirname, 'package.json'), 'utf8'),
+);
+if (
+  typeof editorPackageDocument !== 'object' ||
+  editorPackageDocument === null ||
+  !('name' in editorPackageDocument) ||
+  editorPackageDocument.name !== 'editor' ||
+  !('productName' in editorPackageDocument) ||
+  editorPackageDocument.productName !== 'VN Engine Editor' ||
+  !('version' in editorPackageDocument) ||
+  typeof editorPackageDocument.version !== 'string' ||
+  !/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(
+    editorPackageDocument.version,
+  )
+) {
+  throw new Error('Editor package.json 名称、产品名或版本无效');
+}
+const editorVersion = editorPackageDocument.version;
 
 const backendResourceDirectory = path.resolve(
   __dirname,
@@ -50,6 +71,42 @@ if (
 ) {
   throw new Error('VN_EDITOR_OUT_DIR 必须是绝对路径');
 }
+const configuredMacSigningIdentity =
+  process.env.VN_EDITOR_MACOS_SIGNING_IDENTITY;
+const configuredMacSigningKeychain =
+  process.env.VN_EDITOR_MACOS_SIGNING_KEYCHAIN;
+if (
+  (configuredMacSigningIdentity === undefined) !==
+    (configuredMacSigningKeychain === undefined)
+) {
+  throw new Error(
+    '正式 macOS 签名必须同时配置 identity 与 keychain',
+  );
+}
+if (
+  configuredMacSigningIdentity !== undefined &&
+  (
+    configuredMacSigningIdentity.length === 0 ||
+    configuredMacSigningIdentity.length > 512 ||
+    configuredMacSigningIdentity.includes('\0') ||
+    !configuredMacSigningIdentity.startsWith('Developer ID Application:')
+  )
+) {
+  throw new Error('VN_EDITOR_MACOS_SIGNING_IDENTITY 不是 Developer ID Application');
+}
+if (
+  configuredMacSigningKeychain !== undefined &&
+  (
+    !path.isAbsolute(configuredMacSigningKeychain) ||
+    configuredMacSigningKeychain.includes('\0')
+  )
+) {
+  throw new Error('VN_EDITOR_MACOS_SIGNING_KEYCHAIN 必须是安全的绝对路径');
+}
+
+const formalMacSigning =
+  configuredMacSigningIdentity !== undefined &&
+  configuredMacSigningKeychain !== undefined;
 
 const config: ForgeConfig = {
   ...(configuredEditorOutDirectory === undefined ||
@@ -58,18 +115,27 @@ const config: ForgeConfig = {
     : { outDir: path.normalize(configuredEditorOutDirectory) }),
   packagerConfig: {
     asar: true,
+    name: 'VN Engine Editor',
+    appVersion: editorVersion,
+    buildVersion: editorVersion,
+    appBundleId: 'com.vnengine.editor',
     ...(process.platform === 'darwin'
       ? {
-          // Forge flips Electron fuses after the upstream Electron archive
-          // has been unpacked, so the archive's original ad-hoc signature is
-          // no longer valid. Re-sign internal Editor packages after resources
-          // and fuses are final. A public Editor release must replace this
-          // with Developer ID signing, hardened runtime and notarization.
-          osxSign: {
-            identity: '-',
-            identityValidation: false,
-            optionsForFile: () => ({ hardenedRuntime: false }),
-          },
+          // Internal packages use a final ad-hoc signature. Formal builds can
+          // opt in to Developer ID without placing certificate material in the
+          // repository; CI imports it into an ephemeral keychain first.
+          osxSign: formalMacSigning
+            ? {
+                identity: configuredMacSigningIdentity,
+                keychain: configuredMacSigningKeychain,
+                identityValidation: true,
+                optionsForFile: () => ({ hardenedRuntime: true }),
+              }
+            : {
+                identity: '-',
+                identityValidation: false,
+                optionsForFile: () => ({ hardenedRuntime: false }),
+              },
         }
       : {}),
     // Forge copies this directory to Resources/backend. The executable must
@@ -80,18 +146,29 @@ const config: ForgeConfig = {
       // verbatim by Main when it creates a Web game ZIP. Export never runs
       // Vite or package-manager commands from a user's project.
       webPlayerTemplateResourceDirectory,
-      // Only macOS Editor packages embed the local standalone-export
-      // template. Windows/Linux standalone games are built on their native CI
-      // runners and never consume this macOS payload.
-      ...(process.platform === 'darwin'
+      // macOS and Windows Editor packages embed only their same-platform
+      // standalone-export template. Cross-platform public signing remains a
+      // release-CI responsibility, and Linux has no local template yet.
+      ...(process.platform === 'darwin' || process.platform === 'win32'
         ? [playerTemplateResourceDirectory]
         : []),
     ],
   },
   rebuildConfig: {},
+  hooks: {
+    readPackageJson: async (_forgeConfig, packageJson) => ({
+      ...packageJson,
+      productName: 'VN Engine Editor',
+      version: editorVersion,
+      vnEngineEditorBuild: {
+        schemaVersion: 1,
+        appBundleId: 'com.vnengine.editor',
+      },
+    }),
+  },
   makers: [
     new MakerSquirrel({}),
-    new MakerZIP({}, ['darwin']),
+    new MakerZIP({}, ['darwin', 'win32']),
     new MakerRpm({}),
     new MakerDeb({}),
   ],

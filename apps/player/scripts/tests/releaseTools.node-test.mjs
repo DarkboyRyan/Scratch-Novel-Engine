@@ -36,6 +36,7 @@ import {
 import {
   windowsArchiveInvocation,
   windowsMetadataVerificationInvocation,
+  windowsStandardZipArchiveInvocation,
   windowsSignatureVerificationInvocation,
 } from '../lib/windowsPowerShellPolicy.mjs';
 import { assertExactMacosArchitecture } from '../lib/macosPlayerTemplate.mjs';
@@ -267,12 +268,22 @@ test('invokes Forge through Node instead of relying on package bin execute bits'
   const playerPackage = JSON.parse(
     await readFile(path.join(playerDirectory, 'package.json'), 'utf8'),
   );
+  const editorPackage = JSON.parse(
+    await readFile(
+      path.join(repositoryDirectory, 'apps', 'editor', 'package.json'),
+      'utf8',
+    ),
+  );
   for (const scriptName of ['start', 'package', 'make']) {
     assert.match(
       playerPackage.scripts[scriptName],
       /^node \.\.\/\.\.\/node_modules\/@electron-forge\/cli\/dist\/electron-forge\.js /u,
     );
   }
+  assert.equal(
+    editorPackage.scripts['package:application'],
+    'node ../player/scripts/runEditorWithPlayerTemplate.mjs --command package',
+  );
 
   const editorTemplateRunner = await readFile(
     path.join(playerDirectory, 'scripts', 'runEditorWithPlayerTemplate.mjs'),
@@ -280,11 +291,14 @@ test('invokes Forge through Node instead of relying on package bin execute bits'
   );
   assert.match(editorTemplateRunner, /runChecked\(process\.execPath, editorForgeArguments/u);
   assert.match(editorTemplateRunner, /resolvePnpmLauncher\(\{ repositoryRoot \}\)/u);
+  assert.match(editorTemplateRunner, /PACKAGE_PHASE_OUTPUT_NAME = 'editor_package_phase'/u);
+  assert.match(editorTemplateRunner, /recordPackagePhase\('player-package'\)/u);
+  assert.match(editorTemplateRunner, /recordPackagePhase\('editor-forge'\)/u);
   assert.doesNotMatch(editorTemplateRunner, /exec['"],\s*['"]electron-forge/u);
   assert.doesNotMatch(editorTemplateRunner, /pnpm\.cmd|shell:\s*true/u);
 });
 
-test('executes pnpm JavaScript through Node without invoking a Windows cmd shim', () => {
+test('uses a verified pnpm entry without invoking a Windows cmd shim', () => {
   const windows = resolvePnpmLauncher({
     platform: 'win32',
     nodeExecutable: 'C:\\Program Files\\nodejs\\node.exe',
@@ -296,6 +310,40 @@ test('executes pnpm JavaScript through Node without invoking a Windows cmd shim'
     command: 'C:\\Program Files\\nodejs\\node.exe',
     args: ['C:\\pnpm\\pnpm.cjs'],
   });
+  const moduleWindows = resolvePnpmLauncher({
+    platform: 'win32',
+    nodeExecutable: 'C:\\Program Files\\nodejs\\node.exe',
+    npmExecPath: 'C:\\setup-pnpm\\pnpm.mjs',
+    repositoryRoot: 'C:\\repository',
+    fileExists: (candidate) => candidate === 'C:\\setup-pnpm\\pnpm.mjs',
+  });
+  assert.deepEqual(moduleWindows, {
+    command: 'C:\\Program Files\\nodejs\\node.exe',
+    args: ['C:\\setup-pnpm\\pnpm.mjs'],
+  });
+  const nativeWindows = resolvePnpmLauncher({
+    platform: 'win32',
+    nodeExecutable: 'C:\\Program Files\\nodejs\\node.exe',
+    npmExecPath: 'C:\\setup-pnpm\\pnpm.exe',
+    repositoryRoot: 'C:\\repository',
+    fileExists: (candidate) => candidate === 'C:\\setup-pnpm\\pnpm.exe',
+  });
+  assert.deepEqual(nativeWindows, {
+    command: 'C:\\setup-pnpm\\pnpm.exe',
+    args: [],
+  });
+  assert.throws(() => resolvePnpmLauncher({
+    platform: 'win32',
+    npmExecPath: 'pnpm.mjs',
+    repositoryRoot: 'C:\\repository',
+    fileExists: () => false,
+  }), /无法定位安全的 pnpm 入口/u);
+  assert.throws(() => resolvePnpmLauncher({
+    platform: 'win32',
+    npmExecPath: 'C:\\setup-pnpm\\pnpm.mjs',
+    repositoryRoot: 'C:\\repository',
+    fileExists: () => false,
+  }), /无法定位安全的 pnpm 入口/u);
   assert.equal(windows.command.endsWith('.cmd'), false);
   assert.equal(windows.args.some((argument) => argument.endsWith('.cmd')), false);
 
@@ -304,7 +352,7 @@ test('executes pnpm JavaScript through Node without invoking a Windows cmd shim'
     npmExecPath: 'C:\\pnpm\\pnpm.cmd',
     repositoryRoot: 'C:\\repository',
     fileExists: () => false,
-  }), /无法定位安全的 pnpm JavaScript 入口/u);
+  }), /无法定位安全的 pnpm 入口/u);
 
   assert.deepEqual(resolvePnpmLauncher({
     platform: 'linux',
@@ -471,6 +519,7 @@ test('normalizes workflow line endings before structural validation', () => {
 test('never interpolates untrusted workflow expressions into shell source', async () => {
   const workflowDirectory = path.join(repositoryDirectory, '.github', 'workflows');
   const workflowNames = [
+    'editor-ci.yml',
     'player-ci.yml',
     'player-game-build.yml',
     'player-release.yml',
@@ -521,6 +570,89 @@ test('never interpolates untrusted workflow expressions into shell source', asyn
     assert.equal(safeCheckoutCount, checkoutCount, `${workflowName} checkout 不得持久化 token`);
   }
 
+  const editorCiWorkflow = await readWorkflowSource(
+    workflowDirectory,
+    'editor-ci.yml',
+  );
+  assert.match(
+    editorCiWorkflow,
+    /^on:\n {2}push:\n {4}branches:\n {6}- feature\/editor-release\n {2}workflow_dispatch:\n/mu,
+  );
+  assert.doesNotMatch(editorCiWorkflow, /^\s+pull_request:\s*$/mu);
+  assert.equal((editorCiWorkflow.match(/runner: macos-15/gu) ?? []).length, 1);
+  assert.equal((editorCiWorkflow.match(/runner: windows-latest/gu) ?? []).length, 1);
+  assert.doesNotMatch(editorCiWorkflow, /runner: ubuntu-|platform: linux/u);
+  assert.match(editorCiWorkflow, /--classification internal/u);
+  assert.match(editorCiWorkflow, /verifyEditorReleasePrerequisites\.mjs/u);
+  assert.match(editorCiWorkflow, /verifyEditorBuild\.mjs/u);
+  assert.match(editorCiWorkflow, /archiveEditorBuild\.mjs/u);
+  assert.match(editorCiWorkflow, /collectEditorArtifacts\.mjs/u);
+  assert.doesNotMatch(editorCiWorkflow, /\bsecrets\./u);
+  assert.equal(
+    (editorCiWorkflow.match(/^\s+contents: write\s*$/gmu) ?? []).length,
+    1,
+  );
+  assert.match(
+    editorCiWorkflow,
+    /uses:\s+actions\/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a\s+#\s+v7/u,
+  );
+  assert.match(editorCiWorkflow, /path:\s+\$\{\{ runner\.temp \}\}\/editor-internal-artifact/u);
+  assert.match(editorCiWorkflow, /if-no-files-found:\s+error/u);
+  assert.match(editorCiWorkflow, /compression-level:\s+0/u);
+  assert.match(editorCiWorkflow, /retention-days:\s+7/u);
+  assert.match(editorCiWorkflow, /id:\s+package_editor/u);
+  assert.match(editorCiWorkflow, /name:\s+Configure the release Editor backend/u);
+  assert.match(editorCiWorkflow, /name:\s+Build the release Editor backend/u);
+  assert.match(editorCiWorkflow, /name:\s+Install the release Editor backend/u);
+  assert.match(editorCiWorkflow, /pnpm --dir apps\/editor package:application/u);
+  assert.match(editorCiWorkflow, /SAFE_PACKAGE_PHASE="unknown"/u);
+  assert.doesNotMatch(editorCiWorkflow, /tee[^\n]*editor-package|tail[^\n]*editor-package/u);
+  assert.match(editorCiWorkflow, /id:\s+archive_editor/u);
+  assert.match(
+    editorCiWorkflow,
+    /input\|create\|zip-verify\|extract-verify\|cleanup\|zip-open\|limits\|path\|duplicate\|unexpected\|type\|mode\|content\|missing\|finalize/u,
+  );
+  assert.match(editorCiWorkflow, /SAFE_ARCHIVE_PHASE="unknown"/u);
+  assert.doesNotMatch(
+    editorCiWorkflow,
+    /(?:tee|tail|cat)[^\n]*(?:editor-archive|archive\.log)/u,
+  );
+  assert.doesNotMatch(editorCiWorkflow, /actions\/upload-release-asset|softprops\/action-gh-release/u);
+  assert.match(editorCiWorkflow, /name:\s+Create the authorized internal Editor Draft Release/u);
+  const editorDraftJob = editorCiWorkflow.slice(
+    editorCiWorkflow.indexOf('\n  draft-release:'),
+  );
+  assert.doesNotMatch(
+    editorCiWorkflow.slice(0, editorCiWorkflow.indexOf('\n  draft-release:')),
+    /^\s+contents: write\s*$/mu,
+  );
+  assert.match(editorDraftJob, /^\s+actions: read\s*$/mu);
+  assert.match(editorDraftJob, /^\s+contents: write\s*$/mu);
+  assert.match(editorDraftJob, /needs:\s*\n\s+- test-package/u);
+  assert.match(editorDraftJob, /github\.event_name == 'push'/u);
+  assert.match(editorDraftJob, /github\.ref == 'refs\/heads\/feature\/editor-release'/u);
+  assert.match(editorCiWorkflow, /contains\(github\.event\.head_commit\.message, '\[editor-draft-release\]'\)/u);
+  assert.match(
+    editorCiWorkflow,
+    /uses:\s+actions\/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c\s+#\s+v8/u,
+  );
+  assert.match(editorCiWorkflow, /github-token:\s+\$\{\{ github\.token \}\}/u);
+  assert.match(editorCiWorkflow, /run-id:\s+\$\{\{ github\.run_id \}\}/u);
+  assert.match(editorCiWorkflow, /verifyEditorReleaseSet\.mjs/u);
+  assert.match(editorCiWorkflow, /draft:true,prerelease:true,make_latest:'false'/u);
+  assert.doesNotMatch(
+    editorCiWorkflow,
+    /JSON\.stringify\(\{[^\n}]*target_commitish/u,
+  );
+  assert.match(editorCiWorkflow, /trap rollback_draft EXIT/u);
+  assert.match(editorCiWorkflow, /git\/ref\/tags\/\$\{TAG\}/u);
+  assert.match(editorCiWorkflow, /releases\/tags\/\$\{TAG\}/u);
+  assert.match(editorCiWorkflow, /gh release download "\$TAG" --dir "\$REMOTE_DIR"/u);
+  assert.match(editorCiWorkflow, /sha256sum --strict --check SHA256SUMS/u);
+  assert.match(editorCiWorkflow, /published_at \/\/ "UNPUBLISHED"/u);
+  assert.doesNotMatch(editorCiWorkflow, /-F draft=false|-f make_latest=true|draft:\s*false/u);
+  assert.doesNotMatch(editorCiWorkflow, /git (?:merge|push|tag)\b/u);
+
   const gameWorkflow = await readWorkflowSource(
     workflowDirectory,
     'player-game-build.yml',
@@ -564,6 +696,11 @@ test('passes Windows paths only through environment variables, never PowerShell 
   const destination = 'C:\\Artifact Root\\Player Output.zip';
   const verification = windowsSignatureVerificationInvocation(source, {});
   const archive = windowsArchiveInvocation(source, destination, {});
+  const standardZipArchive = windowsStandardZipArchiveInvocation(
+    source,
+    destination,
+    {},
+  );
   const metadata = windowsMetadataVerificationInvocation(
     source,
     "Game$(injected)`whoami`",
@@ -578,10 +715,23 @@ test('passes Windows paths only through environment variables, never PowerShell 
     assert.equal(invocation.args.at(-2), '-Command');
     assert.equal(invocation.args.at(-1).includes('$args'), false);
   }
+  assert.equal(standardZipArchive.command, 'pwsh.exe');
+  assert.equal(standardZipArchive.args.includes(source), false);
+  assert.equal(standardZipArchive.args.includes(destination), false);
+  assert.equal(standardZipArchive.args.at(-2), '-Command');
+  assert.equal(standardZipArchive.args.at(-1).includes('$args'), false);
   assert.equal(verification.environment.VN_PLAYER_WINDOWS_VERIFY_ROOT, source);
   assert.equal(archive.environment.VN_PLAYER_WINDOWS_ARCHIVE_SOURCE, source);
   assert.equal(
     archive.environment.VN_PLAYER_WINDOWS_ARCHIVE_DESTINATION,
+    destination,
+  );
+  assert.equal(
+    standardZipArchive.environment.VN_PLAYER_WINDOWS_ARCHIVE_SOURCE,
+    source,
+  );
+  assert.equal(
+    standardZipArchive.environment.VN_PLAYER_WINDOWS_ARCHIVE_DESTINATION,
     destination,
   );
   assert.equal(

@@ -1,0 +1,433 @@
+# 文件职责：在受控入口构建、验证并短期上传 Editor 内部 ZIP；经一次性提交标记授权时创建非公开 Draft Release。
+# 关键实现：C++/TypeScript 测试、Editor 打包、ZIP 回读、SHA-256、精确 artifact 上传与 Draft-only 远端复验。
+name: Editor internal verification
+
+on:
+  push:
+    branches:
+      - feature/editor-release
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: editor-internal-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CI: 'true'
+  PNPM_VERSION: 11.18.0
+
+jobs:
+  test-package:
+    name: Internal Editor ${{ matrix.platform }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            platform: darwin
+            arch: arm64
+          - runner: windows-latest
+            platform: win32
+            arch: x64
+
+    steps:
+      - name: Check out the exact commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Install Node.js from .node-version
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Verify runner architecture
+        shell: bash
+        run: >-
+          node -e "if (process.platform !== '${{ matrix.platform }}' || process.arch !== '${{ matrix.arch }}') throw new Error('Unexpected runner: ' + process.platform + '/' + process.arch)"
+
+      - name: Install the frozen workspace
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate internal Editor artifact metadata
+        id: preflight
+        shell: bash
+        env:
+          EDITOR_RELEASE_COMMIT: ${{ github.sha }}
+        run: >-
+          node apps/editor/scripts/verifyEditorReleasePrerequisites.mjs
+          --package apps/editor/package.json
+          --classification internal
+          --commit "$EDITOR_RELEASE_COMMIT"
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Read the embedded Player version
+        shell: bash
+        run: |
+          PLAYER_VERSION="$(node -p "require('./apps/player/package.json').version")"
+          echo "PLAYER_VERSION=$PLAYER_VERSION" >> "$GITHUB_ENV"
+
+      - name: Test shared Runtime and Player template producer
+        run: |
+          pnpm --dir packages/runtime test
+          pnpm --dir apps/player typecheck
+          pnpm --dir apps/player lint
+          pnpm --dir apps/player test
+
+      - name: Typecheck and lint Editor
+        run: |
+          pnpm --dir apps/editor typecheck
+          pnpm --dir apps/editor lint
+
+      - name: Test Editor release tooling
+        run: pnpm --dir apps/editor test:release-tools
+
+      - name: Build the Editor C++ engine and tests
+        run: pnpm --dir apps/editor engine:build
+
+      - name: Test the Editor C++ engine on Windows
+        if: matrix.platform == 'win32'
+        run: ctest --test-dir engine/build -C Debug --output-on-failure
+
+      - name: Test the Editor C++ engine on macOS
+        if: matrix.platform == 'darwin'
+        run: pnpm --dir apps/editor engine:test
+
+      - name: Test Editor TypeScript and export integration
+        run: pnpm --dir apps/editor exec vitest run
+
+      - name: Configure the release Editor backend
+        run: pnpm --dir apps/editor engine:configure:release
+
+      - name: Build the release Editor backend
+        run: >-
+          cmake --build engine/build-release
+          --config Release
+          --target vn_engine_backend
+          --parallel
+
+      - name: Install the release Editor backend
+        run: >-
+          cmake --install engine/build-release
+          --config Release
+          --prefix engine/stage/backend
+
+      - name: Package the internal Editor application
+        id: package_editor
+        env:
+          VN_EDITOR_OUT_DIR: ${{ runner.temp }}/editor-internal-out
+          VN_EDITOR_PACKAGE_PHASE_REPORT: github-output
+        run: pnpm --dir apps/editor package:application
+
+      - name: Record the fixed Editor package failure phase
+        if: failure() && steps.package_editor.outcome == 'failure'
+        shell: bash
+        env:
+          EDITOR_PACKAGE_PHASE: ${{ steps.package_editor.outputs.editor_package_phase }}
+        run: |
+          case "$EDITOR_PACKAGE_PHASE" in
+            editor-engine-stage|web-template|native-template-setup|player-package|player-template-stage|editor-forge|temporary-cleanup)
+              SAFE_PACKAGE_PHASE="$EDITOR_PACKAGE_PHASE"
+              ;;
+            *)
+              SAFE_PACKAGE_PHASE="unknown"
+              ;;
+          esac
+          echo "::error title=Internal Editor packaging failed::phase=$SAFE_PACKAGE_PHASE"
+          {
+            echo "## Internal Editor packaging failed"
+            echo ""
+            echo "Fixed diagnostic phase: \`$SAFE_PACKAGE_PHASE\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Locate the one packaged Editor application
+        id: application
+        shell: bash
+        run: >-
+          node apps/editor/scripts/locateEditorBuild.mjs
+          --out-dir "${{ runner.temp }}/editor-internal-out"
+          --platform "${{ matrix.platform }}"
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Verify internal package identity and signature classification
+        shell: bash
+        env:
+          EDITOR_RELEASE_VERSION: ${{ steps.preflight.outputs.version }}
+          EDITOR_RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          node apps/editor/scripts/verifyEditorBuild.mjs \
+            --out-dir "${{ runner.temp }}/editor-internal-out" \
+            --platform "${{ matrix.platform }}" \
+            --arch "${{ matrix.arch }}" \
+            --classification internal \
+            --product "VN Engine Editor" \
+            --version "$EDITOR_RELEASE_VERSION" \
+            --app-bundle-id com.vnengine.editor \
+            --player-version "$PLAYER_VERSION" \
+            --commit "$EDITOR_RELEASE_COMMIT" \
+            --receipt "${{ runner.temp }}/editor-internal-receipt.json"
+
+      - name: Archive and re-open the internal Editor ZIP
+        id: archive_editor
+        shell: bash
+        env:
+          EDITOR_APP_PATH: ${{ steps.application.outputs.app_path }}
+          EDITOR_RELEASE_VERSION: ${{ steps.preflight.outputs.version }}
+          VN_EDITOR_ARCHIVE_PHASE_REPORT: github-output
+        run: |
+          mkdir -p "${{ runner.temp }}/editor-internal-input"
+          node apps/editor/scripts/archiveEditorBuild.mjs \
+            --platform "${{ matrix.platform }}" \
+            --source "$EDITOR_APP_PATH" \
+            --output "${{ runner.temp }}/editor-internal-input/VN-Engine-Editor-${{ matrix.platform }}-${{ matrix.arch }}-$EDITOR_RELEASE_VERSION.zip" \
+            --receipt "${{ runner.temp }}/editor-internal-receipt.json"
+
+      - name: Record the fixed Editor archive failure phase or code
+        if: failure() && steps.archive_editor.outcome == 'failure'
+        shell: bash
+        env:
+          EDITOR_ARCHIVE_PHASE: ${{ steps.archive_editor.outputs.editor_archive_phase }}
+        run: |
+          case "$EDITOR_ARCHIVE_PHASE" in
+            input|create|zip-verify|extract-verify|cleanup|zip-open|limits|path|duplicate|unexpected|type|mode|content|missing|finalize)
+              SAFE_ARCHIVE_PHASE="$EDITOR_ARCHIVE_PHASE"
+              ;;
+            *)
+              SAFE_ARCHIVE_PHASE="unknown"
+              ;;
+          esac
+          echo "::error title=Internal Editor archive failed::phase=$SAFE_ARCHIVE_PHASE"
+          {
+            echo "## Internal Editor archive failed"
+            echo ""
+            echo "Fixed diagnostic phase/code: \`$SAFE_ARCHIVE_PHASE\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Collect and verify the internal ZIP and SHA-256
+        shell: bash
+        env:
+          EDITOR_RELEASE_VERSION: ${{ steps.preflight.outputs.version }}
+          EDITOR_RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          node apps/editor/scripts/collectEditorArtifacts.mjs \
+            --input "${{ runner.temp }}/editor-internal-input" \
+            --output "${{ runner.temp }}/editor-internal-artifact" \
+            --receipt "${{ runner.temp }}/editor-internal-receipt.json" \
+            --classification internal \
+            --platform "${{ matrix.platform }}" \
+            --arch "${{ matrix.arch }}" \
+            --version "$EDITOR_RELEASE_VERSION" \
+            --commit "$EDITOR_RELEASE_COMMIT"
+
+      - name: Upload the verified internal Editor ZIP
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: VN-Engine-Editor-${{ matrix.platform }}-${{ matrix.arch }}-${{ steps.preflight.outputs.version }}-internal
+          path: ${{ runner.temp }}/editor-internal-artifact
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+      - name: Record the internal-only result
+        shell: bash
+        run: |
+          {
+            echo "## Internal Editor ZIP verified: ${{ matrix.platform }}-${{ matrix.arch }}"
+            echo ""
+            echo "This ZIP is not a public release. macOS is ad-hoc signed; Windows is unsigned or not platform-verified."
+            echo "The verified internal artifact is retained for seven days for maintainer inspection."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  draft-release:
+    name: Create the authorized internal Editor Draft Release
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/feature/editor-release' &&
+      contains(github.event.head_commit.message, '[editor-draft-release]')
+    needs:
+      - test-package
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Check out the exact candidate commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Install Node.js from .node-version
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install the frozen workspace without lifecycle scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Read and validate the internal Editor version
+        id: preflight
+        shell: bash
+        env:
+          EDITOR_RELEASE_COMMIT: ${{ github.sha }}
+        run: >-
+          node apps/editor/scripts/verifyEditorReleasePrerequisites.mjs
+          --package apps/editor/package.json
+          --classification internal
+          --commit "$EDITOR_RELEASE_COMMIT"
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Download both verified platform candidates from this run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          pattern: VN-Engine-Editor-*-${{ steps.preflight.outputs.version }}-internal
+          path: ${{ runner.temp }}/editor-release-candidates
+          merge-multiple: true
+
+      - name: Verify the exact two-platform release set
+        shell: bash
+        env:
+          EDITOR_RELEASE_VERSION: ${{ steps.preflight.outputs.version }}
+          EDITOR_RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          node apps/editor/scripts/verifyEditorReleaseSet.mjs \
+            --input "${{ runner.temp }}/editor-release-candidates" \
+            --output "${{ runner.temp }}/editor-draft-assets" \
+            --classification internal \
+            --version "$EDITOR_RELEASE_VERSION" \
+            --commit "$EDITOR_RELEASE_COMMIT"
+
+      - name: Create, upload, and re-open the private Draft Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_COMMIT: ${{ github.sha }}
+          VERSION: ${{ steps.preflight.outputs.version }}
+          TAG: editor-v${{ steps.preflight.outputs.version }}-internal.1
+          PUBLISH_DIR: ${{ runner.temp }}/editor-draft-assets
+        run: |
+          set -Eeuo pipefail
+          CREATED_DRAFT=false
+          CREATED_RELEASE_ID=''
+          rollback_draft() {
+            status=$?
+            trap - EXIT
+            if [[ "$status" -ne 0 && "$CREATED_DRAFT" == "true" ]]; then
+              release_state="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${CREATED_RELEASE_ID}" --jq '[.id, .draft, .prerelease, .tag_name, (.published_at // "UNPUBLISHED")] | @tsv' 2>/dev/null || true)"
+              expected_state="$CREATED_RELEASE_ID"$'\ttrue\ttrue\t'"$TAG"$'\tUNPUBLISHED'
+              if [[ "$release_state" == "$expected_state" ]] && verify_tag >/dev/null 2>&1; then
+                gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${CREATED_RELEASE_ID}" >/dev/null || true
+              fi
+            fi
+            exit "$status"
+          }
+          verify_tag() {
+            tag_state="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" --jq '.object | [.type, .sha] | @tsv')"
+            if [[ "$tag_state" != $'commit\t'"$EXPECTED_COMMIT" ]]; then
+              echo "The internal Editor tag does not point to the exact candidate commit" >&2
+              return 1
+            fi
+          }
+          verify_draft() {
+            release_state="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${CREATED_RELEASE_ID}" --jq '[.id, .draft, .prerelease, .tag_name, (.published_at // "UNPUBLISHED")] | @tsv')"
+            expected_state="$CREATED_RELEASE_ID"$'\ttrue\ttrue\t'"$TAG"$'\tUNPUBLISHED'
+            if [[ "$release_state" != "$expected_state" ]]; then
+              echo "The internal Editor Draft Release identity changed" >&2
+              return 1
+            fi
+            tag_release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq '.id')"
+            if [[ "$tag_release_id" != "$CREATED_RELEASE_ID" ]]; then
+              echo "The internal Editor tag no longer resolves to this Draft Release" >&2
+              return 1
+            fi
+            verify_tag
+          }
+          trap rollback_draft EXIT
+          verify_tag
+          RELEASE_TAGS="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" --jq '.[] | .tag_name')"
+          if grep -Fxq "$TAG" <<< "$RELEASE_TAGS"; then
+            echo "A release already exists for $TAG; refusing to overwrite it" >&2
+            exit 1
+          fi
+          {
+            echo "VN Engine Editor $VERSION — Internal Test Build"
+            echo ""
+            echo "This is a private Draft Release for trusted internal testing. It is not published and is not Latest."
+            echo ""
+            echo "- macOS: Apple Silicon (arm64), ad-hoc signed and not notarized."
+            echo "- Windows: x64, unsigned or not platform-verified."
+            echo "- Verify downloads with SHA256SUMS before testing."
+          } > "${{ runner.temp }}/editor-draft-notes.md"
+          node -e "const fs=require('node:fs');fs.writeFileSync(process.argv[1],JSON.stringify({tag_name:process.env.TAG,name:'VN Engine Editor '+process.env.VERSION+' Internal',body:fs.readFileSync(process.argv[2],'utf8'),draft:true,prerelease:true,make_latest:'false'}))" \
+            "${{ runner.temp }}/editor-draft-create.json" \
+            "${{ runner.temp }}/editor-draft-notes.md"
+          CREATED_RELEASE_ID="$(gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/releases" \
+            --input "${{ runner.temp }}/editor-draft-create.json" \
+            --jq '.id')"
+          [[ "$CREATED_RELEASE_ID" =~ ^[0-9]+$ ]] || {
+            echo "The Draft Release ID is invalid" >&2
+            exit 1
+          }
+          CREATED_DRAFT=true
+          verify_draft
+          gh release upload "$TAG" \
+            "$PUBLISH_DIR/VN-Engine-Editor-darwin-arm64-$VERSION.zip" \
+            "$PUBLISH_DIR/VN-Engine-Editor-win32-x64-$VERSION.zip" \
+            "$PUBLISH_DIR/SHA256SUMS" \
+            "$PUBLISH_DIR/release-set.json"
+          EXPECTED_NAMES="$(find "$PUBLISH_DIR" -maxdepth 1 -type f -print | sed 's#^.*/##' | LC_ALL=C sort)"
+          REMOTE_NAMES="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${CREATED_RELEASE_ID}/assets" --jq '.[].name' | LC_ALL=C sort)"
+          if [[ "$REMOTE_NAMES" != "$EXPECTED_NAMES" ]]; then
+            echo "Draft Release assets do not match the verified local set" >&2
+            exit 1
+          fi
+          REMOTE_DIR="${{ runner.temp }}/editor-draft-download"
+          mkdir -p "$REMOTE_DIR"
+          gh release download "$TAG" --dir "$REMOTE_DIR"
+          while IFS= read -r asset_name; do
+            local_hash="$(sha256sum "$PUBLISH_DIR/$asset_name" | awk '{print $1}')"
+            remote_hash="$(sha256sum "$REMOTE_DIR/$asset_name" | awk '{print $1}')"
+            if [[ "$local_hash" != "$remote_hash" ]]; then
+              echo "Downloaded Draft asset digest mismatch: $asset_name" >&2
+              exit 1
+            fi
+          done <<< "$EXPECTED_NAMES"
+          (cd "$REMOTE_DIR" && sha256sum --strict --check SHA256SUMS)
+          verify_draft
+          CREATED_DRAFT=false
+          trap - EXIT
+
+      - name: Record the private Draft result
+        shell: bash
+        run: |
+          {
+            echo "## Internal Editor Draft Release created"
+            echo ""
+            echo "The release remains Draft and Pre-release, is not Latest, and was created from the exact feature/editor-release commit."
+            echo "Only trusted collaborators with push access can view a GitHub Draft Release."
+          } >> "$GITHUB_STEP_SUMMARY"

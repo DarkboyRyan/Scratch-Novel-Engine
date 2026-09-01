@@ -145,6 +145,18 @@ function parseTemplateManifest(
     throw new Error('macOS 独立应用模板路径不符合 v1 exact 契约');
   }
   if (
+    parsed.platform === 'win32' &&
+    (parsed.arch !== 'x64' ||
+      parsed.payloadRoot !== 'payload' ||
+      parsed.artifactEntry !== 'VN Engine Player-win32-x64' ||
+      parsed.gameResourceDirectory !== 'resources/game' ||
+      parsed.applicationMetadataFile !==
+        'resources/vn-game-application.json' ||
+      parsed.macosInfoPlistFile !== null)
+  ) {
+    throw new Error('Windows x64 独立应用模板路径不符合 v1 exact 契约');
+  }
+  if (
     (parsed.platform === 'darwin') !==
       (typeof parsed.macosInfoPlistFile === 'string') ||
     (parsed.platform === 'darwin' && !parsed.artifactEntry.endsWith('.app'))

@@ -83,6 +83,7 @@
 | [sceneStartBlock.test.ts](./sceneStartBlock.test.ts) | Vitest + TypeScript + Blockly | 验证 scene start block 的行为 | `scene start block` |
 | [standaloneApplicationArchive.test.ts](./standaloneApplicationArchive.test.ts) | Vitest + TypeScript | 验证 standalone Application Archive 的关键行为与回归边界 | 关键成功、失败与边界场景 |
 | [standaloneApplicationExporter.test.ts](./standaloneApplicationExporter.test.ts) | Vitest + TypeScript | 验证 standalone Application Exporter 的关键行为与回归边界 | 关键成功、失败与边界场景 |
+| [standaloneApplicationWindows.test.ts](./standaloneApplicationWindows.test.ts) | Vitest + TypeScript + PowerShell | 在 Windows x64 验证本地独立游戏的完整 ZIP 组装、复验与目录保留 | `standalone Windows x64 application export` |
 | [standalonePlayerTemplate.test.ts](./standalonePlayerTemplate.test.ts) | Vitest + TypeScript | 验证 standalone Player template contract 的行为 | `standalone Player template contract` |
 | [startScreenEditor.test.tsx](./startScreenEditor.test.tsx) | Vitest + React + TypeScript + Blockly + JSDOM | 验证 start screen Editor projection 的行为 | `start screen Editor projection` |
 | [startScreenResponsiveStyle.test.ts](./startScreenResponsiveStyle.test.ts) | Vitest + TypeScript | 验证 start screen responsive style contract 的行为 | `start screen responsive style contract` |
