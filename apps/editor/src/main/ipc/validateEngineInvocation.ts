@@ -6,7 +6,9 @@ import {
 } from '../../shared/engineProtocol';
 import {
   DEFAULT_IMAGE_SCALE_PERCENT,
+  isCgGalleryStyleDocument,
   isImageScalePercent,
+  isStartScreenStyleDocument,
 } from '../../shared/projectTypes';
 import { isCharacterEffect } from '@vnengine/runtime';
 
@@ -111,6 +113,256 @@ function isLogicCondition(value: unknown): boolean {
   );
 }
 
+const MAX_SCENE_CONTENT_DRAFT_BYTES = 2 * 1024 * 1024;
+const MAX_SCENE_CONTENT_DRAFT_ENTITIES = 10_000;
+const MAX_SCENE_CONTENT_NESTING_DEPTH = 16;
+
+type SceneContentDraftBudget = {
+  entities: number;
+  originIds: Set<string>;
+};
+
+function hasExactFields(
+  value: Record<string, unknown>,
+  required: readonly string[],
+  optional: readonly string[] = [],
+): boolean {
+  const allowed = new Set([...required, ...optional]);
+  return required.every((key) => Object.hasOwn(value, key)) &&
+    Object.keys(value).every((key) => allowed.has(key));
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function isNullableId(value: unknown): value is string | null {
+  return value === null || isNonEmptyString(value);
+}
+
+function consumeDraftEntity(
+  value: Record<string, unknown>,
+  budget: SceneContentDraftBudget,
+): boolean {
+  budget.entities += 1;
+  if (budget.entities > MAX_SCENE_CONTENT_DRAFT_ENTITIES) {
+    return false;
+  }
+  if (!Object.hasOwn(value, 'originId')) {
+    return true;
+  }
+  if (!isNonEmptyString(value.originId) || budget.originIds.has(value.originId)) {
+    return false;
+  }
+  budget.originIds.add(value.originId);
+  return true;
+}
+
+function hasDraftFields(
+  value: Record<string, unknown>,
+  required: readonly string[],
+): boolean {
+  return hasExactFields(value, required, ['originId']);
+}
+
+function isCharacterPosition(value: unknown): boolean {
+  return value === null ||
+    (isObject(value) &&
+      hasExactFields(value, ['x', 'y']) &&
+      typeof value.x === 'number' &&
+      Number.isFinite(value.x) &&
+      value.x >= 0 &&
+      value.x <= 100 &&
+      typeof value.y === 'number' &&
+      Number.isFinite(value.y) &&
+      value.y >= 0 &&
+      value.y <= 100);
+}
+
+function isSceneContentDialogueDraft(
+  value: unknown,
+  budget: SceneContentDraftBudget,
+): boolean {
+  return isObject(value) &&
+    consumeDraftEntity(value, budget) &&
+    hasDraftFields(value, ['type', 'speaker', 'text', 'voiceAssetId']) &&
+    value.type === 'dialogue' &&
+    typeof value.speaker === 'string' &&
+    typeof value.text === 'string' &&
+    isNullableId(value.voiceAssetId);
+}
+
+function isSceneContentChoiceOptionDraft(
+  value: unknown,
+  budget: SceneContentDraftBudget,
+): boolean {
+  return isObject(value) &&
+    consumeDraftEntity(value, budget) &&
+    hasDraftFields(value, ['text', 'targetSceneId']) &&
+    typeof value.text === 'string' &&
+    isNonEmptyString(value.targetSceneId);
+}
+
+function isSceneContentDraftNode(
+  value: unknown,
+  budget: SceneContentDraftBudget,
+  depth: number,
+): boolean {
+  if (!isObject(value) || !consumeDraftEntity(value, budget)) {
+    return false;
+  }
+
+  switch (value.type) {
+    case 'dialogue':
+      // The entity was already consumed above, so validate this shape inline.
+      return hasDraftFields(value, ['type', 'speaker', 'text', 'voiceAssetId']) &&
+        typeof value.speaker === 'string' &&
+        typeof value.text === 'string' &&
+        isNullableId(value.voiceAssetId);
+    case 'background':
+      return hasDraftFields(value, ['type', 'assetId', 'scalePercent']) &&
+        isNullableId(value.assetId) &&
+        isImageScalePercent(value.scalePercent) &&
+        (value.assetId !== null ||
+          value.scalePercent === DEFAULT_IMAGE_SCALE_PERCENT);
+    case 'character': {
+      const isClear = value.mode === 'clear';
+      const isShow = value.mode === 'show';
+      return hasDraftFields(value, [
+        'type',
+        'mode',
+        'assetId',
+        'slot',
+        'layer',
+        'position',
+        'effect',
+        'scalePercent',
+      ]) &&
+        (isClear || isShow) &&
+        isNullableId(value.assetId) &&
+        (value.slot === 'left' ||
+          value.slot === 'center' ||
+          value.slot === 'right') &&
+        Number.isInteger(value.layer) &&
+        (value.layer as number) >= 1 &&
+        (value.layer as number) <= 10 &&
+        isCharacterPosition(value.position) &&
+        (value.effect === null || isCharacterEffect(value.effect)) &&
+        isImageScalePercent(value.scalePercent) &&
+        (!isClear ||
+          (value.assetId === null &&
+            value.position === null &&
+            value.effect === null &&
+            value.scalePercent === DEFAULT_IMAGE_SCALE_PERCENT)) &&
+        (value.assetId !== null || value.effect === null);
+    }
+    case 'sceneJump':
+      return hasDraftFields(value, ['type', 'targetSceneId']) &&
+        isNonEmptyString(value.targetSceneId);
+    case 'bgm':
+    case 'video':
+      return hasDraftFields(value, ['type', 'assetId']) &&
+        isNullableId(value.assetId);
+    case 'choice':
+      return hasDraftFields(value, ['type', 'options']) &&
+        Array.isArray(value.options) &&
+        value.options.every((option) =>
+          isSceneContentChoiceOptionDraft(option, budget)
+        );
+    case 'variableSet':
+      return hasDraftFields(value, ['type', 'variableName', 'value']) &&
+        isLogicVariableName(value.variableName) &&
+        isLogicValue(value.value);
+    case 'variableChange':
+      return hasDraftFields(value, ['type', 'variableName', 'amount']) &&
+        isLogicVariableName(value.variableName) &&
+        typeof value.amount === 'number' &&
+        Number.isFinite(value.amount);
+    case 'if':
+      return depth < MAX_SCENE_CONTENT_NESTING_DEPTH &&
+        hasDraftFields(value, [
+          'type',
+          'condition',
+          'thenNodes',
+          'elseNodes',
+        ]) &&
+        isLogicCondition(value.condition) &&
+        Array.isArray(value.thenNodes) &&
+        Array.isArray(value.elseNodes) &&
+        value.thenNodes.every((node) =>
+          isSceneContentDraftNode(node, budget, depth + 1)
+        ) &&
+        value.elseNodes.every((node) =>
+          isSceneContentDraftNode(node, budget, depth + 1)
+        );
+    case 'repeat':
+      return depth < MAX_SCENE_CONTENT_NESTING_DEPTH &&
+        hasDraftFields(value, ['type', 'count', 'bodyNodes']) &&
+        Number.isInteger(value.count) &&
+        (value.count as number) >= 1 &&
+        (value.count as number) <= 1000 &&
+        Array.isArray(value.bodyNodes) &&
+        value.bodyNodes.every((node) =>
+          isSceneContentDraftNode(node, budget, depth + 1)
+        );
+    case 'cg':
+      return depth < MAX_SCENE_CONTENT_NESTING_DEPTH &&
+        hasDraftFields(value, ['type', 'assetId', 'leadInMs', 'bodyNodes']) &&
+        isNonEmptyString(value.assetId) &&
+        Number.isInteger(value.leadInMs) &&
+        (value.leadInMs as number) >= 0 &&
+        (value.leadInMs as number) <= 60_000 &&
+        Array.isArray(value.bodyNodes) &&
+        value.bodyNodes.every((node) =>
+          isSceneContentDialogueDraft(node, budget)
+        );
+    case 'storyExtension':
+      return hasDraftFields(value, ['type']);
+    default:
+      return false;
+  }
+}
+
+function isSceneContentDraft(value: unknown): boolean {
+  if (!isObject(value) || !hasExactFields(value, [
+    'name',
+    'initialBackground',
+    'nodes',
+  ])) {
+    return false;
+  }
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    return false;
+  }
+  if (utf8ByteLength(serialized) > MAX_SCENE_CONTENT_DRAFT_BYTES) {
+    return false;
+  }
+  if (
+    typeof value.name !== 'string' ||
+    value.name.includes('\0') ||
+    utf8ByteLength(value.name) > 4096 ||
+    !isObject(value.initialBackground) ||
+    !hasExactFields(value.initialBackground, ['assetId', 'scalePercent']) ||
+    !isNullableId(value.initialBackground.assetId) ||
+    !isImageScalePercent(value.initialBackground.scalePercent) ||
+    (value.initialBackground.assetId === null &&
+      value.initialBackground.scalePercent !== DEFAULT_IMAGE_SCALE_PERCENT) ||
+    !Array.isArray(value.nodes)
+  ) {
+    return false;
+  }
+  const budget: SceneContentDraftBudget = {
+    entities: 0,
+    originIds: new Set(),
+  };
+  return value.nodes.every((node) =>
+    isSceneContentDraftNode(node, budget, 0)
+  );
+}
+
 export function isEngineInvocation(
   value: unknown,
 ): value is EngineInvocation {
@@ -162,15 +414,29 @@ export function isEngineInvocation(
           hasString('backgroundAssetId')) &&
         (params.musicAssetId === null || hasString('musicAssetId'))
       );
+    case 'startScreen.style.update':
+      return (
+        Object.keys(params).length === 1 &&
+        isStartScreenStyleDocument(params.style)
+      );
     case 'cgGallery.update':
       return (
         Object.keys(params).length === 1 &&
         isCgGalleryPages(params.pages)
       );
+    case 'cgGallery.style.update':
+      return (
+        Object.keys(params).length === 1 &&
+        isCgGalleryStyleDocument(params.style)
+      );
     case 'scene.add':
       return params.name === undefined || hasString('name');
     case 'scene.rename':
       return hasString('sceneId') && hasString('name');
+    case 'scene.content.replace':
+      return hasString('sceneId') &&
+        hasOnly(['sceneId', 'draft']) &&
+        isSceneContentDraft(params.draft);
     case 'scene.delete':
       return hasString('sceneId');
     case 'scene.setBackground':

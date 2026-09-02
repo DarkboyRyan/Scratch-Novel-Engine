@@ -7,6 +7,11 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { VnEngineApi } from '../../src/shared/engineProtocol';
 import type { VnGameExportApi } from '../../src/shared/exportProtocol';
+import {
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
+  type SceneContentDraft,
+} from '../../src/shared/projectTypes';
 
 const electron = vi.hoisted(() => ({
   exposeInMainWorld: vi.fn(),
@@ -57,6 +62,8 @@ describe('preload background and timeline engine API', () => {
 
   it('exposes the image scale contract and forwards scene scale', async () => {
     expect(engine.imageScaleContractVersion).toBe(1);
+    expect(engine.surfaceStyleContractVersion).toBe(1);
+    expect(engine.storyCodeContractVersion).toBe(1);
 
     await engine.setSceneBackground('scene-1', 'background-1', 125);
 
@@ -67,6 +74,41 @@ describe('preload background and timeline engine API', () => {
         assetId: 'background-1',
         scalePercent: 125,
       },
+    });
+  });
+
+  it('forwards one complete story-Code draft through the atomic scene command', async () => {
+    const draft: SceneContentDraft = {
+      name: 'Edited scene',
+      initialBackground: { assetId: null, scalePercent: 100 },
+      nodes: [{
+        type: 'dialogue',
+        originId: 'dialogue-1',
+        speaker: '',
+        text: 'Edited',
+        voiceAssetId: null,
+      }],
+    };
+
+    await engine.replaceSceneContent({ sceneId: 'scene-1', draft });
+
+    expect(electron.invoke).toHaveBeenCalledWith('vn-engine:request', {
+      method: 'scene.content.replace',
+      params: { sceneId: 'scene-1', draft },
+    });
+  });
+
+  it('forwards exact title and CG page styles through the engine channel', async () => {
+    await engine.updateStartScreenStyle(DEFAULT_START_SCREEN_STYLE);
+    await engine.updateCgGalleryStyle(DEFAULT_CG_GALLERY_STYLE);
+
+    expect(electron.invoke).toHaveBeenNthCalledWith(1, 'vn-engine:request', {
+      method: 'startScreen.style.update',
+      params: { style: DEFAULT_START_SCREEN_STYLE },
+    });
+    expect(electron.invoke).toHaveBeenNthCalledWith(2, 'vn-engine:request', {
+      method: 'cgGallery.style.update',
+      params: { style: DEFAULT_CG_GALLERY_STYLE },
     });
   });
 

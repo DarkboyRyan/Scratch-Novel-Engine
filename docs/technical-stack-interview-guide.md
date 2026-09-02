@@ -1,6 +1,6 @@
 <!-- 文件职责：提供工程技术栈讲解指南；关键内容：架构话术、调用链、技术取舍和常见问答。 -->
 
-# VN Engine 技术栈与面试讲解指南
+# Scratch Novel Engine 技术栈与面试讲解指南
 
 本文是当前项目的面试总入口。它回答三个问题：项目用了什么技术、各部分
 为什么这样设计、一次操作如何穿过所有进程。具体实现细节继续查看：
@@ -42,9 +42,9 @@ JSON Lines 协议通信，而不是 HTTP。C++ 返回完整权威快照，表单
 - PNG/JPEG/WebP 图片、MP4/WebM 视频与 MP3/WAV/Ogg 音频安全导入；
 - 对白语音和时间线 BGM，正式预览使用独立双音轨控制器；
 - 正式顺序预览、阻塞式视频/选项、鼠标/键盘推进和跳转循环检测；
-- 共享 Runtime/Player UI、v21→runtime v12 `.vngame` 目录导出和通用 Player；
-- Player 兼容 runtime v1–v12；Runtime v11 首次保存场景初始背景、时间线背景与人物立绘
-  的 10%–300% 整数缩放，当前 v12 继续支持；标题页背景和 CG 不参与缩放。标题页渲染可编辑标题上方文字、
+- 共享 Runtime/Player UI、v22→runtime v13 `.vngame` 目录导出和通用 Player；
+- Player 兼容 runtime v1–v13；Runtime v11 首次保存场景初始背景、时间线背景与人物立绘
+  的 10%–300% 整数缩放，当前 v13 继续支持；标题页背景和 CG 不参与该剧情图片缩放契约。标题页渲染可编辑标题上方文字、
   独立标题、自定义背景、循环标题音乐，以及固定的
   正式 Player 的“开始游戏 / 读取游戏 / CG 画廊 / 选项 / 退出游戏”入口；
   读取游戏使用 3 个手动槽和独立快速槽；选项支持四路音量、窗口/全屏和三档窗口尺寸；
@@ -84,10 +84,10 @@ JSON Lines 协议通信，而不是 HTTP。C++ 返回完整权威快照，表单
 > 测试上用 CTest 覆盖领域和文件事务，用 Vitest 覆盖 IPC、Blockly 和预览状态机，
 > 并有启动真实 C++ 子进程的 JSONL 集成测试。
 >
-> 游戏导出复用既有 C++ 保存链冻结 v21 和 revision；Editor Main 再严格编译
-> runtime v12，只复制剧情、主界面与 CG 非空槽引用媒体，并通过同盘 staging、SHA-256 和原子
+> 游戏导出复用既有 C++ 保存链冻结 v22 和 revision；Editor Main 再严格编译
+> runtime v13，只复制剧情、主界面与 CG 非空槽引用媒体，并通过同盘 staging、SHA-256 和原子
 > rename 发布，同时把 Main 权威 Editor 语言写入 `game.defaultLanguage`。Player 兼容
-> runtime v1–v12，旧 v1–v11 的包默认语言迁移为中文；标题音乐由标题页独立控制，进入剧情
+> runtime v1–v13，旧 v1–v11 的包默认语言迁移为中文，旧 v1–v12 的页面样式迁移为安全默认值；标题音乐由标题页独立控制，进入剧情
 > 后停止，不会与剧情 BGM 共享生命周期；runtime v5 扁平 CG 会分块补空槽，v1–v4
 > 迁移为一张全空页。
 > 通用 Player 通过 Main 原生目录选择器打开 `.vngame`，候选完整验证后才切换会话，
@@ -103,7 +103,7 @@ JSON Lines 协议通信，而不是 HTTP。C++ 返回完整权威快照，表单
 > workArea 内并同步操作系统原生全屏状态。中英 Player 外壳由 typed catalog 与 React
 > Context 即时切换；首次或没有持久语言时采用包默认，玩家保存的选择优先，旧设置 v1
 > 的缺失语言仍按默认来源处理。作者剧情文本保持原文。它不改变
-> author v21、runtime v12 或 `GameRuntimeSnapshot v5`。
+> author v22、runtime v13 或 `GameRuntimeSnapshot v5`。
 > 独立应用模式在 macOS 使用平台/架构严格匹配的 Player
 > 模板，先在私有目录注入 `Resources/game`，再改显示名/ID/版本、ad-hoc 签名；随后
 > 用 `ditto` 生成 `*-macOS.zip`，在另一私有目录解压并复验唯一 `.app` 的签名，最后
@@ -129,7 +129,7 @@ JSON Lines 协议通信，而不是 HTTP。C++ 返回完整权威快照，表单
 | JSON | nlohmann/json 3.11.3 | 只用于 C++ Backend 的协议和项目文件边界 |
 | 进程通信 | Electron IPC + JSONL | Renderer→Main 使用 IPC；Main→C++ 使用带请求 ID 的逐行 JSON |
 | 文件系统 | Electron dialog、Node `fs`、C++ OS 文件 API | 项目目录、临时工作区、流式复制、fsync 和原子替换 |
-| Runtime 导出 | TypeScript strict parser、Node streams、SHA-256 | 已保存 v21→runtime v12、eyebrow、剧情图片缩放、包默认语言、严格逻辑/effect/mode 结构、资源闭包与 staging 原子发布 |
+| Runtime 导出 | TypeScript strict parser、Node streams、SHA-256 | 已保存 v22→runtime v13、页面样式、eyebrow、剧情图片缩放、包默认语言、严格逻辑/effect/mode 结构、资源闭包与 staging 原子发布 |
 | 安全资源读取 | Electron 自定义 `vn-asset://` 协议 | 用 capability token 加载图片/音频/视频，用 Range 播放音频和视频且不暴露路径 |
 | 独立 Player | Electron、`vn-game-asset://`、原生目录选择器 | 候选先校验后 commit，成功换包轮换 token，失败保留旧包 |
 | Player 选项 | `PlayerSettingsV2`、typed i18n catalog、React Context/模态层、Node `fs`、Electron BrowserWindow/Display | 中英外壳即时切换、v1迁移、四路音量预览、exact patch IPC、userData 原子持久化、workArea 与原生全屏同步 |
@@ -326,7 +326,7 @@ C++ 快照会投影成对白、背景、人物、BGM、视频、选项、跳转�
 
 “延伸”从作者项目 v12 起就是带稳定 ID 的编辑节点，可从 Toolbox 创建和删除；它自身不做
 单块拖动，数字输入会移动它及其后直到下一延伸前的整段，并按权威时间线重新编号。
-表单会隐藏它，Compiler 会在生成 runtime v12 前剥离，因此它没有游戏运行行为。
+表单会隐藏它，Compiler 会在生成 runtime v13 前剥离，因此它没有游戏运行行为。
 
 剧情 Toolbox 按剧情、逻辑、变量、音乐、图片和特效分类。变量、If/Else、Repeat 可嵌入普通
 剧情和其它控制积木，最大嵌套 16 层；Repeat 为 1–1000 次。表单把隐藏 markers 还原成
@@ -381,22 +381,22 @@ CG 画廊有自己的表单与 Blockly 工作区，而不是混入剧情 Toolbox
 未保存项目导入媒体时，每个窗口使用 Main 私有临时工作区。第一次保存才把
 资源和清单安全发布到正式项目文件夹。
 
-当前 Writer 写 `fileVersion: 21`，Reader 支持 v1–v21。v9 曾新增 ChoiceNode 的
+当前 Writer 写 `fileVersion: 22`，Reader 支持 v1–v22。v9 曾新增 ChoiceNode 的
 严格嵌套 options；v10 新增 `project.startScreen` 背景/音乐，v11 新增独立 `title`。
 读取 v1–v9 时媒体迁移为 `null`，读取 v1–v10 时标题从 `project.name` 迁移；v12
 新增作者手动延伸节点，v13 为人物节点新增可空百分比坐标，v14 以扁平图片 ID 数组
 新增项目级 CG 画廊。v15 改为至少一页、每页精确九个 `string | null` 的固定槽结构。
-读取 v14 时按顺序每九张分块并补 `null`，读取 v1–v13 时生成一张全空页；下一次保存
-v16 新增变量、严格条件 AST 和 If/Else/Repeat paired markers；v17 新增显示 CG 的
+读取 v14 时按顺序每九张分块并补 `null`，读取 v1–v13 时生成一张全空页；v16
+新增变量、严格条件 AST 和 If/Else/Repeat paired markers；v17 新增显示 CG 的
 paired range；v18 为 CharacterNode 新增严格可空 sidecar effect，v19 再新增显式
 `mode: 'show' | 'clear'`，v20 新增 `startScreen.eyebrow`，v21 为场景初始背景、背景节点和
-人物节点新增 10–300 整数缩放。旧 v1–v17 人物迁移为
+人物节点新增 10–300 整数缩放；v22 为主界面和 CG 画廊新增严格类型化页面样式。旧 v1–v17 人物迁移为
 `effect:null`，旧 v1–v18 人物按 `assetId` 迁移 mode，v1–v19 eyebrow 补
-`A VN ENGINE STORY`，旧 v1–v20 缩放补 100%；下一次保存统一写 v21，未来版本仍被拒绝。`show` 可在编辑阶段以
+`A VN ENGINE STORY`，旧 v1–v20 缩放补 100%，旧 v1–v21 页面样式补安全默认值；下一次保存统一写 v22，未来版本仍被拒绝。`show` 可在编辑阶段以
 `assetId:null` 作为未完成占位并在预览中 no-op，但导出会用 `character-image-required`
 拒绝；`clear` 则严格要求 `assetId`、`position` 和 `effect` 都为 `null`。
 对应运行历史中，显示 CG 是 runtime v8 / snapshot v3 里程碑，人物特效在 runtime v9
-引入；Runtime v11 首次加入图片缩放，当前为 runtime v12 / snapshot v5，其中 Runtime
+引入；Runtime v11 首次加入图片缩放，当前为 runtime v13 / snapshot v5，其中 Runtime
 v10 的 eyebrow 与 Snapshot v4 的人物特效语义仍作为历史里程碑保留。
 
 ### 4.8 图片、视频与音频导入
@@ -470,7 +470,7 @@ fadeIn、fadeOut 或 slideIn。Runtime 使用全局单调 `characterEffectSequen
 阻塞和页面隐藏只暂停 CSS animation 进度，`prefers-reduced-motion` 禁用动画但不改变最终
 opacity。表单时间线只展示静态最终状态。
 
-剧情背景和人物立绘缩放由 Runtime v11 首次引入、当前 Runtime v12 延续的状态驱动：
+剧情背景和人物立绘缩放由 Runtime v11 首次引入、当前 Runtime v13 延续的状态驱动：
 背景围绕舞台中心，人物围绕底部中心锚点缩放。立绘缩放 wrapper 与内部 effect 图片层
 分离，因此 breathe/shake 等 transform 不会覆盖作者设置的 10%–300% 比例；标题页背景和
 CG 继续使用自己的 contain 规则。
@@ -480,13 +480,14 @@ CG 继续使用自己的 contain 规则。
 复杂后，再评估把同一语义
 下沉到 C++ Runtime。
 
-独立 Player 在进入剧情状态机前先显示 runtime v12 的 `game.startScreen`。标题上方文字和独立标题直接来自
+独立 Player 在进入剧情状态机前先显示 runtime v13 的 `game.startScreen`。标题上方文字和独立标题直接来自
 `game.json` 文本，背景经 `vn-game-asset://` 加载；标题音乐使用标题页自己的循环 `<audio>`，在“开始游戏”、
 换包或组件卸载时暂停并归零。剧情开始后才由共享 Player UI 接管时间线 BGM，因此
 两个音频生命周期互不污染。runtime v1 没有该字段、v2 没有独立标题，Reader 会分别
-补空媒体或从 `game.title` 补标题；runtime v1–v9 eyebrow 补默认文案。runtime v6–v12 严格读取固定页面；runtime v5 的扁平
-列表按序分块补空，v1–v4 规范化为一张全空页。Runtime v12 的 `game.defaultLanguage`
-由 Editor Main 写入导出时权威语言，旧 runtime v1–v11 迁移为 `zh-CN`。
+补空媒体或从 `game.title` 补标题；runtime v1–v9 eyebrow 补默认文案。runtime v6–v13 严格读取固定页面；runtime v5 的扁平
+列表按序分块补空，v1–v4 规范化为一张全空页。Runtime v12 引入的 `game.defaultLanguage`
+由 Editor Main 写入导出时权威语言，旧 runtime v1–v11 迁移为 `zh-CN`；Runtime v13
+要求主界面和 CG 画廊的严格样式 DTO，旧 runtime v1–v12 补安全默认值。
 
 ### 4.12 Player 本地选项
 
@@ -555,7 +556,7 @@ Forge、GitHub Actions。
 - Forge 用 `extraResource` 把它复制到 `Resources/backend`，因为可执行文件不能
   从 `app.asar` 内直接运行；
 - macOS Editor package/make 会先生成 exact Player 模板并复制到
-  `Resources/player-templates`；模板声明 `runtimeCompatibility: ">=1 <13"`，CI 会
+  `Resources/player-templates`；模板声明 `runtimeCompatibility: ">=1 <14"`，CI 会
   复验兼容区间并确保模板不含预置 game/metadata；
 - 发布脚本负责输入校验、签名、公证、build receipt、checksums 和完整制品集合；
   正式 workflow 缺任一 Environment Secret 都不会降级成 unsigned release；
@@ -651,8 +652,8 @@ Editor 点击“导出”
   → 独立应用填写应用名、x.y.z 版本和 Application ID
   → 提交项目名、表单和 Blockly 草稿
   → 等待 Engine 队列并走既有 C++ 保存链
-  → Main 确认 clean/saved revision，稳定读取磁盘 v21
-  → TypeScript 严格编译 runtime v12，并注入 Main 权威 Editor 语言，只复制剧情、主界面与 CG 非空槽引用媒体
+  → Main 确认 clean/saved revision，稳定读取磁盘 v22
+  → TypeScript 严格编译 runtime v13，并注入 Main 权威 Editor 语言，只复制剧情、主界面与 CG 非空槽引用媒体
   → 同盘 staging 计算 SHA-256、写 manifest 并复验
   → 内容包：原子 rename 为 .vngame 目录
   → Web：合并预构建 Vite payload 与 game/<buildId>
@@ -675,9 +676,9 @@ UI。浏览器存档/设置使用 IndexedDB；窗口尺寸禁用，全屏使用 
 标题页。它不携带 Electron、C++ Backend 或编辑权限，且必须通过 HTTP/HTTPS 部署。
 详见 [Web Player ZIP 导出](./web-player-export.md)。
 
-runtime v12 manifest 使用 `playerCompatibility: ">=12 <13"`；Player Reader 同时接受
-runtime v1–v12，而当前 Player 模板用 `runtimeCompatibility: ">=1 <13"` 明确覆盖十二代
-输入。运行 v12 时标题页使用可编辑标题上方文字、独立标题与固定九槽 CG 画廊，并固定显示
+runtime v13 manifest 使用 `playerCompatibility: ">=13 <14"`；Player Reader 同时接受
+runtime v1–v13，而当前 Player 模板用 `runtimeCompatibility: ">=1 <14"` 明确覆盖十三代
+输入。运行 v13 时标题页使用可编辑标题上方文字、独立标题、页面样式与固定九槽 CG 画廊，并固定显示
 “开始游戏 / 读取游戏 / CG 画廊 / 选项 / 退出游戏”。Editor 整体预览也显示完整菜单，
 但读取入口只弹出说明、不访问磁盘；正式 Player 才注入存档操作。通用 Player 的
 “打开其他游戏”入口放在“选项”中。
@@ -707,7 +708,7 @@ Forge，随后执行平台签名、验证、checksum 和 build receipt。workflo
 ```
 
 Editor 的标题页整体预览复用相同弹层，但只更新组件内存；窗口模式和尺寸禁用，
-没有 `window.vnPlayer` 设置调用。选项设置与作者项目 v21、runtime v12 和
+没有 `window.vnPlayer` 设置调用。选项设置与作者项目 v22、runtime v13 和
 `GameRuntimeSnapshot v5` 相互独立。
 
 ### 5.8 编辑、移动并播放人物立绘特效
@@ -719,7 +720,7 @@ Editor 的标题页整体预览复用相同弹层，但只更新组件内存；�
   → 跨人物拖动调用 characterEffect.move，并携带 source 当前完整 effect
   → Main/Preload exact-fields 校验 → C++ JSONL Backend
   → Core 先验证 source/target/payload，再一次性清 source、写 target、递增 revision
-  → Author v21 保存 strict union/scale → Compiler 输出 Runtime v12
+  → Author v22 保存 strict union/scale/style → Compiler 输出 Runtime v13
   → Runtime 执行人物指令并递增全局 characterEffectSequence
   → VisualStage 等待图片 load/decode 后挂载一次性 CSS 动画
   → pause/hidden 保留进度，reduced motion 只取消动画不改变最终 opacity
@@ -811,12 +812,13 @@ StrictMode 会在开发环境重复执行 effect。hook 使用实例级 `useRef`
 - 正式预览已有背景、人物、七类立绘特效、对白、BGM、视频、显示 CG、选项、跳转、变量、
   If/Else 和固定 Repeat；
   ChoiceOption 自身暂不支持条件可见性或副作用；
-- 项目 Writer 为 v21、Reader 支持 v1–v21；v9 保存 ChoiceNode/ChoiceOption，v10
+- 项目 Writer 为 v22、Reader 支持 v1–v22；v9 保存 ChoiceNode/ChoiceOption，v10
   新增项目级主界面背景/音乐配置，v11 新增独立标题，v12 新增作者手动延伸，v13
   新增人物自定义坐标，v14 新增扁平 CG 画廊，v15 改为固定九槽页面，v16 新增变量和配对逻辑，
   v17 新增显示 CG 控制块，v18 为人物节点新增严格 sidecar effect，v19 新增人物
-  `show/clear` 意图，v20 新增可编辑标题上方文字，v21 新增剧情背景与人物立绘缩放；
-- Editor 已完成 v21→runtime v12 内容包导出；Player 兼容 runtime v1–v12，packaged macOS
+  `show/clear` 意图，v20 新增可编辑标题上方文字，v21 新增剧情背景与人物立绘缩放，v22
+  新增主界面与 CG 画廊严格页面样式；
+- Editor 已完成 v22→runtime v13 内容包导出；Player 兼容 runtime v1–v13，packaged macOS
   Editor 还能通过 strict
   当前架构模板事务式导出每游戏 `*-macOS.zip`，其中只有一个使用模板默认图标和
   ad-hoc 签名的 `.app`；ad-hoc 产物只适合本机或内部测试；

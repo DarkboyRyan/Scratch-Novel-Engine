@@ -1,18 +1,28 @@
 // 主要作用：在 Runtime DTO 上扩展 Editor 专用节点和作者资产模型。
 // 关键实现：复用 Runtime 缩放契约、区分语义/隐藏节点并投影运行时模型。
-import type {
-  BackgroundNode as RuntimeBackgroundNode,
-  CharacterNode as RuntimeCharacterNode,
-  ProjectDocument as RuntimeProjectDocument,
-  SceneDocument as RuntimeSceneDocument,
-  SceneNode as RuntimeSceneNode,
+import {
+  DEFAULT_CG_GALLERY_STYLE,
+  type BackgroundNode as RuntimeBackgroundNode,
+  type CharacterEffect,
+  type CharacterNode as RuntimeCharacterNode,
+  type CharacterPosition,
+  type CharacterSlot,
+  type LogicCondition,
+  type LogicValue,
+  type ProjectDocument as RuntimeProjectDocument,
+  type SceneDocument as RuntimeSceneDocument,
+  type SceneNode as RuntimeSceneNode,
 } from '@vnengine/runtime';
 
 export const DEFAULT_START_SCREEN_EYEBROW = 'A VN ENGINE STORY';
 export const START_SCREEN_EYEBROW_MAX_UTF8_BYTES = 256;
 export {
+  DEFAULT_CG_GALLERY_STYLE,
   DEFAULT_IMAGE_SCALE_PERCENT,
+  DEFAULT_START_SCREEN_STYLE,
+  isCgGalleryStyleDocument,
   isImageScalePercent,
+  isStartScreenStyleDocument,
   MAX_IMAGE_SCALE_PERCENT,
   MIN_IMAGE_SCALE_PERCENT,
 } from '@vnengine/runtime';
@@ -26,6 +36,7 @@ export type {
   CgEndDisplayNode,
   CgGalleryDocument,
   CgGalleryPageDocument,
+  CgGalleryStyleDocument,
   CharacterEffect,
   CharacterEffectDirection,
   CharacterEffectIntensity,
@@ -45,6 +56,8 @@ export type {
   LogicValue,
   SceneJumpNode,
   StartScreenDocument,
+  StartScreenStyleDocument,
+  PageFontPreset,
   VariableChangeNode,
   VariableSetNode,
   VideoNode,
@@ -122,6 +135,100 @@ export type SceneDocument = Omit<RuntimeSceneDocument, 'nodes'> & {
   nodes: SceneNode[];
 };
 
+// The editable story Code surface compiles into this closed, format-neutral
+// draft before crossing IPC. `originId` is only an identity hint for an
+// existing authored object; omitted IDs are allocated by the C++ backend.
+// Hidden logic/CG markers never cross this boundary and are rebuilt from the
+// nested controls during the atomic scene replacement.
+type SceneContentDraftOrigin = {
+  originId?: string;
+};
+
+export type SceneContentDialogueDraft = SceneContentDraftOrigin & {
+  type: 'dialogue';
+  speaker: string;
+  text: string;
+  voiceAssetId: string | null;
+};
+
+export type SceneContentChoiceOptionDraft = SceneContentDraftOrigin & {
+  text: string;
+  targetSceneId: string;
+};
+
+export type SceneContentDraftNode =
+  | SceneContentDialogueDraft
+  | (SceneContentDraftOrigin & {
+      type: 'background';
+      assetId: string | null;
+      scalePercent: number;
+    })
+  | (SceneContentDraftOrigin & {
+      type: 'character';
+      mode: CharacterMode;
+      assetId: string | null;
+      slot: CharacterSlot;
+      layer: number;
+      position: CharacterPosition | null;
+      effect: CharacterEffect | null;
+      scalePercent: number;
+    })
+  | (SceneContentDraftOrigin & {
+      type: 'sceneJump';
+      targetSceneId: string;
+    })
+  | (SceneContentDraftOrigin & {
+      type: 'bgm';
+      assetId: string | null;
+    })
+  | (SceneContentDraftOrigin & {
+      type: 'video';
+      assetId: string | null;
+    })
+  | (SceneContentDraftOrigin & {
+      type: 'choice';
+      options: SceneContentChoiceOptionDraft[];
+    })
+  | (SceneContentDraftOrigin & {
+      type: 'variableSet';
+      variableName: string;
+      value: LogicValue;
+    })
+  | (SceneContentDraftOrigin & {
+      type: 'variableChange';
+      variableName: string;
+      amount: number;
+    })
+  | (SceneContentDraftOrigin & {
+      type: 'if';
+      condition: LogicCondition;
+      thenNodes: SceneContentDraftNode[];
+      elseNodes: SceneContentDraftNode[];
+    })
+  | (SceneContentDraftOrigin & {
+      type: 'repeat';
+      count: number;
+      bodyNodes: SceneContentDraftNode[];
+    })
+  | (SceneContentDraftOrigin & {
+      type: 'cg';
+      assetId: string;
+      leadInMs: number;
+      bodyNodes: SceneContentDialogueDraft[];
+    })
+  | (SceneContentDraftOrigin & {
+      type: 'storyExtension';
+    });
+
+export type SceneContentDraft = {
+  name: string;
+  initialBackground: {
+    assetId: string | null;
+    scalePercent: number;
+  };
+  nodes: SceneContentDraftNode[];
+};
+
 export type ProjectDocument = Omit<RuntimeProjectDocument, 'scenes'> & {
   scenes: SceneDocument[];
 };
@@ -173,6 +280,7 @@ export function toRuntimeProjectDocument(
     startScreen: project.startScreen,
     cgGallery: project.cgGallery ?? {
       pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+      style: { ...DEFAULT_CG_GALLERY_STYLE },
     },
     scenes: project.scenes.map((scene) => ({
       schemaVersion: scene.schemaVersion,

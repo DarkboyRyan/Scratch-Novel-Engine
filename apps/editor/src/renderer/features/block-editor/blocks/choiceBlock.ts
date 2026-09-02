@@ -7,6 +7,7 @@ import * as Blockly from 'blockly';
 
 import type { SceneDocument } from '../../../../shared/projectTypes';
 import { DEFAULT_EDITOR_LANGUAGE, getEditorLabels, type EditorLabels } from '../../../i18n/editorLocalization';
+import { formatEditorSceneLabel } from '../../start-screen/startScreenScene';
 
 export const CHOICE_BLOCK_TYPE = 'vn_choice';
 export const CHOICE_OPTION_BLOCK_TYPE = 'vn_choice_option';
@@ -31,9 +32,7 @@ let currentLabels = getEditorLabels(DEFAULT_EDITOR_LANGUAGE);
 let currentSceneOptions: Blockly.MenuOption[] = [[currentLabels.blockly.currentScene, '']];
 
 function sceneLabel(scene: SceneDocument, index: number, labels: EditorLabels): string {
-  return scene.name === `场景 ${index + 1}`
-    ? `${labels.common.scene} ${index + 1}`
-    : `${labels.common.scene} ${index + 1} · ${scene.name}`;
+  return formatEditorSceneLabel(scene.name, index, labels);
 }
 
 export function applyChoiceBlockLocalization(block: Blockly.Block, labels: EditorLabels): void {

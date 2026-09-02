@@ -46,6 +46,10 @@ import {
   PLAYER_TEMPLATE_FORMAT,
   PLAYER_TEMPLATE_VERSION,
 } from '../../src/main/export/StandalonePlayerTemplate';
+import {
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
+} from '../../src/shared/projectTypes';
 
 const runtimeMocks = vi.hoisted(() => ({
   exportRuntimeBundle: vi.fn(),
@@ -138,9 +142,11 @@ const project = {
     eyebrow: 'A VN ENGINE STORY',
     backgroundAssetId: null,
     musicAssetId: null,
+    style: { ...DEFAULT_START_SCREEN_STYLE },
   },
   cgGallery: {
     pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+    style: { ...DEFAULT_CG_GALLERY_STYLE },
   },
   scenes: [
     {
@@ -159,6 +165,13 @@ const sourceManifestContents = JSON.stringify({
   fileVersion: 20,
   project: {
     ...project,
+    startScreen: {
+      title: project.startScreen.title,
+      eyebrow: project.startScreen.eyebrow,
+      backgroundAssetId: project.startScreen.backgroundAssetId,
+      musicAssetId: project.startScreen.musicAssetId,
+    },
+    cgGallery: { pages: project.cgGallery.pages },
     scenes: [
       {
         schemaVersion: 1,
@@ -230,7 +243,7 @@ function platformTemplateManifest(overrides: Record<string, unknown> = {}) {
     platform: process.platform,
     arch: process.arch,
     playerVersion: '0.1.0',
-    runtimeCompatibility: '>=1 <13',
+    runtimeCompatibility: '>=1 <14',
     payloadRoot: 'payload',
     artifactEntry: macos ? 'VN Engine Player.app' : 'vn-engine-player',
     gameResourceDirectory: macos

@@ -2,7 +2,7 @@
 
 # 逻辑 Blockly 实现
 
-> 实现状态：已完成。当前作者项目格式为 v21，导出为 runtime v12；桌面与 Web Player
+> 实现状态：已完成。当前作者项目格式为 v22，导出为 runtime v13；桌面与 Web Player
 > 共用同一套严格逻辑模型、执行器和 `GameRuntimeSnapshot v5`。逻辑首次引入版本仍为
 > author v16 / runtime v7 / snapshot v2。
 
@@ -152,19 +152,20 @@ Player，所以三处的条件、循环和错误语义一致。
 
 ## 6. 保存、读取与版本兼容
 
-作者 Writer 当前固定写 `fileVersion: 21`。Reader 接受 v1–v21：v1–v15 按既有规则
+作者 Writer 当前固定写 `fileVersion: 22`。Reader 接受 v1–v22：v1–v15 按既有规则
 迁移为当前模型，但这些旧版本若伪造 v16 才有的逻辑节点会被拒绝；v16 首次保存变量、
 条件和 paired markers。v17 增加显示 CG 的配对节点；v18 增加人物 sidecar effect，v19
-增加人物 `show/clear` 意图；v20 新增标题页 eyebrow，v21 新增剧情背景/立绘缩放，这些
-升级均不改变既有逻辑 AST。
+增加人物 `show/clear` 意图；v20 新增标题页 eyebrow，v21 新增剧情背景/立绘缩放，v22
+新增主界面和 CG 画廊严格样式；这些升级均不改变既有逻辑 AST。
 
-Editor Main 直接严格读取 author v14–v21，并把已保存的当前 author v21 编译为 runtime
-v12。Player Reader 支持 runtime
-v1–v12；逻辑节点从 v7 起可用，显示 CG 节点从 v8 起可用，人物特效从 v9 起可用，
-剧情图片缩放从 v11 起可用且 v1–v10 迁移为 100%。Runtime v12 还由 Main 写入导出时
-权威 Editor 语言作为 `game.defaultLanguage`；旧 v1–v11 迁移为 `zh-CN`。
-当前 bundle manifest 声明 `playerCompatibility: ">=12 <13"`，桌面和 Web Player 模板声明
-`runtimeCompatibility: ">=1 <13"`，两者分别表示“本包需要哪个 Player”与“本模板能读取
+Editor Main 直接严格读取 author v14–v22，并把已保存的当前 author v22 编译为 runtime
+v13。Player Reader 支持 runtime
+v1–v13；逻辑节点从 v7 起可用，显示 CG 节点从 v8 起可用，人物特效从 v9 起可用，
+剧情图片缩放从 v11 起可用且 v1–v10 迁移为 100%。Runtime v12 首次由 Main 写入导出时
+权威 Editor 语言作为 `game.defaultLanguage`；旧 v1–v11 迁移为 `zh-CN`。Runtime v13
+新增严格页面样式，旧 v1–v12 补安全默认值。
+当前 bundle manifest 声明 `playerCompatibility: ">=13 <14"`，桌面和 Web Player 模板声明
+`runtimeCompatibility: ">=1 <14"`，两者分别表示“本包需要哪个 Player”与“本模板能读取
 哪些包”，不可互换。
 
 游戏进度当前使用 `GameRuntimeSnapshot v5`。v2 相较 v1 增加背景、立绘、变量表和活动
@@ -179,10 +180,10 @@ IndexedDB Web 存档都复用这套严格解析与恢复。
 | 层 | 技术与职责 |
 | --- | --- |
 | C++ Core | C++20、`std::variant`、候选副本事务；保存权威节点并校验 marker、嵌套、变量预算 |
-| C++ Backend | nlohmann/json、JSONL；author v21 strict Reader/Writer、exact params、业务错误码 |
+| C++ Backend | nlohmann/json、JSONL；author v22 strict Reader/Writer、exact params、业务错误码 |
 | Electron 边界 | typed shared protocol、Main IPC validator、contextBridge preload；逐层 exact-field 校验 |
 | Renderer | React 19、Blockly 13、TypeScript；分类 Toolbox、C 形投影、后端优先 actions、表单只读树 |
-| 导出 | Editor Main TypeScript strict compiler；author v21 → runtime v12，保留运行节点并剥离延伸 |
+| 导出 | Editor Main TypeScript strict compiler；author v22 → runtime v13，保留运行节点并剥离延伸 |
 | Runtime | 纯 TypeScript reducer、预编译控制流、变量表、显式 loop stack、10000 步预算 |
 | Player/存档 | Electron 与 Web 共用 runtime schema；`GameRuntimeSnapshot v5`、桌面原子文件与 IndexedDB |
 
@@ -208,7 +209,7 @@ IndexedDB Web 存档都复用这套严格解析与恢复。
 - NUL、UTF-8 多字节边界、NaN/Infinity、Repeat/嵌套/32 变量上限和 extra fields；
 - Blockly 投影、事件路由、分类 Toolbox、表单树和不确定静态预览；
 - Runtime 条件语义、循环、自动步骤预算、snapshot v5 round-trip 与旧 v1–v4 兼容；
-- author v21 → runtime v12 导出，以及桌面/Web Player v1–v12 Reader 和模板契约。
+- author v22 → runtime v13 导出，以及桌面/Web Player v1–v13 Reader 和模板契约。
 
 本次实现验收使用 CTest、Editor TypeScript typecheck/ESLint/Vitest、Runtime Vitest、
 Player Vitest 与 Player release-tools Node tests；逻辑链相关改动通过完整测试套件。

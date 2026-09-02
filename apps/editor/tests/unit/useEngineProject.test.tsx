@@ -16,6 +16,10 @@ import {
 } from '../../src/renderer/hooks/useEngineProject';
 import { EditorI18nProvider } from '../../src/renderer/i18n/editorLocalization';
 import type { EngineMutationResult } from '../../src/shared/engineProtocol';
+import {
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
+} from '../../src/shared/projectTypes';
 
 const initialResult: EngineMutationResult = {
   project: {
@@ -28,9 +32,11 @@ const initialResult: EngineMutationResult = {
       eyebrow: 'A VN ENGINE STORY',
       backgroundAssetId: null,
       musicAssetId: null,
+      style: { ...DEFAULT_START_SCREEN_STYLE },
     },
     cgGallery: {
       pages: [{ imageAssetIds: Array(9).fill(null) }],
+      style: { ...DEFAULT_CG_GALLERY_STYLE },
     },
     scenes: [
       {
@@ -140,7 +146,10 @@ describe('useEngineProject asset state', () => {
   let importAudio: ReturnType<typeof vi.fn>;
   let addBackground: ReturnType<typeof vi.fn>;
   let updateStartScreen: ReturnType<typeof vi.fn>;
+  let updateStartScreenStyle: ReturnType<typeof vi.fn>;
   let updateCgGallery: ReturnType<typeof vi.fn>;
+  let updateCgGalleryStyle: ReturnType<typeof vi.fn>;
+  let replaceSceneContent: ReturnType<typeof vi.fn>;
   let updateBackground: ReturnType<typeof vi.fn>;
   let deleteBackground: ReturnType<typeof vi.fn>;
   let reorderBackground: ReturnType<typeof vi.fn>;
@@ -198,6 +207,7 @@ describe('useEngineProject asset state', () => {
       project: {
         ...initialResult.project,
         startScreen: {
+          ...initialResult.project.startScreen,
           title: 'Custom title',
           eyebrow: 'A CUSTOM STORY',
           backgroundAssetId: 'asset-1',
@@ -211,11 +221,27 @@ describe('useEngineProject asset state', () => {
         isDirty: true,
       },
     });
+    updateStartScreenStyle = vi.fn().mockImplementation(async (style) => ({
+      ...initialResult,
+      project: {
+        ...initialResult.project,
+        startScreen: {
+          ...initialResult.project.startScreen,
+          style,
+        },
+      },
+      session: {
+        revision: 3,
+        savedRevision: 2,
+        isDirty: true,
+      },
+    }));
     updateCgGallery = vi.fn().mockResolvedValue({
       ...initialResult,
       project: {
         ...initialResult.project,
         cgGallery: {
+          ...initialResult.project.cgGallery,
           pages: [{
             imageAssetIds: ['asset-1', null, null, null, null, null, null, null, null],
           }],
@@ -228,6 +254,45 @@ describe('useEngineProject asset state', () => {
         isDirty: true,
       },
     });
+    updateCgGalleryStyle = vi.fn().mockImplementation(async (style) => ({
+      ...initialResult,
+      project: {
+        ...initialResult.project,
+        cgGallery: {
+          ...initialResult.project.cgGallery,
+          style,
+        },
+      },
+      session: {
+        revision: 3,
+        savedRevision: 2,
+        isDirty: true,
+      },
+    }));
+    replaceSceneContent = vi.fn().mockImplementation(async ({ draft }) => ({
+      ...initialResult,
+      project: {
+        ...initialResult.project,
+        scenes: [{
+          ...initialResult.project.scenes[0]!,
+          name: draft.name,
+          backgroundAssetId: draft.initialBackground.assetId,
+          backgroundScalePercent: draft.initialBackground.scalePercent,
+          nodes: [{
+            id: 'dialogue-from-code',
+            type: 'dialogue',
+            speaker: '',
+            text: 'Applied from Code',
+            voiceAssetId: null,
+          }],
+        }],
+      },
+      session: {
+        revision: 3,
+        savedRevision: 2,
+        isDirty: true,
+      },
+    }));
     updateBackground = vi.fn().mockResolvedValue(backgroundResult);
     deleteBackground = vi.fn().mockResolvedValue(backgroundResult);
     reorderBackground = vi.fn().mockResolvedValue(backgroundResult);
@@ -268,9 +333,14 @@ describe('useEngineProject asset state', () => {
     platform = {
       engine: {
         imageScaleContractVersion: 1,
+        surfaceStyleContractVersion: 1,
+        storyCodeContractVersion: 1,
         ensureProject: vi.fn().mockResolvedValue(initialResult),
         updateStartScreen,
+        updateStartScreenStyle,
         updateCgGallery,
+        updateCgGalleryStyle,
+        replaceSceneContent,
         addBackground,
         updateBackground,
         deleteBackground,
@@ -357,6 +427,11 @@ describe('useEngineProject asset state', () => {
         typeof legacyProject.startScreen
       >
     ).eyebrow;
+    delete (
+      legacyProject.startScreen as Partial<
+        typeof legacyProject.startScreen
+      >
+    ).style;
     const legacyResult = {
       ...initialResult,
       project: legacyProject,
@@ -376,9 +451,13 @@ describe('useEngineProject asset state', () => {
 
     expect(current?.project?.cgGallery).toEqual({
       pages: [{ imageAssetIds: Array(9).fill(null) }],
+      style: DEFAULT_CG_GALLERY_STYLE,
     });
     expect(current?.project?.startScreen.eyebrow).toBe(
       'A VN ENGINE STORY',
+    );
+    expect(current?.project?.startScreen.style).toEqual(
+      DEFAULT_START_SCREEN_STYLE,
     );
     expect(current?.engineMessage).toBe('');
 
@@ -388,6 +467,7 @@ describe('useEngineProject asset state', () => {
     });
     expect(snapshot!.cgGallery).toEqual({
       pages: [{ imageAssetIds: Array(9).fill(null) }],
+      style: DEFAULT_CG_GALLERY_STYLE,
     });
     expect(snapshot!.startScreen.eyebrow).toBe('A VN ENGINE STORY');
   });
@@ -607,6 +687,7 @@ describe('useEngineProject asset state', () => {
       eyebrow: 'A CUSTOM STORY',
       backgroundAssetId: 'asset-1',
       musicAssetId: 'audio-1',
+      style: DEFAULT_START_SCREEN_STYLE,
     });
   });
 
@@ -699,6 +780,206 @@ describe('useEngineProject asset state', () => {
 
     expect(updateCgGallery).toHaveBeenCalledWith(pages);
     expect(current?.project?.cgGallery.pages).toEqual(pages);
+  });
+
+  it('updates title and CG page styles in queued mutations', async () => {
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    const startStyle = {
+      ...DEFAULT_START_SCREEN_STYLE,
+      layout: 'center' as const,
+    };
+    const galleryStyle = {
+      ...DEFAULT_CG_GALLERY_STYLE,
+      gapPx: 24,
+    };
+
+    await act(async () => {
+      expect(await current!.updateStartScreenStyle(startStyle)).toBe(true);
+      expect(await current!.updateCgGalleryStyle(galleryStyle)).toBe(true);
+    });
+
+    expect(updateStartScreenStyle).toHaveBeenCalledWith(startStyle);
+    expect(updateCgGalleryStyle).toHaveBeenCalledWith(galleryStyle);
+    expect(current?.project?.cgGallery.style).toEqual(galleryStyle);
+  });
+
+  it('refuses page-style writes from a stale live preload', async () => {
+    platform = {
+      ...platform,
+      engine: {
+        ...platform.engine,
+        surfaceStyleContractVersion: undefined,
+      },
+    };
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(
+        await current!.updateStartScreenStyle(DEFAULT_START_SCREEN_STYLE),
+      ).toBe(false);
+      expect(
+        await current!.updateCgGalleryStyle(DEFAULT_CG_GALLERY_STYLE),
+      ).toBe(false);
+    });
+
+    expect(updateStartScreenStyle).not.toHaveBeenCalled();
+    expect(updateCgGalleryStyle).not.toHaveBeenCalled();
+    expect(current?.engineMessage).toContain('页面样式功能已更新');
+  });
+
+  it('applies an atomic story-Code replacement snapshot', async () => {
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    const draft = {
+      name: 'Renamed from Code',
+      initialBackground: { assetId: null, scalePercent: 100 },
+      nodes: [{
+        originId: 'dialogue-1',
+        type: 'dialogue' as const,
+        speaker: '',
+        text: 'Applied from Code',
+        voiceAssetId: null,
+      }],
+    };
+
+    await act(async () => {
+      expect(
+        await current!.replaceSceneContent({ sceneId: 'scene-1', draft }),
+      ).toBe(true);
+    });
+
+    expect(replaceSceneContent).toHaveBeenCalledWith({
+      sceneId: 'scene-1',
+      draft,
+    });
+    expect(current?.project?.scenes[0]).toMatchObject({
+      name: 'Renamed from Code',
+      nodes: [{ type: 'dialogue', text: 'Applied from Code' }],
+    });
+    expect(current?.session).toMatchObject({
+      revision: 3,
+      savedRevision: 2,
+      isDirty: true,
+    });
+  });
+
+  it('refuses story-Code writes from a stale live preload', async () => {
+    platform = {
+      ...platform,
+      engine: {
+        ...platform.engine,
+        storyCodeContractVersion: undefined,
+      },
+    };
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(
+        await current!.replaceSceneContent({
+          sceneId: 'scene-1',
+          draft: {
+            name: 'Scene 1',
+            initialBackground: { assetId: null, scalePercent: 100 },
+            nodes: [],
+          },
+        }),
+      ).toBe(false);
+    });
+
+    expect(replaceSceneContent).not.toHaveBeenCalled();
+    expect(current?.engineMessage).toContain('剧情代码编辑功能已更新');
+    expect(current?.project).toEqual(initialResult.project);
+  });
+
+  it.each([
+    'Renderer 发来了无效的引擎请求',
+    'unknown method: scene.content.replace',
+  ])(
+    'reports actionable English restart guidance when stale Main rejects Story Code: %s',
+    async (message) => {
+      replaceSceneContent.mockRejectedValue(new Error(message));
+      await act(async () => {
+        root.render(
+          <EditorI18nProvider language="en-US">
+            <Harness />
+          </EditorI18nProvider>,
+        );
+      });
+
+      await act(async () => {
+        expect(
+          await current!.replaceSceneContent({
+            sceneId: 'scene-1',
+            draft: {
+              name: 'Scene 1',
+              initialBackground: { assetId: null, scalePercent: 100 },
+              nodes: [{
+                originId: 'dialogue-1',
+                type: 'dialogue',
+                speaker: 'Father',
+                text: 'test?',
+                voiceAssetId: null,
+              }],
+            },
+          }),
+        ).toBe(false);
+      });
+
+      expect(current?.engineMessage).toBe(
+        'Story Code editing was updated. Fully quit and restart Editor, then try again.',
+      );
+      expect(current?.engineMessage).not.toBe(
+        'The C++ backend returned an unknown error',
+      );
+      expect(current?.project).toEqual(initialResult.project);
+    },
+  );
+
+  it('reports an actionable English error for a stale C++ response schema', async () => {
+    replaceSceneContent.mockRejectedValue(
+      new Error('C++ 后端响应格式不正确（请求 7）'),
+    );
+    await act(async () => {
+      root.render(
+        <EditorI18nProvider language="en-US">
+          <Harness />
+        </EditorI18nProvider>,
+      );
+    });
+
+    await act(async () => {
+      expect(
+        await current!.replaceSceneContent({
+          sceneId: 'scene-1',
+          draft: {
+            name: 'Scene 1',
+            initialBackground: { assetId: null, scalePercent: 100 },
+            nodes: [{
+              originId: 'dialogue-1',
+              type: 'dialogue',
+              speaker: 'Father',
+              text: 'test?',
+              voiceAssetId: null,
+            }],
+          },
+        }),
+      ).toBe(false);
+    });
+
+    expect(current?.engineMessage).toBe(
+      'The Editor and C++ backend are out of sync. Fully quit and restart Editor, then try again; if it continues, rebuild the backend.',
+    );
+    expect(current?.engineMessage).not.toBe(
+      'The C++ backend returned an unknown error',
+    );
+    expect(current?.project).toEqual(initialResult.project);
   });
 
   it('commits, saves, and exports one clean persisted revision', async () => {

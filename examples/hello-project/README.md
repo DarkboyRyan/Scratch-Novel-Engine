@@ -15,9 +15,10 @@
 - 旁白“这是从 project.vn.json 读取的第一句对白。”；
 - 空的场景视觉状态、标题页默认值和至少一页空 CG 画廊，由 Reader 在内存中补齐。
 
-若要点击保存，建议先复制目录。当前 Writer 会把文件直接写成 Author v21，而不是保留 v1；
-Project 和 Scene 的 `schemaVersion` 仍为 1，新增的 v2–v21 字段会按兼容规则补齐，其中
-标题上方文字迁移为 `A VN ENGINE STORY`，剧情背景和人物立绘缩放迁移为 100%。
+若要点击保存，建议先复制目录。当前 Writer 会把文件直接写成 Author v22，而不是保留 v1；
+Project 和 Scene 的 `schemaVersion` 仍为 1，新增的 v2–v22 字段会按兼容规则补齐，其中
+标题上方文字迁移为 `A VN ENGINE STORY`，剧情背景和人物立绘缩放迁移为 100%，主界面和
+CG 画廊样式迁移为安全默认值。
 
 ## 文件索引
 

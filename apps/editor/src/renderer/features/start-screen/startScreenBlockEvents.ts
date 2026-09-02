@@ -18,12 +18,15 @@ import {
   trimStartScreenAsciiWhitespace,
 } from './startScreenScene';
 
-type StartScreenDocument = ProjectDocument['startScreen'];
+type StartScreenContentUpdate = Pick<
+  ProjectDocument['startScreen'],
+  'title' | 'eyebrow' | 'backgroundAssetId' | 'musicAssetId'
+>;
 
 export function getStartScreenFieldUpdate(
   event: Blockly.Events.Abstract,
   workspace: Blockly.Workspace,
-): StartScreenDocument | null {
+): StartScreenContentUpdate | null {
   if (event.type !== Blockly.Events.BLOCK_CHANGE) {
     return null;
   }

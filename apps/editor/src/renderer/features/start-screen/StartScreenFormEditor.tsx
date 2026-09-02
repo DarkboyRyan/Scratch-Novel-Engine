@@ -10,7 +10,10 @@ import {
   useRef,
   useState,
 } from 'react';
-import { useAutoFitScale } from '@vnengine/player-ui';
+import {
+  createStartScreenThemePresentation,
+  useAutoFitScale,
+} from '@vnengine/player-ui';
 
 import type {
   AssetDocument,
@@ -76,6 +79,7 @@ export const StartScreenFormEditor = forwardRef<
   const eyebrowDraftRef = useRef(eyebrowDraft);
   const [isMutating, setIsMutating] = useState(false);
   const titleFit = useAutoFitScale<HTMLDivElement, HTMLDivElement>();
+  const theme = createStartScreenThemePresentation(project.startScreen.style);
   const controlsDisabled = isBusy || isMutating;
   const imageAssets = assets.filter((asset) => asset.type === 'image');
   const audioAssets = assets.filter((asset) => asset.type === 'audio');
@@ -250,7 +254,12 @@ export const StartScreenFormEditor = forwardRef<
             <span aria-hidden="true">▶</span>
           </button>
         </div>
-        <div className="start-screen-design-preview">
+        <div
+          className="start-screen-design-preview"
+          style={theme.style}
+          data-player-title-layout={theme.layout}
+          data-player-title-background-fit={theme.backgroundFit}
+        >
           {backgroundUrl !== null ? (
             <img src={backgroundUrl} alt="" aria-hidden="true" />
           ) : null}

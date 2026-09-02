@@ -5,6 +5,11 @@
 // These DTOs describe the platform-independent story data consumed by the
 // runtime. They intentionally contain no storage paths, Electron values, DOM
 // objects, or editor commands.
+import type {
+  CgGalleryStyleDocument,
+  StartScreenStyleDocument,
+} from './pageStyle';
+
 export type DialogueNode = {
   id: string;
   type: 'dialogue';
@@ -203,6 +208,7 @@ export type StartScreenDocument = {
   eyebrow: string;
   backgroundAssetId: string | null;
   musicAssetId: string | null;
+  style: StartScreenStyleDocument;
 };
 
 export type CgGalleryPageDocument = {
@@ -211,6 +217,7 @@ export type CgGalleryPageDocument = {
 
 export type CgGalleryDocument = {
   pages: CgGalleryPageDocument[];
+  style: CgGalleryStyleDocument;
 };
 
 export type ProjectDocument = {

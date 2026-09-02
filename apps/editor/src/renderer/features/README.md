@@ -6,7 +6,7 @@ Features 按用户能够感知的创作能力组织 Renderer 代码，而不是�
 
 ## 架构位置与工作方式
 
-1. `App` 根据当前编辑界面选择标题、CG 画廊、表单故事或 Blockly 故事 Feature。
+1. `App` 根据当前编辑界面选择标题、CG 画廊、表单故事、Blockly 故事或 Code Feature。
 2. Feature 将作者工程投影成适合当前 UI 的状态，并把编辑事件转换为 Application 层动作。
 3. Engine 返回新工程后 Feature 重建投影，静态预览或正式运行预览随之更新。
 
@@ -17,6 +17,7 @@ Features 按用户能够感知的创作能力组织 Renderer 代码，而不是�
 | [assets](./assets/README.md) | 项目媒体资源的展示、拖拽和预览能力。 |
 | [block-editor](./block-editor/README.md) | 故事 Blockly 编辑器的工作区、事件同步和布局能力。 |
 | [cg-gallery](./cg-gallery/README.md) | CG 画廊的表单、Blockly 编辑和项目投影。 |
+| [code-editor](./code-editor/README.md) | 可原子应用的故事 DSL，以及主界面/CG 画廊的受限可编辑样式 DSL。 |
 | [form-editor](./form-editor/README.md) | 传统表单模式的场景、时间线和节点属性编辑。 |
 | [game-preview](./game-preview/README.md) | 编辑器内正式运行预览及共享播放器适配。 |
 | [start-screen](./start-screen/README.md) | 标题界面的表单、Blockly 编辑和界面导航。 |

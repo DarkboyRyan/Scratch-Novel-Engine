@@ -23,13 +23,14 @@ Web 版随后都把规范化项目交给同一 Runtime 执行。
 
 1. Editor 打开或创建 Author Project，由 C++ Core 验证并维护权威状态。
 2. Renderer 通过表单或 Blockly 发出原子编辑命令，并使用共享 Runtime 进行正式语义预览。
-3. 导出器将 Author v21 编译为 Runtime v12 内容包，剥离仅用于创作的节点、校验资源闭包，并写入导出时 Main 权威 Editor 语言。
+3. 导出器将 Author v22 编译为 Runtime v13 内容包，剥离仅用于创作的节点、校验资源闭包，并写入页面样式与导出时 Main 权威 Editor 语言。
 4. Desktop/Web Player 严格读取内容包，执行剧情，并在平台存储中隔离设置与 Snapshot v5。
 
 当前剧情图片缩放覆盖场景初始背景、时间线背景节点和人物立绘节点，范围为 10%–300% 的
 整数，默认 100%；标题页背景与 CG 仍保持原有尺寸语义。
-Runtime v11 是该缩放能力的历史里程碑；当前 v12 新增包默认语言。Player Reader
-兼容 v1–v12，旧 v1–v11 缺失语言时补 `zh-CN`，玩家已持久的语言仍优先。
+Runtime v11 是该缩放能力的历史里程碑；v12 新增包默认语言，v13 新增标题页和
+CG 画廊样式。Player Reader 兼容 v1–v13，旧 v1–v11 缺失语言时补 `zh-CN`，旧 v1–v12
+缺失样式时补默认，玩家已持久的语言仍优先。
 
 ## 开发与验证
 

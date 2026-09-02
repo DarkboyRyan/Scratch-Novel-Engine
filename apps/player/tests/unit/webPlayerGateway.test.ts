@@ -4,7 +4,11 @@
  * 关键函数与实现：测试套件“Web Player gateway”、`MemoryDocuments`、`FakeFullscreenDocument`、`project`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
  */
 
-import type { ProjectDocument } from '@vnengine/runtime';
+import {
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
+  type ProjectDocument,
+} from '@vnengine/runtime';
 import { describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_PLAYER_SETTINGS } from '../../src/shared/playerProtocol';
@@ -66,8 +70,12 @@ const project: ProjectDocument = {
     eyebrow: 'A VN ENGINE STORY',
     backgroundAssetId: 'background',
     musicAssetId: null,
+    style: { ...DEFAULT_START_SCREEN_STYLE },
   },
-  cgGallery: { pages: [{ imageAssetIds: Array(9).fill(null) }] },
+  cgGallery: {
+    pages: [{ imageAssetIds: Array(9).fill(null) }],
+    style: { ...DEFAULT_CG_GALLERY_STYLE },
+  },
   scenes: [{
     schemaVersion: 1,
     id: 'scene',

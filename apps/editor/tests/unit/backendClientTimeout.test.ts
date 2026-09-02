@@ -42,6 +42,22 @@ describe('backend request timeout', () => {
     ).toBeNull();
   });
 
+  it('does not report a failed scene replacement while C++ may still commit it', () => {
+    expect(
+      backendRequestTimeoutMs({
+        method: 'scene.content.replace',
+        params: {
+          sceneId: 'scene-1',
+          draft: {
+            name: 'Scene 1',
+            initialBackground: { assetId: null, scalePercent: 100 },
+            nodes: [],
+          },
+        },
+      }),
+    ).toBeNull();
+  });
+
   it('keeps ordinary JSON commands responsive', () => {
     expect(
       backendRequestTimeoutMs({

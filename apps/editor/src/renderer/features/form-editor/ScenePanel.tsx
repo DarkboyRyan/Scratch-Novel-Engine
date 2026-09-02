@@ -20,6 +20,7 @@ import type {
 import {
   CG_GALLERY_SCENE_ID,
   START_SCREEN_SCENE_ID,
+  localizeGeneratedSceneName,
 } from '../start-screen/startScreenScene';
 import { useEditorLabels } from '../../i18n/editorLocalization';
 import {
@@ -131,9 +132,12 @@ export function ScenePanel({
     project.scenes.findIndex((projectScene) => projectScene.id === scene.id) +
     1;
   const currentSceneLabel = `${labels.common.scene} ${currentSceneNumber}`;
-  const showsSeparateSceneName =
-    scene.name !== currentSceneLabel &&
-    scene.name !== `场景 ${currentSceneNumber}`;
+  const localizedSceneName = localizeGeneratedSceneName(
+    scene.name,
+    currentSceneNumber - 1,
+    labels,
+  );
+  const showsSeparateSceneName = localizedSceneName !== currentSceneLabel;
   const assetName = (assetId: string | null) =>
     assetId === null
       ? labels.resource.noBackground
@@ -445,7 +449,7 @@ export function ScenePanel({
               aria-expanded={isSceneMenuOpen}
               aria-keyshortcuts="F2"
               disabled={isBusy}
-              title={`${scene.name} — ${labels.scenes.renameSceneHint}`}
+              title={`${localizedSceneName} — ${labels.scenes.renameSceneHint}`}
               onClick={(event) => {
                 if (event.detail > 1) {
                   return;
@@ -478,7 +482,7 @@ export function ScenePanel({
                       ·
                     </span>
                     <span className="scene-menu-current-name">
-                      {scene.name}
+                      {localizedSceneName}
                     </span>
                   </>
                 ) : null}
@@ -538,8 +542,18 @@ export function ScenePanel({
                   <strong>
                     {labels.common.scene} {index + 1}
                   </strong>
-                  {projectScene.name !== `场景 ${index + 1}` ? (
-                    <span>{projectScene.name}</span>
+                  {localizeGeneratedSceneName(
+                    projectScene.name,
+                    index,
+                    labels,
+                  ) !== `${labels.common.scene} ${index + 1}` ? (
+                    <span>
+                      {localizeGeneratedSceneName(
+                        projectScene.name,
+                        index,
+                        labels,
+                      )}
+                    </span>
                   ) : null}
                 </button>
               ))}

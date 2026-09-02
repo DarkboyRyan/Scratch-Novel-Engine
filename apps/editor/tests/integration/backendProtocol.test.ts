@@ -9,6 +9,9 @@ import { createInterface, type Interface } from 'node:readline';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { parseBackendResponse } from '../../src/main/backend/backendResponse';
+import { isEngineInvocation } from '../../src/main/ipc/validateEngineInvocation';
+import { parseEditableSceneCode } from '../../src/renderer/features/code-editor/sceneCodeParser';
 import type {
   BackendResponse,
   EngineMethod,
@@ -119,6 +122,71 @@ describe('C++ JSONL backend', () => {
       );
     });
   }
+
+  it('accepts a named say() speaker through parser, Main validation, and C++', async () => {
+    const created = await request('project.create', {
+      name: 'Story Code dialogue test',
+    });
+    if (!created.ok) {
+      throw new Error(created.error.message);
+    }
+    const scene = created.result.project.scenes[0];
+    if (!scene) {
+      throw new Error('C++ did not return the entry scene');
+    }
+    const source = [
+      'story 1',
+      '',
+      `scene(${JSON.stringify(scene.name)}) {`,
+      '  background(none, initial: true)',
+      '',
+      '  say("test?", speaker: "Father")',
+      '}',
+      '',
+    ].join('\n');
+    const parsed = parseEditableSceneCode({
+      source,
+      scene,
+      project: created.result.project,
+      assets: created.result.assets,
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) {
+      throw new Error(parsed.diagnostics[0]?.message ?? 'Story Code parse failed');
+    }
+    expect(parsed.draft.nodes).toEqual([{
+      type: 'dialogue',
+      speaker: 'Father',
+      text: 'test?',
+      voiceAssetId: null,
+    }]);
+
+    const params = { sceneId: scene.id, draft: parsed.draft };
+    expect(isEngineInvocation({
+      method: 'scene.content.replace',
+      params,
+    })).toBe(true);
+
+    const response = await request('scene.content.replace', params);
+    expect(response.ok).toBe(true);
+    expect(() => parseBackendResponse(JSON.stringify(response))).not.toThrow();
+    expect(response).toMatchObject({
+      ok: true,
+      result: {
+        project: {
+          scenes: [expect.objectContaining({
+            id: scene.id,
+            nodes: [expect.objectContaining({
+              type: 'dialogue',
+              speaker: 'Father',
+              text: 'test?',
+              voiceAssetId: null,
+            })],
+          })],
+        },
+      },
+    });
+  });
 
   it('normalizes dialogue whitespace without inventing author content', async () => {
     const projectResponse = await request('project.ensure', {});

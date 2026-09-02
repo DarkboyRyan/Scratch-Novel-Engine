@@ -58,8 +58,12 @@ describe('Player surface visual style contract', () => {
 
     expect(optionsCard).toContain('background: rgb(12 15 20 / 96%)');
     expect(optionsCard).toContain('border-radius: 12px');
-    expect(cgCard).toContain('background: rgb(12 15 20 / 96%)');
-    expect(cgCard).toContain('border-radius: 12px');
+    expect(cgCard).toContain(
+      'background: var(--player-cg-surface-color, rgb(12 15 20 / 96%))',
+    );
+    expect(cgCard).toContain(
+      'border-radius: var(--player-cg-corner-radius, 12px)',
+    );
     expect(optionsPrimary).toContain('background: rgb(255 255 255 / 94%)');
     expect(rule(css, '.player-options-volume input')).toContain(
       'accent-color: #ffffff',

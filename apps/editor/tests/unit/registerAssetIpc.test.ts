@@ -15,6 +15,10 @@ import {
 } from '../../src/main/window/FileOperationCoordinator';
 import { ASSET_IPC_CHANNEL } from '../../src/shared/assetProtocol';
 import type { EngineMutationResult } from '../../src/shared/engineProtocol';
+import {
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
+} from '../../src/shared/projectTypes';
 
 const electronMocks = vi.hoisted(() => ({
   handle: vi.fn(),
@@ -42,9 +46,11 @@ const projectResult: EngineMutationResult = {
       eyebrow: 'A VN ENGINE STORY',
       backgroundAssetId: null,
       musicAssetId: null,
+      style: { ...DEFAULT_START_SCREEN_STYLE },
     },
     cgGallery: {
       pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+      style: { ...DEFAULT_CG_GALLERY_STYLE },
     },
     scenes: [
       {

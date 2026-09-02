@@ -7,6 +7,8 @@ import { describe, expect, it } from 'vitest';
 import {
   advanceGame,
   completeCgLeadIn,
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
   getLocalizedRuntimeErrorMessage,
   getChoices,
   MAX_LOGIC_STRING_BYTES,
@@ -29,7 +31,22 @@ function dialogue(id: string, voiceAssetId: string | null = null) {
 }
 
 function emptyCgGallery(): ProjectDocument['cgGallery'] {
-  return { pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }] };
+  return {
+    pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+    style: { ...DEFAULT_CG_GALLERY_STYLE },
+  };
+}
+
+function emptyStartScreen(
+  title = '',
+): ProjectDocument['startScreen'] {
+  return {
+    title,
+    eyebrow: '',
+    backgroundAssetId: null,
+    musicAssetId: null,
+    style: { ...DEFAULT_START_SCREEN_STYLE },
+  };
 }
 
 describe('shared runtime execution contract', () => {
@@ -39,11 +56,7 @@ describe('shared runtime execution contract', () => {
       id: 'empty-dialogue',
       name: 'Empty dialogue',
       entrySceneId: 'entry',
-      startScreen: {
-        title: '', eyebrow: '',
-        backgroundAssetId: null,
-        musicAssetId: null,
-      },
+      startScreen: emptyStartScreen(),
       cgGallery: emptyCgGallery(),
       scenes: [{
         schemaVersion: 1,
@@ -90,12 +103,7 @@ describe('shared runtime execution contract', () => {
       id: 'initial-scale',
       name: 'Initial scale',
       entrySceneId: 'entry',
-      startScreen: {
-        title: '',
-        eyebrow: '',
-        backgroundAssetId: null,
-        musicAssetId: null,
-      },
+      startScreen: emptyStartScreen(),
       cgGallery: emptyCgGallery(),
       scenes: [{
         schemaVersion: 1,
@@ -131,11 +139,7 @@ describe('shared runtime execution contract', () => {
       id: 'project',
       name: 'Contract',
       entrySceneId: 'entry',
-      startScreen: {
-        title: 'Story', eyebrow: '',
-        backgroundAssetId: null,
-        musicAssetId: null,
-      },
+      startScreen: emptyStartScreen('Story'),
       cgGallery: emptyCgGallery(),
       scenes: [{
         schemaVersion: 1,
@@ -191,7 +195,7 @@ describe('shared runtime execution contract', () => {
       id: 'character-effects',
       name: 'Character effects',
       entrySceneId: 'entry',
-      startScreen: { title: '', eyebrow: '', backgroundAssetId: null, musicAssetId: null },
+      startScreen: emptyStartScreen(),
       cgGallery: emptyCgGallery(),
       scenes: [{
         schemaVersion: 1,
@@ -289,7 +293,7 @@ describe('shared runtime execution contract', () => {
       id: 'replayed-effect',
       name: 'Replayed effect',
       entrySceneId: 'entry',
-      startScreen: { title: '', eyebrow: '', backgroundAssetId: null, musicAssetId: null },
+      startScreen: emptyStartScreen(),
       cgGallery: emptyCgGallery(),
       scenes: [{
         schemaVersion: 1,
@@ -345,7 +349,7 @@ describe('shared runtime execution contract', () => {
       id: 'effect-sequence-overflow',
       name: 'Effect sequence overflow',
       entrySceneId: 'entry',
-      startScreen: { title: '', eyebrow: '', backgroundAssetId: null, musicAssetId: null },
+      startScreen: emptyStartScreen(),
       cgGallery: emptyCgGallery(),
       scenes: [{
         schemaVersion: 1,
@@ -389,7 +393,7 @@ describe('shared runtime execution contract', () => {
       id: 'invalid-clear-effect',
       name: 'Invalid clear effect',
       entrySceneId: 'entry',
-      startScreen: { title: '', eyebrow: '', backgroundAssetId: null, musicAssetId: null },
+      startScreen: emptyStartScreen(),
       cgGallery: emptyCgGallery(),
       scenes: [{
         schemaVersion: 1,
@@ -421,11 +425,7 @@ describe('shared runtime execution contract', () => {
       id: 'video-project',
       name: 'Video',
       entrySceneId: 'entry',
-      startScreen: {
-        title: 'Story', eyebrow: '',
-        backgroundAssetId: null,
-        musicAssetId: null,
-      },
+      startScreen: emptyStartScreen('Story'),
       cgGallery: emptyCgGallery(),
       scenes: [{
         schemaVersion: 1,
@@ -462,7 +462,7 @@ describe('shared runtime execution contract', () => {
       id: 'cg-display',
       name: 'CG display',
       entrySceneId: 'entry',
-      startScreen: { title: '', eyebrow: '', backgroundAssetId: null, musicAssetId: null },
+      startScreen: emptyStartScreen(),
       cgGallery: emptyCgGallery(),
       scenes: [{
         schemaVersion: 1,
@@ -516,7 +516,7 @@ describe('shared runtime execution contract', () => {
       id: 'nested-cg',
       name: 'Nested CG',
       entrySceneId: 'entry',
-      startScreen: { title: '', eyebrow: '', backgroundAssetId: null, musicAssetId: null },
+      startScreen: emptyStartScreen(),
       cgGallery: emptyCgGallery(),
       scenes: [{
         schemaVersion: 1,
@@ -589,11 +589,7 @@ describe('shared runtime execution contract', () => {
       id: 'choice-project',
       name: 'Choice',
       entrySceneId: 'entry',
-      startScreen: {
-        title: 'Story', eyebrow: '',
-        backgroundAssetId: null,
-        musicAssetId: null,
-      },
+      startScreen: emptyStartScreen('Story'),
       cgGallery: emptyCgGallery(),
       scenes: [
         {
@@ -665,11 +661,7 @@ describe('shared runtime execution contract', () => {
       id: 'jump-project',
       name: 'Jump',
       entrySceneId: 'entry',
-      startScreen: {
-        title: 'Story', eyebrow: '',
-        backgroundAssetId: null,
-        musicAssetId: null,
-      },
+      startScreen: emptyStartScreen('Story'),
       cgGallery: emptyCgGallery(),
       scenes: [
         {
@@ -710,11 +702,7 @@ describe('shared runtime execution contract', () => {
       id: 'finished',
       name: 'Finished',
       entrySceneId: 'entry',
-      startScreen: {
-        title: 'Story', eyebrow: '',
-        backgroundAssetId: null,
-        musicAssetId: null,
-      },
+      startScreen: emptyStartScreen('Story'),
       cgGallery: emptyCgGallery(),
       scenes: [{
         schemaVersion: 1,
@@ -732,11 +720,7 @@ describe('shared runtime execution contract', () => {
       id: 'cyclic',
       name: 'Cyclic',
       entrySceneId: 'a',
-      startScreen: {
-        title: 'Story', eyebrow: '',
-        backgroundAssetId: null,
-        musicAssetId: null,
-      },
+      startScreen: emptyStartScreen('Story'),
       cgGallery: emptyCgGallery(),
       scenes: [
         {
@@ -769,11 +753,7 @@ describe('shared runtime execution contract', () => {
       id: 'voice-loop',
       name: 'Voice loop',
       entrySceneId: 'entry',
-      startScreen: {
-        title: 'Story', eyebrow: '',
-        backgroundAssetId: null,
-        musicAssetId: null,
-      },
+      startScreen: emptyStartScreen('Story'),
       cgGallery: emptyCgGallery(),
       scenes: [{
         schemaVersion: 1,
@@ -802,7 +782,7 @@ describe('shared runtime execution contract', () => {
       id: 'logic',
       name: 'Logic',
       entrySceneId: 'entry',
-      startScreen: { title: 'Logic', eyebrow: '', backgroundAssetId: null, musicAssetId: null },
+      startScreen: emptyStartScreen('Logic'),
       cgGallery: emptyCgGallery(),
       scenes: [{
         schemaVersion: 1,
@@ -877,7 +857,7 @@ describe('shared runtime execution contract', () => {
       id: 'undefined-variable',
       name: 'Undefined variable',
       entrySceneId: 'entry',
-      startScreen: { title: '', eyebrow: '', backgroundAssetId: null, musicAssetId: null },
+      startScreen: emptyStartScreen(),
       cgGallery: emptyCgGallery(),
       scenes: [{
         schemaVersion: 1,
@@ -912,7 +892,7 @@ describe('shared runtime execution contract', () => {
       id: 'blocking-logic',
       name: 'Blocking logic',
       entrySceneId: 'entry',
-      startScreen: { title: '', eyebrow: '', backgroundAssetId: null, musicAssetId: null },
+      startScreen: emptyStartScreen(),
       cgGallery: emptyCgGallery(),
       scenes: [
         {
@@ -963,7 +943,7 @@ describe('shared runtime execution contract', () => {
       id: 'jump-from-loop',
       name: 'Jump from loop',
       entrySceneId: 'entry',
-      startScreen: { title: '', eyebrow: '', backgroundAssetId: null, musicAssetId: null },
+      startScreen: emptyStartScreen(),
       cgGallery: emptyCgGallery(),
       scenes: [
         {
@@ -1004,7 +984,7 @@ describe('shared runtime execution contract', () => {
       id: 'malformed',
       name: 'Malformed',
       entrySceneId: 'entry',
-      startScreen: { title: '', eyebrow: '', backgroundAssetId: null, musicAssetId: null },
+      startScreen: emptyStartScreen(),
       cgGallery: emptyCgGallery(),
       scenes: [{
         schemaVersion: 1,
@@ -1069,7 +1049,7 @@ describe('shared runtime execution contract', () => {
       id: 'bounded-fingerprint',
       name: 'Bounded fingerprint',
       entrySceneId: 'entry',
-      startScreen: { title: '', eyebrow: '', backgroundAssetId: null, musicAssetId: null },
+      startScreen: emptyStartScreen(),
       cgGallery: emptyCgGallery(),
       scenes: [{
         schemaVersion: 1,

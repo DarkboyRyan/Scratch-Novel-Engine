@@ -2,8 +2,8 @@
 
 # 人物立绘特效实现
 
-> 实现状态：已完成。当前作者项目为 Author v21，导出为 Runtime v12；桌面与 Web
-> Player Reader 支持 runtime v1–v12。当前存档为 `GameRuntimeSnapshot v5`，受限兼容
+> 实现状态：已完成。当前作者项目为 Author v22，导出为 Runtime v13；桌面与 Web
+> Player Reader 支持 runtime v1–v13。当前存档为 `GameRuntimeSnapshot v5`，受限兼容
 > v1–v4。runtime v8 / snapshot v3 是“显示 CG”、Author v18 / Runtime v9 / Snapshot v4
 > 是人物特效的历史里程碑，仍保留兼容读取，但不再是当前 Writer/Exporter 的版本。
 
@@ -147,7 +147,7 @@ C++ 用 optional 字段承载 tagged union，再由 Core aggregate validator、J
 ## 4. Author v18/v19、Runtime v9 里程碑与当前迁移
 
 Author v18 首次要求人物节点精确包含 `effect`；即使没有特效也必须明确写 `null`。
-Author v19 又要求精确包含 `mode`；Author v20 加入标题页 eyebrow，当前 Author v21 在同一
+Author v19 又要求精确包含 `mode`；Author v20 加入标题页 eyebrow，Author v21 在同一
 人物联合上精确增加 `scalePercent`：
 
 ```json
@@ -171,7 +171,7 @@ Author v19 又要求精确包含 `mode`；Author v20 加入标题页 eyebrow，�
 
 迁移和防伪规则：
 
-- C++ Reader 接受 Author v1–v21，Writer 固定写 v21；
+- C++ Reader 接受 Author v1–v22，Writer 固定写 v22；
 - v1–v17 人物节点在内存中迁移为 `effect = null`；
 - 旧版本若伪造 `effect` 字段，会因 exact fields 被拒绝，而不是偷偷启用新语义；
 - v18 人物节点缺少 `effect` 同样拒绝；
@@ -182,15 +182,15 @@ Author v19 又要求精确包含 `mode`；Author v20 加入标题页 eyebrow，�
   误编译为 Runtime clear；
 - `clear` 强制 `assetId`、`position`、`effect` 全为 `null`，并强制 `scalePercent:100`；
 - v1–v20 人物缩放迁移为 100；v21 要求 10–300 的整数并拒绝缺失、越界或额外字段；
-- TypeScript Compiler 直接严格编译 v14–v21；v1–v13 复用窗口 C++ Reader 已迁移、
+- TypeScript Compiler 直接严格编译 v14–v22；v1–v13 复用窗口 C++ Reader 已迁移、
   aggregate-validated 且由 manifest hash 绑定的 canonical 快照；
 - Runtime v9 首次保存并执行人物特效；runtime v1–v8 人物节点由 Player Reader 补
   `effect: null`；
 - Runtime v11 首次保存并执行剧情背景/立绘缩放；runtime v1–v10 统一补 100%；
 - runtime v8 / Author v17 仍作为“显示 CG”paired range 的历史版本保留兼容测试。
 
-当前内容包 manifest 固定声明 `playerCompatibility: ">=12 <13"`；桌面和 Web Player
-模板固定声明 `runtimeCompatibility: ">=1 <13"`，表示同一模板严格读取 runtime v1–v12。
+当前内容包 manifest 固定声明 `playerCompatibility: ">=13 <14"`；桌面和 Web Player
+模板固定声明 `runtimeCompatibility: ">=1 <14"`，表示同一模板严格读取 runtime v1–v13。
 
 ## 5. IPC 与原子命令
 
@@ -355,14 +355,14 @@ opacity，尤其项目场景已包含 v18 起的特效节点时，会 fail close
 ## 10. Desktop、Web 与资源闭包
 
 特效本身不引用新媒体，只复用 CharacterNode 的 image Asset，所以 runtime bundle 的资源
-闭包算法不需要复制额外文件。当前 Author v21 Compiler 会：
+闭包算法不需要复制额外文件。当前 Author v22 Compiler 会：
 
 1. 严格解析 effect union 和清除节点不变量；
 2. 把 StoryExtension 剥离，并保留 CharacterNode.effect；
 3. 验证人物 `assetId` 指向 image；
-4. 输出 Runtime v12，并保留人物 `scalePercent`；
-5. 由 RuntimeBundleExporter 写 `>=12 <13` manifest；
-6. Desktop 与 Web 模板用 `>=1 <13` 门禁读取同一 game.json。
+4. 输出 Runtime v13，并保留人物 `scalePercent`；
+5. 由 RuntimeBundleExporter 写 `>=13 <14` manifest；
+6. Desktop 与 Web 模板用 `>=1 <14` 门禁读取同一 game.json。
 
 Web Player 使用同源 CSS keyframes、Fullscreen API 和 IndexedDB Snapshot v5；Desktop
 Player 使用 Electron Main 的原子存档。两者不复制人物特效状态机。
@@ -376,14 +376,14 @@ Player 使用 Electron Main 的原子存档。两者不复制人物特效状态�
 | --- | --- | --- |
 | 共享契约 | TypeScript 5.9 | discriminated union、严格 validator、公共 DTO |
 | 领域模型 | C++20 | enum/optional、aggregate invariant、原子 update/move |
-| 持久化 | nlohmann/json | Author v21 exact-fields、v1–v20 迁移与防伪；v18 effect / v19 mode / v20 eyebrow 里程碑 |
+| 持久化 | nlohmann/json | Author v22 exact-fields、v1–v21 迁移与防伪；v18 effect / v19 mode / v20 eyebrow / v21 scale 里程碑 |
 | IPC | Electron Main/Preload、JSONL | typed methods、参数白名单、response sanitizer、HMR 提示 |
 | 图形化编辑 | Blockly 13 | typed value socket、七类 value block、owner ID、backend-first 事件 |
 | 表单编辑 | React 19 | 只读摘要、最终状态静态预览 |
 | Runtime | 纯 TypeScript reducer | effect event、effectSequence、opacity、循环重播 |
 | 展示层 | React、CSS keyframes | anchor/image 分层、暂停、reduced-motion、Desktop/Web 共享 |
 | 存档 | Snapshot v5 | 保存最终 opacity/sequence 与缩放，读档不重播瞬时特效 |
-| 导出 | Node streams、SHA-256、事务 staging | Author v21 → Runtime v12、Desktop/Web 兼容门禁 |
+| 导出 | Node streams、SHA-256、事务 staging | Author v22 → Runtime v13、Desktop/Web 兼容门禁 |
 
 主要实现路径：
 
@@ -421,7 +421,7 @@ Player 使用 Electron Main 的原子存档。两者不复制人物特效状态�
 - Runtime 七类效果、Repeat 重播、fadeOut 最终 opacity；
 - Snapshot v5 round-trip、v1–v4 条件兼容、旧版缩放补 100 和读档不重播；
 - VisualStage 定位/动画分层、pause 与 reduced-motion CSS；
-- Author v21 → Runtime v12 → Player strict Reader 的跨层集成；
+- Author v22 → Runtime v13 → Player strict Reader 的跨层集成；
 - Desktop/Web exporter 与模板版本门禁。
 
 推荐验证命令：

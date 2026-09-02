@@ -2,7 +2,7 @@
 
 [返回 C++ 实现层](../README.md)
 
-`src/core/` 实现 VN Engine 的权威业务规则。它只依赖 C++20 标准库和公共头文件，不知道
+`src/core/` 实现 Scratch Novel Engine 的权威业务规则。它只依赖 C++20 标准库和公共头文件，不知道
 JSONL、文件路径或 Electron。所有前端最终都通过这里的命令维护同一 Project Aggregate，
 从而获得一致的 ID、引用、顺序和失败原子性。
 

@@ -16,22 +16,23 @@ Web Player 因此共享同一套剧情语义。
 - **画面与媒体**：背景、人物立绘、语音、BGM、视频、九槽 CG 画廊和剧情内 CG 展示；
   场景初始背景、时间线背景与人物立绘可按 10%–300% 的整数比例缩放。
 - **人物演出**：震动、跳跃、淡入、淡出、滑入、呼吸和闪烁等立绘特效。
-- **标题页定制**：可编辑标题上方文字、游戏名称、背景和音乐；Editor 中可静态或完整预览。
+- **页面 DIY**：标题页和 CG 画廊可在 Code 页用受限 DSL 调整字体、颜色、透明度、圆角、
+  布局与图片适配；标题内容、背景和音乐仍由表单/Blockly 编辑。
 - **Player 功能**：手动存读档、快速存读档、快进、CG 画廊、音量与显示设置，以及中英文界面。
 - **多种发布目标**：`.vngame` Runtime Bundle、Web Player ZIP 和独立游戏 ZIP。
 
 ## 工作流程
 
 ```text
-表单 / Blockly
+表单 / Blockly / Code
       │
       ▼
 Editor Renderer ──IPC──> Electron Main ──JSONL──> C++ Core
                                                    │
-                                            Author Project v21
+                                            Author Project v22
                                                    │ compile
                                                    ▼
-                                           Runtime Bundle v12
+                                           Runtime Bundle v13
                                                    │
                          ┌─────────────────────────┴─────────────────────────┐
                          ▼                                                   ▼
@@ -74,7 +75,8 @@ pnpm --dir apps/player start
 一个典型项目流程如下：
 
 1. 新建或打开作者工程，并在资源面板导入图片、音频和视频。
-2. 在标题页、CG 画廊和故事场景之间切换，通过表单或 Blockly 编辑内容。
+2. 在标题页、CG 画廊和故事场景之间切换：用表单、Blockly 或 Code 编辑剧情，并用
+   Code 调整标题页/CG 画廊样式。
 3. 使用静态舞台检查布局，再用正式预览验证选择、逻辑、媒体和 CG 时序。
 4. 从 Editor 顶栏选择导出类型并生成成品。
 
@@ -102,8 +104,8 @@ pnpm --dir apps/player start
 
 | 数据 | 当前写出 | 当前读取 |
 | --- | --- | --- |
-| Author Project | v21 | v1–v21 |
-| Runtime Bundle | v12 | v1–v12 |
+| Author Project | v22 | v1–v22 |
+| Runtime Bundle | v13 | v1–v13 |
 | Game Runtime Snapshot | v5 | v1–v5 |
 
 旧版本会在严格校验后迁移；不支持的未来版本、额外字段、失效资源引用或损坏快照会被拒绝，
@@ -112,10 +114,14 @@ Schema、共享 Runtime 和兼容性测试。
 
 图片缩放字段在 Author v21 / Runtime v11 / Snapshot v5 引入。Author v1–v20、Runtime
 v1–v10 和 Snapshot v1–v4 迁移时统一采用 100%；无背景或清除立绘也必须规范化为 100%。
-标题页背景和 CG 不属于本轮缩放契约。当前 Runtime v12 在 `game.defaultLanguage`
+标题页背景和 CG 不属于本轮缩放契约。Runtime v12 在 `game.defaultLanguage`
 中固化导出时 Main 权威 Editor 语言；旧 Runtime v1–v11 迁移为 `zh-CN`。
 桌面和 Web Player 只在首次使用或没有持久语言时采用该包默认，玩家已保存的语言优先；
 这只影响 Player 外壳，不翻译作者标题、对白、说话人或 Choice。
+
+Author v22 / Runtime v13 为 `startScreen.style` 和 `cgGallery.style` 加入严格类型化页面样式。
+旧 Author v1–v21 和 Runtime v1–v12 迁移为安全默认样式。Code 页的 DSL 只解析白名单字段，
+不保存或执行任意 CSS、JavaScript、选择器或 URL。
 
 ## 开发验证
 

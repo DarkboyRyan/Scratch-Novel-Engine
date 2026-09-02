@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ImportAssetResult } from '../../shared/assetProtocol';
 import type {
   EngineMutationResult,
+  ReplaceSceneContentParams,
   VnEngineApi,
 } from '../../shared/engineProtocol';
 import type {
@@ -16,12 +17,18 @@ import type {
 } from '../../shared/exportProtocol';
 import type {
   AssetDocument,
+  CgGalleryStyleDocument,
   ProjectDocument,
+  StartScreenStyleDocument,
 } from '../../shared/projectTypes';
 import {
+  DEFAULT_CG_GALLERY_STYLE,
   DEFAULT_IMAGE_SCALE_PERCENT,
   DEFAULT_START_SCREEN_EYEBROW,
+  DEFAULT_START_SCREEN_STYLE,
+  isCgGalleryStyleDocument,
   isImageScalePercent,
+  isStartScreenStyleDocument,
 } from '../../shared/projectTypes';
 import type { ProjectFileSessionSnapshot } from '../../shared/projectFileProtocol';
 import { createAuthoringActions } from '../application/createAuthoringActions';
@@ -64,13 +71,26 @@ function withRendererProjectDefaults(
   // in-memory defaults so the new Renderer can render safely. Fresh backend
   // responses are still validated strictly by Main before this boundary.
   const legacyStartScreen = project.startScreen as
-    Omit<ProjectDocument['startScreen'], 'eyebrow'> & {
+    Omit<ProjectDocument['startScreen'], 'eyebrow' | 'style'> & {
       eyebrow?: unknown;
+      style?: unknown;
     };
-  const hasValidEyebrow = typeof legacyStartScreen.eyebrow === 'string';
+  const normalizedEyebrow = typeof legacyStartScreen.eyebrow === 'string'
+    ? legacyStartScreen.eyebrow
+    : DEFAULT_START_SCREEN_EYEBROW;
+  const hasValidEyebrow = normalizedEyebrow === legacyStartScreen.eyebrow;
+  const normalizedStartScreenStyle = isStartScreenStyleDocument(
+    legacyStartScreen.style,
+  )
+    ? legacyStartScreen.style
+    : { ...DEFAULT_START_SCREEN_STYLE };
+  const hasValidStartScreenStyle =
+    normalizedStartScreenStyle === legacyStartScreen.style;
   const gallery = (
     project as ProjectDocument & {
-      cgGallery?: ProjectDocument['cgGallery'];
+      cgGallery?: Omit<ProjectDocument['cgGallery'], 'style'> & {
+        style?: unknown;
+      };
     }
   ).cgGallery;
   const assetIds = new Set<string>();
@@ -99,6 +119,10 @@ function withRendererProjectDefaults(
           return true;
         }),
     );
+  const normalizedCgGalleryStyle = isCgGalleryStyleDocument(gallery?.style)
+    ? gallery.style
+    : { ...DEFAULT_CG_GALLERY_STYLE };
+  const hasValidCgGalleryStyle = normalizedCgGalleryStyle === gallery?.style;
   let normalizedLegacyImageScale = false;
   const scenes = project.scenes.map((scene) => {
     const legacyScene = scene as typeof scene & {
@@ -188,6 +212,8 @@ function withRendererProjectDefaults(
   if (
     hasValidPages &&
     hasValidEyebrow &&
+    hasValidStartScreenStyle &&
+    hasValidCgGalleryStyle &&
     !normalizedLegacyImageScale
   ) {
     return project;
@@ -195,17 +221,17 @@ function withRendererProjectDefaults(
 
   return {
     ...project,
-    startScreen: hasValidEyebrow
-      ? project.startScreen
-      : {
-          ...project.startScreen,
-          eyebrow: DEFAULT_START_SCREEN_EYEBROW,
-        },
-    cgGallery: hasValidPages
-      ? project.cgGallery
-      : {
-          pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
-        },
+    startScreen: {
+      ...project.startScreen,
+      eyebrow: normalizedEyebrow,
+      style: normalizedStartScreenStyle,
+    },
+    cgGallery: {
+      pages: hasValidPages
+        ? gallery.pages
+        : [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+      style: normalizedCgGalleryStyle,
+    },
     scenes,
   };
 }
@@ -244,8 +270,64 @@ function imageScaleContractError(): Error {
   return new Error('[image-scale-contract] stale preload');
 }
 
+function surfaceStyleContractError(): Error {
+  return new Error('[surface-style-contract] stale preload');
+}
+
+function isStoryCodeContractUnavailableError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const message = error.message.toLowerCase();
+  return (
+    message.includes('[story-code-contract]') ||
+    message.includes('replacescenecontent is not a function') ||
+    message.includes('unknown method: scene.content.replace') ||
+    message.includes('no handler registered') ||
+    message.includes('invalid engine invocation') ||
+    message.includes('invalid engine request') ||
+    message.includes('无效的引擎请求')
+  );
+}
+
+function isBackendProtocolContractError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const message = error.message.toLowerCase();
+  return (
+    message.includes('[backend-protocol-contract]') ||
+    message.includes('c++ 后端响应格式不正确') ||
+    message.includes('c++ 后端响应缺少有效的') ||
+    message.includes('c++ backend response format') ||
+    message.includes('c++ backend response is missing')
+  );
+}
+
+function storyCodeContractError(cause?: unknown): Error {
+  const detail = cause instanceof Error ? `: ${cause.message}` : '';
+  return new Error(`[story-code-contract] stale preload or Main${detail}`, {
+    cause,
+  });
+}
+
+function backendProtocolContractError(cause?: unknown): Error {
+  const detail = cause instanceof Error ? `: ${cause.message}` : '';
+  return new Error(`[backend-protocol-contract] stale backend${detail}`, {
+    cause,
+  });
+}
+
 function hasImageScaleContract(engine: VnEngineApi): boolean {
   return engine.imageScaleContractVersion === 1;
+}
+
+function hasSurfaceStyleContract(engine: VnEngineApi): boolean {
+  return engine.surfaceStyleContractVersion === 1;
+}
+
+function hasStoryCodeContract(engine: VnEngineApi): boolean {
+  return engine.storyCodeContractVersion === 1;
 }
 
 function readableError(error: unknown, labels: EditorLabels): string {
@@ -256,6 +338,33 @@ function readableError(error: unknown, labels: EditorLabels): string {
     return labels.locale === 'zh-CN'
       ? '图片缩放功能已更新，请完全退出并重新启动 Editor 后再试。'
       : 'Image scaling was updated. Fully quit and restart Editor, then try again.';
+  }
+
+  if (
+    error instanceof Error &&
+    error.message.includes('[surface-style-contract]')
+  ) {
+    return labels.locale === 'zh-CN'
+      ? '页面样式功能已更新，请完全退出并重新启动 Editor 后再试。'
+      : 'Page styling was updated. Fully quit and restart Editor, then try again.';
+  }
+
+  if (
+    error instanceof Error &&
+    error.message.includes('[story-code-contract]')
+  ) {
+    return labels.locale === 'zh-CN'
+      ? '剧情代码编辑功能已更新，请完全退出并重新启动 Editor 后再试。'
+      : 'Story Code editing was updated. Fully quit and restart Editor, then try again.';
+  }
+
+  if (
+    error instanceof Error &&
+    error.message.includes('[backend-protocol-contract]')
+  ) {
+    return labels.locale === 'zh-CN'
+      ? 'Editor 与 C++ 后端版本不一致。请完全退出并重新启动 Editor 后再试；若仍出现，请重新构建后端。'
+      : 'The Editor and C++ backend are out of sync. Fully quit and restart Editor, then try again; if it continues, rebuild the backend.';
   }
 
   if (isStartScreenModuleUnavailableError(error)) {
@@ -430,16 +539,38 @@ export function useEngineProject(
     isExporting;
 
   const authoringCommands = useMemo<VnEngineApi>(() => {
-    if (hasImageScaleContract(platform.engine)) {
+    const hasImageScale = hasImageScaleContract(platform.engine);
+    const hasSurfaceStyle = hasSurfaceStyleContract(platform.engine);
+    const hasStoryCode = hasStoryCodeContract(platform.engine);
+    if (hasImageScale && hasSurfaceStyle && hasStoryCode) {
       return platform.engine;
     }
-    const rejectStalePreload = () =>
+    const rejectStaleImageScalePreload = () =>
       Promise.reject<EngineMutationResult>(imageScaleContractError());
+    const rejectStaleSurfaceStylePreload = () =>
+      Promise.reject<EngineMutationResult>(surfaceStyleContractError());
+    const rejectStaleStoryCodePreload = () =>
+      Promise.reject<EngineMutationResult>(storyCodeContractError());
     return {
       ...platform.engine,
-      setSceneBackground: rejectStalePreload,
-      updateBackground: rejectStalePreload,
-      updateCharacter: rejectStalePreload,
+      ...(hasImageScale
+        ? {}
+        : {
+            setSceneBackground: rejectStaleImageScalePreload,
+            updateBackground: rejectStaleImageScalePreload,
+            updateCharacter: rejectStaleImageScalePreload,
+          }),
+      ...(hasSurfaceStyle
+        ? {}
+        : {
+            updateStartScreenStyle: rejectStaleSurfaceStylePreload,
+            updateCgGalleryStyle: rejectStaleSurfaceStylePreload,
+          }),
+      ...(hasStoryCode
+        ? {}
+        : {
+            replaceSceneContent: rejectStaleStoryCodePreload,
+          }),
     } as VnEngineApi;
   }, [platform.engine]);
 
@@ -787,6 +918,47 @@ export function useEngineProject(
     return result !== null;
   }
 
+  async function updateStartScreenStyle(
+    style: StartScreenStyleDocument,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      authoringCommands.updateStartScreenStyle(style),
+    );
+    return result !== null;
+  }
+
+  async function updateCgGalleryStyle(
+    style: CgGalleryStyleDocument,
+  ): Promise<boolean> {
+    const result = await runEngineAction(() =>
+      authoringCommands.updateCgGalleryStyle(style),
+    );
+    return result !== null;
+  }
+
+  async function replaceSceneContent(
+    params: ReplaceSceneContentParams,
+  ): Promise<boolean> {
+    const result = await runEngineAction(async () => {
+      try {
+        return await authoringCommands.replaceSceneContent(params);
+      } catch (error: unknown) {
+        // Renderer/Preload can hot-reload while the Electron Main process is
+        // still serving an older invocation schema. Surface that recoverable
+        // version mismatch instead of hiding Main's Chinese validation error
+        // behind the English generic "unknown error" message.
+        if (isBackendProtocolContractError(error)) {
+          throw backendProtocolContractError(error);
+        }
+        if (isStoryCodeContractUnavailableError(error)) {
+          throw storyCodeContractError(error);
+        }
+        throw error;
+      }
+    });
+    return result !== null;
+  }
+
   async function importImage(): Promise<ImportImageStatus> {
     if (fileOperationInProgress.current) {
       return 'failed';
@@ -898,7 +1070,10 @@ export function useEngineProject(
     importAudio,
     renameProject,
     updateStartScreen,
+    updateStartScreenStyle,
     updateCgGallery,
+    updateCgGalleryStyle,
+    replaceSceneContent,
     setSceneBackground,
     waitForEngineActions,
     getProjectSnapshot,

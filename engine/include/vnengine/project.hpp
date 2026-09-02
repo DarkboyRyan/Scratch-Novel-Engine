@@ -33,10 +33,12 @@ class RandomIdGenerator final : public IdGenerator {
 Scene create_empty_scene(IdGenerator& ids, std::string name = "场景 1");
 Project create_empty_project(
     IdGenerator& ids,
-    std::string name = "未命名项目");
+    std::string name = "未命名项目",
+    std::string first_scene_name = "场景 1");
 ProjectAggregate create_empty_project_aggregate(
     IdGenerator& ids,
-    std::string name = "未命名项目");
+    std::string name = "未命名项目",
+    std::string first_scene_name = "场景 1");
 
 Scene* find_scene(Project& project, std::string_view scene_id);
 const Scene* find_scene(const Project& project, std::string_view scene_id);
@@ -109,6 +111,21 @@ UpdateStartScreenResult update_start_screen(
     std::optional<std::string> background_asset_id,
     std::optional<std::string> music_asset_id);
 
+enum class UpdatePageStyleResult {
+  changed,
+  unchanged,
+  invalid_style,
+};
+
+bool is_canonical_page_color(std::string_view color);
+bool is_valid_common_page_style(const CommonPageStyle& style);
+bool is_valid_start_screen_style(const StartScreenStyle& style);
+bool is_valid_cg_gallery_style(const CgGalleryStyle& style);
+
+UpdatePageStyleResult update_start_screen_style(
+    Project& project,
+    StartScreenStyle style);
+
 enum class UpdateCgGalleryResult {
   changed,
   unchanged,
@@ -124,6 +141,10 @@ enum class UpdateCgGalleryResult {
 UpdateCgGalleryResult update_cg_gallery(
     ProjectAggregate& aggregate,
     std::vector<CgGalleryPage> pages);
+
+UpdatePageStyleResult update_cg_gallery_style(
+    Project& project,
+    CgGalleryStyle style);
 
 // Title-screen names follow the same whitespace rules as project names but
 // remain an independent value after project creation/migration.
@@ -182,6 +203,96 @@ std::string add_scene(
     std::optional<std::string> name = std::nullopt);
 bool rename_scene(Project& project, std::string_view scene_id, std::string name);
 bool delete_scene(Project& project, std::string_view scene_id);
+
+// The Code page submits one complete, nested Scene draft rather than issuing
+// a sequence of timeline mutations. origin_id is an authoring hint only: it
+// may reuse an entity of the same semantic kind from the Scene being replaced,
+// while omitted origins receive fresh globally unique IDs. Paired control
+// markers are deliberately absent from this DTO and are rebuilt atomically by
+// replace_scene_content().
+enum class SceneContentDraftNodeType {
+  dialogue,
+  background,
+  character,
+  scene_jump,
+  bgm,
+  video,
+  choice,
+  story_extension,
+  variable_set,
+  variable_change,
+  logic_if,
+  logic_repeat,
+  cg_display,
+};
+
+struct SceneContentChoiceOptionDraft {
+  std::optional<std::string> origin_id;
+  std::string text;
+  std::string target_scene_id;
+};
+
+struct SceneContentDraftNode {
+  SceneContentDraftNodeType type = SceneContentDraftNodeType::dialogue;
+  std::optional<std::string> origin_id;
+
+  // Leaf payload. Only the fields belonging to `type` are read.
+  std::string speaker;
+  std::string text;
+  std::optional<std::string> voice_asset_id;
+  std::optional<std::string> asset_id;
+  int scale_percent = kDefaultImageScalePercent;
+  CharacterNodeMode character_mode = CharacterNodeMode::show;
+  CharacterSlot character_slot = CharacterSlot::center;
+  int character_layer = 1;
+  std::optional<CharacterPosition> character_position;
+  std::optional<CharacterEffect> character_effect;
+  std::string target_scene_id;
+  std::vector<SceneContentChoiceOptionDraft> choice_options;
+  std::string variable_name;
+  LogicValue logic_value = false;
+  double amount = 0.0;
+
+  // Control payload. logic_if uses then_nodes/else_nodes, while repeat and CG
+  // use body_nodes. CG bodies are restricted to dialogue drafts.
+  LogicCondition condition;
+  int count = 1;
+  int lead_in_ms = 0;
+  std::vector<SceneContentDraftNode> then_nodes;
+  std::vector<SceneContentDraftNode> else_nodes;
+  std::vector<SceneContentDraftNode> body_nodes;
+};
+
+struct SceneContentDraft {
+  std::string name;
+  std::optional<std::string> initial_background_asset_id;
+  int initial_background_scale_percent = kDefaultImageScalePercent;
+  std::vector<SceneContentDraftNode> nodes;
+};
+
+enum class ReplaceSceneContentStatus {
+  changed,
+  unchanged,
+  scene_not_found,
+  scene_name_required,
+  invalid_origin_id,
+  id_generation_failed,
+  invalid_content,
+};
+
+struct ReplaceSceneContentResult {
+  ReplaceSceneContentStatus status;
+  std::optional<std::string> validation_error;
+};
+
+// Builds the complete candidate Scene off to the side, including hidden
+// if/else/end, repeat/end and CG/end markers. The aggregate is swapped only
+// after all entity, control, Asset, target-Scene and variable invariants pass.
+ReplaceSceneContentResult replace_scene_content(
+    ProjectAggregate& aggregate,
+    IdGenerator& ids,
+    std::string_view scene_id,
+    SceneContentDraft draft);
 
 enum class AddBackgroundNodeStatus {
   added,

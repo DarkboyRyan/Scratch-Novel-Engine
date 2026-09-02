@@ -6,6 +6,7 @@
 
 import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { DEFAULT_START_SCREEN_STYLE } from '@vnengine/runtime';
 import {
   CgGallery,
   GameActionBar,
@@ -120,6 +121,7 @@ describe('Player UI localization', () => {
             eyebrow: '作者自定义标语',
             backgroundAssetId: null,
             musicAssetId: null,
+            style: { ...DEFAULT_START_SCREEN_STYLE },
           }}
           resolveMediaUrl={resolveMediaUrl}
           onStart={vi.fn()}
@@ -146,6 +148,7 @@ describe('Player UI localization', () => {
             eyebrow: '',
             backgroundAssetId: null,
             musicAssetId: null,
+            style: { ...DEFAULT_START_SCREEN_STYLE },
           }}
           resolveMediaUrl={resolveMediaUrl}
           onStart={vi.fn()}

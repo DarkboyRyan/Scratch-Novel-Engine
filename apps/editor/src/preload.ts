@@ -93,6 +93,8 @@ const vnAssets: VnAssetsApi = {
 
 const vnEngine: VnEngineApi = {
   imageScaleContractVersion: 1,
+  surfaceStyleContractVersion: 1,
+  storyCodeContractVersion: 1,
   ensureProject: () =>
     invokeEngine({ method: 'project.ensure', params: {} }),
   getProject: () =>
@@ -101,10 +103,20 @@ const vnEngine: VnEngineApi = {
     invokeEngine({ method: 'project.rename', params: { name } }),
   updateStartScreen: (params) =>
     invokeEngine({ method: 'startScreen.update', params }),
+  updateStartScreenStyle: (style) =>
+    invokeEngine({
+      method: 'startScreen.style.update',
+      params: { style },
+    }),
   updateCgGallery: (pages) =>
     invokeEngine({
       method: 'cgGallery.update',
       params: { pages },
+    }),
+  updateCgGalleryStyle: (style) =>
+    invokeEngine({
+      method: 'cgGallery.style.update',
+      params: { style },
     }),
   addScene: (name) =>
     invokeEngine({ method: 'scene.add', params: { name } }),
@@ -112,6 +124,11 @@ const vnEngine: VnEngineApi = {
     invokeEngine({
       method: 'scene.rename',
       params: { sceneId, name },
+    }),
+  replaceSceneContent: (params) =>
+    invokeEngine({
+      method: 'scene.content.replace',
+      params,
     }),
   deleteScene: (sceneId) =>
     invokeEngine({ method: 'scene.delete', params: { sceneId } }),

@@ -105,6 +105,12 @@ void creates_project_with_one_empty_entry_scene() {
   CHECK(project.entry_scene_id == project.scenes[0].id);
   CHECK(project.id != project.scenes[0].id);
   CHECK(!vnengine::validate_project(project).has_value());
+
+  SequenceIdGenerator localized_ids;
+  const vnengine::Project localized = vnengine::create_empty_project(
+      localized_ids, "English project", "Scene 1");
+  CHECK(localized.scenes[0].name == "Scene 1");
+  CHECK(!vnengine::validate_project(localized).has_value());
 }
 
 void creates_an_empty_project_aggregate() {
@@ -654,6 +660,131 @@ void updates_start_screen_atomically() {
   CHECK(vnengine::update_start_screen(
             aggregate, "另一个游戏名", "", std::nullopt, std::nullopt) ==
         Result::unchanged);
+}
+
+void updates_page_styles_atomically_and_preserves_them() {
+  using Result = vnengine::UpdatePageStyleResult;
+
+  vnengine::ProjectAggregate aggregate = visual_aggregate();
+  const vnengine::StartScreenStyle default_start_style;
+  const vnengine::CgGalleryStyle default_gallery_style;
+  CHECK(aggregate.project.start_screen.style == default_start_style);
+  CHECK(default_start_style.common.font_preset ==
+        vnengine::PageFontPreset::system);
+  CHECK(default_start_style.common.font_scale_percent == 100);
+  CHECK(default_start_style.common.page_color == "#0B0C0F");
+  CHECK(default_start_style.common.text_color == "#FFFFFF");
+  CHECK(default_start_style.common.muted_text_color == "#B8BCC6");
+  CHECK(default_start_style.common.surface_color == "#0C0F14");
+  CHECK(default_start_style.common.surface_opacity_percent == 0);
+  CHECK(default_start_style.common.accent_color == "#FFFFFF");
+  CHECK(default_start_style.common.overlay_color == "#040609");
+  CHECK(default_start_style.common.overlay_opacity_percent == 44);
+  CHECK(default_start_style.common.corner_radius_px == 0);
+  CHECK(default_start_style.layout ==
+        vnengine::StartScreenLayout::split_right);
+  CHECK(default_start_style.background_fit ==
+        vnengine::PageImageFit::contain);
+
+  CHECK(aggregate.project.cg_gallery.style == default_gallery_style);
+  CHECK(default_gallery_style.common.page_color == "#040609");
+  CHECK(default_gallery_style.common.text_color == "#F7F8FA");
+  CHECK(default_gallery_style.common.muted_text_color == "#969BA5");
+  CHECK(default_gallery_style.common.surface_opacity_percent == 96);
+  CHECK(default_gallery_style.common.overlay_opacity_percent == 88);
+  CHECK(default_gallery_style.common.corner_radius_px == 12);
+  CHECK(default_gallery_style.layout == vnengine::CgGalleryLayout::framed);
+  CHECK(default_gallery_style.thumbnail_fit ==
+        vnengine::PageImageFit::contain);
+  CHECK(default_gallery_style.gap_px == 16);
+
+  vnengine::StartScreenStyle start_style = default_start_style;
+  start_style.common.font_preset = vnengine::PageFontPreset::rounded;
+  start_style.common.font_scale_percent = 125;
+  start_style.common.page_color = "#102030";
+  start_style.common.surface_opacity_percent = 64;
+  start_style.common.corner_radius_px = 24;
+  start_style.layout = vnengine::StartScreenLayout::split_left;
+  start_style.background_fit = vnengine::PageImageFit::cover;
+  CHECK(vnengine::update_start_screen_style(
+            aggregate.project, start_style) == Result::changed);
+  CHECK(vnengine::update_start_screen_style(
+            aggregate.project, start_style) == Result::unchanged);
+  CHECK(vnengine::update_start_screen(
+            aggregate,
+            "Styled title",
+            "",
+            std::nullopt,
+            std::nullopt) == vnengine::UpdateStartScreenResult::changed);
+  CHECK(aggregate.project.start_screen.style == start_style);
+
+  const vnengine::Project before_invalid_start = aggregate.project;
+  vnengine::StartScreenStyle invalid_start = start_style;
+  invalid_start.common.page_color = "#abcdef";
+  CHECK(vnengine::update_start_screen_style(
+            aggregate.project, invalid_start) == Result::invalid_style);
+  CHECK(aggregate.project == before_invalid_start);
+  invalid_start = start_style;
+  invalid_start.common.font_scale_percent = 151;
+  CHECK(vnengine::update_start_screen_style(
+            aggregate.project, invalid_start) == Result::invalid_style);
+  CHECK(aggregate.project == before_invalid_start);
+  invalid_start = start_style;
+  invalid_start.layout = static_cast<vnengine::StartScreenLayout>(99);
+  CHECK(vnengine::update_start_screen_style(
+            aggregate.project, invalid_start) == Result::invalid_style);
+  CHECK(aggregate.project == before_invalid_start);
+  invalid_start = start_style;
+  invalid_start.background_fit = static_cast<vnengine::PageImageFit>(99);
+  CHECK(vnengine::update_start_screen_style(
+            aggregate.project, invalid_start) == Result::invalid_style);
+  CHECK(aggregate.project == before_invalid_start);
+
+  vnengine::CgGalleryStyle gallery_style = default_gallery_style;
+  gallery_style.common.font_preset = vnengine::PageFontPreset::mono;
+  gallery_style.common.overlay_opacity_percent = 50;
+  gallery_style.common.corner_radius_px = 48;
+  gallery_style.layout = vnengine::CgGalleryLayout::edge_to_edge;
+  gallery_style.thumbnail_fit = vnengine::PageImageFit::cover;
+  gallery_style.gap_px = 0;
+  CHECK(vnengine::update_cg_gallery_style(
+            aggregate.project, gallery_style) == Result::changed);
+  CHECK(vnengine::update_cg_gallery_style(
+            aggregate.project, gallery_style) == Result::unchanged);
+  CHECK(vnengine::update_cg_gallery(
+            aggregate, {vnengine::CgGalleryPage{}}) ==
+        vnengine::UpdateCgGalleryResult::unchanged);
+  CHECK(aggregate.project.cg_gallery.style == gallery_style);
+
+  const vnengine::Project before_invalid_gallery = aggregate.project;
+  vnengine::CgGalleryStyle invalid_gallery = gallery_style;
+  invalid_gallery.gap_px = 33;
+  CHECK(vnengine::update_cg_gallery_style(
+            aggregate.project, invalid_gallery) == Result::invalid_style);
+  CHECK(aggregate.project == before_invalid_gallery);
+  invalid_gallery = gallery_style;
+  invalid_gallery.common.font_preset =
+      static_cast<vnengine::PageFontPreset>(99);
+  CHECK(vnengine::update_cg_gallery_style(
+            aggregate.project, invalid_gallery) == Result::invalid_style);
+  CHECK(aggregate.project == before_invalid_gallery);
+  invalid_gallery = gallery_style;
+  invalid_gallery.layout = static_cast<vnengine::CgGalleryLayout>(99);
+  CHECK(vnengine::update_cg_gallery_style(
+            aggregate.project, invalid_gallery) == Result::invalid_style);
+  CHECK(aggregate.project == before_invalid_gallery);
+  invalid_gallery = gallery_style;
+  invalid_gallery.thumbnail_fit = static_cast<vnengine::PageImageFit>(99);
+  CHECK(vnengine::update_cg_gallery_style(
+            aggregate.project, invalid_gallery) == Result::invalid_style);
+  CHECK(aggregate.project == before_invalid_gallery);
+
+  vnengine::Project invalid_project = aggregate.project;
+  invalid_project.start_screen.style.common.corner_radius_px = 49;
+  CHECK(vnengine::validate_project(invalid_project).has_value());
+  invalid_project = aggregate.project;
+  invalid_project.cg_gallery.style.common.overlay_color = "red";
+  CHECK(vnengine::validate_project(invalid_project).has_value());
 }
 
 void rejects_invalid_start_screen_references() {
@@ -2471,6 +2602,175 @@ void manages_cg_display_controls_atomically() {
   CHECK(!vnengine::validate_project_aggregate(aggregate).has_value());
 }
 
+void replaces_complete_scene_content_atomically() {
+  SequenceIdGenerator ids;
+  vnengine::ProjectAggregate aggregate =
+      vnengine::create_empty_project_aggregate(ids, "Code project", "Old");
+  aggregate.assets.push_back(vnengine::Asset{
+      .id = "image-asset",
+      .type = vnengine::AssetType::image,
+      .relative_path = "assets/images/background.png",
+      .display_name = "Background",
+  });
+  const std::string scene_id = aggregate.project.entry_scene_id;
+  CHECK(vnengine::set_scene_background(
+            aggregate, scene_id, "image-asset", 120) ==
+        vnengine::SetSceneBackgroundResult::changed);
+
+  const vnengine::LogicCondition condition{
+      .left = vnengine::LogicVariableOperand{.name = "route"},
+      .comparison = vnengine::LogicComparisonOperator::equal,
+      .right = vnengine::LogicLiteralOperand{.value = true},
+  };
+  const auto if_result = vnengine::add_logic_if_node(
+      aggregate.project, ids, scene_id, condition);
+  CHECK(if_result.status == vnengine::AddLogicNodeStatus::added);
+  const std::string if_id = *if_result.node_id;
+  vnengine::Scene& original_scene = aggregate.project.scenes[0];
+  const std::string else_id =
+      std::get<vnengine::LogicElseNode>(original_scene.nodes[1]).id;
+  const std::string end_if_id =
+      std::get<vnengine::LogicEndIfNode>(original_scene.nodes[2]).id;
+
+  const auto repeat_result = vnengine::add_logic_repeat_node(
+      aggregate.project, ids, scene_id, 2, std::nullopt, else_id);
+  CHECK(repeat_result.status == vnengine::AddLogicNodeStatus::added);
+  const std::string repeat_id = *repeat_result.node_id;
+  const std::string repeat_end_id =
+      std::get<vnengine::LogicEndRepeatNode>(original_scene.nodes[2]).id;
+  const std::string repeat_dialogue_id = *vnengine::add_dialogue(
+      aggregate.project,
+      ids,
+      scene_id,
+      "Alice",
+      "Inside",
+      std::nullopt,
+      repeat_end_id);
+  const std::string first_dialogue_id = *vnengine::add_dialogue(
+      aggregate.project,
+      ids,
+      scene_id,
+      "Narrator",
+      "First",
+      std::nullopt,
+      if_id);
+
+  const auto cg_result = vnengine::add_cg_display_node(
+      aggregate, ids, scene_id, "image-asset", 250);
+  CHECK(cg_result.status == vnengine::AddCgDisplayStatus::added);
+  const std::string cg_id = *cg_result.node_id;
+  const std::string cg_end_id =
+      std::get<vnengine::CgEndDisplayNode>(original_scene.nodes.back()).id;
+  const std::string cg_dialogue_id = *vnengine::add_dialogue(
+      aggregate.project,
+      ids,
+      scene_id,
+      "",
+      "CG line",
+      std::nullopt,
+      cg_end_id);
+  CHECK(!vnengine::validate_project_aggregate(aggregate).has_value());
+
+  const auto dialogue_draft = [](
+                                  std::string origin_id,
+                                  std::string speaker,
+                                  std::string text) {
+    vnengine::SceneContentDraftNode node;
+    node.type = vnengine::SceneContentDraftNodeType::dialogue;
+    node.origin_id = std::move(origin_id);
+    node.speaker = std::move(speaker);
+    node.text = std::move(text);
+    return node;
+  };
+  const auto complete_draft = [&]() {
+    vnengine::SceneContentDraftNode repeat;
+    repeat.type = vnengine::SceneContentDraftNodeType::logic_repeat;
+    repeat.origin_id = repeat_id;
+    repeat.count = 2;
+    repeat.body_nodes.push_back(dialogue_draft(
+        repeat_dialogue_id, "Alice", "Inside"));
+
+    vnengine::SceneContentDraftNode condition_node;
+    condition_node.type = vnengine::SceneContentDraftNodeType::logic_if;
+    condition_node.origin_id = if_id;
+    condition_node.condition = condition;
+    condition_node.then_nodes.push_back(std::move(repeat));
+
+    vnengine::SceneContentDraftNode cg;
+    cg.type = vnengine::SceneContentDraftNodeType::cg_display;
+    cg.origin_id = cg_id;
+    cg.asset_id = "image-asset";
+    cg.lead_in_ms = 250;
+    cg.body_nodes.push_back(dialogue_draft(cg_dialogue_id, "", "CG line"));
+
+    vnengine::SceneContentDraft draft{
+        .name = "Old",
+        .initial_background_asset_id = "image-asset",
+        .initial_background_scale_percent = 120,
+    };
+    draft.nodes.push_back(dialogue_draft(
+        first_dialogue_id, "Narrator", "First"));
+    draft.nodes.push_back(std::move(condition_node));
+    draft.nodes.push_back(std::move(cg));
+    return draft;
+  };
+
+  const vnengine::ProjectAggregate before_noop = aggregate;
+  CHECK(vnengine::replace_scene_content(
+            aggregate, ids, scene_id, complete_draft()).status ==
+        vnengine::ReplaceSceneContentStatus::unchanged);
+  CHECK(aggregate == before_noop);
+
+  vnengine::SceneContentDraft changed_draft = complete_draft();
+  changed_draft.name = "  Renamed  ";
+  vnengine::SceneContentDraftNode new_else_dialogue;
+  new_else_dialogue.type = vnengine::SceneContentDraftNodeType::dialogue;
+  new_else_dialogue.speaker = "Bob";
+  new_else_dialogue.text = "New branch";
+  changed_draft.nodes[1].else_nodes.push_back(std::move(new_else_dialogue));
+  CHECK(vnengine::replace_scene_content(
+            aggregate, ids, scene_id, std::move(changed_draft)).status ==
+        vnengine::ReplaceSceneContentStatus::changed);
+  const vnengine::Scene& changed_scene = aggregate.project.scenes[0];
+  CHECK(changed_scene.name == "Renamed");
+  CHECK(vnengine::scene_node_id(changed_scene.nodes[0]) == first_dialogue_id);
+  CHECK(vnengine::scene_node_id(changed_scene.nodes[1]) == if_id);
+  CHECK(std::get<vnengine::LogicEndRepeatNode>(changed_scene.nodes[4]).id ==
+        repeat_end_id);
+  CHECK(std::get<vnengine::LogicElseNode>(changed_scene.nodes[5]).id ==
+        else_id);
+  CHECK(std::get<vnengine::LogicEndIfNode>(changed_scene.nodes[7]).id ==
+        end_if_id);
+  CHECK(std::get<vnengine::CgEndDisplayNode>(changed_scene.nodes.back()).id ==
+        cg_end_id);
+  CHECK(!vnengine::validate_project_aggregate(aggregate).has_value());
+
+  const vnengine::ProjectAggregate before_invalid = aggregate;
+  vnengine::SceneContentDraft invalid_origin = complete_draft();
+  invalid_origin.nodes[0].origin_id = if_id;
+  CHECK(vnengine::replace_scene_content(
+            aggregate, ids, scene_id, std::move(invalid_origin)).status ==
+        vnengine::ReplaceSceneContentStatus::invalid_origin_id);
+  CHECK(aggregate == before_invalid);
+
+  vnengine::SceneContentDraft invalid_asset = complete_draft();
+  invalid_asset.initial_background_asset_id = "missing-image";
+  const vnengine::ReplaceSceneContentResult invalid_asset_result =
+      vnengine::replace_scene_content(
+          aggregate, ids, scene_id, std::move(invalid_asset));
+  CHECK(invalid_asset_result.status ==
+        vnengine::ReplaceSceneContentStatus::invalid_content);
+  CHECK(invalid_asset_result.validation_error.has_value());
+  CHECK(aggregate == before_invalid);
+
+  vnengine::SceneContentDraft blank_name = complete_draft();
+  blank_name.name = " \t ";
+  CHECK(vnengine::replace_scene_content(
+            aggregate, ids, scene_id, std::move(blank_name)).status ==
+        vnengine::ReplaceSceneContentStatus::scene_name_required);
+  CHECK(aggregate == before_invalid);
+}
+
 }  // namespace
 
 int main() {
@@ -2500,6 +2800,8 @@ int main() {
        detects_invalid_project_invariants},
       {"validates portable asset paths", validates_portable_asset_paths},
       {"updates start screen atomically", updates_start_screen_atomically},
+      {"updates page styles atomically and preserves them",
+       updates_page_styles_atomically_and_preserves_them},
       {"rejects invalid start screen references",
        rejects_invalid_start_screen_references},
       {"updates CG gallery atomically", updates_cg_gallery_atomically},
@@ -2536,6 +2838,8 @@ int main() {
        reorders_story_pages_with_complete_logic_ranges},
       {"manages CG display controls atomically",
        manages_cg_display_controls_atomically},
+      {"replaces complete scene content atomically",
+       replaces_complete_scene_content_atomically},
   };
 
   int failures = 0;

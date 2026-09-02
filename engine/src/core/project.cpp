@@ -14,6 +14,7 @@
 #include <iterator>
 #include <sstream>
 #include <type_traits>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
@@ -23,6 +24,45 @@ namespace {
 
 using project_detail::is_valid_character_slot;
 using project_detail::trim_ascii_whitespace;
+
+bool is_valid_page_font_preset(const PageFontPreset preset) {
+  switch (preset) {
+    case PageFontPreset::system:
+    case PageFontPreset::serif:
+    case PageFontPreset::rounded:
+    case PageFontPreset::mono:
+      return true;
+  }
+  return false;
+}
+
+bool is_valid_page_image_fit(const PageImageFit fit) {
+  switch (fit) {
+    case PageImageFit::contain:
+    case PageImageFit::cover:
+      return true;
+  }
+  return false;
+}
+
+bool is_valid_start_screen_layout(const StartScreenLayout layout) {
+  switch (layout) {
+    case StartScreenLayout::split_right:
+    case StartScreenLayout::split_left:
+    case StartScreenLayout::center:
+      return true;
+  }
+  return false;
+}
+
+bool is_valid_cg_gallery_layout(const CgGalleryLayout layout) {
+  switch (layout) {
+    case CgGalleryLayout::framed:
+    case CgGalleryLayout::edge_to_edge:
+      return true;
+  }
+  return false;
+}
 
 bool is_valid_utf8(const std::string_view value) {
   std::size_t index = 0;
@@ -108,6 +148,406 @@ bool project_contains_entity_id(
   }
   return false;
 }
+
+std::optional<SceneContentDraftNodeType> draft_type_for_scene_node(
+    const SceneNode& node) {
+  return std::visit(
+      [](const auto& value) -> std::optional<SceneContentDraftNodeType> {
+        using T = std::decay_t<decltype(value)>;
+        if constexpr (std::is_same_v<T, Dialogue>) {
+          return SceneContentDraftNodeType::dialogue;
+        } else if constexpr (std::is_same_v<T, BackgroundNode>) {
+          return SceneContentDraftNodeType::background;
+        } else if constexpr (std::is_same_v<T, CharacterNode>) {
+          return SceneContentDraftNodeType::character;
+        } else if constexpr (std::is_same_v<T, SceneJumpNode>) {
+          return SceneContentDraftNodeType::scene_jump;
+        } else if constexpr (std::is_same_v<T, BgmNode>) {
+          return SceneContentDraftNodeType::bgm;
+        } else if constexpr (std::is_same_v<T, VideoNode>) {
+          return SceneContentDraftNodeType::video;
+        } else if constexpr (std::is_same_v<T, CgDisplayNode>) {
+          return SceneContentDraftNodeType::cg_display;
+        } else if constexpr (std::is_same_v<T, ChoiceNode>) {
+          return SceneContentDraftNodeType::choice;
+        } else if constexpr (std::is_same_v<T, StoryExtensionNode>) {
+          return SceneContentDraftNodeType::story_extension;
+        } else if constexpr (std::is_same_v<T, VariableSetNode>) {
+          return SceneContentDraftNodeType::variable_set;
+        } else if constexpr (std::is_same_v<T, VariableChangeNode>) {
+          return SceneContentDraftNodeType::variable_change;
+        } else if constexpr (std::is_same_v<T, LogicIfNode>) {
+          return SceneContentDraftNodeType::logic_if;
+        } else if constexpr (std::is_same_v<T, LogicRepeatNode>) {
+          return SceneContentDraftNodeType::logic_repeat;
+        }
+        return std::nullopt;
+      },
+      node);
+}
+
+class SceneContentBuilder final {
+ public:
+  SceneContentBuilder(
+      const ProjectAggregate& aggregate,
+      const Scene& original,
+      IdGenerator& ids)
+      : ids_(ids) {
+    reserve_existing_ids(aggregate);
+    for (const SceneNode& node : original.nodes) {
+      old_nodes_.emplace(std::string(scene_node_id(node)), &node);
+      if (const auto* option_owner = std::get_if<ChoiceNode>(&node);
+          option_owner != nullptr) {
+        for (const ChoiceOption& option : option_owner->options) {
+          old_options_.emplace(option.id, &option);
+        }
+      }
+      if (const auto* marker = std::get_if<LogicElseNode>(&node);
+          marker != nullptr) {
+        old_if_else_ids_.emplace(marker->if_node_id, marker->id);
+      } else if (const auto* marker = std::get_if<LogicEndIfNode>(&node);
+                 marker != nullptr) {
+        old_if_end_ids_.emplace(marker->if_node_id, marker->id);
+      } else if (const auto* marker = std::get_if<LogicEndRepeatNode>(&node);
+                 marker != nullptr) {
+        old_repeat_end_ids_.emplace(marker->repeat_node_id, marker->id);
+      } else if (const auto* marker = std::get_if<CgEndDisplayNode>(&node);
+                 marker != nullptr) {
+        old_cg_end_ids_.emplace(marker->cg_display_node_id, marker->id);
+      }
+    }
+  }
+
+  ReplaceSceneContentStatus append_nodes(
+      const std::vector<SceneContentDraftNode>& drafts,
+      std::vector<SceneNode>& output) {
+    return append_nodes_at_depth(drafts, output, 0);
+  }
+
+ private:
+  static constexpr std::size_t kMaximumIdGenerationAttempts = 64;
+  static constexpr std::size_t kMaximumDraftEntities = 10000;
+
+  ReplaceSceneContentStatus append_nodes_at_depth(
+      const std::vector<SceneContentDraftNode>& drafts,
+      std::vector<SceneNode>& output,
+      const int control_depth) {
+    for (const SceneContentDraftNode& draft : drafts) {
+      const ReplaceSceneContentStatus status =
+          append_node(draft, output, control_depth);
+      if (status != ReplaceSceneContentStatus::changed) {
+        return status;
+      }
+    }
+    return ReplaceSceneContentStatus::changed;
+  }
+
+  void reserve_existing_ids(const ProjectAggregate& aggregate) {
+    reserved_ids_.insert(aggregate.project.id);
+    for (const Scene& scene : aggregate.project.scenes) {
+      reserved_ids_.insert(scene.id);
+      for (const CharacterVisualInstance& character :
+           scene.visuals.characters) {
+        reserved_ids_.insert(character.id);
+      }
+      for (const SceneNode& node : scene.nodes) {
+        reserved_ids_.insert(std::string(scene_node_id(node)));
+        if (const auto* choice = std::get_if<ChoiceNode>(&node);
+            choice != nullptr) {
+          for (const ChoiceOption& option : choice->options) {
+            reserved_ids_.insert(option.id);
+          }
+        }
+      }
+    }
+    for (const Asset& asset : aggregate.assets) {
+      reserved_ids_.insert(asset.id);
+    }
+  }
+
+  std::optional<std::string> fresh_id() {
+    for (std::size_t attempt = 0;
+         attempt < kMaximumIdGenerationAttempts;
+         ++attempt) {
+      std::string candidate = ids_.next();
+      if (!candidate.empty() && reserved_ids_.insert(candidate).second) {
+        return candidate;
+      }
+    }
+    return std::nullopt;
+  }
+
+  ReplaceSceneContentStatus resolve_node_id(
+      const SceneContentDraftNode& draft,
+      std::string& output) {
+    if (!draft.origin_id.has_value()) {
+      const std::optional<std::string> created = fresh_id();
+      if (!created.has_value()) {
+        return ReplaceSceneContentStatus::id_generation_failed;
+      }
+      output = *created;
+      return ReplaceSceneContentStatus::changed;
+    }
+    const auto old = old_nodes_.find(*draft.origin_id);
+    if (draft.origin_id->empty() || old == old_nodes_.end() ||
+        claimed_origin_ids_.contains(*draft.origin_id) ||
+        draft_type_for_scene_node(*old->second) != draft.type) {
+      return ReplaceSceneContentStatus::invalid_origin_id;
+    }
+    claimed_origin_ids_.insert(*draft.origin_id);
+    output = *draft.origin_id;
+    return ReplaceSceneContentStatus::changed;
+  }
+
+  ReplaceSceneContentStatus resolve_option_id(
+      const SceneContentChoiceOptionDraft& draft,
+      std::string& output) {
+    if (!draft.origin_id.has_value()) {
+      const std::optional<std::string> created = fresh_id();
+      if (!created.has_value()) {
+        return ReplaceSceneContentStatus::id_generation_failed;
+      }
+      output = *created;
+      return ReplaceSceneContentStatus::changed;
+    }
+    if (draft.origin_id->empty() ||
+        !old_options_.contains(*draft.origin_id) ||
+        claimed_origin_ids_.contains(*draft.origin_id)) {
+      return ReplaceSceneContentStatus::invalid_origin_id;
+    }
+    claimed_origin_ids_.insert(*draft.origin_id);
+    output = *draft.origin_id;
+    return ReplaceSceneContentStatus::changed;
+  }
+
+  ReplaceSceneContentStatus paired_marker_id(
+      const std::optional<std::string>& root_origin_id,
+      const std::unordered_map<std::string, std::string>& old_markers,
+      std::string& output) {
+    if (root_origin_id.has_value()) {
+      const auto old = old_markers.find(*root_origin_id);
+      if (old != old_markers.end()) {
+        output = old->second;
+        return ReplaceSceneContentStatus::changed;
+      }
+    }
+    const std::optional<std::string> created = fresh_id();
+    if (!created.has_value()) {
+      return ReplaceSceneContentStatus::id_generation_failed;
+    }
+    output = *created;
+    return ReplaceSceneContentStatus::changed;
+  }
+
+  ReplaceSceneContentStatus append_node(
+      const SceneContentDraftNode& draft,
+      std::vector<SceneNode>& output,
+      const int control_depth) {
+    ++entity_count_;
+    if (entity_count_ > kMaximumDraftEntities) {
+      return ReplaceSceneContentStatus::invalid_content;
+    }
+    std::string id;
+    ReplaceSceneContentStatus status = resolve_node_id(draft, id);
+    if (status != ReplaceSceneContentStatus::changed) {
+      return status;
+    }
+
+    switch (draft.type) {
+      case SceneContentDraftNodeType::dialogue: {
+        DialogueContent content = normalize_dialogue_content(
+            draft.speaker, draft.text);
+        output.emplace_back(Dialogue{
+            .id = std::move(id),
+            .speaker = std::move(content.speaker),
+            .text = std::move(content.text),
+            .voice_asset_id = draft.voice_asset_id,
+        });
+        return ReplaceSceneContentStatus::changed;
+      }
+      case SceneContentDraftNodeType::background:
+        output.emplace_back(BackgroundNode{
+            .id = std::move(id),
+            .asset_id = draft.asset_id,
+            .scale_percent = draft.scale_percent,
+        });
+        return ReplaceSceneContentStatus::changed;
+      case SceneContentDraftNodeType::character:
+        output.emplace_back(CharacterNode{
+            .id = std::move(id),
+            .asset_id = draft.asset_id,
+            .mode = draft.character_mode,
+            .slot = draft.character_slot,
+            .layer = draft.character_layer,
+            .position = draft.character_position,
+            .effect = draft.character_effect,
+            .scale_percent = draft.scale_percent,
+        });
+        return ReplaceSceneContentStatus::changed;
+      case SceneContentDraftNodeType::scene_jump:
+        output.emplace_back(SceneJumpNode{
+            .id = std::move(id),
+            .target_scene_id = draft.target_scene_id,
+        });
+        return ReplaceSceneContentStatus::changed;
+      case SceneContentDraftNodeType::bgm:
+        output.emplace_back(BgmNode{
+            .id = std::move(id),
+            .asset_id = draft.asset_id,
+        });
+        return ReplaceSceneContentStatus::changed;
+      case SceneContentDraftNodeType::video:
+        output.emplace_back(VideoNode{
+            .id = std::move(id),
+            .asset_id = draft.asset_id,
+        });
+        return ReplaceSceneContentStatus::changed;
+      case SceneContentDraftNodeType::choice: {
+        ChoiceNode choice{.id = std::move(id)};
+        choice.options.reserve(draft.choice_options.size());
+        for (const SceneContentChoiceOptionDraft& option_draft :
+             draft.choice_options) {
+          ++entity_count_;
+          if (entity_count_ > kMaximumDraftEntities) {
+            return ReplaceSceneContentStatus::invalid_content;
+          }
+          std::string option_id;
+          status = resolve_option_id(option_draft, option_id);
+          if (status != ReplaceSceneContentStatus::changed) {
+            return status;
+          }
+          choice.options.push_back(ChoiceOption{
+              .id = std::move(option_id),
+              .text = trim_ascii_whitespace(option_draft.text),
+              .target_scene_id = option_draft.target_scene_id,
+          });
+        }
+        output.emplace_back(std::move(choice));
+        return ReplaceSceneContentStatus::changed;
+      }
+      case SceneContentDraftNodeType::story_extension:
+        output.emplace_back(StoryExtensionNode{.id = std::move(id)});
+        return ReplaceSceneContentStatus::changed;
+      case SceneContentDraftNodeType::variable_set:
+        output.emplace_back(VariableSetNode{
+            .id = std::move(id),
+            .variable_name = draft.variable_name,
+            .value = draft.logic_value,
+        });
+        return ReplaceSceneContentStatus::changed;
+      case SceneContentDraftNodeType::variable_change:
+        output.emplace_back(VariableChangeNode{
+            .id = std::move(id),
+            .variable_name = draft.variable_name,
+            .amount = draft.amount,
+        });
+        return ReplaceSceneContentStatus::changed;
+      case SceneContentDraftNodeType::logic_if: {
+        if (control_depth >= kMaximumLogicNestingDepth) {
+          return ReplaceSceneContentStatus::invalid_content;
+        }
+        output.emplace_back(LogicIfNode{
+            .id = id,
+            .condition = draft.condition,
+        });
+        status = append_nodes_at_depth(
+            draft.then_nodes, output, control_depth + 1);
+        if (status != ReplaceSceneContentStatus::changed) {
+          return status;
+        }
+        std::string else_id;
+        status = paired_marker_id(
+            draft.origin_id, old_if_else_ids_, else_id);
+        if (status != ReplaceSceneContentStatus::changed) {
+          return status;
+        }
+        output.emplace_back(LogicElseNode{
+            .id = std::move(else_id),
+            .if_node_id = id,
+        });
+        status = append_nodes_at_depth(
+            draft.else_nodes, output, control_depth + 1);
+        if (status != ReplaceSceneContentStatus::changed) {
+          return status;
+        }
+        std::string end_id;
+        status = paired_marker_id(draft.origin_id, old_if_end_ids_, end_id);
+        if (status != ReplaceSceneContentStatus::changed) {
+          return status;
+        }
+        output.emplace_back(LogicEndIfNode{
+            .id = std::move(end_id),
+            .if_node_id = std::move(id),
+        });
+        return ReplaceSceneContentStatus::changed;
+      }
+      case SceneContentDraftNodeType::logic_repeat: {
+        if (control_depth >= kMaximumLogicNestingDepth) {
+          return ReplaceSceneContentStatus::invalid_content;
+        }
+        output.emplace_back(LogicRepeatNode{.id = id, .count = draft.count});
+        status = append_nodes_at_depth(
+            draft.body_nodes, output, control_depth + 1);
+        if (status != ReplaceSceneContentStatus::changed) {
+          return status;
+        }
+        std::string end_id;
+        status = paired_marker_id(
+            draft.origin_id, old_repeat_end_ids_, end_id);
+        if (status != ReplaceSceneContentStatus::changed) {
+          return status;
+        }
+        output.emplace_back(LogicEndRepeatNode{
+            .id = std::move(end_id),
+            .repeat_node_id = std::move(id),
+        });
+        return ReplaceSceneContentStatus::changed;
+      }
+      case SceneContentDraftNodeType::cg_display: {
+        if (control_depth >= kMaximumLogicNestingDepth) {
+          return ReplaceSceneContentStatus::invalid_content;
+        }
+        output.emplace_back(CgDisplayNode{
+            .id = id,
+            .asset_id = draft.asset_id.value_or(std::string{}),
+            .lead_in_ms = draft.lead_in_ms,
+        });
+        for (const SceneContentDraftNode& body_node : draft.body_nodes) {
+          if (body_node.type != SceneContentDraftNodeType::dialogue) {
+            return ReplaceSceneContentStatus::invalid_content;
+          }
+        }
+        status = append_nodes_at_depth(
+            draft.body_nodes, output, control_depth);
+        if (status != ReplaceSceneContentStatus::changed) {
+          return status;
+        }
+        std::string end_id;
+        status = paired_marker_id(draft.origin_id, old_cg_end_ids_, end_id);
+        if (status != ReplaceSceneContentStatus::changed) {
+          return status;
+        }
+        output.emplace_back(CgEndDisplayNode{
+            .id = std::move(end_id),
+            .cg_display_node_id = std::move(id),
+        });
+        return ReplaceSceneContentStatus::changed;
+      }
+    }
+    return ReplaceSceneContentStatus::invalid_content;
+  }
+
+  IdGenerator& ids_;
+  std::size_t entity_count_ = 0;
+  std::unordered_set<std::string> reserved_ids_;
+  std::unordered_set<std::string> claimed_origin_ids_;
+  std::unordered_map<std::string, const SceneNode*> old_nodes_;
+  std::unordered_map<std::string, const ChoiceOption*> old_options_;
+  std::unordered_map<std::string, std::string> old_if_else_ids_;
+  std::unordered_map<std::string, std::string> old_if_end_ids_;
+  std::unordered_map<std::string, std::string> old_repeat_end_ids_;
+  std::unordered_map<std::string, std::string> old_cg_end_ids_;
+};
 
 bool is_valid_logic_variable_name(const std::string_view name) {
   return !name.empty() && name.size() <= kMaximumLogicVariableNameBytes &&
@@ -369,8 +809,11 @@ Scene create_empty_scene(IdGenerator& ids, std::string name) {
   };
 }
 
-Project create_empty_project(IdGenerator& ids, std::string name) {
-  Scene first_scene = create_empty_scene(ids, "场景 1");
+Project create_empty_project(
+    IdGenerator& ids,
+    std::string name,
+    std::string first_scene_name) {
+  Scene first_scene = create_empty_scene(ids, std::move(first_scene_name));
   const std::string first_scene_id = first_scene.id;
 
   return Project{
@@ -386,9 +829,11 @@ Project create_empty_project(IdGenerator& ids, std::string name) {
 
 ProjectAggregate create_empty_project_aggregate(
     IdGenerator& ids,
-    std::string name) {
+    std::string name,
+    std::string first_scene_name) {
   return ProjectAggregate{
-      .project = create_empty_project(ids, std::move(name)),
+      .project = create_empty_project(
+          ids, std::move(name), std::move(first_scene_name)),
       .assets = {},
   };
 }
@@ -435,6 +880,7 @@ UpdateStartScreenResult update_start_screen(
       .eyebrow = *normalized_eyebrow,
       .background_asset_id = std::move(background_asset_id),
       .music_asset_id = std::move(music_asset_id),
+      .style = aggregate.project.start_screen.style,
   };
   if (aggregate.project.start_screen == candidate) {
     return UpdateStartScreenResult::unchanged;
@@ -443,6 +889,65 @@ UpdateStartScreenResult update_start_screen(
   static_assert(std::is_nothrow_move_assignable_v<StartScreen>);
   aggregate.project.start_screen = std::move(candidate);
   return UpdateStartScreenResult::changed;
+}
+
+bool is_canonical_page_color(const std::string_view color) {
+  if (color.size() != 7U || color.front() != '#') {
+    return false;
+  }
+  return std::all_of(
+      color.begin() + 1,
+      color.end(),
+      [](const char character) {
+        return (character >= '0' && character <= '9') ||
+            (character >= 'A' && character <= 'F');
+      });
+}
+
+bool is_valid_common_page_style(const CommonPageStyle& style) {
+  return is_valid_page_font_preset(style.font_preset) &&
+      style.font_scale_percent >= kMinimumPageFontScalePercent &&
+      style.font_scale_percent <= kMaximumPageFontScalePercent &&
+      is_canonical_page_color(style.page_color) &&
+      is_canonical_page_color(style.text_color) &&
+      is_canonical_page_color(style.muted_text_color) &&
+      is_canonical_page_color(style.surface_color) &&
+      style.surface_opacity_percent >= kMinimumPageOpacityPercent &&
+      style.surface_opacity_percent <= kMaximumPageOpacityPercent &&
+      is_canonical_page_color(style.accent_color) &&
+      is_canonical_page_color(style.overlay_color) &&
+      style.overlay_opacity_percent >= kMinimumPageOpacityPercent &&
+      style.overlay_opacity_percent <= kMaximumPageOpacityPercent &&
+      style.corner_radius_px >= kMinimumPageCornerRadiusPx &&
+      style.corner_radius_px <= kMaximumPageCornerRadiusPx;
+}
+
+bool is_valid_start_screen_style(const StartScreenStyle& style) {
+  return is_valid_common_page_style(style.common) &&
+      is_valid_start_screen_layout(style.layout) &&
+      is_valid_page_image_fit(style.background_fit);
+}
+
+bool is_valid_cg_gallery_style(const CgGalleryStyle& style) {
+  return is_valid_common_page_style(style.common) &&
+      is_valid_cg_gallery_layout(style.layout) &&
+      is_valid_page_image_fit(style.thumbnail_fit) &&
+      style.gap_px >= kMinimumCgGalleryGapPx &&
+      style.gap_px <= kMaximumCgGalleryGapPx;
+}
+
+UpdatePageStyleResult update_start_screen_style(
+    Project& project,
+    StartScreenStyle style) {
+  if (!is_valid_start_screen_style(style)) {
+    return UpdatePageStyleResult::invalid_style;
+  }
+  if (project.start_screen.style == style) {
+    return UpdatePageStyleResult::unchanged;
+  }
+  static_assert(std::is_nothrow_move_assignable_v<StartScreenStyle>);
+  project.start_screen.style = std::move(style);
+  return UpdatePageStyleResult::changed;
 }
 
 UpdateCgGalleryResult update_cg_gallery(
@@ -472,7 +977,10 @@ UpdateCgGalleryResult update_cg_gallery(
     }
   }
 
-  CgGallery candidate{.pages = std::move(pages)};
+  CgGallery candidate{
+      .pages = std::move(pages),
+      .style = aggregate.project.cg_gallery.style,
+  };
   if (aggregate.project.cg_gallery == candidate) {
     return UpdateCgGalleryResult::unchanged;
   }
@@ -480,6 +988,20 @@ UpdateCgGalleryResult update_cg_gallery(
   static_assert(std::is_nothrow_move_assignable_v<CgGallery>);
   aggregate.project.cg_gallery = std::move(candidate);
   return UpdateCgGalleryResult::changed;
+}
+
+UpdatePageStyleResult update_cg_gallery_style(
+    Project& project,
+    CgGalleryStyle style) {
+  if (!is_valid_cg_gallery_style(style)) {
+    return UpdatePageStyleResult::invalid_style;
+  }
+  if (project.cg_gallery.style == style) {
+    return UpdatePageStyleResult::unchanged;
+  }
+  static_assert(std::is_nothrow_move_assignable_v<CgGalleryStyle>);
+  project.cg_gallery.style = std::move(style);
+  return UpdatePageStyleResult::changed;
 }
 
 SetSceneBackgroundResult set_scene_background(
@@ -627,6 +1149,58 @@ bool rename_scene(
 
   scene->name = *normalized_name;
   return true;
+}
+
+ReplaceSceneContentResult replace_scene_content(
+    ProjectAggregate& aggregate,
+    IdGenerator& ids,
+    const std::string_view scene_id,
+    SceneContentDraft draft) {
+  const Scene* original_scene = find_scene(aggregate.project, scene_id);
+  if (original_scene == nullptr) {
+    return {ReplaceSceneContentStatus::scene_not_found, std::nullopt};
+  }
+
+  std::optional<std::string> normalized_name =
+      normalize_scene_name(std::move(draft.name));
+  if (!normalized_name.has_value()) {
+    return {ReplaceSceneContentStatus::scene_name_required, std::nullopt};
+  }
+
+  SceneContentBuilder builder(aggregate, *original_scene, ids);
+  std::vector<SceneNode> replacement_nodes;
+  const ReplaceSceneContentStatus build_status =
+      builder.append_nodes(draft.nodes, replacement_nodes);
+  if (build_status != ReplaceSceneContentStatus::changed) {
+    return {build_status, std::nullopt};
+  }
+
+  ProjectAggregate candidate = aggregate;
+  Scene* candidate_scene = find_scene(candidate.project, scene_id);
+  if (candidate_scene == nullptr) {
+    return {ReplaceSceneContentStatus::scene_not_found, std::nullopt};
+  }
+  candidate_scene->name = std::move(*normalized_name);
+  candidate_scene->visuals.background_asset_id =
+      std::move(draft.initial_background_asset_id);
+  candidate_scene->visuals.background_scale_percent =
+      draft.initial_background_scale_percent;
+  candidate_scene->nodes = std::move(replacement_nodes);
+
+  if (const std::optional<std::string> violation =
+          validate_project_aggregate(candidate);
+      violation.has_value()) {
+    return {
+        ReplaceSceneContentStatus::invalid_content,
+        std::move(violation),
+    };
+  }
+  if (candidate == aggregate) {
+    return {ReplaceSceneContentStatus::unchanged, std::nullopt};
+  }
+
+  aggregate = std::move(candidate);
+  return {ReplaceSceneContentStatus::changed, std::nullopt};
 }
 
 bool delete_scene(Project& project, const std::string_view scene_id) {

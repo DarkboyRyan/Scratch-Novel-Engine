@@ -421,6 +421,7 @@ function TitleGamePreview({
         language={language}
         startScreen={session.project.startScreen}
         cgGalleryPages={session.project.cgGallery?.pages ?? []}
+        cgGalleryStyle={session.project.cgGallery?.style}
         resolveMediaUrl={resolveMediaUrl}
         interactionBlocked={loadPreviewNoticeOpen}
         onStart={onEnterStory}

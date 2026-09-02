@@ -15,7 +15,7 @@
 | 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
 | --- | --- | --- | --- |
 | [assetPreviewService.test.ts](./assetPreviewService.test.ts) | Vitest + TypeScript | 验证 AssetPreviewService 的行为 | `AssetPreviewService` |
-| [authorProjectCompiler.test.ts](./authorProjectCompiler.test.ts) | Vitest + TypeScript | 验证 author project v21 compiler、标题上方文字、图片缩放、人物模式迁移和 Runtime 投影 | `author project v21 compiler` |
+| [authorProjectCompiler.test.ts](./authorProjectCompiler.test.ts) | Vitest + TypeScript | 验证 author project v22 compiler、页面样式、标题上方文字、图片缩放、人物模式迁移和 Runtime 投影 | `author project v22 compiler` |
 | [backendClientTimeout.test.ts](./backendClientTimeout.test.ts) | Vitest + TypeScript | 验证 backend request timeout 的行为 | `backend request timeout` |
 | [backendResponse.test.ts](./backendResponse.test.ts) | Vitest + TypeScript | 验证 backend response validation 的行为 | `backend response validation` |
 | [backgroundBlockEvents.test.ts](./backgroundBlockEvents.test.ts) | Vitest + TypeScript + Blockly | 验证背景缩放字段、草稿收集和 HMR 旧积木升级 | `getBackgroundFieldUpdate`、`collectBackgroundFieldDrafts` |
@@ -34,9 +34,11 @@
 | [characterPositionForm.test.tsx](./characterPositionForm.test.tsx) | Vitest + React + TypeScript + JSDOM | 验证 character position form controls 的行为 | `character position form controls` |
 | [choiceBlock.test.ts](./choiceBlock.test.ts) | Vitest + TypeScript + Blockly | 验证 choice Blockly blocks 的行为 | `choice Blockly blocks` |
 | [choiceBlockEvents.test.ts](./choiceBlockEvents.test.ts) | Vitest + TypeScript + Blockly | 验证 choice option Blockly events 的行为 | `choice option Blockly events` |
+| [codeEditorReadonly.test.tsx](./codeEditorReadonly.test.tsx) | Vitest + React + TypeScript + JSDOM | 验证 Code 草稿/原子应用/冲突，以及 Tab 缩进、Enter 对齐、IME 与键盘焦点边界 | `CodeEditor projection and page styling` |
 | [createAuthoringActions.test.ts](./createAuthoringActions.test.ts) | Vitest + TypeScript | 验证 createAuthoringActions 的行为 | `createAuthoringActions` |
 | [dialogueBlockEvents.test.ts](./dialogueBlockEvents.test.ts) | Vitest + TypeScript + Blockly | 验证 timeline anchors after top-level logic controls、getDroppedNewDialogueBlock、getNewStoryExtensionDropResolution 等行为 | `timeline anchors after top-level logic controls`、`getDroppedNewDialogueBlock`、`getNewStoryExtensionDropResolution`、`getDialogueFieldUpdate`、`collectDialogueFieldDrafts`、`getReorderedDialogueBlock` 等 7 项 |
 | [dialogueGroupReorder.test.ts](./dialogueGroupReorder.test.ts) | Vitest + TypeScript | 验证 dialogue group reorder 的行为 | `dialogue group reorder` |
+| [editorCodeModeIntegration.test.tsx](./editorCodeModeIntegration.test.tsx) | Vitest + React + TypeScript + JSDOM | 验证 Form、Blockly 与 Code 共用权威场景和切换前 flush | `EditorApplication Code mode integration` |
 | [editorEnglishDensityStyle.test.ts](./editorEnglishDensityStyle.test.ts) | Vitest + TypeScript | 验证 English Editor density style contract 的行为 | `English Editor density style contract` |
 | [editorFrameTrust.test.ts](./editorFrameTrust.test.ts) | Vitest + TypeScript | 验证 editor frame trust 的行为 | `editor frame trust` |
 | [editorLocalization.test.tsx](./editorLocalization.test.tsx) | Vitest + React + TypeScript + Blockly + JSDOM | 验证 Editor localization 的行为 | `Editor localization` |
@@ -79,6 +81,8 @@
 | [resourceBackgroundScale.test.tsx](./resourceBackgroundScale.test.tsx) | Vitest + React + TypeScript + JSDOM | 验证场景初始背景缩放、清空归一化和标题页隐藏 | `ResourcePanel` |
 | [runtimeBundleExporter.test.ts](./runtimeBundleExporter.test.ts) | Vitest + TypeScript | 验证 runtime bundle exporter 的行为 | `runtime bundle exporter` |
 | [runtimeBundleFileProviderStability.test.ts](./runtimeBundleFileProviderStability.test.ts) | Vitest + TypeScript | 验证 runtime Bundle File Provider Stability 的关键行为与回归边界 | 关键成功、失败与边界场景 |
+| [sceneCodeProjection.test.ts](./sceneCodeProjection.test.ts) | Vitest + TypeScript | 验证权威场景到只读 DSL 的稳定投影 | `read-only scene Code projection` |
+| [sceneCodeParser.test.ts](./sceneCodeParser.test.ts) | Vitest + TypeScript | 验证剧情 DSL 逆向解析、身份复用、引用消歧和输入预算 | `editable scene Code parser` |
 | [sceneJumpBlockEvents.test.ts](./sceneJumpBlockEvents.test.ts) | Vitest + TypeScript + Blockly | 验证 scene jump Blockly field events 的行为 | `scene jump Blockly field events` |
 | [sceneStartBlock.test.ts](./sceneStartBlock.test.ts) | Vitest + TypeScript + Blockly | 验证 scene start block 的行为 | `scene start block` |
 | [standaloneApplicationArchive.test.ts](./standaloneApplicationArchive.test.ts) | Vitest + TypeScript | 验证 standalone Application Archive 的关键行为与回归边界 | 关键成功、失败与边界场景 |
@@ -92,6 +96,7 @@
 | [storyContinuationBlockEvents.test.ts](./storyContinuationBlockEvents.test.ts) | Vitest + TypeScript + Blockly | 验证 story continuation sequence commands 的行为 | `story continuation sequence commands` |
 | [timelinePreview.test.ts](./timelinePreview.test.ts) | Vitest + TypeScript | 验证 deriveTimelinePreview 的行为 | `deriveTimelinePreview` |
 | [titleModalStyle.test.ts](./titleModalStyle.test.ts) | Vitest + TypeScript | 验证 title preview modal visual style contract 的行为 | `title preview modal visual style contract` |
+| [toolbarEditorModes.test.tsx](./toolbarEditorModes.test.tsx) | Vitest + React + TypeScript + JSDOM | 验证 Form、Blockly 和 Code 三模式入口 | `Toolbar editor modes` |
 | [toolbarExport.test.tsx](./toolbarExport.test.tsx) | Vitest + React + TypeScript + JSDOM | 验证 Toolbar game export action 的行为 | `Toolbar game export action` |
 | [useEditorSettings.test.tsx](./useEditorSettings.test.tsx) | Vitest + React + TypeScript + JSDOM | 验证 useEditorSettings 的行为 | `useEditorSettings` |
 | [useEngineProject.test.tsx](./useEngineProject.test.tsx) | Vitest + React + TypeScript + JSDOM | 验证 useEngineProject asset state 的行为 | `useEngineProject asset state` |

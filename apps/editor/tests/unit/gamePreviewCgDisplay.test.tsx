@@ -12,6 +12,8 @@ import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import {
   completeCgLeadIn,
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
   startGame,
   type ProjectDocument,
 } from '@vnengine/runtime';
@@ -35,12 +37,16 @@ const project: ProjectDocument = {
   name: 'Preview CG',
   entrySceneId: 'entry',
   startScreen: {
+    style: DEFAULT_START_SCREEN_STYLE,
     title: '',
     eyebrow: 'A VN ENGINE STORY',
     backgroundAssetId: null,
     musicAssetId: null,
   },
-  cgGallery: { pages: [{ imageAssetIds: Array(9).fill(null) }] },
+  cgGallery: {
+    style: DEFAULT_CG_GALLERY_STYLE,
+    pages: [{ imageAssetIds: Array(9).fill(null) }],
+  },
   scenes: [{
     schemaVersion: 1,
     id: 'entry',

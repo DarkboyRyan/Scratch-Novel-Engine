@@ -3,7 +3,7 @@
  * 包含实现：`App`。
  */
 
-import { useEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 
 import {
   type EditorLanguage,
@@ -30,6 +30,11 @@ import {
   type BlockEditorHandle,
 } from './features/block-editor/BlockEditor';
 import type { BlockEditorLayoutStore } from './features/block-editor/blockEditorLayout';
+import {
+  CodeEditor,
+  type CodeEditorDraft,
+  type CodeEditorHandle,
+} from './features/code-editor/CodeEditor';
 import { ResourcePanel } from './features/assets/ResourcePanel';
 import { useAssetPreviewUrls } from './features/assets/useAssetPreviewUrls';
 import { FormEditor } from './features/form-editor/FormEditor';
@@ -146,6 +151,7 @@ export function EditorApplication({
   const blockEditorLayouts =
     useRef<BlockEditorLayoutStore>(new Map());
   const blockEditorRef = useRef<BlockEditorHandle>(null);
+  const codeEditorRef = useRef<CodeEditorHandle>(null);
   const startScreenEditorRef = useRef<StartScreenEditorHandle>(null);
   const cgGalleryEditorRef = useRef<CgGalleryEditorHandle>(null);
   const engine = useEngineProject();
@@ -174,6 +180,9 @@ export function EditorApplication({
     labels.app.untitledProject,
   );
   const [blockDraftDirty, setBlockDraftDirty] = useState(false);
+  const [codeDraftDirty, setCodeDraftDirty] = useState(false);
+  const codeDraftsRef = useRef<Map<string, CodeEditorDraft>>(new Map());
+  const codeDraftSessionRef = useRef(0);
   const [sceneBackgroundScaleDraft, setSceneBackgroundScaleDraftState] =
     useState<SceneBackgroundScaleDraft | null>(null);
   const sceneBackgroundScaleDraftRef =
@@ -207,7 +216,23 @@ export function EditorApplication({
     editor.draftDirty ||
     projectNameDraftDirty ||
     blockDraftDirty ||
+    codeDraftDirty ||
     sceneBackgroundScaleDraftDirty;
+
+  const updateCodeDraft = useCallback(
+    (key: string, draft: CodeEditorDraft | null): void => {
+      if (draft === null) {
+        codeDraftsRef.current.delete(key);
+      } else {
+        codeDraftsRef.current.set(key, draft);
+      }
+      setCodeDraftDirty(codeDraftsRef.current.size > 0);
+    },
+    [],
+  );
+  const syncCodeDraftDirty = useCallback((): void => {
+    setCodeDraftDirty(codeDraftsRef.current.size > 0);
+  }, []);
   const latestActionsRef = useRef({
     create: async () => {},
     open: async () => {},
@@ -253,8 +278,11 @@ export function EditorApplication({
 
     const status = await engine.openProject();
     if (status === 'opened') {
+      codeDraftsRef.current.clear();
+      codeDraftSessionRef.current += 1;
       setIsRenamingProject(false);
       setBlockDraftDirty(false);
+      setCodeDraftDirty(false);
       editor.resetEditorState();
       blockEditorLayouts.current.clear();
       setEditorMode('form');
@@ -391,6 +419,9 @@ export function EditorApplication({
             Promise.resolve(true))
           : (blockEditorRef.current?.flushPendingDraft() ??
             Promise.resolve(true)),
+      flushCodeDraft: () =>
+        codeEditorRef.current?.flushPendingDraft() ?? Promise.resolve(true),
+      hasUnappliedCodeDrafts: () => codeDraftsRef.current.size > 0,
       commitProjectName,
       commitFormDraft: () =>
         isCgGallerySelected
@@ -408,11 +439,57 @@ export function EditorApplication({
     ) {
       setBlockDraftDirty(false);
     }
+    if (prepared && editorMode === 'code') {
+      setCodeDraftDirty(codeDraftsRef.current.size > 0);
+    }
+    if (!prepared && codeDraftsRef.current.size > 0) {
+      engine.setEngineMessage(labels.codeEditor.unappliedDraftsBlockAction);
+    }
     return prepared;
+  };
+
+  const prepareEditorEditsForLeave = async (): Promise<boolean> => {
+    // 离开 Code 与保存/导出的边界不同：有效代码仍会先提交；语法错误
+    // 或并发冲突只保留在窗口内草稿仓库，不进入 C++，也不把用户锁在
+    // 当前视图。Form/Blockly 因而始终只读取最后一次成功的权威快照。
+    const activeDraftPrepared = editorMode === 'blocks'
+      ? await (isCgGallerySelected
+        ? (cgGalleryEditorRef.current?.flushPendingDraft() ?? true)
+        : isStartScreenSelected
+          ? (startScreenEditorRef.current?.flushPendingDraft() ?? true)
+          : (blockEditorRef.current?.flushPendingDraft() ?? true))
+      : editorMode === 'code'
+        ? await (codeEditorRef.current?.prepareToLeave() ?? true)
+        : true;
+    if (!activeDraftPrepared || !(await commitProjectName())) {
+      return false;
+    }
+    if (editorMode === 'form') {
+      const committed = await (isCgGallerySelected
+        ? (cgGalleryEditorRef.current?.flushPendingDraft() ?? true)
+        : isStartScreenSelected
+          ? (startScreenEditorRef.current?.flushPendingDraft() ?? true)
+          : editor.commitPendingDraft());
+      if (!committed) {
+        return false;
+      }
+    }
+    if (editorMode === 'blocks') {
+      setBlockDraftDirty(false);
+    }
+    setCodeDraftDirty(codeDraftsRef.current.size > 0);
+    return true;
   };
 
   const prepareCurrentEdits = async (): Promise<boolean> => {
     if (!(await prepareEditorEdits())) {
+      return false;
+    }
+    return commitSceneBackgroundScaleDraft();
+  };
+
+  const prepareCurrentEditsForLeave = async (): Promise<boolean> => {
+    if (!(await prepareEditorEditsForLeave())) {
       return false;
     }
     return commitSceneBackgroundScaleDraft();
@@ -503,7 +580,7 @@ export function EditorApplication({
     if (isStartScreenSelected) {
       await updateStartScreenFromLatest(
         { backgroundAssetId: next.assetId },
-        prepareCurrentEdits,
+        prepareCurrentEditsForLeave,
         engine.getProjectSnapshot,
         engine.updateStartScreen,
       );
@@ -535,7 +612,7 @@ export function EditorApplication({
     // 初始背景缩放草稿不在这里单独提交；它和新资源共用
     // 同一次 setSceneBackground，避免中间快照把缩放写到旧资源。
     if (
-      !(await prepareEditorEdits()) ||
+      !(await prepareEditorEditsForLeave()) ||
       (draftBelongsToScene && draftScalePercent === null) ||
       scalePercent === null
     ) {
@@ -571,7 +648,7 @@ export function EditorApplication({
       ) {
         return;
       }
-      if (await prepareCurrentEdits()) {
+      if (await prepareCurrentEditsForLeave()) {
         dispatchEditorSurface({
           type: selectingStartScreen
             ? 'select-start-screen'
@@ -587,7 +664,7 @@ export function EditorApplication({
       return;
     }
 
-    if (!(await prepareCurrentEdits())) {
+    if (!(await prepareCurrentEditsForLeave())) {
       return;
     }
     await editor.selectScene(nextSceneId);
@@ -595,7 +672,7 @@ export function EditorApplication({
   };
 
   const handleAddScene = async (): Promise<void> => {
-    if (engine.isBusy || !(await prepareCurrentEdits())) {
+    if (engine.isBusy || !(await prepareCurrentEditsForLeave())) {
       return;
     }
     await editor.addScene();
@@ -608,9 +685,9 @@ export function EditorApplication({
       return;
     }
 
-    // 切换视图会卸载当前编辑器，所以先把它的草稿提交给
-    // C++。提交失败就留在当前模式，避免隐藏或丢失用户输入。
-    if (await prepareCurrentEdits()) {
+    // 有效草稿先提交给 C++；Code 语法错误或冲突草稿按场景
+    // 保留在窗口内存，因此可以安全离开而不会污染其他视图。
+    if (await prepareCurrentEditsForLeave()) {
       setEditorMode(nextMode);
     }
   };
@@ -684,6 +761,13 @@ export function EditorApplication({
       </main>
     );
   }
+
+  const codeDraftKey = isStartScreenSelected
+    ? `${codeDraftSessionRef.current}:${project.id}:start-screen`
+    : isCgGallerySelected
+      ? `${codeDraftSessionRef.current}:${project.id}:cg-gallery`
+      : `${codeDraftSessionRef.current}:${project.id}:story:${scene.id}`;
+  const persistedCodeDraft = codeDraftsRef.current.get(codeDraftKey) ?? null;
 
   const previewScene = projectScaleDraftsOntoPreviewScene(
     scene,
@@ -813,7 +897,36 @@ export function EditorApplication({
         onSelectBackground={handleSelectBackground}
       />
 
-      {isCgGallerySelected && editorMode === 'form' ? (
+      {editorMode === 'code' ? (
+        <CodeEditor
+          ref={codeEditorRef}
+          project={project}
+          target={isStartScreenSelected
+            ? { kind: 'start-screen' }
+            : isCgGallerySelected
+              ? { kind: 'cg-gallery' }
+              : { kind: 'story', scene }}
+          assets={engine.assets}
+          isBusy={engine.isBusy}
+          onSceneChange={handleSceneChange}
+          onSelectStartScreen={() =>
+            handleSceneChange(START_SCREEN_SCENE_ID)
+          }
+          onSelectCgGallery={() =>
+            handleSceneChange(CG_GALLERY_SCENE_ID)
+          }
+          onUpdateStartScreenStyle={engine.updateStartScreenStyle}
+          onUpdateCgGalleryStyle={engine.updateCgGalleryStyle}
+          onReplaceSceneContent={(sceneId, draft) =>
+            engine.replaceSceneContent({ sceneId, draft })
+          }
+          draftKey={codeDraftKey}
+          persistedDraft={persistedCodeDraft}
+          onDraftChange={updateCodeDraft}
+          onDraftDirtyChange={syncCodeDraftDirty}
+          onStartPreview={() => void handleStartPreview()}
+        />
+      ) : isCgGallerySelected && editorMode === 'form' ? (
         <CgGalleryFormEditor
           ref={cgGalleryEditorRef}
           project={project}

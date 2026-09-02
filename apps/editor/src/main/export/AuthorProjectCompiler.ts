@@ -3,6 +3,7 @@
 import path from 'node:path';
 
 import type {
+  CgGalleryStyleDocument,
   CharacterEffect,
   ChoiceOption,
   LogicCondition,
@@ -10,11 +11,16 @@ import type {
   LogicValue,
   ProjectDocument as RuntimeProjectDocument,
   SceneDocument as RuntimeSceneDocument,
+  StartScreenStyleDocument,
 } from '@vnengine/runtime';
 import {
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
+  isCgGalleryStyleDocument,
   isCharacterEffect,
   isLogicValue,
   isLogicVariableName,
+  isStartScreenStyleDocument,
   MAX_CG_LEAD_IN_MS,
   MAX_REPEAT_COUNT,
   validateProjectLogicVariableBudget,
@@ -39,9 +45,9 @@ import {
 } from '../media/MediaFormat';
 
 export const AUTHOR_PROJECT_FORMAT = 'vn-engine-project';
-export const AUTHOR_PROJECT_FILE_VERSION = 21;
+export const AUTHOR_PROJECT_FILE_VERSION = 22;
 export const RUNTIME_FORMAT = 'vn-engine-runtime';
-export const RUNTIME_VERSION = 12;
+export const RUNTIME_VERSION = 13;
 
 export const AUTHOR_PROJECT_COMPILE_ERROR_CODES = {
   unresolvedCharacterAsset: 'character-image-required',
@@ -71,7 +77,7 @@ export type AuthorAssetRecord = AssetDocument & {
   mime: PreviewMime;
 };
 
-export type RuntimeGameDocumentV12 = {
+export type RuntimeGameDocumentV13 = {
   format: typeof RUNTIME_FORMAT;
   runtimeVersion: typeof RUNTIME_VERSION;
   game: {
@@ -84,18 +90,20 @@ export type RuntimeGameDocumentV12 = {
       eyebrow: string;
       backgroundAssetId: string | null;
       musicAssetId: string | null;
+      style: StartScreenStyleDocument;
     };
     cgGallery: {
       pages: Array<{
         imageAssetIds: Array<string | null>;
       }>;
+      style: CgGalleryStyleDocument;
     };
   };
   scenes: RuntimeSceneDocument[];
 };
 
 export type CompiledAuthorProject = {
-  game: RuntimeGameDocumentV12;
+  game: RuntimeGameDocumentV13;
   sourceProject: AuthorProjectDocument;
   project: RuntimeProjectDocument;
   referencedAssets: AuthorAssetRecord[];
@@ -132,7 +140,7 @@ function exactFields(
     actual.length !== wanted.length ||
     actual.some((field, index) => field !== wanted[index])
   ) {
-    throw new Error(`${context} 字段不符合作者项目 v21`);
+    throw new Error(`${context} 字段不符合作者项目 v22`);
   }
 }
 
@@ -168,6 +176,26 @@ function nullableId(
     return null;
   }
   return idValue(value, field, context);
+}
+
+function startScreenStyleValue(
+  value: unknown,
+  context: string,
+): StartScreenStyleDocument {
+  if (!isStartScreenStyleDocument(value)) {
+    throw new Error(`${context} 不是有效的主界面样式`);
+  }
+  return { ...value };
+}
+
+function cgGalleryStyleValue(
+  value: unknown,
+  context: string,
+): CgGalleryStyleDocument {
+  if (!isCgGalleryStyleDocument(value)) {
+    throw new Error(`${context} 不是有效的 CG 画廊样式`);
+  }
+  return { ...value };
 }
 
 function arrayValue(value: JsonObject, field: string, context: string): unknown[] {
@@ -629,7 +657,7 @@ function parseSceneNode(
         repeatNodeId: idValue(value, 'repeatNodeId', context),
       };
     default:
-      throw new Error(`${context}.type 不受作者项目 v21 支持`);
+      throw new Error(`${context}.type 不受作者项目 v22 支持`);
   }
 }
 
@@ -705,7 +733,7 @@ function parseScene(
   });
 
   if (initialCharacterAssetIds.length > 0) {
-    throw new Error('runtime v12 不支持场景初始人物，请改用人物立绘时间线节点');
+    throw new Error('runtime v13 不支持场景初始人物，请改用人物立绘时间线节点');
   }
 
   const nodes = arrayValue(value, 'nodes', context).map((node, nodeIndex) =>
@@ -921,6 +949,7 @@ export function compileAuthorProjectV15(
     root.fileVersion !== 18 &&
     root.fileVersion !== 19 &&
     root.fileVersion !== 20 &&
+    root.fileVersion !== 21 &&
     root.fileVersion !== AUTHOR_PROJECT_FILE_VERSION
   ) {
     throw new Error('document.fileVersion 版本或格式不受支持');
@@ -953,7 +982,9 @@ export function compileAuthorProjectV15(
   const startScreenValue = objectValue(projectValue.startScreen, 'project.startScreen');
   exactFields(
     startScreenValue,
-    sourceFileVersion >= 20
+    sourceFileVersion >= 22
+      ? ['title', 'eyebrow', 'backgroundAssetId', 'musicAssetId', 'style']
+      : sourceFileVersion >= 20
       ? ['title', 'eyebrow', 'backgroundAssetId', 'musicAssetId']
       : ['title', 'backgroundAssetId', 'musicAssetId'],
     'project.startScreen',
@@ -978,6 +1009,12 @@ export function compileAuthorProjectV15(
       'musicAssetId',
       'project.startScreen',
     ),
+    style: sourceFileVersion >= 22
+      ? startScreenStyleValue(
+          startScreenValue.style,
+          'project.startScreen.style',
+        )
+      : { ...DEFAULT_START_SCREEN_STYLE },
   };
   if (trimAsciiWhitespace(startScreen.title) !== startScreen.title) {
     throw new Error('project.startScreen.title 不能包含首尾空白');
@@ -1046,9 +1083,14 @@ export function compileAuthorProjectV15(
               ),
             }),
           ),
+      style: { ...DEFAULT_CG_GALLERY_STYLE },
     };
   } else {
-    exactFields(cgGalleryValue, ['pages'], 'project.cgGallery');
+    exactFields(
+      cgGalleryValue,
+      sourceFileVersion >= 22 ? ['pages', 'style'] : ['pages'],
+      'project.cgGallery',
+    );
     const cgGalleryPages = arrayValue(
       cgGalleryValue,
       'pages',
@@ -1075,6 +1117,12 @@ export function compileAuthorProjectV15(
           ),
         };
       }),
+      style: sourceFileVersion >= 22
+        ? cgGalleryStyleValue(
+            cgGalleryValue.style,
+            'project.cgGallery.style',
+          )
+        : { ...DEFAULT_CG_GALLERY_STYLE },
     };
   }
   const scenes = arrayValue(projectValue, 'scenes', 'project').map((scene, index) =>

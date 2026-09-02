@@ -10,8 +10,9 @@
 
 Runtime 位于“内容校验”和“画面渲染”之间。上游 Loader/Compiler 负责把 Author 或 Bundle
 格式规范化为当前 `ProjectDocument`，Runtime 负责状态转换，下游 UI 根据状态播放媒体并
-把用户事件送回来。当前导出格式为 Runtime v12；Runtime v11 是剧情图片缩放的历史
-里程碑，v12 的 `game.defaultLanguage` 则由 Player 外壳在创建 Runtime 前消费。进度快照
+把用户事件送回来。当前导出格式为 Runtime v13；Runtime v11 是剧情图片缩放的历史
+里程碑，v12 的 `game.defaultLanguage` 由 Player 外壳在创建 Runtime 前消费，v13 则携带标题页与
+CG 画廊的严格样式 DTO。进度快照
 写出 Snapshot v5，并可受限恢复
 旧 v1–v4 快照。
 

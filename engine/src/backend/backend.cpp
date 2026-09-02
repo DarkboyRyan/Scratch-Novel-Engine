@@ -30,6 +30,30 @@ using Json = nlohmann::json;
 
 constexpr std::uintmax_t kMaximumProjectFileBytes = 64U * 1024U * 1024U;
 
+std::string unique_import_display_name(
+    const ProjectAggregate& aggregate,
+    const AssetType asset_type,
+    const std::string_view requested_name) {
+  std::unordered_set<std::string_view> existing_names;
+  existing_names.reserve(aggregate.assets.size());
+  for (const Asset& asset : aggregate.assets) {
+    if (asset.type == asset_type) {
+      existing_names.emplace(asset.display_name);
+    }
+  }
+
+  if (!existing_names.contains(requested_name)) {
+    return std::string(requested_name);
+  }
+  for (std::size_t suffix = 2;; ++suffix) {
+    std::string candidate(requested_name);
+    candidate += " (" + std::to_string(suffix) + ")";
+    if (!existing_names.contains(candidate)) {
+      return candidate;
+    }
+  }
+}
+
 class ProtocolError final : public std::runtime_error {
  public:
   ProtocolError(std::string code, std::string message)
@@ -200,6 +224,207 @@ std::vector<CgGalleryPage> required_cg_gallery_pages(const Json& object) {
     pages.push_back(std::move(page));
   }
   return pages;
+}
+
+const Json& required_page_style_object(const Json& params) {
+  require_exact_params(params, {"style"});
+  if (!params.at("style").is_object()) {
+    throw ProtocolError("invalid_params", "params.style must be an object");
+  }
+  return params.at("style");
+}
+
+int required_bounded_style_integer(
+    const Json& style,
+    const std::string_view field,
+    const int minimum,
+    const int maximum) {
+  const std::string key(field);
+  if (!style.contains(key) || !style.at(key).is_number_integer()) {
+    throw ProtocolError(
+        "invalid_params", "params.style." + key + " must be an integer");
+  }
+  const Json& encoded = style.at(key);
+  int value;
+  if (encoded.is_number_unsigned()) {
+    const std::uint64_t unsigned_value = encoded.get<std::uint64_t>();
+    if (unsigned_value > static_cast<std::uint64_t>(maximum)) {
+      throw ProtocolError(
+          "invalid_params",
+          "params.style." + key + " is outside the supported range");
+    }
+    value = static_cast<int>(unsigned_value);
+  } else {
+    const std::int64_t signed_value = encoded.get<std::int64_t>();
+    if (signed_value < minimum || signed_value > maximum) {
+      throw ProtocolError(
+          "invalid_params",
+          "params.style." + key + " is outside the supported range");
+    }
+    value = static_cast<int>(signed_value);
+  }
+  return value;
+}
+
+std::string required_style_string(
+    const Json& style,
+    const std::string_view field) {
+  const std::string key(field);
+  if (!style.contains(key) || !style.at(key).is_string()) {
+    throw ProtocolError(
+        "invalid_params", "params.style." + key + " must be a string");
+  }
+  return style.at(key).get<std::string>();
+}
+
+CommonPageStyle required_common_page_style(const Json& style) {
+  const std::string font_preset_text =
+      required_style_string(style, "fontPreset");
+  PageFontPreset font_preset;
+  if (font_preset_text == "system") {
+    font_preset = PageFontPreset::system;
+  } else if (font_preset_text == "serif") {
+    font_preset = PageFontPreset::serif;
+  } else if (font_preset_text == "rounded") {
+    font_preset = PageFontPreset::rounded;
+  } else if (font_preset_text == "mono") {
+    font_preset = PageFontPreset::mono;
+  } else {
+    throw ProtocolError(
+        "invalid_params", "params.style.fontPreset is not supported");
+  }
+
+  const auto color = [&style](const std::string_view field) {
+    std::string value = required_style_string(style, field);
+    if (!is_canonical_page_color(value)) {
+      throw ProtocolError(
+          "invalid_params",
+          "params.style." + std::string(field) +
+              " must be canonical #RRGGBB");
+    }
+    return value;
+  };
+
+  return CommonPageStyle{
+      .font_preset = font_preset,
+      .font_scale_percent = required_bounded_style_integer(
+          style,
+          "fontScalePercent",
+          kMinimumPageFontScalePercent,
+          kMaximumPageFontScalePercent),
+      .page_color = color("pageColor"),
+      .text_color = color("textColor"),
+      .muted_text_color = color("mutedTextColor"),
+      .surface_color = color("surfaceColor"),
+      .surface_opacity_percent = required_bounded_style_integer(
+          style,
+          "surfaceOpacityPercent",
+          kMinimumPageOpacityPercent,
+          kMaximumPageOpacityPercent),
+      .accent_color = color("accentColor"),
+      .overlay_color = color("overlayColor"),
+      .overlay_opacity_percent = required_bounded_style_integer(
+          style,
+          "overlayOpacityPercent",
+          kMinimumPageOpacityPercent,
+          kMaximumPageOpacityPercent),
+      .corner_radius_px = required_bounded_style_integer(
+          style,
+          "cornerRadiusPx",
+          kMinimumPageCornerRadiusPx,
+          kMaximumPageCornerRadiusPx),
+  };
+}
+
+PageImageFit required_page_image_fit(
+    const Json& style,
+    const std::string_view field) {
+  const std::string fit = required_style_string(style, field);
+  if (fit == "contain") {
+    return PageImageFit::contain;
+  }
+  if (fit == "cover") {
+    return PageImageFit::cover;
+  }
+  throw ProtocolError(
+      "invalid_params",
+      "params.style." + std::string(field) + " is not supported");
+}
+
+StartScreenStyle required_start_screen_style(const Json& params) {
+  const Json& style = required_page_style_object(params);
+  require_exact_params(
+      style,
+      {"fontPreset",
+       "fontScalePercent",
+       "pageColor",
+       "textColor",
+       "mutedTextColor",
+       "surfaceColor",
+       "surfaceOpacityPercent",
+       "accentColor",
+       "overlayColor",
+       "overlayOpacityPercent",
+       "cornerRadiusPx",
+       "layout",
+       "backgroundFit"});
+  const std::string layout_text = required_style_string(style, "layout");
+  StartScreenLayout layout;
+  if (layout_text == "split-right") {
+    layout = StartScreenLayout::split_right;
+  } else if (layout_text == "split-left") {
+    layout = StartScreenLayout::split_left;
+  } else if (layout_text == "center") {
+    layout = StartScreenLayout::center;
+  } else {
+    throw ProtocolError(
+        "invalid_params", "params.style.layout is not supported");
+  }
+  return StartScreenStyle{
+      .common = required_common_page_style(style),
+      .layout = layout,
+      .background_fit = required_page_image_fit(style, "backgroundFit"),
+  };
+}
+
+CgGalleryStyle required_cg_gallery_style(const Json& params) {
+  const Json& style = required_page_style_object(params);
+  require_exact_params(
+      style,
+      {"fontPreset",
+       "fontScalePercent",
+       "pageColor",
+       "textColor",
+       "mutedTextColor",
+       "surfaceColor",
+       "surfaceOpacityPercent",
+       "accentColor",
+       "overlayColor",
+       "overlayOpacityPercent",
+       "cornerRadiusPx",
+       "layout",
+       "thumbnailFit",
+       "gapPx"});
+  const std::string layout_text = required_style_string(style, "layout");
+  CgGalleryLayout layout;
+  if (layout_text == "framed") {
+    layout = CgGalleryLayout::framed;
+  } else if (layout_text == "edge-to-edge") {
+    layout = CgGalleryLayout::edge_to_edge;
+  } else {
+    throw ProtocolError(
+        "invalid_params", "params.style.layout is not supported");
+  }
+  return CgGalleryStyle{
+      .common = required_common_page_style(style),
+      .layout = layout,
+      .thumbnail_fit = required_page_image_fit(style, "thumbnailFit"),
+      .gap_px = required_bounded_style_integer(
+          style,
+          "gapPx",
+          kMinimumCgGalleryGapPx,
+          kMaximumCgGalleryGapPx),
+  };
 }
 
 LogicValue required_logic_value(
@@ -584,6 +809,385 @@ std::optional<CharacterEffect> required_character_effect(
   return effect;
 }
 
+void require_exact_draft_fields(
+    const Json& value,
+    const std::initializer_list<std::string_view> required_fields,
+    const std::initializer_list<std::string_view> optional_fields,
+    const std::string& context) {
+  if (!value.is_object()) {
+    throw ProtocolError("invalid_params", context + " must be an object");
+  }
+  std::unordered_set<std::string> allowed;
+  for (const std::string_view field : required_fields) {
+    const std::string key(field);
+    allowed.insert(key);
+    if (!value.contains(key)) {
+      throw ProtocolError(
+          "invalid_params", context + "." + key + " is required");
+    }
+  }
+  for (const std::string_view field : optional_fields) {
+    allowed.emplace(field);
+  }
+  for (const auto& [field, unused] : value.items()) {
+    static_cast<void>(unused);
+    if (!allowed.contains(field)) {
+      throw ProtocolError(
+          "invalid_params", context + " contains unknown field: " + field);
+    }
+  }
+}
+
+std::string required_draft_string(
+    const Json& value,
+    const std::string_view field,
+    const std::string& context) {
+  const std::string key(field);
+  if (!value.contains(key) || !value.at(key).is_string()) {
+    throw ProtocolError(
+        "invalid_params", context + "." + key + " must be a string");
+  }
+  return value.at(key).get<std::string>();
+}
+
+std::optional<std::string> optional_draft_origin(
+    const Json& value,
+    const std::string& context) {
+  if (!value.contains("originId")) {
+    return std::nullopt;
+  }
+  if (!value.at("originId").is_string()) {
+    throw ProtocolError(
+        "invalid_params", context + ".originId must be a string");
+  }
+  return value.at("originId").get<std::string>();
+}
+
+std::optional<std::string> required_draft_nullable_string(
+    const Json& value,
+    const std::string_view field,
+    const std::string& context) {
+  const std::string key(field);
+  if (!value.contains(key) ||
+      (!value.at(key).is_null() && !value.at(key).is_string())) {
+    throw ProtocolError(
+        "invalid_params",
+        context + "." + key + " must be a string or null");
+  }
+  if (value.at(key).is_null()) {
+    return std::nullopt;
+  }
+  return value.at(key).get<std::string>();
+}
+
+double required_finite_draft_number(
+    const Json& value,
+    const std::string_view field,
+    const std::string& context) {
+  const std::string key(field);
+  if (!value.contains(key) || !value.at(key).is_number()) {
+    throw ProtocolError(
+        "invalid_params", context + "." + key + " must be a number");
+  }
+  const double number = value.at(key).get<double>();
+  if (!std::isfinite(number)) {
+    throw ProtocolError(
+        "invalid_params", context + "." + key + " must be finite");
+  }
+  return number;
+}
+
+SceneContentDraftNode required_scene_content_draft_node(
+    const Json& value,
+    const std::string& context,
+    int control_depth,
+    std::size_t& node_count);
+
+constexpr std::size_t kMaximumSceneContentDraftEntities = 10000;
+
+std::vector<SceneContentDraftNode> required_scene_content_draft_nodes(
+    const Json& value,
+    const std::string& context,
+    const int control_depth,
+    std::size_t& entity_count) {
+  if (!value.is_array()) {
+    throw ProtocolError("invalid_params", context + " must be an array");
+  }
+  if (entity_count > kMaximumSceneContentDraftEntities ||
+      value.size() > kMaximumSceneContentDraftEntities - entity_count) {
+    throw ProtocolError(
+        "invalid_params", "params.draft contains too many entities");
+  }
+  std::vector<SceneContentDraftNode> result;
+  result.reserve(value.size());
+  for (std::size_t index = 0; index < value.size(); ++index) {
+    result.push_back(required_scene_content_draft_node(
+        value.at(index),
+        context + "[" + std::to_string(index) + "]",
+        control_depth,
+        entity_count));
+  }
+  return result;
+}
+
+SceneContentChoiceOptionDraft required_scene_content_choice_option(
+    const Json& value,
+    const std::string& context,
+    std::size_t& entity_count) {
+  ++entity_count;
+  if (entity_count > kMaximumSceneContentDraftEntities) {
+    throw ProtocolError(
+        "invalid_params", "params.draft contains too many entities");
+  }
+  require_exact_draft_fields(
+      value, {"text", "targetSceneId"}, {"originId"}, context);
+  return SceneContentChoiceOptionDraft{
+      .origin_id = optional_draft_origin(value, context),
+      .text = required_draft_string(value, "text", context),
+      .target_scene_id =
+          required_draft_string(value, "targetSceneId", context),
+  };
+}
+
+SceneContentDraftNode required_scene_content_draft_node(
+    const Json& value,
+    const std::string& context,
+    const int control_depth,
+    std::size_t& entity_count) {
+  ++entity_count;
+  if (entity_count > kMaximumSceneContentDraftEntities) {
+    throw ProtocolError(
+        "invalid_params", "params.draft contains too many entities");
+  }
+  if (!value.is_object() || !value.contains("type") ||
+      !value.at("type").is_string()) {
+    throw ProtocolError(
+        "invalid_params", context + ".type must be a string");
+  }
+
+  const std::string type = value.at("type").get<std::string>();
+  SceneContentDraftNode result;
+  result.origin_id = optional_draft_origin(value, context);
+
+  if (type == "dialogue") {
+    require_exact_draft_fields(
+        value,
+        {"type", "speaker", "text", "voiceAssetId"},
+        {"originId"},
+        context);
+    result.type = SceneContentDraftNodeType::dialogue;
+    result.speaker = required_draft_string(value, "speaker", context);
+    result.text = required_draft_string(value, "text", context);
+    result.voice_asset_id = required_draft_nullable_string(
+        value, "voiceAssetId", context);
+  } else if (type == "background") {
+    require_exact_draft_fields(
+        value,
+        {"type", "assetId", "scalePercent"},
+        {"originId"},
+        context);
+    result.type = SceneContentDraftNodeType::background;
+    result.asset_id = required_draft_nullable_string(
+        value, "assetId", context);
+    result.scale_percent = required_image_scale_percent(value);
+  } else if (type == "character") {
+    require_exact_draft_fields(
+        value,
+        {"type", "mode", "assetId", "slot", "layer", "position",
+         "effect", "scalePercent"},
+        {"originId"},
+        context);
+    result.type = SceneContentDraftNodeType::character;
+    result.character_mode = required_character_node_mode(value);
+    result.asset_id = required_draft_nullable_string(
+        value, "assetId", context);
+    result.character_slot = required_character_slot(value);
+    result.character_layer = required_character_layer(value);
+    result.character_position = required_character_position(value);
+    result.character_effect = required_character_effect(value, "effect", true);
+    result.scale_percent = required_image_scale_percent(value);
+  } else if (type == "sceneJump") {
+    require_exact_draft_fields(
+        value, {"type", "targetSceneId"}, {"originId"}, context);
+    result.type = SceneContentDraftNodeType::scene_jump;
+    result.target_scene_id =
+        required_draft_string(value, "targetSceneId", context);
+  } else if (type == "bgm" || type == "video") {
+    require_exact_draft_fields(
+        value, {"type", "assetId"}, {"originId"}, context);
+    result.type = type == "bgm"
+        ? SceneContentDraftNodeType::bgm
+        : SceneContentDraftNodeType::video;
+    result.asset_id = required_draft_nullable_string(
+        value, "assetId", context);
+  } else if (type == "choice") {
+    require_exact_draft_fields(
+        value, {"type", "options"}, {"originId"}, context);
+    if (!value.at("options").is_array()) {
+      throw ProtocolError(
+          "invalid_params", context + ".options must be an array");
+    }
+    result.type = SceneContentDraftNodeType::choice;
+    for (std::size_t index = 0; index < value.at("options").size(); ++index) {
+      result.choice_options.push_back(required_scene_content_choice_option(
+          value.at("options").at(index),
+          context + ".options[" + std::to_string(index) + "]",
+          entity_count));
+    }
+  } else if (type == "storyExtension") {
+    require_exact_draft_fields(value, {"type"}, {"originId"}, context);
+    result.type = SceneContentDraftNodeType::story_extension;
+  } else if (type == "variableSet") {
+    require_exact_draft_fields(
+        value,
+        {"type", "variableName", "value"},
+        {"originId"},
+        context);
+    result.type = SceneContentDraftNodeType::variable_set;
+    result.variable_name =
+        required_draft_string(value, "variableName", context);
+    result.logic_value = required_logic_value(value, "value");
+  } else if (type == "variableChange") {
+    require_exact_draft_fields(
+        value,
+        {"type", "variableName", "amount"},
+        {"originId"},
+        context);
+    result.type = SceneContentDraftNodeType::variable_change;
+    result.variable_name =
+        required_draft_string(value, "variableName", context);
+    result.amount = required_finite_draft_number(value, "amount", context);
+  } else if (type == "if") {
+    require_exact_draft_fields(
+        value,
+        {"type", "condition", "thenNodes", "elseNodes"},
+        {"originId"},
+        context);
+    if (control_depth >= kMaximumLogicNestingDepth) {
+      throw ProtocolError(
+          "invalid_params", context + " exceeds the supported nesting depth");
+    }
+    result.type = SceneContentDraftNodeType::logic_if;
+    result.condition = required_logic_condition(value);
+    result.then_nodes = required_scene_content_draft_nodes(
+        value.at("thenNodes"),
+        context + ".thenNodes",
+        control_depth + 1,
+        entity_count);
+    result.else_nodes = required_scene_content_draft_nodes(
+        value.at("elseNodes"),
+        context + ".elseNodes",
+        control_depth + 1,
+        entity_count);
+  } else if (type == "repeat") {
+    require_exact_draft_fields(
+        value,
+        {"type", "count", "bodyNodes"},
+        {"originId"},
+        context);
+    if (control_depth >= kMaximumLogicNestingDepth) {
+      throw ProtocolError(
+          "invalid_params", context + " exceeds the supported nesting depth");
+    }
+    result.type = SceneContentDraftNodeType::logic_repeat;
+    result.count = required_logic_repeat_count(value);
+    result.body_nodes = required_scene_content_draft_nodes(
+        value.at("bodyNodes"),
+        context + ".bodyNodes",
+        control_depth + 1,
+        entity_count);
+  } else if (type == "cg") {
+    require_exact_draft_fields(
+        value,
+        {"type", "assetId", "leadInMs", "bodyNodes"},
+        {"originId"},
+        context);
+    if (control_depth >= kMaximumLogicNestingDepth) {
+      throw ProtocolError(
+          "invalid_params", context + " exceeds the supported nesting depth");
+    }
+    result.type = SceneContentDraftNodeType::cg_display;
+    result.asset_id = required_draft_string(value, "assetId", context);
+    result.lead_in_ms = required_cg_lead_in_ms(value);
+    const Json& body_nodes = value.at("bodyNodes");
+    if (!body_nodes.is_array()) {
+      throw ProtocolError(
+          "invalid_params", context + ".bodyNodes must be an array");
+    }
+    if (entity_count > kMaximumSceneContentDraftEntities ||
+        body_nodes.size() >
+            kMaximumSceneContentDraftEntities - entity_count) {
+      throw ProtocolError(
+          "invalid_params", "params.draft contains too many entities");
+    }
+    result.body_nodes.reserve(body_nodes.size());
+    for (std::size_t index = 0; index < body_nodes.size(); ++index) {
+      const Json& body_node = body_nodes.at(index);
+      const std::string body_context =
+          context + ".bodyNodes[" + std::to_string(index) + "]";
+      // CG body nodes are deliberately checked before entering the generic
+      // recursive parser. This keeps the JSONL boundary bounded even when a
+      // caller bypasses Electron's matching runtime validator.
+      if (!body_node.is_object() || !body_node.contains("type") ||
+          !body_node.at("type").is_string() ||
+          body_node.at("type").get<std::string>() != "dialogue") {
+        throw ProtocolError(
+            "invalid_params",
+            context + ".bodyNodes may contain only dialogue nodes");
+      }
+      result.body_nodes.push_back(required_scene_content_draft_node(
+          body_node, body_context, control_depth, entity_count));
+    }
+  } else {
+    throw ProtocolError(
+        "invalid_params", context + ".type is not supported");
+  }
+  return result;
+}
+
+SceneContentDraft required_scene_content_draft(const Json& params) {
+  constexpr std::size_t kMaximumSceneContentDraftBytes = 2U * 1024U * 1024U;
+  require_exact_params(params, {"sceneId", "draft"});
+  if (!params.at("draft").is_object()) {
+    throw ProtocolError("invalid_params", "params.draft must be an object");
+  }
+  const Json& draft = params.at("draft");
+  if (draft.dump().size() > kMaximumSceneContentDraftBytes) {
+    throw ProtocolError(
+        "invalid_params", "params.draft exceeds the supported size");
+  }
+  require_exact_draft_fields(
+      draft,
+      {"name", "initialBackground", "nodes"},
+      {},
+      "params.draft");
+  const Json& initial_background = draft.at("initialBackground");
+  require_exact_draft_fields(
+      initial_background,
+      {"assetId", "scalePercent"},
+      {},
+      "params.draft.initialBackground");
+  std::string name =
+      required_draft_string(draft, "name", "params.draft");
+  if (name.size() > 4096 || name.find('\0') != std::string::npos) {
+    throw ProtocolError(
+        "invalid_params",
+        "params.draft.name contains unsupported characters or is too long");
+  }
+  std::size_t entity_count = 0;
+  return SceneContentDraft{
+      .name = std::move(name),
+      .initial_background_asset_id = required_draft_nullable_string(
+          initial_background,
+          "assetId",
+          "params.draft.initialBackground"),
+      .initial_background_scale_percent =
+          required_image_scale_percent(initial_background),
+      .nodes = required_scene_content_draft_nodes(
+          draft.at("nodes"), "params.draft.nodes", 0, entity_count),
+  };
+}
+
 std::filesystem::path project_file_path(const std::string& file_path) {
   if (file_path.empty() || file_path.find('\0') != std::string::npos) {
     throw ProtocolError(
@@ -680,18 +1284,28 @@ Json Backend::handle(const Json& request) {
         request_id(request), aggregate_, revision_, saved_revision_);
   }
   if (method == "project.create") {
+    require_params_with_optional(params, {}, {"name", "firstSceneName"});
     std::string name = params.contains("name")
         ? required_string(params, "name")
         : "未命名项目";
+    std::string first_scene_name = params.contains("firstSceneName")
+        ? required_string(params, "firstSceneName")
+        : "场景 1";
     const auto normalized_name =
         vnengine::normalize_project_name(std::move(name));
     if (!normalized_name.has_value()) {
       throw ProtocolError(
           "project_name_required", "project name must not be empty");
     }
+    const auto normalized_first_scene_name =
+        vnengine::normalize_scene_name(std::move(first_scene_name));
+    if (!normalized_first_scene_name.has_value()) {
+      throw ProtocolError(
+          "scene_name_required", "scene name must not be empty");
+    }
 
     ProjectAggregate candidate = vnengine::create_empty_project_aggregate(
-        ids_, *normalized_name);
+        ids_, *normalized_name, *normalized_first_scene_name);
     aggregate_ = std::move(candidate);
     reset_unsaved_session();
     return success_response(
@@ -831,6 +1445,8 @@ Json Backend::handle(const Json& request) {
         asset_type = AssetType::audio;
         break;
     }
+    plan.display_name = unique_import_display_name(
+        current, asset_type, plan.display_name);
     candidate.assets.push_back(Asset{
         .id = asset_id,
         .type = asset_type,
@@ -917,6 +1533,19 @@ Json Backend::handle(const Json& request) {
         throw ProtocolError(
             "asset_not_audio", "start screen music asset must be audio");
     }
+  } else if (method == "startScreen.style.update") {
+    switch (vnengine::update_start_screen_style(
+        project, required_start_screen_style(params))) {
+      case vnengine::UpdatePageStyleResult::changed:
+        changed = true;
+        break;
+      case vnengine::UpdatePageStyleResult::unchanged:
+        changed = false;
+        break;
+      case vnengine::UpdatePageStyleResult::invalid_style:
+        throw ProtocolError(
+            "invalid_params", "params.style is invalid");
+    }
   } else if (method == "cgGallery.update") {
     require_exact_params(params, {"pages"});
     switch (vnengine::update_cg_gallery(
@@ -940,6 +1569,19 @@ Json Backend::handle(const Json& request) {
         throw ProtocolError(
             "invalid_params",
             "params.pages[].imageAssetIds must not contain duplicates");
+    }
+  } else if (method == "cgGallery.style.update") {
+    switch (vnengine::update_cg_gallery_style(
+        project, required_cg_gallery_style(params))) {
+      case vnengine::UpdatePageStyleResult::changed:
+        changed = true;
+        break;
+      case vnengine::UpdatePageStyleResult::unchanged:
+        changed = false;
+        break;
+      case vnengine::UpdatePageStyleResult::invalid_style:
+        throw ProtocolError(
+            "invalid_params", "params.style is invalid");
     }
   } else if (method == "scene.add") {
     std::optional<std::string> name;
@@ -977,6 +1619,37 @@ Json Backend::handle(const Json& request) {
           "scene_name_required", "scene name must not be empty");
     }
     changed = vnengine::rename_scene(project, scene_id, *name);
+  } else if (method == "scene.content.replace") {
+    const std::string scene_id = required_string(params, "sceneId");
+    const ReplaceSceneContentResult result = replace_scene_content(
+        require_aggregate(),
+        ids_,
+        scene_id,
+        required_scene_content_draft(params));
+    switch (result.status) {
+      case ReplaceSceneContentStatus::changed:
+        changed = true;
+        break;
+      case ReplaceSceneContentStatus::unchanged:
+        changed = false;
+        break;
+      case ReplaceSceneContentStatus::scene_not_found:
+        throw ProtocolError("scene_not_found", "scene does not exist");
+      case ReplaceSceneContentStatus::scene_name_required:
+        throw ProtocolError(
+            "scene_name_required", "scene name must not be empty");
+      case ReplaceSceneContentStatus::invalid_origin_id:
+        throw ProtocolError(
+            "invalid_origin_id",
+            "originId must identify one unused entity of the same type in the replaced scene");
+      case ReplaceSceneContentStatus::id_generation_failed:
+        throw ProtocolError(
+            "internal_error", "could not generate a unique scene entity ID");
+      case ReplaceSceneContentStatus::invalid_content:
+        throw ProtocolError(
+            "invalid_scene_content",
+            result.validation_error.value_or("scene content is invalid"));
+    }
   } else if (method == "scene.setBackground") {
     require_exact_params(
         params, {"sceneId", "assetId", "scalePercent"});

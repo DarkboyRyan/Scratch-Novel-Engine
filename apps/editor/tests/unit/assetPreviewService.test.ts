@@ -20,6 +20,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AssetPreviewService } from '../../src/main/assets/AssetPreviewService';
 import type { EngineMutationResult } from '../../src/shared/engineProtocol';
+import {
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
+} from '../../src/shared/projectTypes';
 
 const temporaryDirectories: string[] = [];
 
@@ -81,9 +85,11 @@ function resultFor(assetId = 'asset-1'): EngineMutationResult {
         eyebrow: 'A VN ENGINE STORY',
         backgroundAssetId: null,
         musicAssetId: null,
+        style: { ...DEFAULT_START_SCREEN_STYLE },
       },
       cgGallery: {
         pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+        style: { ...DEFAULT_CG_GALLERY_STYLE },
       },
       scenes: [
         {

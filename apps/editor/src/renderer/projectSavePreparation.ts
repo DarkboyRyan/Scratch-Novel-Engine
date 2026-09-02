@@ -8,6 +8,8 @@ import type { EditorMode } from './application/editorMode';
 type PrepareProjectSaveOptions = {
   editorMode: EditorMode;
   flushBlockDraft: () => Promise<boolean>;
+  flushCodeDraft: () => Promise<boolean>;
+  hasUnappliedCodeDrafts?: () => boolean;
   commitProjectName: () => Promise<boolean>;
   commitFormDraft: () => Promise<boolean>;
 };
@@ -18,10 +20,21 @@ type PrepareProjectSaveOptions = {
 export async function prepareProjectSave({
   editorMode,
   flushBlockDraft,
+  flushCodeDraft,
+  hasUnappliedCodeDrafts = () => false,
   commitProjectName,
   commitFormDraft,
 }: PrepareProjectSaveOptions): Promise<boolean> {
   if (editorMode === 'blocks' && !(await flushBlockDraft())) {
+    return false;
+  }
+  if (editorMode === 'code' && !(await flushCodeDraft())) {
+    return false;
+  }
+  // Code 草稿可暂时离开当前页面，但不会进入权威 Project。磁盘保存、
+  // 导出、预览和资源导入共用这条严格边界，任何场景仍有未应用草稿时
+  // 都不能静默使用旧权威版本继续。
+  if (hasUnappliedCodeDrafts()) {
     return false;
   }
 

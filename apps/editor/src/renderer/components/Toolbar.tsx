@@ -413,6 +413,15 @@ export function Toolbar({
           >
             {labels.toolbar.blockEditor}
           </button>
+          <button
+            type="button"
+            className="editor-mode-button"
+            disabled={isBusy}
+            aria-pressed={editorMode === 'code'}
+            onClick={() => onEditorModeChange('code')}
+          >
+            {labels.toolbar.codePreview}
+          </button>
         </div>
       </div>
     </header>

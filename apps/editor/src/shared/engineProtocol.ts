@@ -2,6 +2,7 @@
 // 关键实现：以方法到参数映射生成严格 Invocation、Response 和 VnEngineApi 类型。
 import type {
   AssetDocument,
+  CgGalleryStyleDocument,
   CharacterEffect,
   CharacterMode,
   CharacterPosition,
@@ -9,6 +10,8 @@ import type {
   LogicCondition,
   LogicValue,
   ProjectDocument,
+  SceneContentDraft,
+  StartScreenStyleDocument,
 } from './projectTypes';
 
 // C++、Electron Main、Preload 和 React 共同遵守的跨进程协议。
@@ -122,6 +125,19 @@ export type UpdateStartScreenParams = {
 
 export type UpdateCgGalleryParams = {
   pages: ProjectDocument['cgGallery']['pages'];
+};
+
+export type UpdateStartScreenStyleParams = {
+  style: StartScreenStyleDocument;
+};
+
+export type UpdateCgGalleryStyleParams = {
+  style: CgGalleryStyleDocument;
+};
+
+export type ReplaceSceneContentParams = {
+  sceneId: string;
+  draft: SceneContentDraft;
 };
 
 export type AddVideoParams = {
@@ -326,9 +342,12 @@ export const ENGINE_METHODS = [
   'project.get',
   'project.rename',
   'startScreen.update',
+  'startScreen.style.update',
   'cgGallery.update',
+  'cgGallery.style.update',
   'scene.add',
   'scene.rename',
+  'scene.content.replace',
   'scene.delete',
   'scene.setBackground',
   'dialogue.add',
@@ -383,6 +402,7 @@ export type EngineMethod = (typeof ENGINE_METHODS)[number];
 export type EngineParamsByMethod = {
   'project.create': {
     name?: string;
+    firstSceneName?: string;
   };
   'project.ensure': Record<string, never>;
   'project.get': Record<string, never>;
@@ -390,7 +410,9 @@ export type EngineParamsByMethod = {
     name: string;
   };
   'startScreen.update': UpdateStartScreenParams;
+  'startScreen.style.update': UpdateStartScreenStyleParams;
   'cgGallery.update': UpdateCgGalleryParams;
+  'cgGallery.style.update': UpdateCgGalleryStyleParams;
   'scene.add': {
     name?: string;
   };
@@ -398,6 +420,7 @@ export type EngineParamsByMethod = {
     sceneId: string;
     name: string;
   };
+  'scene.content.replace': ReplaceSceneContentParams;
   'scene.delete': {
     sceneId: string;
   };
@@ -532,19 +555,30 @@ export type VnEngineApi = {
   // still attached after HMR; otherwise the extra arguments can be dropped
   // silently and persisted as the backend default.
   readonly imageScaleContractVersion?: 1;
+  readonly surfaceStyleContractVersion?: 1;
+  readonly storyCodeContractVersion?: 1;
   ensureProject(): Promise<EngineMutationResult>;
   getProject(): Promise<EngineMutationResult>;
   renameProject(name: string): Promise<EngineMutationResult>;
   updateStartScreen(
     params: UpdateStartScreenParams,
   ): Promise<EngineMutationResult>;
+  updateStartScreenStyle(
+    style: StartScreenStyleDocument,
+  ): Promise<EngineMutationResult>;
   updateCgGallery(
     pages: ProjectDocument['cgGallery']['pages'],
+  ): Promise<EngineMutationResult>;
+  updateCgGalleryStyle(
+    style: CgGalleryStyleDocument,
   ): Promise<EngineMutationResult>;
   addScene(name?: string): Promise<EngineMutationResult>;
   renameScene(
     sceneId: string,
     name: string,
+  ): Promise<EngineMutationResult>;
+  replaceSceneContent(
+    params: ReplaceSceneContentParams,
   ): Promise<EngineMutationResult>;
   deleteScene(sceneId: string): Promise<EngineMutationResult>;
   setSceneBackground(

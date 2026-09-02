@@ -6,7 +6,7 @@
 
 ## 架构位置与工作方式
 
-1. `ResourcePanel` 从当前作者工程取得资产清单，并通过平台/创作动作发起导入或删除；普通场景可在同一入口设置初始背景及 10%–300% 缩放，标题页和 CG 资源面不显示该控件。
+1. `ResourcePanel` 从当前作者工程取得资产清单，并通过平台/创作动作发起导入或删除；同类资源沿用导入文件的显示名，重名时由 C++ 依次追加 ` (2)`、` (3)`；普通场景可在同一入口设置初始背景及 10%–300% 缩放，标题页和 CG 资源面不显示该控件。
 2. `useAssetPreviewUrls` 按资产标识解析预览地址，在依赖变化或卸载时释放旧 URL。
 3. 拖拽时 `assetDragTypes.ts` 写入受控类型和资产 ID，表单或 Blockly 接收方再提交对应节点更新。
 
@@ -21,5 +21,6 @@
 ## 开发与验证
 
 - 拖拽载荷不得携带绝对路径；不同媒体种类要使用独立 MIME 类型，并在接收端再次检查兼容性。
+- Renderer 只能显示公开名称；Code 页面中的 `assets/images|audio|videos/<名称>` 是逻辑路径，不是真实存储路径，不能交给文件系统 API。
 - URL 异步解析要防止过期结果覆盖新项目，并在替换时清理可释放地址。
 - 运行 `pnpm --dir apps/editor exec vitest run tests/unit/useEngineProject.test.tsx tests/unit/formCharacterInsertion.test.tsx`，媒体策略另见 [`../../../main/assets/`](../../../main/assets/README.md)。

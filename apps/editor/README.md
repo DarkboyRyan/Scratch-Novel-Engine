@@ -1,8 +1,13 @@
-# VN Engine Editor
+# Scratch Novel Engine Editor
 
 [返回应用目录](../README.md)
 
-VN Engine Editor 是基于 Electron、React、Blockly 与 C++20 后端的视觉小说创作工具。它同时提供表单与图形化编辑方式，并把资源管理、即时预览、项目持久化和多平台导出组织在同一工作流中。Renderer 只通过类型化 Preload API 访问主机能力，项目写入、媒体读取和导出均由 Main 进程负责。
+Scratch Novel Engine Editor 是基于 Electron、React、Blockly 与 C++20 后端的视觉小说创作工具。它同时提供表单、图形化编辑和 Code 页，并把资源管理、即时预览、项目持久化和多平台导出组织在同一工作流中。Renderer 只通过类型化 Preload API 访问主机能力，项目写入、媒体读取和导出均由 Main 进程负责。
+
+Code 页按编辑目标分为两类：故事场景可编辑封闭剧情 DSL，并通过 C++ 原子场景替换
+同步 Form、Blockly 与预览；主界面和 CG 画廊可编辑受限样式 DSL，提交后写入权威
+`style` DTO，驱动 Editor 预览、Desktop Player 和 Web Player 的同一渲染契约。
+源码只作为窗口内草稿，不作为第二份项目数据持久化。
 
 ## 工作方式
 
@@ -10,13 +15,13 @@ VN Engine Editor 是基于 Electron、React、Blockly 与 C++20 后端的视觉�
 2. Main 验证 IPC 来源和参数，再协调每个窗口独占的 C++ 后端、项目存储、媒体预览与设置服务。
 3. 保存时后端快照被原子写入作者工程；导出时作者工程会编译为 Player 可读取的 Runtime 文档和资产包。
 
-当前 Author v21 允许在资源面板设置场景初始背景缩放，并在表单或 Blockly 中设置时间线
+当前 Author v22 保留 v21 引入的场景初始背景、时间线
 背景和人物立绘缩放；范围为 10%–300% 的整数，默认 100%。Editor 静态/正式预览与导出
-Player 共用同一语义，标题页背景和 CG 不显示该控件。
+Player 共用同一语义，标题页背景和 CG 不显示该缩放控件。v22 另外为主界面与 CG 画廊保存严格样式 DTO。
 
-当前导出为 Runtime v12。导出开始时 Main 从 Editor 设置服务取得权威
+当前导出为 Runtime v13。Runtime v12 开始由 Main 从 Editor 设置服务取得权威
 `zh-CN` / `en-US`，写入 `game.defaultLanguage`；Renderer 的导出请求不能伪造该值。
-这不会翻译作者内容，也不提升 Author v21 或 Snapshot v5。
+这不会翻译作者内容，也不提升 Snapshot v5。Runtime v13 在不变更剧情快照的前提下加入页面样式。
 
 ## 模块导航
 

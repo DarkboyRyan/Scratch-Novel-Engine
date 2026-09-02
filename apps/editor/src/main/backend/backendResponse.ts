@@ -14,7 +14,9 @@ import type {
 } from '../../shared/projectTypes';
 import {
   DEFAULT_IMAGE_SCALE_PERCENT,
+  isCgGalleryStyleDocument,
   isImageScalePercent,
+  isStartScreenStyleDocument,
 } from '../../shared/projectTypes';
 import {
   isCharacterEffect,
@@ -298,12 +300,18 @@ function isStartScreenDocument(value: unknown): boolean {
     (value.backgroundAssetId === null ||
       typeof value.backgroundAssetId === 'string') &&
     (value.musicAssetId === null ||
-      typeof value.musicAssetId === 'string')
+      typeof value.musicAssetId === 'string') &&
+    isStartScreenStyleDocument(value.style)
   );
 }
 
 function isCgGalleryDocument(value: unknown): boolean {
-  if (!isObject(value) || !Array.isArray(value.pages) || value.pages.length === 0) {
+  if (
+    !isObject(value) ||
+    !Array.isArray(value.pages) ||
+    value.pages.length === 0 ||
+    !isCgGalleryStyleDocument(value.style)
+  ) {
     return false;
   }
 
@@ -590,6 +598,8 @@ function toPublicProjectDocument(
         .backgroundAssetId as string | null,
       musicAssetId: (value.startScreen as Record<string, unknown>)
         .musicAssetId as string | null,
+      style: (value.startScreen as Record<string, unknown>)
+        .style as ProjectDocument['startScreen']['style'],
     },
     cgGallery: {
       pages: ((value.cgGallery as Record<string, unknown>)
@@ -598,6 +608,8 @@ function toPublicProjectDocument(
             ...(page.imageAssetIds as Array<string | null>),
           ],
         })),
+      style: (value.cgGallery as Record<string, unknown>)
+        .style as ProjectDocument['cgGallery']['style'],
     },
     scenes: (value.scenes as Record<string, unknown>[]).map(
       toPublicSceneDocument,

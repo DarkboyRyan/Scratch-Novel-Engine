@@ -9,7 +9,7 @@
 1. Editor 设置服务提供规范化后的 `zh-CN` 或 `en-US` 语言值。
 2. `getEditorNativeLabels` 返回一套完整、类型化的原生文案。
 3. 菜单和 Main 工作流消费这些标签；语言更新后重新构建相关原生界面。
-4. 导出工作流还把该 Main 权威语言固化为 Runtime v12
+4. 导出工作流还把该 Main 权威语言固化为 Runtime v13
    `game.defaultLanguage`；该字段只选择 Player 外壳的首次语言，不翻译作者文本。
 
 ## 文件

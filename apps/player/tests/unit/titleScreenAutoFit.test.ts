@@ -61,13 +61,18 @@ describe('title screen auto-fit contract', () => {
       /\.player-title-actions > \.player-start-button\s*\{([^}]*)\}/s,
     )?.[1];
 
-    expect(backgroundRule).toContain('object-fit: contain');
+    expect(backgroundRule).toContain(
+      'object-fit: var(--player-title-background-fit, contain)',
+    );
     expect(backgroundRule).toContain('object-position: center');
     expect(cardRule).toContain('display: grid');
     expect(cardRule).toContain('"eyebrow actions"');
     expect(cardRule).toContain('"title actions"');
     expect(actionsRule).toContain('flex-direction: column');
-    expect(primaryRule).toContain('background: rgb(255 255 255 / 94%)');
+    expect(primaryRule).toContain(
+      '--player-title-accent-surface-color',
+    );
+    expect(primaryRule).toContain('rgb(255 255 255 / 94%)');
     expect(css).toContain('@container (max-width: 680px)');
   });
 });

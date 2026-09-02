@@ -64,6 +64,27 @@ export {
   MIN_IMAGE_SCALE_PERCENT,
 } from './imageScale';
 
+export {
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
+  isCgGalleryStyleDocument,
+  isStartScreenStyleDocument,
+  MAX_CG_GALLERY_GAP_PX,
+  MAX_PAGE_CORNER_RADIUS_PX,
+  MAX_PAGE_FONT_SCALE_PERCENT,
+  MAX_PAGE_OPACITY_PERCENT,
+  MIN_CG_GALLERY_GAP_PX,
+  MIN_PAGE_CORNER_RADIUS_PX,
+  MIN_PAGE_FONT_SCALE_PERCENT,
+  MIN_PAGE_OPACITY_PERCENT,
+  type CgGalleryLayout,
+  type CgGalleryStyleDocument,
+  type PageFontPreset,
+  type PageImageFit,
+  type StartScreenLayout,
+  type StartScreenStyleDocument,
+} from './pageStyle';
+
 export type {
   BackgroundNode,
   BgmNode,

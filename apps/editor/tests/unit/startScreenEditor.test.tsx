@@ -34,15 +34,19 @@ import {
   constrainStartScreenEyebrowInput,
   createEditorSceneOptions,
   editorSurfaceReducer,
+  formatEditorSceneLabel,
   initialEditorSurface,
+  nextLocalizedGeneratedSceneName,
   normalizeStartScreenEyebrowInput,
   START_SCREEN_SCENE_ID,
   updateStartScreenFromLatest,
 } from '../../src/renderer/features/start-screen/startScreenScene';
 import { getEditorLabels } from '../../src/renderer/i18n/editorLocalization';
-import type {
-  AssetDocument,
-  ProjectDocument,
+import {
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
+  type AssetDocument,
+  type ProjectDocument,
 } from '../../src/shared/projectTypes';
 
 const project: ProjectDocument = {
@@ -51,12 +55,14 @@ const project: ProjectDocument = {
   name: 'Start screen editor',
   entrySceneId: 'scene-1',
   startScreen: {
+    style: DEFAULT_START_SCREEN_STYLE,
     title: 'Start screen title',
     eyebrow: 'A VN ENGINE STORY',
     backgroundAssetId: null,
     musicAssetId: 'music-1',
   },
   cgGallery: {
+    style: DEFAULT_CG_GALLERY_STYLE,
     pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
   },
   scenes: [
@@ -144,6 +150,25 @@ describe('start screen Editor projection', () => {
     expect(project.scenes).toHaveLength(2);
   });
 
+  it('chooses the first free localized generated scene name across legacy locales', () => {
+    const labels = getEditorLabels('en-US');
+    expect(
+      nextLocalizedGeneratedSceneName(
+        {
+          scenes: [
+            { ...project.scenes[0], name: '场景 1' },
+            { ...project.scenes[1], name: 'Scene 3' },
+          ],
+        },
+        labels,
+      ),
+    ).toBe('Scene 2');
+    expect(formatEditorSceneLabel('场景 1', 0, labels)).toBe('Scene 1');
+    expect(
+      formatEditorSceneLabel('Scene 1', 0, getEditorLabels('zh-CN')),
+    ).toBe('场景 1 · Scene 1');
+  });
+
   it('preserves music committed while a background click waits for pending edits', async () => {
     let finishPreparation: (prepared: boolean) => void = () => {};
     const preparation = new Promise<boolean>((resolve) => {
@@ -151,6 +176,7 @@ describe('start screen Editor projection', () => {
     });
     let latestProject: Pick<ProjectDocument, 'startScreen'> = {
       startScreen: {
+        style: DEFAULT_START_SCREEN_STYLE,
         title: '旧标题',
         eyebrow: '旧标题上方文字',
         backgroundAssetId: null,
@@ -168,6 +194,7 @@ describe('start screen Editor projection', () => {
 
     latestProject = {
       startScreen: {
+        style: DEFAULT_START_SCREEN_STYLE,
         title: '刚提交的标题',
         eyebrow: '刚提交的标题上方文字',
         backgroundAssetId: null,
@@ -317,6 +344,7 @@ describe('start screen Editor projection', () => {
           eyebrow: 'A VN ENGINE STORY',
           backgroundAssetId: 'missing-image',
           musicAssetId: 'music-1',
+          style: DEFAULT_START_SCREEN_STYLE,
         },
         [{ id: 'music-1', type: 'audio', displayName: '主题曲' }],
       ),
@@ -330,6 +358,7 @@ describe('start screen Editor projection', () => {
       eyebrow: 'A VN ENGINE STORY',
       backgroundAssetId: 'missing-image',
       musicAssetId: 'missing-audio',
+      style: DEFAULT_START_SCREEN_STYLE,
     };
     expect(
       createStartScreenBackgroundOptions(missingStartScreen, assets),
@@ -564,6 +593,7 @@ describe('start screen Editor projection', () => {
     const projectWithBackground: ProjectDocument = {
       ...projectWithTitle,
       startScreen: {
+        style: projectWithTitle.startScreen.style,
         title: '自定义游戏名',
         eyebrow: 'MY CUSTOM STORY',
         backgroundAssetId: 'background-1',
@@ -617,6 +647,14 @@ describe('start screen Editor projection', () => {
         '.start-screen-design-fit > .start-screen-design-card',
       ),
     ).not.toBeNull();
+    const designPreview = container.querySelector<HTMLElement>(
+      '.start-screen-design-preview',
+    );
+    expect(designPreview?.dataset.playerTitleLayout).toBe('split-right');
+    expect(designPreview?.dataset.playerTitleBackgroundFit).toBe('contain');
+    expect(
+      designPreview?.style.getPropertyValue('--player-title-page-color'),
+    ).toBe('#0B0C0F');
     expect(container.textContent).not.toContain('清除背景');
     expect(container.textContent).not.toContain('清除音乐');
 

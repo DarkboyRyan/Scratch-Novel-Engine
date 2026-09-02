@@ -11,8 +11,11 @@ Shared 定义 Main、Preload 与 Renderer 都能安全导入的 IPC 通道、DTO
 3. Main 在执行特权操作前重新做运行时校验；项目转换函数则把作者模型投影到明确的 Runtime 边界。
 4. 剧情图片缩放常量与守卫从 `@vnengine/runtime` 复用；协议要求 10–300 的整数，并让无
    背景和 clear 立绘规范化为 100%。
+5. 可编辑剧情 Code 只发送严格 `SceneContentDraft`；`scene.content.replace` 隐藏配对
+   marker 与新 ID 分配细节，并要求 Preload 的 `storyCodeContractVersion: 1`，防止 HMR
+   期间把新草稿误发给旧 Main。
 
-Editor 语言设置仍由 Main 持久。当前 Runtime v12 的 `game.defaultLanguage`
+Editor 语言设置仍由 Main 持久。当前 Runtime v13 保留 v12 引入的 `game.defaultLanguage`
 在导出工作流内从 Main 权威设置注入，不是 `exportProtocol.ts` 中由 Renderer
 提供的参数；作者字段不因此翻译。
 

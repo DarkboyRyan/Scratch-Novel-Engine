@@ -6,7 +6,7 @@
 
 ## 组件关系
 
-`PlayerUiProvider` 在顶层提供中英文标签和错误本地化，标题页、选项、CG 画廊、存档对话框与操作栏从 Context 读取相同文案。`TitleScreen` 组合作者配置的标题上方文字、游戏名、背景/BGM、开始或读取入口、选项和 CG Modal；`startScreen.eyebrow` 为空时不会渲染该行。Player 应用也可以把 Dialog 单独用于游戏内界面。
+`PlayerUiProvider` 在顶层提供中英文标签和错误本地化，标题页、选项、CG 画廊、存档对话框与操作栏从 Context 读取相同文案。`TitleScreen` 组合作者配置的标题上方文字、游戏名、背景/BGM、开始或读取入口、选项和 CG Modal；`startScreen.eyebrow` 为空时不会渲染该行。`TitleScreen` / `CgGallery` 还把已验证的样式 DTO 映射为固定 CSS 变量和布局属性，供 Editor、Desktop 与 Web 共用。Player 应用也可以把 Dialog 单独用于游戏内界面。
 
 `VisualStage` 是纯舞台层，接收已经解析的背景、人物、对白、特效与缩放状态。剧情背景围绕
 舞台中心缩放，人物立绘围绕底部中心锚点缩放；比例由 Runtime 校验为 10%–300% 的整数。

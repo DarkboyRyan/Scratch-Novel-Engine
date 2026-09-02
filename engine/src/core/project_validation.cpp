@@ -264,6 +264,9 @@ std::optional<std::string> validate_project(const Project& project) {
       project.start_screen.music_asset_id->empty()) {
     return "start screen music Asset ID must not be empty";
   }
+  if (!is_valid_start_screen_style(project.start_screen.style)) {
+    return "start screen style is invalid";
+  }
   std::unordered_set<std::string> cg_asset_ids;
   if (project.cg_gallery.pages.empty()) {
     return "CG gallery must contain at least one page";
@@ -280,6 +283,9 @@ std::optional<std::string> validate_project(const Project& project) {
         return "CG gallery Asset IDs must be unique";
       }
     }
+  }
+  if (!is_valid_cg_gallery_style(project.cg_gallery.style)) {
+    return "CG gallery style is invalid";
   }
   if (project.scenes.empty()) {
     return "project must contain at least one scene";

@@ -48,8 +48,8 @@ Editor 的主界面整体预览继续复用同一个 `TitleScreen`，并显示�
 
 玩家存档仍与作者项目和导出内容分离；当前版本边界是：
 
-- `project.vn.json` 是 author v21；
-- `game.json` 是 runtime v12，Player Reader 兼容 runtime v1–v12；
+- `project.vn.json` 是 author v22；
+- `game.json` 是 runtime v13，Player Reader 兼容 runtime v1–v13；
 - 存档在 Player 用户数据目录中使用独立的 `saveVersion: 1`；
 - 新写入的进度是 `GameRuntimeSnapshot v5`；v1–v4 仅按各自旧能力受限兼容；
 - C++ 作者后端不参与存档，避免把玩家进度写回作者项目；
