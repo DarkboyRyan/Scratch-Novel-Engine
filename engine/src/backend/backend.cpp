@@ -1,5 +1,5 @@
 // 文件职责：将精确校验后的 JSONL 命令映射到 C++ Core 原子操作。
-// 关键实现：Backend::handle、缩放等参数解析、业务错误码、revision 与项目快照提交。
+// 关键实现：Backend::handle、资源命令、严格参数解析、业务错误码、revision 与快照提交。
 #include "backend.hpp"
 
 #include <algorithm>
@@ -1490,7 +1490,60 @@ Json Backend::handle(const Json& request) {
   vnengine::Project& project = require_project();
   bool changed = false;
 
-  if (method == "project.rename") {
+  if (method == "asset.rename") {
+    require_exact_params(params, {"assetId", "displayName"});
+    switch (vnengine::rename_asset(
+        require_aggregate(),
+        required_string(params, "assetId"),
+        required_string(params, "displayName"))) {
+      case vnengine::RenameAssetResult::changed:
+        changed = true;
+        break;
+      case vnengine::RenameAssetResult::unchanged:
+        changed = false;
+        break;
+      case vnengine::RenameAssetResult::asset_not_found:
+        throw ProtocolError("asset_not_found", "asset does not exist");
+      case vnengine::RenameAssetResult::invalid_display_name:
+        throw ProtocolError(
+            "asset_name_invalid",
+            "asset display name must be non-empty valid UTF-8 text up to 256 "
+            "bytes without NUL");
+      case vnengine::RenameAssetResult::display_name_conflict:
+        throw ProtocolError(
+            "asset_name_conflict",
+            "another asset of this type already uses that display name");
+      case vnengine::RenameAssetResult::invalid_aggregate:
+        throw ProtocolError(
+            "internal_error",
+            "asset rename would violate project invariants");
+    }
+  } else if (method == "asset.deleteMany") {
+    require_exact_params(params, {"assetIds"});
+    const std::vector<std::string> asset_ids =
+        required_unique_string_array(params, "assetIds");
+    const vnengine::DeleteAssetsResult result =
+        vnengine::delete_assets(require_aggregate(), asset_ids);
+    switch (result.status) {
+      case vnengine::DeleteAssetsStatus::deleted:
+        changed = true;
+        break;
+      case vnengine::DeleteAssetsStatus::asset_not_found:
+        throw ProtocolError("asset_not_found", "asset does not exist");
+      case vnengine::DeleteAssetsStatus::asset_in_use:
+        throw ProtocolError(
+            "asset_in_use",
+            "one or more assets are still referenced by the project");
+      case vnengine::DeleteAssetsStatus::empty_selection:
+      case vnengine::DeleteAssetsStatus::duplicate_asset_id:
+        // The strict JSON parser above owns these public parameter failures.
+        throw ProtocolError("invalid_params", "params.assetIds is invalid");
+      case vnengine::DeleteAssetsStatus::invalid_aggregate:
+        throw ProtocolError(
+            "internal_error",
+            "asset deletion would violate project invariants");
+    }
+  } else if (method == "project.rename") {
     const auto name = vnengine::normalize_project_name(
         required_string(params, "name"));
     if (!name.has_value()) {

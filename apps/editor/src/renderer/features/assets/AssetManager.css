@@ -1,0 +1,522 @@
+/*
+ * 文件主要作用：定义独立资源管理工作区的三栏布局与响应式卡片。
+ */
+
+.asset-manager {
+  grid-row: 2 / -1;
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--text);
+  background: var(--canvas);
+}
+
+.asset-manager-heading {
+  min-width: 0;
+}
+
+.asset-manager-operation-message {
+  margin: 0;
+  padding: 8px 22px;
+  color: var(--text);
+  font-size: 12px;
+  background: color-mix(in srgb, var(--primary) 8%, var(--panel));
+  border-bottom: 1px solid var(--border);
+}
+
+.asset-manager-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 18px 22px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.asset-manager-header h1,
+.asset-manager-header p,
+.asset-manager-details h2,
+.asset-manager-details p {
+  margin: 0;
+}
+
+.asset-manager-header h1 {
+  font-size: 20px;
+  line-height: 1.3;
+}
+
+.asset-manager-header p {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.asset-manager-import-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.asset-manager-import-actions button {
+  min-height: 34px;
+  padding: 7px 12px;
+  color: #ffffff;
+  cursor: pointer;
+  background: var(--primary);
+  border: 1px solid var(--primary);
+  border-radius: 7px;
+}
+
+.asset-manager-import-actions button:hover:not(:disabled) {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+
+.asset-manager-import-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.asset-manager-body {
+  display: grid;
+  grid-template-columns: 190px minmax(360px, 1fr) minmax(280px, 330px);
+  min-width: 0;
+  min-height: 0;
+}
+
+.asset-manager-categories,
+.asset-manager-details {
+  min-width: 0;
+  padding: 18px;
+  overflow: auto;
+  background: var(--panel);
+}
+
+.asset-manager-categories {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border-right: 1px solid var(--border);
+}
+
+.asset-manager-categories button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 38px;
+  padding: 8px 10px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+}
+
+.asset-manager-categories button:hover,
+.asset-manager-categories button.is-active {
+  background: var(--panel-subtle);
+  border-color: var(--border);
+}
+
+.asset-manager-categories button.is-active {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.asset-manager-categories button span:last-child {
+  min-width: 25px;
+  padding: 2px 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: center;
+  background: var(--canvas);
+  border-radius: 999px;
+}
+
+.asset-manager-library {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  padding: 18px;
+  overflow: hidden;
+}
+
+.asset-manager-controls {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  padding-bottom: 16px;
+}
+
+.asset-manager-search,
+.asset-manager-sort {
+  display: grid;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.asset-manager-search {
+  flex: 1 1 auto;
+}
+
+.asset-manager-sort {
+  flex: 0 0 145px;
+}
+
+.asset-manager-search input,
+.asset-manager-sort select {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 9px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+}
+
+.asset-manager-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(142px, 1fr));
+  align-content: start;
+  gap: 12px;
+  min-height: 0;
+  margin: 0;
+  padding: 1px 3px 18px 1px;
+  overflow: auto;
+  list-style: none;
+}
+
+.asset-manager-grid li {
+  min-width: 0;
+}
+
+.asset-manager-grid button {
+  display: grid;
+  grid-template-rows: 108px auto auto;
+  width: 100%;
+  min-width: 0;
+  padding: 7px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  box-shadow: 0 1px 2px rgb(28 34 44 / 3%);
+}
+
+.asset-manager-grid button:hover {
+  border-color: var(--border-strong);
+  box-shadow: 0 4px 14px rgb(28 34 44 / 7%);
+}
+
+.asset-manager-grid button.is-selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 17%, transparent);
+}
+
+.asset-manager-card-preview {
+  display: grid;
+  overflow: hidden;
+  color: var(--text-muted);
+  background:
+    linear-gradient(45deg, rgb(0 0 0 / 3%) 25%, transparent 25%),
+    linear-gradient(-45deg, rgb(0 0 0 / 3%) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgb(0 0 0 / 3%) 75%),
+    linear-gradient(-45deg, transparent 75%, rgb(0 0 0 / 3%) 75%),
+    #f7f8fa;
+  background-position: 0 0, 0 6px, 6px -6px, -6px 0;
+  background-size: 12px 12px;
+  border-radius: 6px;
+  place-items: center;
+}
+
+.asset-manager-card-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.asset-manager-card-icon {
+  color: var(--primary);
+  font-size: 30px;
+}
+
+.asset-manager-card-name {
+  min-width: 0;
+  margin-top: 8px;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asset-manager-card-type {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.asset-manager-context-menu {
+  position: fixed;
+  z-index: 40;
+  display: grid;
+  box-sizing: border-box;
+  min-width: 164px;
+  padding: 5px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgb(28 34 44 / 18%);
+}
+
+.asset-manager-context-menu button {
+  min-height: 34px;
+  padding: 7px 10px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+}
+
+.asset-manager-context-menu button:hover:not(:disabled),
+.asset-manager-context-menu button:focus-visible {
+  background: var(--panel-subtle);
+}
+
+.asset-manager-context-menu button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.asset-manager-context-menu .asset-manager-context-delete {
+  color: var(--danger, #b42318);
+}
+
+.asset-manager-empty,
+.asset-manager-details-empty {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.asset-manager-empty {
+  align-self: start;
+  margin: 24px 0;
+  text-align: center;
+}
+
+.asset-manager-details {
+  border-left: 1px solid var(--border);
+}
+
+.asset-manager-details h2 {
+  margin-bottom: 14px;
+  font-size: 14px;
+}
+
+.asset-manager-details-content {
+  display: grid;
+  gap: 15px;
+}
+
+.asset-manager-large-preview {
+  display: grid;
+  min-height: 180px;
+  overflow: hidden;
+  color: var(--text-muted);
+  background: var(--panel-subtle);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  place-items: center;
+}
+
+.asset-manager-preview-frame {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  min-height: 178px;
+  place-items: center;
+}
+
+.asset-manager-preview-frame > * {
+  grid-area: 1 / 1;
+}
+
+.asset-manager-image-preview,
+.asset-manager-media-preview {
+  display: block;
+  width: 100%;
+  max-height: 260px;
+  object-fit: contain;
+}
+
+.asset-manager-audio-preview {
+  width: calc(100% - 24px);
+}
+
+.asset-manager-preview-status {
+  padding: 18px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.asset-manager-metadata {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.asset-manager-metadata div {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.asset-manager-metadata dt {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.asset-manager-metadata dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.asset-manager-metadata code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.asset-manager-reference-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 23px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.asset-manager-edit-actions {
+  display: grid;
+  gap: 14px;
+  padding-top: 15px;
+  border-top: 1px solid var(--border);
+}
+
+.asset-manager-rename-form,
+.asset-manager-delete-action,
+.asset-manager-rename-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.asset-manager-rename-form label > span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.asset-manager-rename-form input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 9px;
+  color: var(--text);
+  background: var(--canvas);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+}
+
+.asset-manager-rename-form input[aria-invalid='true'] {
+  border-color: var(--danger, #b42318);
+}
+
+.asset-manager-action-help,
+.asset-manager-action-error {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.asset-manager-action-help {
+  color: var(--text-muted);
+}
+
+.asset-manager-action-error {
+  color: var(--danger, #b42318);
+}
+
+.asset-manager-edit-actions button {
+  min-height: 34px;
+  padding: 7px 10px;
+  color: var(--text);
+  cursor: pointer;
+  background: var(--panel-subtle);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+}
+
+.asset-manager-edit-actions button:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+
+.asset-manager-edit-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.asset-manager-edit-actions .asset-manager-delete-button {
+  color: var(--danger, #b42318);
+  border-color: color-mix(in srgb, var(--danger, #b42318) 45%, var(--border));
+}
+
+.asset-manager button:focus-visible,
+.asset-manager input:focus-visible,
+.asset-manager select:focus-visible,
+.asset-manager audio:focus-visible,
+.asset-manager video:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+@media (max-width: 980px) {
+  .asset-manager-body {
+    grid-template-columns: 150px minmax(320px, 1fr) minmax(240px, 290px);
+  }
+}
+
+@media (max-width: 760px) {
+  .asset-manager-header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .asset-manager-import-actions {
+    flex-wrap: wrap;
+  }
+
+  .asset-manager-body {
+    grid-template-columns: 118px minmax(280px, 1fr);
+  }
+
+  .asset-manager-details {
+    display: none;
+  }
+}

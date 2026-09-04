@@ -1,7 +1,8 @@
 // 文件职责：声明对权威项目模型的查询、校验和原子编辑接口。
-// 关键实现：IdGenerator、项目/场景命令、时间线节点、图片缩放和聚合校验函数。
+// 关键实现：IdGenerator、项目/资源/场景命令、时间线节点、图片缩放和聚合校验函数。
 #pragma once
 
+#include <cstddef>
 #include <optional>
 #include <random>
 #include <string>
@@ -89,6 +90,54 @@ Asset* find_asset(
 const Asset* find_asset(
     const ProjectAggregate& aggregate,
     std::string_view asset_id);
+
+// Asset display names are author-facing labels rather than storage names.
+// Renaming never changes the stable Asset ID, type, relative path, or any
+// Project reference. New names are trimmed at the boundary and must be valid
+// UTF-8 text without NUL bytes. Legacy manifests with looser display names
+// remain readable until an author explicitly renames that Asset.
+inline constexpr std::size_t kMaximumAssetDisplayNameBytes = 256;
+
+std::optional<std::string> normalize_asset_display_name(
+    std::string display_name);
+
+enum class RenameAssetResult {
+  changed,
+  unchanged,
+  asset_not_found,
+  invalid_display_name,
+  display_name_conflict,
+  invalid_aggregate,
+};
+
+RenameAssetResult rename_asset(
+    ProjectAggregate& aggregate,
+    std::string_view asset_id,
+    std::string display_name);
+
+enum class DeleteAssetsStatus {
+  deleted,
+  empty_selection,
+  duplicate_asset_id,
+  asset_not_found,
+  asset_in_use,
+  invalid_aggregate,
+};
+
+struct DeleteAssetsResult {
+  DeleteAssetsStatus status;
+  // The removed metadata is returned in request order for Core-level audit
+  // and tests only. Backend responses never serialize it, and this release
+  // deliberately performs no physical file deletion.
+  std::vector<Asset> deleted_assets;
+};
+
+// Deletes an entire selection or nothing. Every ID must be unique and exist,
+// and no selected Asset may be referenced anywhere in the authoritative
+// Project. Validation completes before the aggregate is committed.
+DeleteAssetsResult delete_assets(
+    ProjectAggregate& aggregate,
+    const std::vector<std::string>& asset_ids);
 
 // The title and both title-screen media references form one authoring command.
 // The model validates the complete requested state before committing any

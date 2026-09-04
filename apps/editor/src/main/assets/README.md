@@ -8,7 +8,7 @@
 
 1. 项目工作流把当前项目根和资产清单交给 `AssetPreviewService` 准备会话。
 2. Renderer 请求受控协议 URL，服务规范化标识并委托 [`../media/`](../media/README.md) 校验格式和 Range。
-3. 校验通过后以流式响应返回媒体字节；项目切换或窗口关闭时旧会话失效。
+3. 校验通过后以流式响应返回媒体字节；资源删除成功会立即轮换当前 capability generation，项目切换或窗口关闭时旧会话同样失效。
 
 ## 文件
 
@@ -18,5 +18,5 @@
 
 ## 开发与验证
 
-- 协议处理不得接受任意绝对路径，也不能只依据扩展名信任媒体；范围请求必须保持单段和边界安全。
+- 协议处理不得接受任意绝对路径，也不能只依据扩展名信任媒体；范围请求必须保持单段和边界安全。资源重命名需同步私有显示名，删除则必须在 IPC 返回前撤销旧 URL。
 - 运行 `pnpm --dir apps/editor exec vitest run tests/unit/assetPreviewService.test.ts tests/unit/mediaPolicy.test.ts` 验证协议与媒体策略。

@@ -13,6 +13,7 @@ import {
 } from '../../shared/exportProtocol';
 import type { EditorLanguage } from '../../shared/editorSettingsProtocol';
 import type { EditorMode } from '../application/editorMode';
+import type { WorkspaceSection } from '../application/editorSection';
 import { useEditorLabels } from '../i18n/editorLocalization';
 import { EditorSettingsDialog } from './EditorSettingsDialog';
 
@@ -21,6 +22,7 @@ type ToolbarProps = {
   projectNameDraft: string;
   isRenamingProject: boolean;
   editorMode: EditorMode;
+  workspaceSection: WorkspaceSection;
   isBusy: boolean;
   isDirty: boolean;
   isSaving: boolean;
@@ -40,6 +42,7 @@ type ToolbarProps = {
   onProjectNameDraftChange: (name: string) => void;
   onCommitProjectName: () => Promise<boolean>;
   onCancelProjectName: () => void;
+  onWorkspaceSectionChange: (section: WorkspaceSection) => void;
   onEditorModeChange: (mode: EditorMode) => void;
   onLanguageChange: (language: EditorLanguage) => Promise<void>;
   onOpenSettings: () => void;
@@ -60,6 +63,7 @@ export function Toolbar({
   projectNameDraft,
   isRenamingProject,
   editorMode,
+  workspaceSection,
   isBusy,
   isDirty,
   isSaving,
@@ -79,6 +83,7 @@ export function Toolbar({
   onProjectNameDraftChange,
   onCommitProjectName,
   onCancelProjectName,
+  onWorkspaceSectionChange,
   onEditorModeChange,
   onLanguageChange,
   onOpenSettings,
@@ -97,6 +102,10 @@ export function Toolbar({
   );
   const [exportConfigurationError, setExportConfigurationError] =
     useState<StandaloneApplicationMetadataErrorCode | null>(null);
+  const toolbarStatusMessage =
+    engineMessage ||
+    operationMessage ||
+    (isBusy ? labels.toolbar.processing : '');
 
   function preserveRenameDraftFocus(
     event: React.MouseEvent<HTMLButtonElement>,
@@ -376,30 +385,68 @@ export function Toolbar({
         </div>
 
         <span
-          className={engineMessage ? 'engine-error' : 'engine-ready'}
+          className={
+            toolbarStatusMessage
+              ? engineMessage
+                ? 'engine-error'
+                : 'engine-ready'
+              : 'toolbar-status-live'
+          }
           aria-live="polite"
+          aria-atomic="true"
           title={engineMessage || operationMessage || undefined}
         >
-          {engineMessage ||
-            operationMessage ||
-            (isBusy ? labels.toolbar.processing : labels.toolbar.connected)}
+          {toolbarStatusMessage}
         </span>
       </div>
 
       <div className="toolbar-mode-row">
+        <span className="toolbar-mode-label">
+          {labels.toolbar.workspace}
+        </span>
+        <div
+          className="editor-mode-switch"
+          role="group"
+          data-toolbar-switch="workspace"
+          aria-label={labels.toolbar.workspaceSection}
+        >
+          <button
+            type="button"
+            className="editor-mode-button"
+            disabled={isBusy}
+            aria-pressed={workspaceSection === 'dialogue'}
+            onMouseDown={preserveRenameDraftFocus}
+            onClick={() => onWorkspaceSectionChange('dialogue')}
+          >
+            {labels.toolbar.dialogueWorkspace}
+          </button>
+          <button
+            type="button"
+            className="editor-mode-button"
+            disabled={isBusy}
+            aria-pressed={workspaceSection === 'resources'}
+            onMouseDown={preserveRenameDraftFocus}
+            onClick={() => onWorkspaceSectionChange('resources')}
+          >
+            {labels.toolbar.resourceManager}
+          </button>
+        </div>
+
         <span className="toolbar-mode-label">
           {labels.toolbar.editMethod}
         </span>
         <div
           className="editor-mode-switch"
           role="group"
+          data-toolbar-switch="editor-mode"
           aria-label={labels.toolbar.editorMode}
         >
           <button
             type="button"
             className="editor-mode-button"
-            disabled={isBusy}
+            disabled={isBusy || workspaceSection !== 'dialogue'}
             aria-pressed={editorMode === 'form'}
+            onMouseDown={preserveRenameDraftFocus}
             onClick={() => onEditorModeChange('form')}
           >
             {labels.toolbar.formEditor}
@@ -407,8 +454,9 @@ export function Toolbar({
           <button
             type="button"
             className="editor-mode-button"
-            disabled={isBusy}
+            disabled={isBusy || workspaceSection !== 'dialogue'}
             aria-pressed={editorMode === 'blocks'}
+            onMouseDown={preserveRenameDraftFocus}
             onClick={() => onEditorModeChange('blocks')}
           >
             {labels.toolbar.blockEditor}
@@ -416,8 +464,9 @@ export function Toolbar({
           <button
             type="button"
             className="editor-mode-button"
-            disabled={isBusy}
+            disabled={isBusy || workspaceSection !== 'dialogue'}
             aria-pressed={editorMode === 'code'}
+            onMouseDown={preserveRenameDraftFocus}
             onClick={() => onEditorModeChange('code')}
           >
             {labels.toolbar.codePreview}

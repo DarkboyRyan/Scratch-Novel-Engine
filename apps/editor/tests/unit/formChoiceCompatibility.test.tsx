@@ -216,6 +216,42 @@ describe('form editor choice compatibility', () => {
     vi.restoreAllMocks();
   });
 
+  it('adds backgrounds only through the explicit timeline action', async () => {
+    const noop = async () => {};
+    const insertBackground = vi.fn(async () => {});
+
+    await act(async () => {
+      root.render(
+        <ScenePanel
+          project={project}
+          scene={project.scenes[0]}
+          assets={[]}
+          selectedNodeId={null}
+          isBusy={false}
+          {...idleSceneRenameProps}
+          onAddScene={noop}
+          onSelectScene={noop}
+          onSelectNode={noop}
+          onInsertBackground={insertBackground}
+          onInsertSceneJump={noop}
+          onMoveNode={noop}
+          onDeleteNode={noop}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector('.scene-background-settings-panel'),
+    ).toBeNull();
+    const addBackground = container.querySelector<HTMLButtonElement>(
+      '.timeline-add-background-button',
+    );
+    expect(addBackground?.textContent).toContain('背景');
+
+    await act(async () => addBackground?.click());
+    expect(insertBackground).toHaveBeenCalledOnce();
+  });
+
   it('shows existing choices read-only without a form creation action', async () => {
     const choice = project.scenes[0].nodes[0];
     if (choice.type !== 'choice') throw new Error('fixture is not a choice');

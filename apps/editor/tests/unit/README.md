@@ -14,6 +14,7 @@
 
 | 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
 | --- | --- | --- | --- |
+| [assetManager.test.tsx](./assetManager.test.tsx) | Vitest + React + TypeScript + JSDOM | 验证资源筛选、媒体预览、右键操作与安全清理 | `AssetManager` |
 | [assetPreviewService.test.ts](./assetPreviewService.test.ts) | Vitest + TypeScript | 验证 AssetPreviewService 的行为 | `AssetPreviewService` |
 | [authorProjectCompiler.test.ts](./authorProjectCompiler.test.ts) | Vitest + TypeScript | 验证 author project v22 compiler、页面样式、标题上方文字、图片缩放、人物模式迁移和 Runtime 投影 | `author project v22 compiler` |
 | [backendClientTimeout.test.ts](./backendClientTimeout.test.ts) | Vitest + TypeScript | 验证 backend request timeout 的行为 | `backend request timeout` |
@@ -100,6 +101,7 @@
 | [toolbarExport.test.tsx](./toolbarExport.test.tsx) | Vitest + React + TypeScript + JSDOM | 验证 Toolbar game export action 的行为 | `Toolbar game export action` |
 | [useEditorSettings.test.tsx](./useEditorSettings.test.tsx) | Vitest + React + TypeScript + JSDOM | 验证 useEditorSettings 的行为 | `useEditorSettings` |
 | [useEngineProject.test.tsx](./useEngineProject.test.tsx) | Vitest + React + TypeScript + JSDOM | 验证 useEngineProject asset state 的行为 | `useEngineProject asset state` |
+| [useAssetPreviewUrls.test.tsx](./useAssetPreviewUrls.test.tsx) | Vitest + React + TypeScript + JSDOM | 验证图片预览 URL 与项目身份绑定及切换时同步失效 | `useAssetPreviewUrls` |
 | [useGamePreviewVideo.test.tsx](./useGamePreviewVideo.test.tsx) | Vitest + React + TypeScript + JSDOM | 验证 useGamePreview video transition 的行为 | `useGamePreview video transition` |
 | [validateAssetInvocation.test.ts](./validateAssetInvocation.test.ts) | Vitest + TypeScript | 验证 asset IPC invocation validation 的行为 | `asset IPC invocation validation` |
 | [validateEngineInvocation.test.ts](./validateEngineInvocation.test.ts) | Vitest + TypeScript | 验证 engine IPC validation 的行为 | `engine IPC validation` |

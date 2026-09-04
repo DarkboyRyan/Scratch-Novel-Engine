@@ -53,6 +53,7 @@ describe('Toolbar game export action', () => {
         projectNameDraft="Story"
         isRenamingProject={false}
         editorMode="form"
+        workspaceSection="dialogue"
         isBusy={options.isBusy ?? false}
         isDirty={false}
         isSaving={false}
@@ -72,6 +73,7 @@ describe('Toolbar game export action', () => {
         onProjectNameDraftChange={() => {}}
         onCommitProjectName={async () => true}
         onCancelProjectName={() => {}}
+        onWorkspaceSectionChange={() => {}}
         onEditorModeChange={() => {}}
         onLanguageChange={options.onLanguageChange ?? (async () => {})}
         onOpenSettings={options.onOpenSettings ?? (() => {})}
@@ -192,6 +194,7 @@ describe('Toolbar game export action', () => {
 
     expect(exportButton).toBeInstanceOf(HTMLButtonElement);
     expect((exportButton as HTMLButtonElement).disabled).toBe(true);
+    expect(container.querySelector('.engine-ready')?.textContent).toBe('处理中…');
 
     await act(async () =>
       renderToolbar({
@@ -200,6 +203,20 @@ describe('Toolbar game export action', () => {
     );
     const status = container.querySelector('.engine-ready');
     expect(status?.textContent).toContain('已导出内容包 Story.vngame');
+  });
+
+  it('omits the idle connected indicator while keeping the saved state', async () => {
+    await act(async () => renderToolbar());
+
+    expect(container.textContent).not.toContain('已连接');
+    expect(container.querySelector('.engine-ready')).toBeNull();
+    expect(container.querySelector('[aria-live="polite"]')?.textContent).toBe(
+      '已保存',
+    );
+    expect(container.querySelector('.toolbar-status-live')?.textContent).toBe(
+      '',
+    );
+    expect(container.querySelector('.save-state')?.textContent).toBe('已保存');
   });
 
   it('opens Settings beside Export, changes language, traps focus and restores its trigger', async () => {

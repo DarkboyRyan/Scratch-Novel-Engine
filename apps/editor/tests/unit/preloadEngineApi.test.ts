@@ -5,6 +5,7 @@
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { VnAssetsApi } from '../../src/shared/assetProtocol';
 import type { VnEngineApi } from '../../src/shared/engineProtocol';
 import type { VnGameExportApi } from '../../src/shared/exportProtocol';
 import {
@@ -32,6 +33,7 @@ vi.mock('electron', () => ({
 }));
 
 describe('preload background and timeline engine API', () => {
+  let assets: VnAssetsApi;
   let engine: VnEngineApi;
   let gameExport: VnGameExportApi;
 
@@ -45,6 +47,14 @@ describe('preload background and timeline engine API', () => {
       throw new Error('preload did not expose vnEngine');
     }
     engine = exposure[1] as VnEngineApi;
+
+    const assetExposure = electron.exposeInMainWorld.mock.calls.find(
+      ([name]) => name === 'vnAssets',
+    );
+    if (!assetExposure) {
+      throw new Error('preload did not expose vnAssets');
+    }
+    assets = assetExposure[1] as VnAssetsApi;
 
     const exportExposure = electron.exposeInMainWorld.mock.calls.find(
       ([name]) => name === 'vnGameExport',
@@ -74,6 +84,43 @@ describe('preload background and timeline engine API', () => {
         assetId: 'background-1',
         scalePercent: 125,
       },
+    });
+  });
+
+  it('exposes and forwards the asset management contract', async () => {
+    expect(assets.managementContractVersion).toBe(1);
+
+    await assets.renameAsset('image-1', 'Portrait');
+    await assets.deleteAssets(['image-1', 'audio-1']);
+
+    expect(electron.invoke).toHaveBeenNthCalledWith(
+      1,
+      'vn-assets:request',
+      {
+        action: 'rename',
+        params: { assetId: 'image-1', displayName: 'Portrait' },
+      },
+    );
+    expect(electron.invoke).toHaveBeenNthCalledWith(
+      2,
+      'vn-assets:request',
+      {
+        action: 'delete-many',
+        params: { assetIds: ['image-1', 'audio-1'] },
+      },
+    );
+  });
+
+  it('maps an old Main asset rejection to the stable restart marker', async () => {
+    electron.invoke.mockRejectedValueOnce(
+      new Error('Renderer 发来了无效的资源导入请求'),
+    );
+
+    await expect(
+      assets.renameAsset('image-1', 'Portrait'),
+    ).rejects.toMatchObject({
+      name: 'AssetManagementContractError',
+      message: expect.stringContaining('[asset-management-contract]'),
     });
   });
 

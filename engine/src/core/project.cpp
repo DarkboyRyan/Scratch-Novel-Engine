@@ -1,5 +1,5 @@
 // 文件职责：实现项目、场景及全部时间线节点的无 JSON 业务规则。
-// 关键实现：原子增删改、图片缩放、逻辑与 CG 配对结构、批量重排、人物特效和变量预算。
+// 关键实现：资源生命周期、原子增删改、图片缩放、逻辑与 CG 配对、批量重排和变量预算。
 #include "vnengine/project.hpp"
 
 #include "project_internal.hpp"
@@ -143,6 +143,70 @@ bool project_contains_entity_id(
         if (option.id == candidate_id) {
           return true;
         }
+      }
+    }
+  }
+  return false;
+}
+
+bool project_references_any_asset(
+    const Project& project,
+    const std::unordered_set<std::string_view>& asset_ids) {
+  const auto selected = [&asset_ids](const std::string_view asset_id) {
+    return asset_ids.contains(asset_id);
+  };
+  const auto selected_optional =
+      [&selected](const std::optional<std::string>& asset_id) {
+    return asset_id.has_value() && selected(*asset_id);
+  };
+
+  if (selected_optional(project.start_screen.background_asset_id) ||
+      selected_optional(project.start_screen.music_asset_id)) {
+    return true;
+  }
+  for (const CgGalleryPage& page : project.cg_gallery.pages) {
+    for (const std::optional<std::string>& asset_id : page.image_asset_ids) {
+      if (selected_optional(asset_id)) {
+        return true;
+      }
+    }
+  }
+
+  for (const Scene& scene : project.scenes) {
+    if (selected_optional(scene.visuals.background_asset_id)) {
+      return true;
+    }
+    for (const CharacterVisualInstance& character :
+         scene.visuals.characters) {
+      if (selected(character.asset_id)) {
+        return true;
+      }
+    }
+    for (const SceneNode& node : scene.nodes) {
+      if (const auto* dialogue = std::get_if<Dialogue>(&node);
+          dialogue != nullptr &&
+          selected_optional(dialogue->voice_asset_id)) {
+        return true;
+      }
+      if (const auto* background = std::get_if<BackgroundNode>(&node);
+          background != nullptr && selected_optional(background->asset_id)) {
+        return true;
+      }
+      if (const auto* character = std::get_if<CharacterNode>(&node);
+          character != nullptr && selected_optional(character->asset_id)) {
+        return true;
+      }
+      if (const auto* bgm = std::get_if<BgmNode>(&node);
+          bgm != nullptr && selected_optional(bgm->asset_id)) {
+        return true;
+      }
+      if (const auto* video = std::get_if<VideoNode>(&node);
+          video != nullptr && selected_optional(video->asset_id)) {
+        return true;
+      }
+      if (const auto* display = std::get_if<CgDisplayNode>(&node);
+          display != nullptr && selected(display->asset_id)) {
+        return true;
       }
     }
   }
@@ -1068,6 +1132,103 @@ DialogueContent normalize_dialogue_content(
   return DialogueContent{
       .speaker = std::move(speaker),
       .text = std::move(text),
+  };
+}
+
+std::optional<std::string> normalize_asset_display_name(
+    std::string display_name) {
+  display_name = trim_ascii_whitespace(std::move(display_name));
+  if (display_name.empty() ||
+      display_name.size() > kMaximumAssetDisplayNameBytes ||
+      display_name.find('\0') != std::string::npos ||
+      !is_valid_utf8(display_name)) {
+    return std::nullopt;
+  }
+  return display_name;
+}
+
+RenameAssetResult rename_asset(
+    ProjectAggregate& aggregate,
+    const std::string_view asset_id,
+    std::string display_name) {
+  Asset* asset = find_asset(aggregate, asset_id);
+  if (asset == nullptr) {
+    return RenameAssetResult::asset_not_found;
+  }
+
+  std::optional<std::string> normalized_name =
+      normalize_asset_display_name(std::move(display_name));
+  if (!normalized_name.has_value()) {
+    return RenameAssetResult::invalid_display_name;
+  }
+  if (asset->display_name == *normalized_name) {
+    return RenameAssetResult::unchanged;
+  }
+
+  for (const Asset& other : aggregate.assets) {
+    if (other.id != asset_id && other.type == asset->type &&
+        other.display_name == *normalized_name) {
+      return RenameAssetResult::display_name_conflict;
+    }
+  }
+
+  ProjectAggregate candidate = aggregate;
+  Asset* candidate_asset = find_asset(candidate, asset_id);
+  if (candidate_asset == nullptr) {
+    return RenameAssetResult::invalid_aggregate;
+  }
+  candidate_asset->display_name = std::move(*normalized_name);
+  if (validate_project_aggregate(candidate).has_value()) {
+    return RenameAssetResult::invalid_aggregate;
+  }
+
+  static_assert(std::is_nothrow_move_assignable_v<ProjectAggregate>);
+  aggregate = std::move(candidate);
+  return RenameAssetResult::changed;
+}
+
+DeleteAssetsResult delete_assets(
+    ProjectAggregate& aggregate,
+    const std::vector<std::string>& asset_ids) {
+  if (asset_ids.empty()) {
+    return {DeleteAssetsStatus::empty_selection, {}};
+  }
+
+  std::unordered_set<std::string_view> selected_ids;
+  selected_ids.reserve(asset_ids.size());
+  for (const std::string& asset_id : asset_ids) {
+    if (!selected_ids.insert(asset_id).second) {
+      return {DeleteAssetsStatus::duplicate_asset_id, {}};
+    }
+  }
+
+  std::vector<Asset> deleted_assets;
+  deleted_assets.reserve(asset_ids.size());
+  for (const std::string& asset_id : asset_ids) {
+    const Asset* asset = find_asset(aggregate, asset_id);
+    if (asset == nullptr) {
+      return {DeleteAssetsStatus::asset_not_found, {}};
+    }
+    deleted_assets.push_back(*asset);
+  }
+
+  if (project_references_any_asset(aggregate.project, selected_ids)) {
+    return {DeleteAssetsStatus::asset_in_use, {}};
+  }
+
+  ProjectAggregate candidate = aggregate;
+  std::erase_if(candidate.assets, [&selected_ids](const Asset& asset) {
+    return selected_ids.contains(asset.id);
+  });
+  if (validate_project_aggregate(candidate).has_value()) {
+    return {DeleteAssetsStatus::invalid_aggregate, {}};
+  }
+
+  static_assert(std::is_nothrow_move_assignable_v<ProjectAggregate>);
+  aggregate = std::move(candidate);
+  return {
+      DeleteAssetsStatus::deleted,
+      std::move(deleted_assets),
   };
 }
 

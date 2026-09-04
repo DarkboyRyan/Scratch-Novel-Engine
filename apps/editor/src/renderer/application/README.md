@@ -18,7 +18,8 @@ Application 目录是 Renderer UI 与 Preload/Engine API 之间的适配层。�
 | [createAuthoringActions.ts](./createAuthoringActions.ts) | TypeScript | 把 Engine API 封装成带错误处理和项目刷新的创作动作 | `AuthoringActions`、`createAuthoringActions` |
 | [editorMediaGateway.ts](./editorMediaGateway.ts) | TypeScript | 为 Renderer 提供受平台网关约束的媒体 URL 解析能力 | `resolveEditorMediaUrl`、`resolveEditorAssetPreviewUrl` |
 | [editorMode.ts](./editorMode.ts) | TypeScript | 定义表单、图形化与 Code 三种编辑模式 | `EditorMode` |
-| [editorPlatformGateway.ts](./editorPlatformGateway.ts) | TypeScript | 安全读取 preload 暴露的资产、项目文件和平台命令网关 | `EditorPlatformGateway`、`getEditorPlatformGateway`、`subscribeEditorProjectFileCommands` |
+| [editorSection.ts](./editorSection.ts) | TypeScript | 定义剧情流程与资源管理两个顶层工作区，切换时保留当前剧情编辑模式 | `WorkspaceSection` |
+| [editorPlatformGateway.ts](./editorPlatformGateway.ts) | TypeScript | 安全读取 preload 暴露的资产、项目文件和平台命令网关，并识别资源管理契约版本 | `EditorPlatformGateway`、`supportsAssetManagement`、`getEditorPlatformGateway`、`subscribeEditorProjectFileCommands` |
 | [editorSettingsGateway.ts](./editorSettingsGateway.ts) | TypeScript | 封装编辑器设置的读取、更新、订阅和重启错误处理 | `EditorSettingsRestartRequiredError`、`isEditorSettingsRestartRequiredError`、`readEditorSettings`、`updateEditorSettings`、`subscribeEditorSettings` |
 | [mediaPort.ts](./mediaPort.ts) | TypeScript | 声明与平台无关的媒体地址解析端口类型 | `MediaUrlResolver`、`AssetPreviewUrlResolver` |
 

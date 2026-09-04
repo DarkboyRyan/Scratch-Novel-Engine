@@ -382,6 +382,25 @@ describe('AssetPreviewService', () => {
     });
   });
 
+  it('synchronizes rename metadata and revokes a deleted asset capability', async () => {
+    const { projectFilePath } = await makeProject();
+    const { service, request } = makeService();
+    const initial = resultFor();
+    await service.activateProjectFile(projectFilePath, initial);
+    const issuedUrl = service.getPreviewUrl('asset-1') as string;
+    const renamed = {
+      ...initial,
+      assets: [{ ...initial.assets[0]!, displayName: 'Renamed' }],
+    };
+
+    expect(service.synchronizeRenamedAsset('asset-1', renamed)).toBe(true);
+    expect(service.getPreviewUrl('asset-1')).toBe(issuedUrl);
+    const deleted = { ...renamed, assets: [] };
+    expect(service.revokeDeletedAssets(['asset-1'], deleted)).toBe(true);
+    expect(service.getPreviewUrl('asset-1')).toBeNull();
+    await expect(request(issuedUrl)).resolves.toMatchObject({ status: 404 });
+  });
+
   it('rejects path traversal, unknown assets, wrong magic, and non-GET methods', async () => {
     const unsafe = await makeProject();
     await writeFile(

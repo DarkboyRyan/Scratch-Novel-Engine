@@ -10,7 +10,10 @@ import {
   MIN_IMAGE_SCALE_PERCENT,
 } from '../../../../shared/projectTypes';
 import { DEFAULT_EDITOR_LANGUAGE, getEditorLabels, type EditorLabels } from '../../../i18n/editorLocalization';
-import { AssetNameField } from './assetNameField';
+import {
+  AssetNameField,
+  ensureAssetNameField,
+} from './assetNameField';
 
 export const BACKGROUND_BLOCK_TYPE = 'vn_background';
 
@@ -36,6 +39,14 @@ export function applyBackgroundBlockLocalization(block: Blockly.Block, labels: E
   ).setEnabled(getBackgroundBlockAssetId(block) !== null);
   block.setFieldValue(labels.blockly.background, LABEL_FIELD);
   block.setFieldValue(labels.blockly.scale, SCALE_LABEL_FIELD);
+  ensureAssetNameField(
+    block,
+    BACKGROUND_BLOCK_FIELDS.assetName,
+    labels.resource.noBackground,
+    'image',
+    getBackgroundBlockAssetId(block),
+    labels.common.missingImage,
+  );
   block.setTooltip(labels.blockly.backgroundTooltip);
 }
 
@@ -45,10 +56,17 @@ export function setBackgroundBlockAsset(
   displayName = '',
 ): void {
   block.data = assetId === null ? null : `${ASSET_DATA_PREFIX}${assetId}`;
-  block.setFieldValue(
-    displayName || EMPTY_BACKGROUND_FIELD_VALUE,
-    BACKGROUND_BLOCK_FIELDS.assetName,
-  );
+  const assetField = typeof block.getField === 'function'
+    ? block.getField(BACKGROUND_BLOCK_FIELDS.assetName)
+    : null;
+  if (assetField instanceof AssetNameField) {
+    assetField.setAssetValue(assetId, displayName);
+  } else {
+    block.setFieldValue(
+      displayName || EMPTY_BACKGROUND_FIELD_VALUE,
+      BACKGROUND_BLOCK_FIELDS.assetName,
+    );
+  }
   const scaleField = ensureBackgroundScaleField(
     block,
     DEFAULT_IMAGE_SCALE_PERCENT,
@@ -65,6 +83,12 @@ export function setBackgroundBlockAsset(
 export function getBackgroundBlockAssetId(
   block: Blockly.Block,
 ): string | null {
+  const assetField = typeof block.getField === 'function'
+    ? block.getField(BACKGROUND_BLOCK_FIELDS.assetName)
+    : null;
+  if (assetField instanceof AssetNameField) {
+    return assetField.getAssetId();
+  }
   return block.data?.startsWith(ASSET_DATA_PREFIX)
     ? block.data.slice(ASSET_DATA_PREFIX.length)
     : null;
@@ -131,7 +155,10 @@ export function registerBackgroundBlock(labels: EditorLabels = currentLabels): v
   // definition so blocks created after a hot reload receive new fields.
   Blockly.Blocks[BACKGROUND_BLOCK_TYPE] = {
     init(): void {
-      const assetField = new AssetNameField(EMPTY_BACKGROUND_FIELD_VALUE);
+      const assetField = new AssetNameField(
+        currentLabels.resource.noBackground,
+        'image',
+      );
       const scaleField = new Blockly.FieldNumber(
         DEFAULT_IMAGE_SCALE_PERCENT,
         MIN_IMAGE_SCALE_PERCENT,

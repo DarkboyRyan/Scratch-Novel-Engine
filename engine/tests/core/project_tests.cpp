@@ -577,6 +577,222 @@ vnengine::ProjectAggregate visual_aggregate() {
   return aggregate;
 }
 
+void renames_assets_without_changing_identity_or_references() {
+  using Result = vnengine::RenameAssetResult;
+
+  vnengine::ProjectAggregate aggregate = visual_aggregate();
+  const vnengine::Project project_before = aggregate.project;
+  const vnengine::Asset original = aggregate.assets[0];
+
+  CHECK(vnengine::rename_asset(
+            aggregate, original.id, "  新教室背景  ") == Result::changed);
+  const vnengine::Asset* renamed =
+      vnengine::find_asset(aggregate, original.id);
+  CHECK(renamed != nullptr);
+  CHECK(renamed->display_name == "新教室背景");
+  CHECK(renamed->id == original.id);
+  CHECK(renamed->type == original.type);
+  CHECK(renamed->relative_path == original.relative_path);
+  CHECK(aggregate.project == project_before);
+
+  const vnengine::ProjectAggregate before_noop = aggregate;
+  aggregate.assets.push_back(vnengine::Asset{
+      .id = "legacy-duplicate-name",
+      .type = vnengine::AssetType::image,
+      .relative_path = "assets/images/legacy.png",
+      .display_name = "新教室背景",
+  });
+  CHECK(vnengine::rename_asset(
+            aggregate, original.id, "\t新教室背景\n") ==
+        Result::unchanged);
+  CHECK(aggregate.assets[0] == before_noop.assets[0]);
+
+  const vnengine::ProjectAggregate before_conflict = aggregate;
+  CHECK(vnengine::rename_asset(
+            aggregate, original.id, "Alice 立绘") ==
+        Result::display_name_conflict);
+  CHECK(aggregate == before_conflict);
+
+  CHECK(vnengine::rename_asset(
+            aggregate, "asset-music", "Alice 立绘") == Result::changed);
+  CHECK(vnengine::find_asset(aggregate, "asset-music")->display_name ==
+        "Alice 立绘");
+
+  const auto expect_invalid = [&aggregate](std::string name) {
+    const vnengine::ProjectAggregate before = aggregate;
+    CHECK(vnengine::rename_asset(
+              aggregate, "asset-background", std::move(name)) ==
+          Result::invalid_display_name);
+    CHECK(aggregate == before);
+  };
+  expect_invalid(" \t\r\n ");
+  expect_invalid(std::string("bad\0name", 8));
+  expect_invalid(std::string(257, 'x'));
+  expect_invalid(std::string(1, static_cast<char>(0xffU)));
+
+  const vnengine::ProjectAggregate before_missing = aggregate;
+  CHECK(vnengine::rename_asset(aggregate, "missing", "Name") ==
+        Result::asset_not_found);
+  CHECK(aggregate == before_missing);
+
+  vnengine::ProjectAggregate invalid = visual_aggregate();
+  invalid.project.entry_scene_id = "missing-scene";
+  const vnengine::ProjectAggregate invalid_before = invalid;
+  CHECK(vnengine::rename_asset(
+            invalid, "asset-background", "Otherwise valid") ==
+        Result::invalid_aggregate);
+  CHECK(invalid == invalid_before);
+}
+
+vnengine::ProjectAggregate aggregate_with_every_asset_reference() {
+  SequenceIdGenerator ids;
+  vnengine::ProjectAggregate aggregate =
+      vnengine::create_empty_project_aggregate(ids, "资源删除测试");
+  aggregate.assets = {
+      {"start-bg", vnengine::AssetType::image,
+       "assets/images/start.png", "Start background"},
+      {"start-music", vnengine::AssetType::audio,
+       "assets/audio/start.mp3", "Start music"},
+      {"gallery", vnengine::AssetType::image,
+       "assets/images/gallery.png", "Gallery"},
+      {"scene-bg", vnengine::AssetType::image,
+       "assets/images/scene.png", "Scene background"},
+      {"legacy-character", vnengine::AssetType::image,
+       "assets/images/legacy.png", "Legacy character"},
+      {"voice", vnengine::AssetType::audio,
+       "assets/audio/voice.mp3", "Voice"},
+      {"timeline-bg", vnengine::AssetType::image,
+       "assets/images/timeline.png", "Timeline background"},
+      {"timeline-character", vnengine::AssetType::image,
+       "assets/images/character.png", "Timeline character"},
+      {"timeline-bgm", vnengine::AssetType::audio,
+       "assets/audio/bgm.mp3", "Timeline BGM"},
+      {"timeline-video", vnengine::AssetType::video,
+       "assets/videos/video.mp4", "Timeline video"},
+      {"cg-display", vnengine::AssetType::image,
+       "assets/images/cg.png", "CG display"},
+      {"free-image", vnengine::AssetType::image,
+       "assets/images/free.png", "Free image"},
+      {"free-audio", vnengine::AssetType::audio,
+       "assets/audio/free.mp3", "Free audio"},
+  };
+
+  aggregate.project.start_screen.background_asset_id = "start-bg";
+  aggregate.project.start_screen.music_asset_id = "start-music";
+  aggregate.project.cg_gallery.pages[0].image_asset_ids[0] = "gallery";
+  vnengine::Scene& scene = aggregate.project.scenes[0];
+  scene.visuals.background_asset_id = "scene-bg";
+  scene.visuals.characters.push_back({
+      .id = "legacy-character-instance",
+      .asset_id = "legacy-character",
+      .slot = vnengine::CharacterSlot::left,
+  });
+  scene.nodes = {
+      vnengine::Dialogue{
+          .id = "dialogue-with-voice",
+          .speaker = "Alice",
+          .text = "Hello",
+          .voice_asset_id = "voice",
+      },
+      vnengine::BackgroundNode{
+          .id = "timeline-background-node",
+          .asset_id = "timeline-bg",
+      },
+      vnengine::CharacterNode{
+          .id = "timeline-character-node",
+          .asset_id = "timeline-character",
+      },
+      vnengine::BgmNode{
+          .id = "timeline-bgm-node",
+          .asset_id = "timeline-bgm",
+      },
+      vnengine::VideoNode{
+          .id = "timeline-video-node",
+          .asset_id = "timeline-video",
+      },
+      vnengine::CgDisplayNode{
+          .id = "cg-display-node",
+          .asset_id = "cg-display",
+      },
+      vnengine::CgEndDisplayNode{
+          .id = "cg-end-node",
+          .cg_display_node_id = "cg-display-node",
+      },
+  };
+  CHECK(!vnengine::validate_project_aggregate(aggregate).has_value());
+  return aggregate;
+}
+
+void deletes_only_complete_unreferenced_asset_selections() {
+  using Status = vnengine::DeleteAssetsStatus;
+
+  vnengine::ProjectAggregate aggregate =
+      aggregate_with_every_asset_reference();
+  const std::vector<std::string> referenced_ids{
+      "start-bg",
+      "start-music",
+      "gallery",
+      "scene-bg",
+      "legacy-character",
+      "voice",
+      "timeline-bg",
+      "timeline-character",
+      "timeline-bgm",
+      "timeline-video",
+      "cg-display",
+  };
+  for (const std::string& asset_id : referenced_ids) {
+    const vnengine::ProjectAggregate before = aggregate;
+    const vnengine::DeleteAssetsResult result =
+        vnengine::delete_assets(aggregate, {asset_id});
+    CHECK(result.status == Status::asset_in_use);
+    CHECK(result.deleted_assets.empty());
+    CHECK(aggregate == before);
+  }
+
+  const vnengine::ProjectAggregate before_used_batch = aggregate;
+  CHECK(vnengine::delete_assets(
+            aggregate, {"free-image", "timeline-video"}).status ==
+        Status::asset_in_use);
+  CHECK(aggregate == before_used_batch);
+
+  const vnengine::ProjectAggregate before_missing = aggregate;
+  CHECK(vnengine::delete_assets(
+            aggregate, {"free-image", "missing"}).status ==
+        Status::asset_not_found);
+  CHECK(aggregate == before_missing);
+
+  CHECK(vnengine::delete_assets(aggregate, {}).status ==
+        Status::empty_selection);
+  CHECK(vnengine::delete_assets(
+            aggregate, {"free-image", "free-image"}).status ==
+        Status::duplicate_asset_id);
+
+  vnengine::ProjectAggregate invalid = aggregate;
+  invalid.project.entry_scene_id = "missing-scene";
+  const vnengine::ProjectAggregate invalid_before = invalid;
+  CHECK(vnengine::delete_assets(invalid, {"free-image"}).status ==
+        Status::invalid_aggregate);
+  CHECK(invalid == invalid_before);
+
+  const vnengine::Project project_before = aggregate.project;
+  const vnengine::DeleteAssetsResult deleted = vnengine::delete_assets(
+      aggregate, {"free-audio", "free-image"});
+  CHECK(deleted.status == Status::deleted);
+  CHECK(deleted.deleted_assets.size() == 2);
+  CHECK(deleted.deleted_assets[0].id == "free-audio");
+  CHECK(deleted.deleted_assets[0].relative_path ==
+        "assets/audio/free.mp3");
+  CHECK(deleted.deleted_assets[1].id == "free-image");
+  CHECK(deleted.deleted_assets[1].relative_path ==
+        "assets/images/free.png");
+  CHECK(vnengine::find_asset(aggregate, "free-audio") == nullptr);
+  CHECK(vnengine::find_asset(aggregate, "free-image") == nullptr);
+  CHECK(aggregate.assets.size() == referenced_ids.size());
+  CHECK(aggregate.project == project_before);
+  CHECK(!vnengine::validate_project_aggregate(aggregate).has_value());
+}
+
 void updates_start_screen_atomically() {
   using Result = vnengine::UpdateStartScreenResult;
 
@@ -2799,6 +3015,10 @@ int main() {
       {"detects invalid project invariants",
        detects_invalid_project_invariants},
       {"validates portable asset paths", validates_portable_asset_paths},
+      {"renames assets without changing identity or references",
+       renames_assets_without_changing_identity_or_references},
+      {"deletes only complete unreferenced asset selections",
+       deletes_only_complete_unreferenced_asset_selections},
       {"updates start screen atomically", updates_start_screen_atomically},
       {"updates page styles atomically and preserves them",
        updates_page_styles_atomically_and_preserves_them},

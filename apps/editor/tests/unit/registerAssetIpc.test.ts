@@ -99,6 +99,8 @@ function registerWithBackend(request = vi.fn()) {
     ),
     activateTemporaryProject: vi.fn().mockResolvedValue(true),
     registerImportedAsset: vi.fn(() => true),
+    synchronizeRenamedAsset: vi.fn(() => true),
+    revokeDeletedAssets: vi.fn(() => true),
   };
   const projectStorageSession = {
     assetImportLocation: vi.fn(
@@ -206,6 +208,178 @@ describe('asset IPC', () => {
     expect(assetPreviewService.getMediaUrl).toHaveBeenCalledTimes(2);
     expect(request).not.toHaveBeenCalled();
     expect(electronMocks.showOpenDialog).not.toHaveBeenCalled();
+  });
+
+  it('renames an asset through the serialized Main transaction', async () => {
+    const renamedResult: EngineMutationResult = {
+      ...projectResult,
+      assets: [
+        { ...projectResult.assets[0]!, displayName: 'New portrait' },
+      ],
+      session: { revision: 4, savedRevision: 2, isDirty: true },
+    };
+    const backendRequest = vi.fn().mockResolvedValue(renamedResult);
+    const {
+      handler,
+      assetPreviewService,
+      projectFileSession,
+    } = registerWithBackend(backendRequest);
+    projectFileSession.markOpened('/projects/story', {
+      revision: 3,
+      savedRevision: 3,
+      isDirty: false,
+    });
+
+    const response = await handler(trustedEvent(), {
+      action: 'rename',
+      params: { assetId: 'asset-1', displayName: 'New portrait' },
+    });
+
+    expect(backendRequest).toHaveBeenCalledWith({
+      method: 'asset.rename',
+      params: { assetId: 'asset-1', displayName: 'New portrait' },
+    });
+    expect(assetPreviewService.synchronizeRenamedAsset).toHaveBeenCalledWith(
+      'asset-1',
+      renamedResult,
+    );
+    expect(response).toMatchObject({
+      assets: [{ id: 'asset-1', displayName: 'New portrait' }],
+      session: { revision: 4, savedRevision: 3, isDirty: true },
+    });
+  });
+
+  it('logically deletes a saved-project asset and revokes its preview', async () => {
+    const deletedResult: EngineMutationResult = {
+      ...projectResult,
+      assets: [],
+      assetId: undefined,
+      session: { revision: 4, savedRevision: 2, isDirty: true },
+    };
+    const backendRequest = vi.fn().mockResolvedValue(deletedResult);
+    const {
+      handler,
+      assetPreviewService,
+      projectFileSession,
+    } = registerWithBackend(backendRequest);
+    projectFileSession.markOpened('/projects/story', {
+      revision: 3,
+      savedRevision: 3,
+      isDirty: false,
+    });
+
+    const response = await handler(trustedEvent(), {
+      action: 'delete-many',
+      params: { assetIds: ['asset-1'] },
+    });
+
+    expect(backendRequest).toHaveBeenCalledOnce();
+    expect(backendRequest).toHaveBeenCalledWith({
+      method: 'asset.deleteMany',
+      params: { assetIds: ['asset-1'] },
+    });
+    expect(assetPreviewService.revokeDeletedAssets).toHaveBeenCalledWith(
+      ['asset-1'],
+      deletedResult,
+    );
+    expect(response).toMatchObject({
+      assets: [],
+      session: { revision: 4, savedRevision: 3, isDirty: true },
+    });
+    expect(JSON.stringify(response)).not.toContain('relativePath');
+    expect(JSON.stringify(response)).not.toContain('/projects/story');
+  });
+
+  it('leaves physical cleanup disabled for an unsaved logical deletion', async () => {
+    const deletedResult: EngineMutationResult = {
+      ...projectResult,
+      assets: [],
+      assetId: undefined,
+      session: { revision: 4, savedRevision: null, isDirty: true },
+    };
+    const backendRequest = vi.fn().mockResolvedValue(deletedResult);
+    const {
+      handler,
+      assetPreviewService,
+      projectStorageSession,
+    } = registerWithBackend(backendRequest);
+
+    const response = await handler(trustedEvent(), {
+      action: 'delete-many',
+      params: { assetIds: ['asset-1'] },
+    });
+
+    expect(backendRequest).toHaveBeenCalledOnce();
+    expect(backendRequest).toHaveBeenCalledWith({
+      method: 'asset.deleteMany',
+      params: { assetIds: ['asset-1'] },
+    });
+    expect(projectStorageSession.assetImportLocation).not.toHaveBeenCalled();
+    expect(assetPreviewService.revokeDeletedAssets).toHaveBeenCalledWith(
+      ['asset-1'],
+      deletedResult,
+    );
+    expect(response).toMatchObject({ assets: [] });
+  });
+
+  it('preserves safe asset error codes without exposing backend paths', async () => {
+    const backendError = new Error(
+      'asset is in use at /private/projects/story/project.vn.json',
+    );
+    backendError.name = 'VnEngineError:asset_in_use';
+    const { handler } = registerWithBackend(
+      vi.fn().mockRejectedValue(backendError),
+    );
+
+    await expect(
+      handler(trustedEvent(), {
+        action: 'rename',
+        params: { assetId: 'asset-1', displayName: 'New portrait' },
+      }),
+    ).rejects.toMatchObject({
+      name: 'VnEngineError:asset_in_use',
+      message: 'asset_in_use',
+    });
+  });
+
+  it('maps an old backend to the asset-management restart marker', async () => {
+    const backendError = new Error('unknown method: asset.rename');
+    backendError.name = 'VnEngineError:method_not_found';
+    const { handler } = registerWithBackend(
+      vi.fn().mockRejectedValue(backendError),
+    );
+
+    await expect(
+      handler(trustedEvent(), {
+        action: 'rename',
+        params: { assetId: 'asset-1', displayName: 'New portrait' },
+      }),
+    ).rejects.toMatchObject({
+      name: 'AssetManagementContractError',
+      message: expect.stringContaining('[asset-management-contract]'),
+    });
+  });
+
+  it('maps an old backend without asset deletion to the restart marker', async () => {
+    const backendError = new Error('unknown method: asset.deleteMany');
+    backendError.name = 'VnEngineError:method_not_found';
+    const backendRequest = vi.fn().mockRejectedValue(backendError);
+    const { handler } = registerWithBackend(backendRequest);
+
+    await expect(
+      handler(trustedEvent(), {
+        action: 'delete-many',
+        params: { assetIds: ['asset-1'] },
+      }),
+    ).rejects.toMatchObject({
+      name: 'AssetManagementContractError',
+      message: expect.stringContaining('[asset-management-contract]'),
+    });
+    expect(backendRequest).toHaveBeenCalledOnce();
+    expect(backendRequest).toHaveBeenCalledWith({
+      method: 'asset.deleteMany',
+      params: { assetIds: ['asset-1'] },
+    });
   });
 
   it('imports into private temporary storage while the project is unsaved', async () => {

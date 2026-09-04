@@ -53,14 +53,12 @@
 .editor {
   /* 两行内容共 92px，另加 1px 底边框，避免 border-box 裁掉末行。 */
   --toolbar-height: 93px;
-  --resource-panel-height: 64px;
 
   display: grid;
   grid-template-columns: 260px minmax(400px, 1fr) 320px;
-  /* 对话时间线只在自己的列内滚动，不能把预览所在的第三行撑高。 */
+  /* 对话时间线只在自己的列内滚动，不能把预览所在的内容行撑高。 */
   grid-template-rows:
     var(--toolbar-height)
-    var(--resource-panel-height)
     minmax(0, 1fr);
   height: 100vh;
   min-height: 100vh;
@@ -93,8 +91,10 @@
   align-items: center;
   gap: 10px;
   padding: 4px 20px 6px;
+  overflow-x: auto;
   background: #ffffff;
   border-top: 1px solid #f1f2f4;
+  scrollbar-width: thin;
 }
 
 .toolbar strong {
@@ -318,6 +318,18 @@
 
 .toolbar .engine-error {
   color: var(--danger);
+}
+
+.toolbar-status-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .resource-panel {
@@ -741,15 +753,13 @@
 }
 
 .block-editor {
-  grid-row: 3;
+  grid-row: 2;
   grid-column: 1 / -1;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 16px;
   min-width: 0;
-  min-height: calc(
-    100vh - var(--toolbar-height) - var(--resource-panel-height)
-  );
+  min-height: calc(100vh - var(--toolbar-height));
   padding: 24px;
   overflow: auto;
   overscroll-behavior: contain;
@@ -770,6 +780,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .block-editor-scene-picker {
@@ -783,6 +794,89 @@
 .block-editor-scene-select {
   width: 180px;
   height: 34px;
+}
+
+.scene-background-settings {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.scene-background-settings-panel {
+  padding: 12px;
+  margin-bottom: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.scene-background-settings strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.scene-background-settings-panel .scene-background-select {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 8px;
+  color: var(--text);
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.scene-background-settings-panel .scene-background-scale {
+  display: grid;
+  grid-template-columns: auto minmax(0, 68px) auto;
+  justify-content: start;
+}
+
+.scene-background-settings-panel .resource-background-scale-error {
+  max-width: none;
+}
+
+.scene-background-settings-inline {
+  grid-template-columns: auto minmax(130px, 180px) auto minmax(100px, 150px);
+  align-items: center;
+  gap: 6px;
+}
+
+.scene-background-settings-inline .scene-background-select {
+  box-sizing: border-box;
+  width: 100%;
+  height: 34px;
+  padding: 5px 7px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.scene-background-settings-inline .scene-background-scale > span:first-child {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.scene-background-settings-inline > .resource-background-scale-error {
+  max-width: 150px;
+}
+
+@media (max-width: 1240px) {
+  .block-editor-heading-controls {
+    flex-wrap: wrap;
+  }
+
+  .block-editor-sync-badge {
+    display: none;
+  }
 }
 
 .block-editor-sync-badge {
@@ -1381,15 +1475,13 @@
 }
 
 .code-editor {
-  grid-row: 3;
+  grid-row: 2;
   grid-column: 1 / -1;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 16px;
   min-width: 0;
-  min-height: calc(
-    100vh - var(--toolbar-height) - var(--resource-panel-height)
-  );
+  min-height: calc(100vh - var(--toolbar-height));
   padding: 24px;
   overflow: hidden;
 }
@@ -1758,7 +1850,7 @@
 }
 
 .scene-panel {
-  grid-row: 3;
+  grid-row: 2;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -1767,7 +1859,7 @@
 }
 
 .inspector-panel {
-  grid-row: 3;
+  grid-row: 2;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -2364,7 +2456,7 @@
 
 .preview-panel {
   position: relative;
-  grid-row: 3;
+  grid-row: 2;
   display: grid;
   grid-template-rows: 52px minmax(0, 1fr);
   min-width: 0;

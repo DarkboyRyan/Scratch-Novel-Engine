@@ -21,6 +21,7 @@ import {
   parseLogicStructure,
   type LogicStructureItem,
 } from '../block-editor/logicStructure';
+import { logicalAssetPath } from '../assets/logicalAssetPath';
 import type { CodeSourceRange } from './codeFormatter';
 import {
   projectSceneToReadonlyCode,
@@ -981,27 +982,6 @@ function assignOrigins(
     if (!assigned.has(item.value)) claim(item, oldByPath.get(`${item.kind}:${item.path}`));
   }
   return assigned;
-}
-
-const LOGICAL_ASSET_DIRECTORIES: Record<AssetDocument['type'], string> = {
-  image: 'images',
-  audio: 'audio',
-  video: 'videos',
-};
-
-function escapeLogicalAssetName(displayName: string): string {
-  const characters = Array.from(displayName);
-  if (characters.length === 0) return '%EMPTY';
-  const escaped = characters.map((character, index) => {
-    const internalSpace = character === ' ' && index > 0 && index < characters.length - 1;
-    if (/^[\p{L}\p{N}_.-]$/u.test(character) || internalSpace) return character;
-    return Array.from(UTF8_ENCODER.encode(character), (byte) => `%${byte.toString(16).padStart(2, '0').toUpperCase()}`).join('');
-  }).join('');
-  return escaped.replace(/^\.+/u, (dots) => dots.replaceAll('.', '%2E'));
-}
-
-function logicalAssetPath(asset: AssetDocument): string {
-  return `assets/${LOGICAL_ASSET_DIRECTORIES[asset.type]}/${escapeLogicalAssetName(asset.displayName)}`;
 }
 
 type FinalizeContext = {

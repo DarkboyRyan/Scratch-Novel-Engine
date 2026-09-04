@@ -10,7 +10,7 @@ revision-independent no-op 语义和所有预期失败分支，重点保证错�
 
 | 文件 | 主要覆盖 | 关键场景 |
 | --- | --- | --- |
-| [`project_tests.cpp`](./project_tests.cpp) | 项目、场景、时间线及 Project Aggregate。 | 逻辑/CG 配对、九槽画廊、人物 show/clear 与特效、选择目标、批量重排、失败原子性 |
+| [`project_tests.cpp`](./project_tests.cpp) | 项目、资源、场景、时间线及 Project Aggregate。 | 资源改名/引用保护删除、逻辑/CG 配对、九槽画廊、人物 show/clear 与特效、批量重排、失败原子性 |
 
 ## 运行测试
 
@@ -21,4 +21,3 @@ ctest --test-dir engine/build -R vn_engine_core_tests --output-on-failure
 
 新增命令测试时，应同时断言返回状态、最终聚合和 ID/顺序稳定性；仅检查布尔成功不足以保护
 原子编辑合同。
-

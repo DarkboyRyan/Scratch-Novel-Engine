@@ -1,5 +1,5 @@
 // 文件职责：端到端验证 JSONL Backend、Author 序列化和会话 revision。
-// 关键覆盖：exact params、v1–v21 迁移、恶意输入、资源命令及失败原子性。
+// 关键覆盖：exact params、v1–v21 迁移、恶意输入、资源生命周期及失败原子性。
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -2463,6 +2463,218 @@ void disambiguates_imported_display_names_within_each_asset_type() {
   CHECK(persisted_assets[3].at("relativePath").get<std::string>().ends_with(
       ".png"));
   expect_session(saved, 4, 4, false);
+}
+
+void renames_and_deletes_asset_metadata_atomically() {
+  TemporaryDirectory temporary;
+  const std::filesystem::path project_file =
+      temporary.path("project.vn.json");
+  CHECK(std::filesystem::create_directories(
+      temporary.root() / "assets" / "videos"));
+  CHECK(std::filesystem::create_directories(
+      temporary.root() / "assets" / "audio"));
+  const std::filesystem::path video_file = temporary.write(
+      "assets/videos/free.mp4", mp4_video_bytes());
+  const std::filesystem::path audio_file = temporary.write(
+      "assets/audio/free.mp3", mp3_audio_bytes());
+
+  Json document = migrated_v22_document();
+  document["assets"] = Json::array({
+      {
+          {"id", "used-image"},
+          {"type", "image"},
+          {"relativePath", "assets/images/used.png"},
+          {"displayName", "教室"},
+      },
+      {
+          {"id", "free-image"},
+          {"type", "image"},
+          {"relativePath", "assets/images/free.png"},
+          {"displayName", "海边"},
+      },
+      {
+          {"id", "legacy-duplicate-image"},
+          {"type", "image"},
+          {"relativePath", "assets/images/legacy.png"},
+          {"displayName", "教室"},
+      },
+      {
+          {"id", "free-video"},
+          {"type", "video"},
+          {"relativePath", "assets/videos/free.mp4"},
+          {"displayName", "片头"},
+      },
+      {
+          {"id", "free-audio"},
+          {"type", "audio"},
+          {"relativePath", "assets/audio/free.mp3"},
+          {"displayName", "主题曲"},
+      },
+  });
+  document["project"]["startScreen"]["backgroundAssetId"] =
+      "used-image";
+
+  vnengine::backend::Backend backend;
+  const Json opened = request(
+      backend,
+      1,
+      "project.open",
+      {{"contents", document.dump()}});
+  expect_session(opened, 0, 0, false);
+
+  // A normalized no-op remains successful even when a legacy manifest
+  // already contains another same-type Asset with that display name.
+  const Json legacy_noop = request(
+      backend,
+      2,
+      "asset.rename",
+      {{"assetId", "used-image"}, {"displayName", " \t教室\n "}});
+  expect_session(legacy_noop, 0, 0, false);
+
+  const Json renamed = request(
+      backend,
+      3,
+      "asset.rename",
+      {{"assetId", "used-image"}, {"displayName", "  新教室  "}});
+  expect_session(renamed, 1, 0, true);
+  CHECK(renamed.at("result").at("assets")[0].at("displayName") ==
+        "新教室");
+  CHECK(!renamed.at("result").contains("deletedAssets"));
+  CHECK(renamed.dump().find("relativePath") == std::string::npos);
+
+  const Json renamed_noop = request(
+      backend,
+      4,
+      "asset.rename",
+      {{"assetId", "used-image"}, {"displayName", "新教室"}});
+  expect_session(renamed_noop, 1, 0, true);
+
+  const auto expect_rename_error = [&](const int id,
+                                       Json params,
+                                       const std::string& code) {
+    const Json response = request(
+        backend, id, "asset.rename", std::move(params));
+    CHECK(response.at("ok") == false);
+    CHECK(response.at("error").at("code") == code);
+    const Json unchanged = request(backend, id + 100, "project.get");
+    expect_session(unchanged, 1, 0, true);
+    CHECK(unchanged.at("result").at("assets") ==
+          renamed.at("result").at("assets"));
+  };
+  expect_rename_error(
+      5,
+      {{"assetId", "used-image"}, {"displayName", "海边"}},
+      "asset_name_conflict");
+  expect_rename_error(
+      6,
+      {{"assetId", "used-image"}, {"displayName", " \t "}},
+      "asset_name_invalid");
+  expect_rename_error(
+      7,
+      {{"assetId", "used-image"},
+       {"displayName", std::string("bad\0name", 8)}},
+      "asset_name_invalid");
+  expect_rename_error(
+      8,
+      {{"assetId", "used-image"},
+       {"displayName", std::string(257, 'x')}},
+      "asset_name_invalid");
+  expect_rename_error(
+      9,
+      {{"assetId", "missing"}, {"displayName", "Name"}},
+      "asset_not_found");
+  expect_rename_error(
+      10,
+      {{"assetId", "used-image"},
+       {"displayName", "Name"},
+       {"extra", true}},
+      "invalid_params");
+
+  const auto expect_delete_error = [&](const int id,
+                                       Json params,
+                                       const std::string& code) {
+    const Json response = request(
+        backend, id, "asset.deleteMany", std::move(params));
+    CHECK(response.at("ok") == false);
+    CHECK(response.at("error").at("code") == code);
+    const Json unchanged = request(backend, id + 200, "project.get");
+    expect_session(unchanged, 1, 0, true);
+    CHECK(unchanged.at("result").at("assets") ==
+          renamed.at("result").at("assets"));
+  };
+  expect_delete_error(
+      20,
+      {{"assetIds", Json::array({"free-video", "used-image"})}},
+      "asset_in_use");
+  expect_delete_error(
+      21,
+      {{"assetIds", Json::array({"free-video", "missing"})}},
+      "asset_not_found");
+  expect_delete_error(22, {{"assetIds", Json::array()}}, "invalid_params");
+  expect_delete_error(
+      23,
+      {{"assetIds", Json::array({"free-video", "free-video"})}},
+      "invalid_params");
+  expect_delete_error(24, {{"assetIds", "free-video"}}, "invalid_params");
+  expect_delete_error(
+      25,
+      {{"assetIds", Json::array({"free-video"})}, {"extra", true}},
+      "invalid_params");
+
+  const Json deleted = request(
+      backend,
+      30,
+      "asset.deleteMany",
+      {{"assetIds", Json::array({"free-audio", "free-video"})}});
+  expect_session(deleted, 2, 0, true);
+  CHECK(deleted.at("result").at("assets").size() == 3);
+  CHECK(std::none_of(
+      deleted.at("result").at("assets").begin(),
+      deleted.at("result").at("assets").end(),
+      [](const Json& asset) {
+        return asset.at("id") == "free-audio" ||
+            asset.at("id") == "free-video";
+      }));
+  CHECK(!deleted.at("result").contains("deletedAssets"));
+  CHECK(deleted.dump().find("relativePath") == std::string::npos);
+  CHECK(std::filesystem::is_regular_file(video_file));
+  CHECK(std::filesystem::is_regular_file(audio_file));
+
+  const Json saved = request(
+      backend,
+      31,
+      "project.save",
+      {{"filePath", project_file.string()}});
+  expect_session(saved, 2, 2, false);
+  const Json persisted = Json::parse(read_file(project_file));
+  CHECK(persisted.at("assets").size() == 3);
+  CHECK(persisted.at("assets")[0] == Json({
+      {"id", "used-image"},
+      {"type", "image"},
+      {"relativePath", "assets/images/used.png"},
+      {"displayName", "新教室"},
+  }));
+  CHECK(persisted.at("project")
+            .at("startScreen")
+            .at("backgroundAssetId") == "used-image");
+  CHECK(std::none_of(
+      persisted.at("assets").begin(),
+      persisted.at("assets").end(),
+      [](const Json& asset) {
+        return asset.at("id") == "free-audio" ||
+            asset.at("id") == "free-video";
+      }));
+
+  vnengine::backend::Backend reopened_backend;
+  const Json reopened = request(
+      reopened_backend,
+      32,
+      "project.open",
+      {{"contents", read_file(project_file)}});
+  expect_session(reopened, 0, 0, false);
+  CHECK(reopened.at("result").at("assets") ==
+        saved.at("result").at("assets"));
+  CHECK(reopened.dump().find("relativePath") == std::string::npos);
 }
 
 void imports_a_video_transactionally_without_exposing_paths() {
@@ -6109,6 +6321,8 @@ int main() {
        imports_an_image_without_exposing_paths_or_autosaving_manifest},
       {"disambiguates imported display names within each asset type",
        disambiguates_imported_display_names_within_each_asset_type},
+      {"renames and deletes asset metadata atomically",
+       renames_and_deletes_asset_metadata_atomically},
       {"imports a video transactionally without exposing paths",
        imports_a_video_transactionally_without_exposing_paths},
       {"imports audio transactionally without exposing paths",

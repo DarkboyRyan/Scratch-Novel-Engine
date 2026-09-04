@@ -49,7 +49,8 @@ export function getBackgroundFieldUpdate(
   const changeEvent = event as Blockly.Events.BlockChange;
   if (
     changeEvent.element !== 'field' ||
-    changeEvent.name !== BACKGROUND_BLOCK_FIELDS.scalePercent ||
+    (changeEvent.name !== BACKGROUND_BLOCK_FIELDS.assetName &&
+      changeEvent.name !== BACKGROUND_BLOCK_FIELDS.scalePercent) ||
     !changeEvent.blockId
   ) {
     return null;

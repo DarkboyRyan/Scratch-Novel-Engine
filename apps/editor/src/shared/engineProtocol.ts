@@ -523,11 +523,31 @@ export type ImportAssetBackendInvocation = {
   };
 };
 
+// Asset management stays on the dedicated asset IPC boundary. These are
+// Main-only backend invocations because Renderer must never bypass the
+// preview-capability synchronization around each mutation.
+export type RenameAssetBackendInvocation = {
+  method: 'asset.rename';
+  params: {
+    assetId: string;
+    displayName: string;
+  };
+};
+
+export type DeleteAssetsBackendInvocation = {
+  method: 'asset.deleteMany';
+  params: {
+    assetIds: string[];
+  };
+};
+
 export type BackendInvocation =
   | EngineInvocation
   | OpenProjectBackendInvocation
   | SaveProjectBackendInvocation
-  | ImportAssetBackendInvocation;
+  | ImportAssetBackendInvocation
+  | RenameAssetBackendInvocation
+  | DeleteAssetsBackendInvocation;
 
 // Electron Main 会补充 id；C++ 使用同一个 id 返回结果。
 export type BackendRequest = BackendInvocation & {

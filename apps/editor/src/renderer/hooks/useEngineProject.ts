@@ -1,6 +1,6 @@
 /**
  * 文件主要作用：管理引擎项目加载、刷新、修订、错误和保存状态。
- * 包含实现：项目默认值、旧 Preload 缩放保护、命令队列、导入导出和 `useEngineProject`。
+ * 包含实现：项目默认值、旧 Preload 契约保护、命令队列、资源管理、导入导出和 `useEngineProject`。
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -34,6 +34,7 @@ import type { ProjectFileSessionSnapshot } from '../../shared/projectFileProtoco
 import { createAuthoringActions } from '../application/createAuthoringActions';
 import {
   getEditorPlatformGateway,
+  supportsAssetManagement,
   type EditorPlatformGateway,
 } from '../application/editorPlatformGateway';
 import {
@@ -330,7 +331,39 @@ function hasStoryCodeContract(engine: VnEngineApi): boolean {
   return engine.storyCodeContractVersion === 1;
 }
 
+function assetManagementContractError(): Error {
+  return new Error('[asset-management-contract] stale preload or Main');
+}
+
+function engineErrorHasCode(error: Error, code: string): boolean {
+  return error.name === `VnEngineError:${code}` ||
+    error.message.includes(code);
+}
+
 function readableError(error: unknown, labels: EditorLabels): string {
+  if (
+    error instanceof Error &&
+    error.message.includes('[asset-management-contract]')
+  ) {
+    return labels.resource.managementUnavailable;
+  }
+
+  if (error instanceof Error && engineErrorHasCode(error, 'asset_name_invalid')) {
+    return labels.resource.assetNameInvalid;
+  }
+
+  if (error instanceof Error && engineErrorHasCode(error, 'asset_name_conflict')) {
+    return labels.resource.assetNameConflict;
+  }
+
+  if (error instanceof Error && engineErrorHasCode(error, 'asset_in_use')) {
+    return labels.resource.assetInUse;
+  }
+
+  if (error instanceof Error && engineErrorHasCode(error, 'asset_not_found')) {
+    return labels.resource.assetNotFound;
+  }
+
   if (
     error instanceof Error &&
     error.message.includes('[image-scale-contract]')
@@ -1046,6 +1079,35 @@ export function useEngineProject(
     }
   }
 
+  async function renameAsset(
+    assetId: string,
+    displayName: string,
+  ): Promise<boolean> {
+    const management = supportsAssetManagement(platform.assets)
+      ? platform.assets
+      : null;
+    const result = await runEngineAction(() => management === null
+      ? Promise.reject<EngineMutationResult>(assetManagementContractError())
+      : management.renameAsset(assetId, displayName));
+    return result !== null;
+  }
+
+  async function deleteAssets(assetIds: string[]): Promise<boolean> {
+    const management = supportsAssetManagement(platform.assets)
+      ? platform.assets
+      : null;
+    const result = await runEngineAction(() => management === null
+      ? Promise.reject<EngineMutationResult>(assetManagementContractError())
+      : management.deleteAssets(assetIds));
+    if (result !== null) {
+      // Main rotates the window-local preview/media capability set after a
+      // deletion. IDs of surviving assets stay stable, so explicitly force
+      // their opaque URLs to be requested again.
+      setProjectGeneration((current) => current + 1);
+    }
+    return result !== null;
+  }
+
   return {
     project: rendererProject,
     assets,
@@ -1068,6 +1130,8 @@ export function useEngineProject(
     importImage,
     importVideo,
     importAudio,
+    renameAsset,
+    deleteAssets,
     renameProject,
     updateStartScreen,
     updateStartScreenStyle,

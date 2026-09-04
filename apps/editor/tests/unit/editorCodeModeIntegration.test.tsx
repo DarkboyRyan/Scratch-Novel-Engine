@@ -2,7 +2,7 @@
 
 /**
  * 文件主要作用：验证 Form、Blockly 与 Code 三种投影在 App 中共享权威项目。
- * 测试覆盖：切 Code 前的草稿 flush、页面样式提交、失败留在原视图、场景与语言重投影。
+ * 测试覆盖：切 Code 前的草稿 flush、资源工作区边界、页面样式提交、场景与语言重投影。
  */
 
 import { act, forwardRef, useImperativeHandle } from 'react';
@@ -82,16 +82,46 @@ vi.mock('../../src/renderer/features/start-screen/startScreenScene', async (
 vi.mock('../../src/renderer/components/Toolbar', () => ({
   Toolbar: ({
     editorMode,
+    workspaceSection,
     onEditorModeChange,
+    onWorkspaceSectionChange,
     onSaveProject,
     onOpenProject,
+    projectNameDraft,
+    isRenamingProject,
+    onBeginRenameProject,
+    onProjectNameDraftChange,
   }: {
     editorMode: 'form' | 'blocks' | 'code';
+    workspaceSection: 'dialogue' | 'resources';
     onEditorModeChange: (mode: 'form' | 'blocks' | 'code') => void;
+    onWorkspaceSectionChange: (
+      section: 'dialogue' | 'resources',
+    ) => void;
     onSaveProject: () => void;
     onOpenProject: () => void;
+    projectNameDraft: string;
+    isRenamingProject: boolean;
+    onBeginRenameProject: () => void;
+    onProjectNameDraftChange: (value: string) => void;
   }) => (
-    <nav data-testid="mode-toolbar" data-mode={editorMode}>
+    <nav
+      data-testid="mode-toolbar"
+      data-mode={editorMode}
+      data-section={workspaceSection}
+    >
+      <button
+        type="button"
+        onClick={() => onWorkspaceSectionChange('dialogue')}
+      >
+        Story
+      </button>
+      <button
+        type="button"
+        onClick={() => onWorkspaceSectionChange('resources')}
+      >
+        Resources
+      </button>
       <button type="button" onClick={() => onEditorModeChange('form')}>
         Form
       </button>
@@ -103,12 +133,46 @@ vi.mock('../../src/renderer/components/Toolbar', () => ({
       </button>
       <button type="button" onClick={onSaveProject}>Save</button>
       <button type="button" onClick={onOpenProject}>Open</button>
+      <button type="button" onClick={onBeginRenameProject}>Edit Project Name</button>
+      {isRenamingProject && (
+        <input
+          aria-label="Project name draft"
+          value={projectNameDraft}
+          onChange={(event) => onProjectNameDraftChange(event.currentTarget.value)}
+        />
+      )}
     </nav>
   ),
 }));
 
-vi.mock('../../src/renderer/features/assets/ResourcePanel', () => ({
-  ResourcePanel: () => <aside data-testid="resource-panel" />,
+vi.mock('../../src/renderer/features/assets/AssetManager', () => ({
+  AssetManager: ({
+    onImportImage,
+    onRenameAsset,
+    onDeleteAssets,
+  }: {
+    onImportImage: () => Promise<void>;
+    onRenameAsset: (assetId: string, displayName: string) => Promise<boolean>;
+    onDeleteAssets: (assetIds: string[]) => Promise<boolean>;
+  }) => (
+    <main data-testid="asset-manager">
+      <button type="button" onClick={() => void onImportImage()}>
+        Import Image
+      </button>
+      <button
+        type="button"
+        onClick={() => void onRenameAsset('asset-1', 'Renamed.png')}
+      >
+        Rename Asset
+      </button>
+      <button
+        type="button"
+        onClick={() => void onDeleteAssets(['asset-1'])}
+      >
+        Delete Asset
+      </button>
+    </main>
+  ),
 }));
 
 vi.mock('../../src/renderer/features/form-editor/FormEditor', () => ({
@@ -206,6 +270,10 @@ describe('EditorApplication Code mode integration', () => {
   let setEngineMessage: ReturnType<typeof vi.fn>;
   let strictSavePrepared: boolean | null;
   let openProject: ReturnType<typeof vi.fn>;
+  let importImage: ReturnType<typeof vi.fn>;
+  let renameProject: ReturnType<typeof vi.fn>;
+  let renameAsset: ReturnType<typeof vi.fn>;
+  let deleteAssets: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     (
@@ -226,6 +294,10 @@ describe('EditorApplication Code mode integration', () => {
     setEngineMessage = vi.fn();
     strictSavePrepared = null;
     openProject = vi.fn().mockResolvedValue('opened');
+    importImage = vi.fn().mockResolvedValue(undefined);
+    renameProject = vi.fn().mockResolvedValue(true);
+    renameAsset = vi.fn().mockResolvedValue(true);
+    deleteAssets = vi.fn().mockResolvedValue(true);
     modeProbes.flushBlockDraft.mockReset();
     modeProbes.flushBlockDraft.mockResolvedValue(true);
 
@@ -254,10 +326,12 @@ describe('EditorApplication Code mode integration', () => {
       setEngineMessage,
       createProject: vi.fn(),
       openProject,
-      renameProject: vi.fn(),
-      importImage: vi.fn(),
+      renameProject,
+      importImage,
       importAudio: vi.fn(),
       importVideo: vi.fn(),
+      renameAsset,
+      deleteAssets,
       updateStartScreenStyle,
       updateCgGalleryStyle,
       replaceSceneContent,
@@ -345,6 +419,11 @@ describe('EditorApplication Code mode integration', () => {
       ?.dataset.mode;
   }
 
+  function section(): string | undefined {
+    return container.querySelector<HTMLElement>('[data-testid="mode-toolbar"]')
+      ?.dataset.section;
+  }
+
   function codeSource(): string {
     const source = container.querySelector<HTMLTextAreaElement>(
       'textarea[aria-label]',
@@ -388,6 +467,25 @@ describe('EditorApplication Code mode integration', () => {
     expect(container.querySelector('[data-testid="block-editor"]')).toBeNull();
   });
 
+  it('opens Assets as a separate workspace and restores the previous editor mode', async () => {
+    expect(section()).toBe('dialogue');
+    await clickMode('Blocks');
+    expect(mode()).toBe('blocks');
+
+    await clickButton('Resources');
+
+    expect(modeProbes.flushBlockDraft).toHaveBeenCalledOnce();
+    expect(section()).toBe('resources');
+    expect(container.querySelector('[data-testid="asset-manager"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="block-editor"]')).toBeNull();
+
+    await clickButton('Story');
+
+    expect(section()).toBe('dialogue');
+    expect(mode()).toBe('blocks');
+    expect(container.querySelector('[data-testid="block-editor"]')).not.toBeNull();
+  });
+
   it('keeps the current view mounted when its flush rejects the switch', async () => {
     commitFormDraft.mockResolvedValueOnce(false);
     await clickMode('Code');
@@ -400,6 +498,16 @@ describe('EditorApplication Code mode integration', () => {
     await clickMode('Code');
     expect(mode()).toBe('blocks');
     expect(container.querySelector('[data-testid="block-editor"]')).not.toBeNull();
+  });
+
+  it('does not enter Assets when the current Form draft cannot be committed', async () => {
+    commitFormDraft.mockResolvedValueOnce(false);
+
+    await clickButton('Resources');
+
+    expect(section()).toBe('dialogue');
+    expect(container.querySelector('[data-testid="form-editor"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="asset-manager"]')).toBeNull();
   });
 
   it('reprojects scene navigation, authoritative snapshots, and language in Code', async () => {
@@ -513,6 +621,95 @@ describe('EditorApplication Code mode integration', () => {
     expect(setEngineMessage).toHaveBeenCalledWith(
       expect.stringContaining('Code 草稿'),
     );
+  });
+
+  it('keeps invalid Code isolated while allowing an asset import', async () => {
+    await clickMode('Code');
+    const editor = container.querySelector<HTMLTextAreaElement>('textarea');
+    if (!editor) {
+      throw new Error('missing story Code editor');
+    }
+    const invalidSource = editor.value.replace('say(', 'unknown_command(');
+    const nativeSetter = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      'value',
+    )?.set;
+    await act(async () => {
+      nativeSetter?.call(editor, invalidSource);
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    await clickButton('Resources');
+    expect(section()).toBe('resources');
+    expect(replaceSceneContent).not.toHaveBeenCalled();
+
+    await clickButton('Import Image');
+    expect(importImage).toHaveBeenCalledOnce();
+
+    await clickButton('Story');
+    expect(mode()).toBe('code');
+    expect(codeSource()).toBe(invalidSource);
+  });
+
+  it('blocks asset rename and delete while an invalid Code draft is stored', async () => {
+    await clickMode('Code');
+    const editor = container.querySelector<HTMLTextAreaElement>('textarea');
+    if (!editor) throw new Error('missing story Code editor');
+    const nativeSetter = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      'value',
+    )?.set;
+    await act(async () => {
+      nativeSetter?.call(editor, editor.value.replace('say(', 'unknown_command('));
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await clickButton('Resources');
+
+    await clickButton('Rename Asset');
+    await clickButton('Delete Asset');
+
+    expect(renameAsset).not.toHaveBeenCalled();
+    expect(deleteAssets).not.toHaveBeenCalled();
+    expect(setEngineMessage).toHaveBeenCalledWith(
+      expect.stringContaining('Code 草稿'),
+    );
+  });
+
+  it('commits a toolbar project-name draft before mutating an asset', async () => {
+    await clickButton('Resources');
+    await clickButton('Edit Project Name');
+    const input = container.querySelector<HTMLInputElement>(
+      '[aria-label="Project name draft"]',
+    );
+    if (!input) throw new Error('missing project-name draft');
+    const nativeSetter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      'value',
+    )?.set;
+    await act(async () => {
+      nativeSetter?.call(input, 'Renamed project');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    await clickButton('Rename Asset');
+
+    expect(renameProject).toHaveBeenCalledWith('Renamed project');
+    expect(renameAsset).toHaveBeenCalledWith('asset-1', 'Renamed.png');
+    expect(renameProject.mock.invocationCallOrder[0])
+      .toBeLessThan(renameAsset.mock.invocationCallOrder[0]!);
+  });
+
+  it('returns to Story Form after another project opens', async () => {
+    await clickMode('Blocks');
+    await clickButton('Resources');
+    expect(section()).toBe('resources');
+
+    await clickButton('Open');
+
+    expect(openProject).toHaveBeenCalledOnce();
+    expect(section()).toBe('dialogue');
+    expect(mode()).toBe('form');
+    expect(container.querySelector('[data-testid="form-editor"]')).not.toBeNull();
   });
 
   it('discards session-only Code drafts after another project opens successfully', async () => {

@@ -18,6 +18,10 @@ import {
   type LogicStructureItem,
 } from '../block-editor/logicStructure';
 import {
+  logicalAssetPath,
+  missingLogicalAssetPath,
+} from '../assets/logicalAssetPath';
+import {
   ReadonlyCodeFormatter,
   quoteCodeString,
   type CodeSourceRange,
@@ -59,13 +63,6 @@ const OPERATORS: Record<LogicCondition['operator'], string> = {
   lte: '<=',
 };
 
-const LOGICAL_ASSET_DIRECTORIES: Record<AssetDocument['type'], string> = {
-  image: 'images',
-  audio: 'audio',
-  video: 'videos',
-};
-const UTF8_ENCODER = new TextEncoder();
-
 function formatValue(value: LogicValue): string {
   return typeof value === 'string' ? quoteCodeString(value) : String(value);
 }
@@ -100,36 +97,6 @@ function formatEffect(effect: CharacterEffect): string {
     case 'flash':
       return `${effect.type}(${duration}, ${effect.intensity})`;
   }
-}
-
-function escapeLogicalAssetName(displayName: string): string {
-  const characters = Array.from(displayName);
-  if (characters.length === 0) {
-    return '%EMPTY';
-  }
-  const escaped = characters.map((character, index) => {
-    const isInternalSpace = character === ' ' &&
-      index > 0 &&
-      index < characters.length - 1;
-    if (/^[\p{L}\p{N}_.-]$/u.test(character) || isInternalSpace) {
-      return character;
-    }
-    return Array.from(
-      UTF8_ENCODER.encode(character),
-      (byte) => `%${byte.toString(16).padStart(2, '0').toUpperCase()}`,
-    ).join('');
-  }).join('');
-  return escaped.replace(/^\.+/, (leadingDots) =>
-    leadingDots.replaceAll('.', '%2E')
-  );
-}
-
-function logicalAssetPath(asset: AssetDocument): string {
-  return `assets/${LOGICAL_ASSET_DIRECTORIES[asset.type]}/${escapeLogicalAssetName(asset.displayName)}`;
-}
-
-function missingLogicalAssetPath(type: AssetDocument['type']): string {
-  return `assets/${LOGICAL_ASSET_DIRECTORIES[type]}/%MISSING`;
 }
 
 function assetReference(

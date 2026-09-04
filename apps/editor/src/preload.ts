@@ -51,10 +51,37 @@ function invokeEngine(
 
 function invokeAsset(
   invocation: AssetInvocation,
-): Promise<ImportAssetResult | string | null> {
+): Promise<ImportAssetResult | EngineMutationResult | string | null> {
   return ipcRenderer.invoke(ASSET_IPC_CHANNEL, invocation) as Promise<
-    ImportAssetResult | string | null
+    ImportAssetResult | EngineMutationResult | string | null
   >;
+}
+
+async function invokeAssetManagement(
+  invocation: Extract<
+    AssetInvocation,
+    { action: 'rename' | 'delete-many' }
+  >,
+): Promise<EngineMutationResult> {
+  try {
+    return await invokeAsset(invocation) as EngineMutationResult;
+  } catch (error) {
+    // A newly loaded Preload can briefly coexist with an older Main process
+    // during development reloads. Old Main rejects the unknown action using
+    // its generic import-validation message; turn that into a stable marker
+    // Renderer can localize without exposing Electron diagnostics.
+    if (
+      error instanceof Error &&
+      error.message.includes('无效的资源导入请求')
+    ) {
+      const contractError = new Error(
+        '[asset-management-contract] Restart the editor to enable asset management.',
+      );
+      contractError.name = 'AssetManagementContractError';
+      throw contractError;
+    }
+    throw error;
+  }
 }
 
 function invokeGameExport(
@@ -64,6 +91,7 @@ function invokeGameExport(
 }
 
 const vnAssets: VnAssetsApi = {
+  managementContractVersion: 1,
   importImage: () =>
     invokeAsset({
       action: 'import-image',
@@ -89,6 +117,16 @@ const vnAssets: VnAssetsApi = {
       action: 'get-media-url',
       params: { assetId },
     }) as Promise<string | null>,
+  renameAsset: (assetId, displayName) =>
+    invokeAssetManagement({
+      action: 'rename',
+      params: { assetId, displayName },
+    }),
+  deleteAssets: (assetIds) =>
+    invokeAssetManagement({
+      action: 'delete-many',
+      params: { assetIds },
+    }),
 };
 
 const vnEngine: VnEngineApi = {

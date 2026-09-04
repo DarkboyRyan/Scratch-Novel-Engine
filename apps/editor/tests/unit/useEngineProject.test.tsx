@@ -144,6 +144,8 @@ describe('useEngineProject asset state', () => {
   let importImage: ReturnType<typeof vi.fn>;
   let importVideo: ReturnType<typeof vi.fn>;
   let importAudio: ReturnType<typeof vi.fn>;
+  let renameAsset: ReturnType<typeof vi.fn>;
+  let deleteAssets: ReturnType<typeof vi.fn>;
   let addBackground: ReturnType<typeof vi.fn>;
   let updateStartScreen: ReturnType<typeof vi.fn>;
   let updateStartScreenStyle: ReturnType<typeof vi.fn>;
@@ -200,6 +202,26 @@ describe('useEngineProject asset state', () => {
     importAudio = vi.fn().mockResolvedValue({
       status: 'imported',
       result: importedAudioResult,
+    });
+    renameAsset = vi.fn().mockResolvedValue({
+      ...importedResult,
+      assets: [{
+        ...importedResult.assets[0]!,
+        displayName: 'hero.png',
+      }],
+      session: {
+        revision: 4,
+        savedRevision: 2,
+        isDirty: true,
+      },
+    });
+    deleteAssets = vi.fn().mockResolvedValue({
+      ...initialResult,
+      session: {
+        revision: 5,
+        savedRevision: 2,
+        isDirty: true,
+      },
     });
     addBackground = vi.fn().mockResolvedValue(backgroundResult);
     updateStartScreen = vi.fn().mockResolvedValue({
@@ -372,9 +394,12 @@ describe('useEngineProject asset state', () => {
         saveProject,
       } as unknown as EditorPlatformGateway['projectFiles'],
       assets: {
+        managementContractVersion: 1,
         importImage,
         importVideo,
         importAudio,
+        renameAsset,
+        deleteAssets,
       } as unknown as EditorPlatformGateway['assets'],
       gameExport: {
         exportGame,
@@ -417,6 +442,104 @@ describe('useEngineProject asset state', () => {
       projectFolderName: 'story',
       ...importedResult.session,
     });
+  });
+
+  it('applies authoritative asset rename and delete snapshots', async () => {
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(await current!.renameAsset('asset-1', 'hero.png')).toBe(true);
+    });
+    expect(renameAsset).toHaveBeenCalledWith('asset-1', 'hero.png');
+    expect(current!.assets).toEqual([{
+      id: 'asset-1',
+      type: 'image',
+      displayName: 'hero.png',
+    }]);
+    expect(current!.session.revision).toBe(4);
+
+    await act(async () => {
+      expect(await current!.deleteAssets(['asset-1'])).toBe(true);
+    });
+    expect(deleteAssets).toHaveBeenCalledWith(['asset-1']);
+    expect(current!.assets).toEqual([]);
+    expect(current!.session.revision).toBe(5);
+    expect(current!.projectGeneration).toBe(1);
+  });
+
+  it('localizes asset-management business error codes in English', async () => {
+    await act(async () => {
+      root.render(
+        <EditorI18nProvider language="en-US">
+          <Harness />
+        </EditorI18nProvider>,
+      );
+    });
+
+    const cases: Array<{
+      code: string;
+      message: string;
+      action: 'rename' | 'delete';
+    }> = [
+      {
+        code: 'asset_name_invalid',
+        message: 'The asset name is invalid. It cannot be empty or exceed 256 UTF-8 bytes.',
+        action: 'rename',
+      },
+      {
+        code: 'asset_name_conflict',
+        message: 'An asset of this type already uses that name. Use a different name.',
+        action: 'rename',
+      },
+      {
+        code: 'asset_in_use',
+        message: 'This asset is still referenced by the complete project, possibly by a hidden legacy initial portrait. Remove the reference first.',
+        action: 'delete',
+      },
+      {
+        code: 'asset_not_found',
+        message: 'This asset no longer exists. Refresh the project and try again.',
+        action: 'delete',
+      },
+    ];
+
+    for (const testCase of cases) {
+      const error = new Error('资源操作失败');
+      error.name = `VnEngineError:${testCase.code}`;
+      (testCase.action === 'rename' ? renameAsset : deleteAssets)
+        .mockRejectedValueOnce(error);
+      await act(async () => {
+        const succeeded = testCase.action === 'rename'
+          ? await current!.renameAsset('asset-1', 'candidate.png')
+          : await current!.deleteAssets(['asset-1']);
+        expect(succeeded).toBe(false);
+      });
+      expect(current!.engineMessage).toBe(testCase.message);
+    }
+  });
+
+  it('reports stable restart guidance for a stale asset-management preload', async () => {
+    platform = {
+      ...platform,
+      assets: {
+        importImage,
+        importVideo,
+        importAudio,
+      } as unknown as EditorPlatformGateway['assets'],
+    };
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      expect(await current!.deleteAssets(['asset-1'])).toBe(false);
+    });
+    expect(deleteAssets).not.toHaveBeenCalled();
+    expect(current!.engineMessage).toBe(
+      '资源管理功能已更新，请完全退出并重新启动 Editor 后再试。',
+    );
   });
 
   it('projects a pre-CG live snapshot as an empty gallery instead of crashing', async () => {

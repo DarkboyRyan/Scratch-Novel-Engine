@@ -212,6 +212,10 @@ import {
   getCharacterEffectMutation,
   getCharacterEffectOwnerForDelete,
 } from './characterEffectBlockEvents';
+import {
+  AssetNameField,
+  setAssetNameFieldCatalog,
+} from './blocks/assetNameField';
 
 // Blockly 默认值是 28，连接预览会在积木还离得较远时出现。
 // 12 个工作区单位要求连接口真正靠近后才进入吸附候选。
@@ -535,6 +539,7 @@ export const BlocklyWorkspace = forwardRef<
     }
 
     const targetLayout = layoutStore.get(nextLayoutKey);
+    setAssetNameFieldCatalog(assetsRef.current, labelsRef.current);
     setCgDisplayImageOptions(assetsRef.current, labelsRef.current);
     setVariableBlockProjectScenes(scenesRef.current, labelsRef.current);
     projectSceneToWorkspace(
@@ -594,6 +599,7 @@ export const BlocklyWorkspace = forwardRef<
     }
 
     const initialLabels = initialLabelsRef.current;
+    setAssetNameFieldCatalog(assetsRef.current, initialLabels);
     registerDialogueBlock(initialLabels);
     registerBackgroundBlock(initialLabels);
     registerCharacterBlock(initialLabels);
@@ -1858,6 +1864,69 @@ export const BlocklyWorkspace = forwardRef<
         }
       }
 
+      if (
+        event.type === Blockly.Events.BLOCK_CHANGE &&
+        (event as Blockly.Events.BlockChange).element === 'field'
+      ) {
+        const changeEvent = event as Blockly.Events.BlockChange;
+        const node = changeEvent.blockId
+          ? currentScene.nodes.find(
+              (candidate) => candidate.id === changeEvent.blockId,
+            )
+          : undefined;
+        const block = changeEvent.blockId
+          ? workspace.getBlockById(changeEvent.blockId)
+          : null;
+        const field = changeEvent.name && block
+          ? block.getField(changeEvent.name)
+          : null;
+        if (
+          node?.type === 'dialogue' &&
+          block?.type === DIALOGUE_BLOCK_TYPE &&
+          changeEvent.name === DIALOGUE_BLOCK_FIELDS.voiceAssetName &&
+          field instanceof AssetNameField
+        ) {
+          void saveWorkspaceMutation(() =>
+            updateDialogueVoiceRef.current({
+              sceneId: currentScene.id,
+              nodeId: node.id,
+              assetId: field.getAssetId(),
+            }),
+          );
+          return;
+        }
+        if (
+          node?.type === 'bgm' &&
+          block?.type === BGM_BLOCK_TYPE &&
+          changeEvent.name === BGM_BLOCK_FIELDS.assetName &&
+          field instanceof AssetNameField
+        ) {
+          void saveWorkspaceMutation(() =>
+            updateBgmRef.current({
+              sceneId: currentScene.id,
+              nodeId: node.id,
+              assetId: field.getAssetId(),
+            }),
+          );
+          return;
+        }
+        if (
+          node?.type === 'video' &&
+          block?.type === VIDEO_BLOCK_TYPE &&
+          changeEvent.name === VIDEO_BLOCK_FIELDS.assetName &&
+          field instanceof AssetNameField
+        ) {
+          void saveWorkspaceMutation(() =>
+            updateVideoRef.current({
+              sceneId: currentScene.id,
+              nodeId: node.id,
+              assetId: field.getAssetId(),
+            }),
+          );
+          return;
+        }
+      }
+
       const cgDisplayFieldUpdate = getCgDisplayFieldUpdate(
         event,
         workspace,
@@ -2024,6 +2093,7 @@ export const BlocklyWorkspace = forwardRef<
       return;
     }
 
+    setAssetNameFieldCatalog(assetsRef.current, labels);
     registerDialogueBlock(labels);
     registerBackgroundBlock(labels);
     registerCharacterBlock(labels);

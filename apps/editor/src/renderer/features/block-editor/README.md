@@ -11,6 +11,7 @@
 3. Engine 成功后重新投影项目；布局模块单独保留坐标和视口，避免业务刷新打乱用户工作区。
 4. 背景与人物立绘积木使用统一的 10%–300% 整数缩放字段；事件层同时收集未失焦草稿，热更新后缺字段的旧积木会在投影时原位升级。
 5. “新建 / 设置变量”保留自由名称输入；“修改数值变量”和 If/Else 的“现有变量”操作数从项目全部 Set 节点的稳定去重名称中选择，支持输入名称前缀筛选，并为旧项目的孤立引用保留原值。
+6. 场景头部管理初始背景与缩放；背景、立绘、对白语音、BGM 和视频积木通过可搜索下拉框选择资源管理区中的既有资源，字段值始终保存稳定资源 ID。
 
 ## 子目录
 
@@ -22,7 +23,7 @@
 
 | 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
 | --- | --- | --- | --- |
-| [BlockEditor.tsx](./BlockEditor.tsx) | React + TypeScript | 组合 Blockly 工作区、场景导航、资源面板和预览面板 | `BlockEditorHandle`、`BlockEditor` |
+| [BlockEditor.tsx](./BlockEditor.tsx) | React + TypeScript | 组合 Blockly 工作区、场景导航、初始背景设置和预览面板 | `BlockEditorHandle`、`BlockEditor` |
 | [blockEditorLayout.ts](./blockEditorLayout.ts) | TypeScript + Blockly | 捕获并恢复场景积木坐标、视口和自动布局状态 | `WorkspacePoint`、`SceneWorkspaceLayout`、`BlockEditorLayoutStore`、`captureSceneWorkspaceLayout`、`restoreSceneWorkspaceViewport` |
 | [blockGroupDrag.ts](./blockGroupDrag.ts) | TypeScript + Blockly | 实现故事积木组拖动时的拓扑收集与整体位移 | `BlockGroupDragController`、`BlockGroupSelectionMode`、`getBlockGroupSelectionMode`、`createBlockGroupDragController` |
 | [BlocklyWorkspace.tsx](./BlocklyWorkspace.tsx) | React + TypeScript + Blockly | 管理故事 Blockly 工作区生命周期、投影、拖拽事件与引擎命令同步 | `BlocklyWorkspaceHandle`、`BlocklyWorkspace` |

@@ -16,6 +16,7 @@ import {
 } from '../shared/projectTypes';
 import type { SceneDocument } from '../shared/projectTypes';
 import type { EditorMode } from './application/editorMode';
+import type { WorkspaceSection } from './application/editorSection';
 import {
   resolveEditorAssetPreviewUrl,
   resolveEditorMediaUrl,
@@ -35,7 +36,7 @@ import {
   type CodeEditorDraft,
   type CodeEditorHandle,
 } from './features/code-editor/CodeEditor';
-import { ResourcePanel } from './features/assets/ResourcePanel';
+import { AssetManager } from './features/assets/AssetManager';
 import { useAssetPreviewUrls } from './features/assets/useAssetPreviewUrls';
 import { FormEditor } from './features/form-editor/FormEditor';
 import { useFormEditor } from './features/form-editor/useFormEditor';
@@ -148,6 +149,8 @@ export function EditorApplication({
 }: EditorApplicationProps) {
   const labels = useEditorLabels();
   const [editorMode, setEditorMode] = useState<EditorMode>('form');
+  const [workspaceSection, setWorkspaceSection] =
+    useState<WorkspaceSection>('dialogue');
   const blockEditorLayouts =
     useRef<BlockEditorLayoutStore>(new Map());
   const blockEditorRef = useRef<BlockEditorHandle>(null);
@@ -286,6 +289,7 @@ export function EditorApplication({
       editor.resetEditorState();
       blockEditorLayouts.current.clear();
       setEditorMode('form');
+      setWorkspaceSection('dialogue');
       dispatchEditorSurface({ type: 'project-loaded' });
     }
   };
@@ -495,6 +499,29 @@ export function EditorApplication({
     return commitSceneBackgroundScaleDraft();
   };
 
+  const prepareResourceWorkspaceOperation = async (): Promise<boolean> => {
+    if (workspaceSection === 'resources') {
+      // 剧情编辑器在进入资源工作区时已经 flush。资源页
+      // 不能产生剧情草稿，此时只需处理工具栏中的项目名草稿。
+      return commitProjectName();
+    }
+    return prepareCurrentEditsForLeave();
+  };
+
+  const prepareResourceWorkspaceMutation = async (): Promise<boolean> => {
+    if (workspaceSection !== 'resources') {
+      return prepareCurrentEdits();
+    }
+    // Import only adds a new name, so an isolated invalid Code draft can stay
+    // off-screen. Rename/delete can invalidate names inside such a draft and
+    // therefore use the same strict boundary as save/export.
+    if (codeDraftsRef.current.size > 0) {
+      engine.setEngineMessage(labels.codeEditor.unappliedDraftsBlockAction);
+      return false;
+    }
+    return commitProjectName();
+  };
+
   const handleSaveProject = async () => {
     await engine.saveProject(prepareCurrentEdits);
   };
@@ -541,7 +568,7 @@ export function EditorApplication({
   const handleImportImage = async (): Promise<void> => {
     // 未保存项目也能导入：Main 会为当前窗口建立私有临时工作区，
     // 首次保存时再安全发布 manifest 与 assets。Renderer 始终不接触路径。
-    if (!(await prepareCurrentEdits())) {
+    if (!(await prepareResourceWorkspaceOperation())) {
       return;
     }
 
@@ -549,7 +576,7 @@ export function EditorApplication({
   };
 
   const handleImportVideo = async (): Promise<void> => {
-    if (!(await prepareCurrentEdits())) {
+    if (!(await prepareResourceWorkspaceOperation())) {
       return;
     }
 
@@ -557,11 +584,28 @@ export function EditorApplication({
   };
 
   const handleImportAudio = async (): Promise<void> => {
-    if (!(await prepareCurrentEdits())) {
+    if (!(await prepareResourceWorkspaceOperation())) {
       return;
     }
 
     await engine.importAudio();
+  };
+
+  const handleRenameAsset = async (
+    assetId: string,
+    displayName: string,
+  ): Promise<boolean> => {
+    if (!(await prepareResourceWorkspaceMutation())) {
+      return false;
+    }
+    return engine.renameAsset(assetId, displayName);
+  };
+
+  const handleDeleteAssets = async (assetIds: string[]): Promise<boolean> => {
+    if (!(await prepareResourceWorkspaceMutation())) {
+      return false;
+    }
+    return engine.deleteAssets(assetIds);
   };
 
   const handleSelectBackground = async (
@@ -573,7 +617,8 @@ export function EditorApplication({
 
     if (isCgGallerySelected) {
       // CG images are assigned to explicit page slots in the CG editor.
-      // ResourcePanel is intentionally read-only while this surface is open.
+      // The independent asset workspace only manages and previews resources;
+      // assigning a CG still happens through an explicit gallery slot.
       return;
     }
 
@@ -681,7 +726,11 @@ export function EditorApplication({
   const handleEditorModeChange = async (
     nextMode: EditorMode,
   ): Promise<void> => {
-    if (nextMode === editorMode || engine.isBusy) {
+    if (
+      nextMode === editorMode ||
+      workspaceSection !== 'dialogue' ||
+      engine.isBusy
+    ) {
       return;
     }
 
@@ -689,6 +738,22 @@ export function EditorApplication({
     // 保留在窗口内存，因此可以安全离开而不会污染其他视图。
     if (await prepareCurrentEditsForLeave()) {
       setEditorMode(nextMode);
+    }
+  };
+
+  const handleWorkspaceSectionChange = async (
+    nextSection: WorkspaceSection,
+  ): Promise<void> => {
+    if (nextSection === workspaceSection || engine.isBusy) {
+      return;
+    }
+
+    // 工作区切换与 Form / Blockly / Code 之间的切换共用
+    // 同一个宽松边界：有效修改先提交，无效 Code 仅保留在窗口
+    // 内存草稿中，因此不会把用户锁在剧情工作区。
+    const prepared = await prepareResourceWorkspaceOperation();
+    if (prepared) {
+      setWorkspaceSection(nextSection);
     }
   };
 
@@ -725,6 +790,7 @@ export function EditorApplication({
     // 同步规范化后的项目名，避免覆盖用户正在输入的草稿。
     setIsRenamingProject(false);
     setProjectNameDraft(project.name);
+    setWorkspaceSection('dialogue');
     dispatchEditorSurface({ type: 'project-loaded' });
   }, [project?.id]);
 
@@ -829,6 +895,7 @@ export function EditorApplication({
         projectNameDraft={projectNameDraft}
         isRenamingProject={isRenamingProject}
         editorMode={editorMode}
+        workspaceSection={workspaceSection}
         isBusy={editor.isBusy}
         isDirty={isDirty}
         isSaving={engine.isSaving}
@@ -854,6 +921,9 @@ export function EditorApplication({
           setProjectNameDraft(project.name);
           setIsRenamingProject(false);
         }}
+        onWorkspaceSectionChange={(section) => {
+          void handleWorkspaceSectionChange(section);
+        }}
         onEditorModeChange={(mode) => {
           void handleEditorModeChange(mode);
         }}
@@ -861,43 +931,21 @@ export function EditorApplication({
         onOpenSettings={onOpenSettings}
       />
 
-      <ResourcePanel
-        assets={engine.assets}
-        backgroundAssetId={
-          isStartScreenSelected
-            ? project.startScreen.backgroundAssetId
-            : isCgGallerySelected
-              ? null
-            : scene.backgroundAssetId
-        }
-        backgroundScalePercent={
-          isStartScreenSelected || isCgGallerySelected
-            ? DEFAULT_IMAGE_SCALE_PERCENT
-            : scene.backgroundScalePercent
-        }
-        backgroundScaleDraft={
-          isStartScreenSelected || isCgGallerySelected
-            ? String(DEFAULT_IMAGE_SCALE_PERCENT)
-            : sceneBackgroundScaleDraftValue
-        }
-        backgroundScaleDraftInvalid={sceneBackgroundScaleDraftInvalid}
-        supportsBackgroundScale={
-          !isStartScreenSelected && !isCgGallerySelected
-        }
-        previewUrls={assetPreviewUrls}
-        isBusy={engine.isBusy}
-        imageSelectionPurpose={
-          isCgGallerySelected ? 'cg-gallery' : 'background'
-        }
-        onImportImage={handleImportImage}
-        onImportAudio={handleImportAudio}
-        onImportVideo={handleImportVideo}
-        onBackgroundScaleDraftChange={setSceneBackgroundScaleDraft}
-        onCommitBackgroundScaleDraft={commitSceneBackgroundScaleDraft}
-        onSelectBackground={handleSelectBackground}
-      />
-
-      {editorMode === 'code' ? (
+      {workspaceSection === 'resources' ? (
+        <AssetManager
+          project={project}
+          assets={engine.assets}
+          previewUrls={assetPreviewUrls}
+          isBusy={engine.isBusy}
+          isProjectNameEditing={isRenamingProject}
+          projectGeneration={engine.projectGeneration}
+          onImportImage={handleImportImage}
+          onImportAudio={handleImportAudio}
+          onImportVideo={handleImportVideo}
+          onRenameAsset={handleRenameAsset}
+          onDeleteAssets={handleDeleteAssets}
+        />
+      ) : editorMode === 'code' ? (
         <CodeEditor
           ref={codeEditorRef}
           project={project}
@@ -986,6 +1034,13 @@ export function EditorApplication({
         <FormEditor
           editor={editor}
           assets={engine.assets}
+          backgroundAssetId={scene.backgroundAssetId}
+          sceneBackgroundScalePercent={scene.backgroundScalePercent}
+          sceneBackgroundScaleDraft={sceneBackgroundScaleDraftValue}
+          sceneBackgroundScaleDraftInvalid={sceneBackgroundScaleDraftInvalid}
+          onSceneBackgroundScaleDraftChange={setSceneBackgroundScaleDraft}
+          onCommitSceneBackgroundScaleDraft={commitSceneBackgroundScaleDraft}
+          onSelectSceneBackground={handleSelectBackground}
           backgroundUrl={backgroundUrl}
           backgroundName={backgroundAsset?.displayName ?? null}
           backgroundScalePercent={timelinePreview.backgroundScalePercent}
@@ -1016,6 +1071,13 @@ export function EditorApplication({
           project={project}
           scene={scene}
           assets={engine.assets}
+          backgroundAssetId={scene.backgroundAssetId}
+          sceneBackgroundScalePercent={scene.backgroundScalePercent}
+          sceneBackgroundScaleDraft={sceneBackgroundScaleDraftValue}
+          sceneBackgroundScaleDraftInvalid={sceneBackgroundScaleDraftInvalid}
+          onSceneBackgroundScaleDraftChange={setSceneBackgroundScaleDraft}
+          onCommitSceneBackgroundScaleDraft={commitSceneBackgroundScaleDraft}
+          onSelectSceneBackground={handleSelectBackground}
           layoutStore={blockEditorLayouts.current}
           isBusy={engine.isBusy}
           onSceneChange={handleSceneChange}
