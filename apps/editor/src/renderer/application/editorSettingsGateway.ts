@@ -10,7 +10,10 @@ import type {
   EditorSettingsWriteResult,
   VnEditorSettingsApi,
 } from '../../shared/editorSettingsProtocol';
-import { EDITOR_SETTINGS_IPC_CHANNEL } from '../../shared/editorSettingsProtocol';
+import {
+  EDITOR_SETTINGS_IPC_CHANNEL,
+  isEditorSettings,
+} from '../../shared/editorSettingsProtocol';
 
 /**
  * The Vite development server can reload Renderer/Preload code while the
@@ -76,14 +79,28 @@ export function isEditorSettingsRestartRequiredError(
   return error instanceof EditorSettingsRestartRequiredError;
 }
 
-export function readEditorSettings(): Promise<EditorSettingsReadResult> {
-  return invokeSettings((api) => api.getSettings());
+export async function readEditorSettings(): Promise<EditorSettingsReadResult> {
+  const result = await invokeSettings((api) => api.getSettings());
+  if (
+    (result.status === 'ready' && !isEditorSettings(result.settings)) ||
+    (result.status === 'rejected' && result.error === 'settings-invalid')
+  ) {
+    throw new EditorSettingsRestartRequiredError();
+  }
+  return result;
 }
 
-export function updateEditorSettings(
+export async function updateEditorSettings(
   patch: EditorSettingsPatch,
 ): Promise<EditorSettingsWriteResult> {
-  return invokeSettings((api) => api.updateSettings(patch));
+  const result = await invokeSettings((api) => api.updateSettings(patch));
+  if (
+    (result.status === 'updated' && !isEditorSettings(result.settings)) ||
+    (result.status === 'rejected' && result.error === 'settings-invalid')
+  ) {
+    throw new EditorSettingsRestartRequiredError();
+  }
+  return result;
 }
 
 export function subscribeEditorSettings(

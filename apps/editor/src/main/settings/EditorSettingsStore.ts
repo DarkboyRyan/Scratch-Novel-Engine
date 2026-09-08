@@ -13,7 +13,9 @@ import path from 'node:path';
 
 import {
   createDefaultEditorSettings,
+  DEFAULT_EDITOR_COLOR_THEME,
   EDITOR_SETTINGS_VERSION,
+  isEditorLanguage,
   isEditorSettings,
   type EditorSettings,
 } from '../../shared/editorSettingsProtocol';
@@ -28,7 +30,9 @@ type SettingsErrorReporter = (
   error: unknown,
 ) => void;
 
-type SettingsDocumentV1 = {
+const LEGACY_EDITOR_SETTINGS_VERSION = 1 as const;
+
+type SettingsDocumentV2 = {
   format: typeof SETTINGS_FORMAT;
   settingsVersion: typeof EDITOR_SETTINGS_VERSION;
   settings: Omit<EditorSettings, 'settingsVersion'>;
@@ -117,9 +121,28 @@ function parseDocument(input: unknown): EditorSettings {
     !isObject(input) ||
     !hasExactFields(input, ['format', 'settingsVersion', 'settings']) ||
     input.format !== SETTINGS_FORMAT ||
+    !isObject(input.settings)
+  ) {
+    throw new InvalidSettingsError('settings document fields are invalid');
+  }
+
+  if (input.settingsVersion === LEGACY_EDITOR_SETTINGS_VERSION) {
+    if (
+      !hasExactFields(input.settings, ['language']) ||
+      !isEditorLanguage(input.settings.language)
+    ) {
+      throw new InvalidSettingsError('settings document fields are invalid');
+    }
+    return {
+      settingsVersion: EDITOR_SETTINGS_VERSION,
+      language: input.settings.language,
+      colorTheme: DEFAULT_EDITOR_COLOR_THEME,
+    };
+  }
+
+  if (
     input.settingsVersion !== EDITOR_SETTINGS_VERSION ||
-    !isObject(input.settings) ||
-    !hasExactFields(input.settings, ['language'])
+    !hasExactFields(input.settings, ['language', 'colorTheme'])
   ) {
     throw new InvalidSettingsError('settings document fields are invalid');
   }
@@ -133,11 +156,14 @@ function parseDocument(input: unknown): EditorSettings {
   return { ...settings };
 }
 
-function createDocument(settings: EditorSettings): SettingsDocumentV1 {
+function createDocument(settings: EditorSettings): SettingsDocumentV2 {
   return {
     format: SETTINGS_FORMAT,
     settingsVersion: EDITOR_SETTINGS_VERSION,
-    settings: { language: settings.language },
+    settings: {
+      language: settings.language,
+      colorTheme: settings.colorTheme,
+    },
   };
 }
 

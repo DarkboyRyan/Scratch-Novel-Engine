@@ -1,5 +1,5 @@
-// 主要作用：注册 Renderer 导入图片、音频和视频的可信 IPC 入口。
-// 关键实现：registerAssetIpc 校验 Frame、串行文件操作并刷新窗口状态。
+// 主要作用：注册 Renderer 导入、预览和管理媒体资源的可信 IPC 入口。
+// 关键实现：校验 Frame、串行资源操作，并同步权威会话与预览 capability。
 import { dialog, ipcMain } from 'electron';
 
 import {
@@ -17,6 +17,36 @@ import {
 import type { EditorWindowContexts } from '../window/EditorWindowContext';
 import { updateWindowDocumentPresentation } from '../window/updateWindowDocumentPresentation';
 import { isAssetInvocation } from './validateAssetInvocation';
+
+const SAFE_ASSET_ERROR_CODES = new Set([
+  'asset_name_invalid',
+  'asset_name_conflict',
+  'asset_in_use',
+  'asset_not_found',
+  'invalid_params',
+]);
+
+function rendererSafeAssetError(
+  error: unknown,
+  fallbackMessage: string,
+): Error {
+  if (error instanceof Error && error.name.startsWith('VnEngineError:')) {
+    const code = error.name.slice('VnEngineError:'.length);
+    if (code === 'method_not_found') {
+      const contractError = new Error(
+        '[asset-management-contract] Restart the editor to enable asset management.',
+      );
+      contractError.name = 'AssetManagementContractError';
+      return contractError;
+    }
+    if (SAFE_ASSET_ERROR_CODES.has(code)) {
+      const safeError = new Error(code);
+      safeError.name = `VnEngineError:${code}`;
+      return safeError;
+    }
+  }
+  return new Error(fallbackMessage);
+}
 
 export function registerAssetIpc(
   contexts: EditorWindowContexts,
@@ -48,6 +78,103 @@ export function registerAssetIpc(
         return context.assetPreviewService.getMediaUrl(
           invocation.params.assetId,
         );
+      }
+
+      if (
+        invocation.action === 'rename' ||
+        invocation.action === 'delete-many'
+      ) {
+        return context.fileOperationCoordinator.runExclusive(async () => {
+          const language = getLanguage();
+          if (invocation.action === 'rename') {
+            let result: EngineMutationResult;
+            try {
+              result = await context.backendClient.request({
+                method: 'asset.rename',
+                params: invocation.params,
+              });
+            } catch (error) {
+              console.error('[asset-management] rename failed', error);
+              throw rendererSafeAssetError(
+                error,
+                '资源重命名失败，请稍后重试',
+              );
+            }
+
+            if (
+              !context.assetPreviewService.synchronizeRenamedAsset(
+                invocation.params.assetId,
+                result,
+              )
+            ) {
+              console.error(
+                '[asset-preview] renamed asset metadata could not be synchronized',
+              );
+            }
+            const session = context.projectFileSession.updateEngineSession(
+              result.session,
+            );
+            updateWindowDocumentPresentation(
+              context.editorWindow,
+              result.project.name,
+              session,
+              language,
+            );
+            return {
+              ...result,
+              session: {
+                revision: session.revision,
+                savedRevision: session.savedRevision,
+                isDirty: session.isDirty,
+              },
+            };
+          }
+
+          let result: EngineMutationResult;
+          try {
+            result = await context.backendClient.request({
+              method: 'asset.deleteMany',
+              params: invocation.params,
+            });
+          } catch (error) {
+            console.error('[asset-management] deletion failed', error);
+            throw rendererSafeAssetError(
+              error,
+              '资源删除失败，请稍后重试',
+            );
+          }
+
+          // Revoke the capability before any public state is returned. This
+          // release performs logical deletion only: managed files remain as
+          // unreferenced data and no path crosses this IPC boundary.
+          if (
+            !context.assetPreviewService.revokeDeletedAssets(
+              invocation.params.assetIds,
+              result,
+            )
+          ) {
+            console.error(
+              '[asset-preview] deleted asset capabilities could not be synchronized',
+            );
+          }
+          const session = context.projectFileSession.updateEngineSession(
+            result.session,
+          );
+          updateWindowDocumentPresentation(
+            context.editorWindow,
+            result.project.name,
+            session,
+            language,
+          );
+          return {
+            ...result,
+            session: {
+              revision: session.revision,
+              savedRevision: session.savedRevision,
+              isDirty: session.isDirty,
+            },
+          };
+        });
       }
 
       const kind = invocation.action === 'import-video'

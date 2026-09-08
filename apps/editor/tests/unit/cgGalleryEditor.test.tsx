@@ -38,9 +38,11 @@ import {
   createEditorSceneOptions,
   editorSurfaceReducer,
 } from '../../src/renderer/features/start-screen/startScreenScene';
-import type {
-  AssetDocument,
-  ProjectDocument,
+import {
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
+  type AssetDocument,
+  type ProjectDocument,
 } from '../../src/shared/projectTypes';
 
 function fixedSlots(
@@ -64,12 +66,14 @@ const project: ProjectDocument = {
   name: 'CG Project',
   entrySceneId: 'scene-1',
   startScreen: {
+    style: DEFAULT_START_SCREEN_STYLE,
     title: 'CG Project',
     eyebrow: 'A VN ENGINE STORY',
     backgroundAssetId: null,
     musicAssetId: null,
   },
   cgGallery: {
+    style: DEFAULT_CG_GALLERY_STYLE,
     pages: [
       {
         imageAssetIds: fixedSlots(
@@ -269,6 +273,14 @@ describe('CG gallery Editor', () => {
 
     expect(container.querySelectorAll('.cg-gallery-thumbnail')).toHaveLength(9);
     expect(container.querySelectorAll('.cg-gallery-slot-empty')).toHaveLength(0);
+    const designPreview = container.querySelector<HTMLElement>(
+      '.cg-gallery-design-preview',
+    );
+    expect(designPreview?.dataset.playerCgLayout).toBe('framed');
+    expect(designPreview?.dataset.playerCgThumbnailFit).toBe('contain');
+    expect(
+      designPreview?.style.getPropertyValue('--player-cg-gap'),
+    ).toBe('16px');
     await act(async () => {
       (
         container.querySelector(
@@ -276,7 +288,13 @@ describe('CG gallery Editor', () => {
         ) as HTMLButtonElement
       ).click();
     });
-    expect(container.querySelector('[aria-label="查看 CG 大图"]')).not.toBeNull();
+    const lightbox = container.querySelector<HTMLElement>(
+      '[aria-label="查看 CG 大图"]',
+    );
+    expect(lightbox).not.toBeNull();
+    expect(lightbox?.style.getPropertyValue('--player-cg-page-color')).toBe(
+      '#040609',
+    );
     await act(async () => {
       (
         container.querySelector(
@@ -342,6 +360,7 @@ describe('CG gallery Editor', () => {
     const projectWithNewPage: ProjectDocument = {
       ...project,
       cgGallery: {
+        style: project.cgGallery.style,
         pages: [
           ...project.cgGallery.pages,
           createEmptyCgGalleryPage(),

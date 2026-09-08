@@ -1,8 +1,8 @@
-# Player
+# Scratch Novel Engine Player
 
 [返回应用目录](../README.md)
 
-Electron 桌面 Player 与 Web Player 的宿主应用，负责加载导出游戏、播放剧情、保存进度和发布模板。
+Scratch Novel Engine Player 包含 Electron 桌面宿主与 Web Player，负责加载导出游戏、播放剧情、保存进度和发布模板。
 
 Player 是运行时宿主，不负责编辑项目。桌面版既可以作为通用播放器打开外部 `.vngame` 目录，也可以在发布时嵌入单个游戏；Web 版则从同源静态站点读取已经导出的游戏。两种宿主共用 React 界面、Runtime 状态机与组件库，但使用不同的内容读取、存储和显示能力。
 
@@ -11,11 +11,12 @@ Player 是运行时宿主，不负责编辑项目。桌面版既可以作为通�
 桌面版由 Electron Main、Preload 和 Renderer 三层组成。Main 独占文件系统、原生窗口、存档目录和自定义媒体协议；Preload 只暴露 `VnPlayerApi` 中列出的调用；Renderer 通过 `PlayerGateway` 播放剧情，不接触绝对路径或原始文件句柄。Web 版实现同一个 Gateway，改用 Fetch、Web Crypto、IndexedDB 与 Fullscreen API，因此不能选择本地游戏目录，也不能调整操作系统窗口尺寸。
 
 正常加载流程是：宿主验证 `game.json`、`manifest.json` 及资源清单，生成只包含项目和安全资源标识的游戏视图，然后 Renderer 创建 Runtime 并交给共享 UI 展示。当前 Reader 支持 Runtime
-v1–v12；Runtime v11 是场景初始背景、时间线背景与人物立绘 10%–300% 缩放的
+v1–v13；Runtime v11 是场景初始背景、时间线背景与人物立绘 10%–300% 缩放的
 历史里程碑，旧 v1–v10 内容统一补 100%。Runtime v12 要求
 `game.defaultLanguage`；v1–v11 迁移为 `zh-CN`。桌面和 Web 宿主在没有玩家持久语言时
 使用包默认；Web 只让同一项目、同一包默认语言下由玩家明确选择的语言优先，旧的全局
-语言值不会覆盖新导出包。作者文本始终保持原文。存档保存的是版本化
+语言值不会覆盖新导出包。作者文本始终保持原文。Runtime v13 为标题页和 CG 画廊加入
+严格样式 DTO；旧 v1–v12 内容补安全默认样式。存档保存的是版本化
 Runtime 快照；媒体始终通过宿主提供的受控 URL 解析，不把底层路径传给界面。
 
 ## 本地开发

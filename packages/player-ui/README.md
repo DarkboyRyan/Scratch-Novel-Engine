@@ -10,7 +10,8 @@
 
 组件以受控 props 和回调工作：`VisualStage` 只渲染背景、立绘、对白与特效，并按 Runtime
 提供的 10%–300% 比例缩放剧情背景与立绘；背景围绕中心缩放，立绘保持底部中心锚点。
-`GameActionBar` 只发出保存、读取、快进和返回意图；`OptionsDialog` 与 `SaveSlotDialog` 不自行
+`TitleScreen` 和 `CgGallery` 只把已验证的页面样式 DTO 映射为固定 CSS 变量与 `data-*`
+布局属性，不注入原始 CSS、选择器或 URL。`GameActionBar` 只发出保存、读取、快进和返回意图；`OptionsDialog` 与 `SaveSlotDialog` 不自行
 读写设置或存档。媒体通过 `MediaUrlResolver` 把 asset ID 解析为当前宿主允许的 URL，音量和
 音频生命周期由纯工具/Hook 组合。
 

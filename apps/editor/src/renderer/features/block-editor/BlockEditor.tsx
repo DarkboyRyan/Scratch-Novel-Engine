@@ -68,6 +68,10 @@ import {
   START_SCREEN_SCENE_ID,
 } from '../start-screen/startScreenScene';
 import { useEditorLabels } from '../../i18n/editorLocalization';
+import {
+  SceneBackgroundSettings,
+  type SceneBackgroundSelection,
+} from '../assets/SceneBackgroundSettings';
 
 type BlockEditorProps = {
   project: ProjectDocument;
@@ -117,6 +121,15 @@ type BlockEditorProps = {
   onTimelineNodesReorder: ReorderTimelineNodesAction;
   onTimelineNodesDelete: DeleteTimelineNodesAction;
   onDraftDirtyChange: (isDirty: boolean) => void;
+  backgroundAssetId: string | null;
+  sceneBackgroundScalePercent: number;
+  sceneBackgroundScaleDraft: string;
+  sceneBackgroundScaleDraftInvalid: boolean;
+  onSceneBackgroundScaleDraftChange: (value: string) => void;
+  onCommitSceneBackgroundScaleDraft: () => Promise<boolean>;
+  onSelectSceneBackground: (
+    next: SceneBackgroundSelection,
+  ) => Promise<void>;
 };
 
 export type BlockEditorHandle = BlocklyWorkspaceHandle;
@@ -173,6 +186,13 @@ export const BlockEditor = forwardRef<
     onTimelineNodesDelete,
     onDialogueUpdate,
     onDraftDirtyChange,
+    backgroundAssetId,
+    sceneBackgroundScalePercent,
+    sceneBackgroundScaleDraft,
+    sceneBackgroundScaleDraftInvalid,
+    onSceneBackgroundScaleDraftChange,
+    onCommitSceneBackgroundScaleDraft,
+    onSelectSceneBackground,
   },
   ref,
 ) {
@@ -240,6 +260,23 @@ export const BlockEditor = forwardRef<
               ))}
             </select>
           </label>
+
+          <SceneBackgroundSettings
+            assets={assets}
+            backgroundAssetId={backgroundAssetId}
+            backgroundScalePercent={sceneBackgroundScalePercent}
+            backgroundScaleDraft={sceneBackgroundScaleDraft}
+            backgroundScaleDraftInvalid={sceneBackgroundScaleDraftInvalid}
+            isBusy={isBusy || isChangingScene}
+            variant="inline"
+            onBackgroundScaleDraftChange={
+              onSceneBackgroundScaleDraftChange
+            }
+            onCommitBackgroundScaleDraft={
+              onCommitSceneBackgroundScaleDraft
+            }
+            onSelectBackground={onSelectSceneBackground}
+          />
 
           <span className="block-editor-sync-badge">
             {labels.blockEditor.selectionHelp}

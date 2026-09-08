@@ -7,6 +7,7 @@ import * as Blockly from 'blockly';
 
 import type { SceneDocument } from '../../../../shared/projectTypes';
 import { DEFAULT_EDITOR_LANGUAGE, getEditorLabels, type EditorLabels } from '../../../i18n/editorLocalization';
+import { formatEditorSceneLabel } from '../../start-screen/startScreenScene';
 
 export const SCENE_JUMP_BLOCK_TYPE = 'vn_scene_jump';
 export const SCENE_JUMP_BLOCK_FIELDS = {
@@ -40,9 +41,7 @@ export function setSceneJumpBlockOptions(
     .map((scene, index) => ({ scene, index }))
     .filter(({ scene }) => scene.id !== currentSceneId)
     .map(({ scene, index }) => [
-      scene.name === `场景 ${index + 1}`
-        ? `${labels.common.scene} ${index + 1}`
-        : `${labels.common.scene} ${index + 1} · ${scene.name}`,
+      formatEditorSceneLabel(scene.name, index, labels),
       scene.id,
     ] as Blockly.MenuOption);
   currentSceneOptions = options.length > 0

@@ -1,4 +1,4 @@
-// 文件职责：定义 VN Engine 的权威项目、资源、场景与时间线数据模型。
+// 文件职责：定义 Scratch Novel Engine 的权威项目、资源、场景与时间线数据模型。
 // 关键实现：Project/Scene/SceneNode、图片缩放、逻辑控制、CG 展示及 CharacterEffect 判别结构。
 #pragma once
 
@@ -15,6 +15,14 @@ inline constexpr int kSchemaVersion = 1;
 inline constexpr int kDefaultImageScalePercent = 100;
 inline constexpr int kMinimumImageScalePercent = 10;
 inline constexpr int kMaximumImageScalePercent = 300;
+inline constexpr int kMinimumPageFontScalePercent = 75;
+inline constexpr int kMaximumPageFontScalePercent = 150;
+inline constexpr int kMinimumPageOpacityPercent = 0;
+inline constexpr int kMaximumPageOpacityPercent = 100;
+inline constexpr int kMinimumPageCornerRadiusPx = 0;
+inline constexpr int kMaximumPageCornerRadiusPx = 48;
+inline constexpr int kMinimumCgGalleryGapPx = 0;
+inline constexpr int kMaximumCgGalleryGapPx = 32;
 
 struct Dialogue {
   std::string id;
@@ -352,6 +360,77 @@ struct Scene {
 // entities.
 inline constexpr std::size_t kStartScreenEyebrowMaxBytes = 256;
 
+// Player page styling is a closed, data-only vocabulary. Colors use canonical
+// #RRGGBB text and every numeric field has a narrow model-level range, so an
+// author project can never persist arbitrary CSS, selectors, URLs or script.
+enum class PageFontPreset {
+  system,
+  serif,
+  rounded,
+  mono,
+};
+
+enum class PageImageFit {
+  contain,
+  cover,
+};
+
+struct CommonPageStyle {
+  PageFontPreset font_preset = PageFontPreset::system;
+  int font_scale_percent = 100;
+  std::string page_color = "#0B0C0F";
+  std::string text_color = "#FFFFFF";
+  std::string muted_text_color = "#B8BCC6";
+  std::string surface_color = "#0C0F14";
+  int surface_opacity_percent = 0;
+  std::string accent_color = "#FFFFFF";
+  std::string overlay_color = "#040609";
+  int overlay_opacity_percent = 44;
+  int corner_radius_px = 0;
+
+  bool operator==(const CommonPageStyle&) const = default;
+};
+
+enum class StartScreenLayout {
+  split_right,
+  split_left,
+  center,
+};
+
+struct StartScreenStyle {
+  CommonPageStyle common;
+  StartScreenLayout layout = StartScreenLayout::split_right;
+  PageImageFit background_fit = PageImageFit::contain;
+
+  bool operator==(const StartScreenStyle&) const = default;
+};
+
+enum class CgGalleryLayout {
+  framed,
+  edge_to_edge,
+};
+
+struct CgGalleryStyle {
+  CommonPageStyle common{
+      .font_preset = PageFontPreset::system,
+      .font_scale_percent = 100,
+      .page_color = "#040609",
+      .text_color = "#F7F8FA",
+      .muted_text_color = "#969BA5",
+      .surface_color = "#0C0F14",
+      .surface_opacity_percent = 96,
+      .accent_color = "#FFFFFF",
+      .overlay_color = "#040609",
+      .overlay_opacity_percent = 88,
+      .corner_radius_px = 12,
+  };
+  CgGalleryLayout layout = CgGalleryLayout::framed;
+  PageImageFit thumbnail_fit = PageImageFit::contain;
+  int gap_px = 16;
+
+  bool operator==(const CgGalleryStyle&) const = default;
+};
+
 struct StartScreen {
   std::string title = "未命名项目";
   // Short author-controlled copy rendered above the title. An empty value is
@@ -359,6 +438,7 @@ struct StartScreen {
   std::string eyebrow = "A VN ENGINE STORY";
   std::optional<std::string> background_asset_id;
   std::optional<std::string> music_asset_id;
+  StartScreenStyle style;
 
   bool operator==(const StartScreen&) const = default;
 };
@@ -378,6 +458,7 @@ struct CgGalleryPage {
 // render nine explicit "none" choices without inventing transient state.
 struct CgGallery {
   std::vector<CgGalleryPage> pages{CgGalleryPage{}};
+  CgGalleryStyle style;
 
   bool operator==(const CgGallery&) const = default;
 };

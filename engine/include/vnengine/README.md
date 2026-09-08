@@ -1,8 +1,8 @@
-# VN Engine 公共 API
+# Scratch Novel Engine 公共 API
 
 [返回公共头文件](../README.md)
 
-本目录定义 VN Engine 的权威领域接口。`model.hpp` 描述项目是什么，`project.hpp` 描述
+本目录定义 Scratch Novel Engine 的权威领域接口。`model.hpp` 描述项目是什么，`project.hpp` 描述
 项目可以如何被查询和原子修改。实现方可以替换前端或协议层，但必须继续遵守这里的聚合
 约束。
 

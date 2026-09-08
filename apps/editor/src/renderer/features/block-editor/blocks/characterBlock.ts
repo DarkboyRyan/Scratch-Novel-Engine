@@ -20,7 +20,10 @@ import {
   type EditorLabels,
 } from '../../../i18n/editorLocalization';
 import { CHARACTER_EFFECT_CONNECTION_TYPE } from './characterEffectBlock';
-import { AssetNameField } from './assetNameField';
+import {
+  AssetNameField,
+  ensureAssetNameField,
+} from './assetNameField';
 
 export const CHARACTER_BLOCK_TYPE = 'vn_character';
 export const CLEAR_CHARACTER_BLOCK_TYPE = 'vn_clear_character';
@@ -75,9 +78,14 @@ export function applyCharacterBlockLocalization(
     block.setFieldValue(labels.blockly.characterEffect, LABEL_FIELDS.effect);
     block.setFieldValue(labels.blockly.position, LABEL_FIELDS.position);
     block.setFieldValue(labels.blockly.scale, LABEL_FIELDS.scale);
-    if (getCharacterBlockAssetId(block) === null) {
-      block.setFieldValue(labels.common.none, CHARACTER_BLOCK_FIELDS.assetName);
-    }
+    ensureAssetNameField(
+      block,
+      CHARACTER_BLOCK_FIELDS.assetName,
+      labels.common.none,
+      'image',
+      getCharacterBlockAssetId(block),
+      labels.common.missingImage,
+    );
     const field = block.getField(CHARACTER_BLOCK_FIELDS.slot);
     if (field instanceof Blockly.FieldDropdown) {
       const value = String(field.getValue());
@@ -103,13 +111,26 @@ export function setCharacterBlockAsset(
   displayName = '',
 ): void {
   block.data = assetId === null ? null : `${ASSET_DATA_PREFIX}${assetId}`;
-  block.setFieldValue(
-    displayName || currentLabels.common.none,
-    CHARACTER_BLOCK_FIELDS.assetName,
-  );
+  const assetField = typeof block.getField === 'function'
+    ? block.getField(CHARACTER_BLOCK_FIELDS.assetName)
+    : null;
+  if (assetField instanceof AssetNameField) {
+    assetField.setAssetValue(assetId, displayName);
+  } else {
+    block.setFieldValue(
+      displayName || currentLabels.common.none,
+      CHARACTER_BLOCK_FIELDS.assetName,
+    );
+  }
 }
 
 export function getCharacterBlockAssetId(block: Blockly.Block): string | null {
+  const assetField = typeof block.getField === 'function'
+    ? block.getField(CHARACTER_BLOCK_FIELDS.assetName)
+    : null;
+  if (assetField instanceof AssetNameField) {
+    return assetField.getAssetId();
+  }
   return block.data?.startsWith(ASSET_DATA_PREFIX)
     ? block.data.slice(ASSET_DATA_PREFIX.length)
     : null;
@@ -224,7 +245,10 @@ export function registerCharacterBlock(
   // definition; projection still upgrades already-instantiated stale blocks.
   Blockly.Blocks[CHARACTER_BLOCK_TYPE] = {
     init(): void {
-      const assetField = new AssetNameField(currentLabels.common.none);
+      const assetField = new AssetNameField(
+        currentLabels.common.none,
+        'image',
+      );
 
       this.appendValueInput(CHARACTER_BLOCK_INPUTS.effect)
         .setCheck(CHARACTER_EFFECT_CONNECTION_TYPE)

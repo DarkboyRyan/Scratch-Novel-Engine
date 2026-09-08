@@ -18,6 +18,7 @@ describe('prepareProjectSave', () => {
           order.push('block-draft');
           return true;
         }),
+        flushCodeDraft: vi.fn(async () => true),
         commitProjectName: vi.fn(async () => {
           order.push('project-name');
           return true;
@@ -39,6 +40,7 @@ describe('prepareProjectSave', () => {
       prepareProjectSave({
         editorMode: 'form',
         flushBlockDraft: vi.fn(async () => true),
+        flushCodeDraft: vi.fn(async () => true),
         commitProjectName: vi.fn(async () => {
           order.push('project-name');
           return true;
@@ -61,6 +63,64 @@ describe('prepareProjectSave', () => {
       prepareProjectSave({
         editorMode: 'blocks',
         flushBlockDraft: vi.fn(async () => false),
+        flushCodeDraft: vi.fn(async () => true),
+        commitProjectName,
+        commitFormDraft,
+      }),
+    ).resolves.toBe(false);
+
+    expect(commitProjectName).not.toHaveBeenCalled();
+    expect(commitFormDraft).not.toHaveBeenCalled();
+  });
+
+  it('flushes editable Code before committing the project name', async () => {
+    const order: string[] = [];
+
+    await expect(
+      prepareProjectSave({
+        editorMode: 'code',
+        flushBlockDraft: vi.fn(async () => true),
+        flushCodeDraft: vi.fn(async () => {
+          order.push('code-draft');
+          return true;
+        }),
+        commitProjectName: vi.fn(async () => {
+          order.push('project-name');
+          return true;
+        }),
+        commitFormDraft: vi.fn(async () => true),
+      }),
+    ).resolves.toBe(true);
+
+    expect(order).toEqual(['code-draft', 'project-name']);
+  });
+
+  it('stops navigation when editable Code contains an invalid draft', async () => {
+    const commitProjectName = vi.fn(async () => true);
+
+    await expect(
+      prepareProjectSave({
+        editorMode: 'code',
+        flushBlockDraft: vi.fn(async () => true),
+        flushCodeDraft: vi.fn(async () => false),
+        commitProjectName,
+        commitFormDraft: vi.fn(async () => true),
+      }),
+    ).resolves.toBe(false);
+
+    expect(commitProjectName).not.toHaveBeenCalled();
+  });
+
+  it('blocks strict preparation when another Code target keeps an unapplied draft', async () => {
+    const commitProjectName = vi.fn(async () => true);
+    const commitFormDraft = vi.fn(async () => true);
+
+    await expect(
+      prepareProjectSave({
+        editorMode: 'form',
+        flushBlockDraft: vi.fn(async () => true),
+        flushCodeDraft: vi.fn(async () => true),
+        hasUnappliedCodeDrafts: () => true,
         commitProjectName,
         commitFormDraft,
       }),

@@ -6,6 +6,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { parseBackendResponse } from '../../src/main/backend/backendResponse';
+import {
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
+} from '../../src/shared/projectTypes';
 
 const validProject = {
   schemaVersion: 1,
@@ -17,11 +21,13 @@ const validProject = {
     eyebrow: 'A CUSTOM STORY',
     backgroundAssetId: 'asset-1',
     musicAssetId: null,
+    style: { ...DEFAULT_START_SCREEN_STYLE },
   },
   cgGallery: {
     pages: [{
       imageAssetIds: ['asset-1', null, null, null, null, null, null, null, null],
     }],
+    style: { ...DEFAULT_CG_GALLERY_STYLE },
   },
   scenes: [
     {
@@ -161,6 +167,7 @@ describe('backend response validation', () => {
       project: {
         ...validProject,
         cgGallery: {
+          ...validProject.cgGallery,
           pages: [{
             imageAssetIds: ['asset-1', null, null, null, null, null, null, null, null],
             privatePath: '/not/public/cg-page',
@@ -201,6 +208,33 @@ describe('backend response validation', () => {
   ])('rejects a malformed CG gallery: %j', (cgGallery) => {
     expect(() => parseBackendResponse(successResponse({
       project: { ...validProject, cgGallery },
+    }))).toThrow('project');
+  });
+
+  it('rejects non-canonical surface styles', () => {
+    expect(() => parseBackendResponse(successResponse({
+      project: {
+        ...validProject,
+        startScreen: {
+          ...validProject.startScreen,
+          style: {
+            ...DEFAULT_START_SCREEN_STYLE,
+            pageColor: '#0b0c0f',
+          },
+        },
+      },
+    }))).toThrow('project');
+    expect(() => parseBackendResponse(successResponse({
+      project: {
+        ...validProject,
+        cgGallery: {
+          ...validProject.cgGallery,
+          style: {
+            ...DEFAULT_CG_GALLERY_STYLE,
+            gapPx: 33,
+          },
+        },
+      },
     }))).toThrow('project');
   });
 

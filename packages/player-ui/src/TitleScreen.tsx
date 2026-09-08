@@ -3,7 +3,10 @@
  * 关键函数与实现：`TitleScreenProps`、`TitleScreen`；基于 React 组件、Hooks、可访问交互与受控状态实现。
  */
 import { useEffect, useRef, useState } from 'react';
-import type { StartScreenDocument } from '@vnengine/runtime';
+import type {
+  CgGalleryStyleDocument,
+  StartScreenDocument,
+} from '@vnengine/runtime';
 
 import type { PlayerUiLocalizationProps } from './localization';
 import type { MediaUrlResolver } from './mediaPort';
@@ -16,6 +19,7 @@ import {
   type OptionsSettingsValue,
 } from './OptionsDialog';
 import { usePlayerUiLocalization } from './PlayerUiProvider';
+import { createStartScreenThemePresentation } from './pageTheme';
 import { useAutoFitScale } from './useAutoFitScale';
 
 const DEFAULT_PREVIEW_OPTIONS: Omit<OptionsSettingsValue, 'language'> = {
@@ -33,6 +37,7 @@ export type TitleScreenProps = PlayerUiLocalizationProps & {
   cgGalleryPages?: ReadonlyArray<{
     imageAssetIds: readonly (string | null)[];
   }>;
+  cgGalleryStyle?: CgGalleryStyleDocument | null;
   resolveMediaUrl: MediaUrlResolver;
   openingGame?: boolean;
   loadingSaveGame?: boolean;
@@ -85,6 +90,7 @@ export function TitleScreen({
   labels: labelsOverride,
   startScreen,
   cgGalleryPages = [],
+  cgGalleryStyle,
   resolveMediaUrl,
   openingGame = false,
   loadingSaveGame = false,
@@ -123,6 +129,7 @@ export function TitleScreen({
   const audioRef = useRef<HTMLAudioElement>(null);
   const modalTriggerRef = useRef<HTMLButtonElement | null>(null);
   const titleFit = useAutoFitScale<HTMLDivElement, HTMLElement>();
+  const theme = createStartScreenThemePresentation(startScreen.style);
   const backgroundUrl = useResolvedTitleAsset(
     startScreen.backgroundAssetId,
     resolveMediaUrl,
@@ -169,7 +176,12 @@ export function TitleScreen({
   }, [musicUrl]);
 
   return (
-    <main className="player-shell player-title-page">
+    <main
+      className="player-shell player-title-page"
+      style={theme.style}
+      data-player-title-layout={theme.layout}
+      data-player-title-background-fit={theme.backgroundFit}
+    >
       {backgroundUrl !== null ? (
         <img
           className="player-title-background"
@@ -292,6 +304,7 @@ export function TitleScreen({
             ? labelsOverride
             : undefined}
           pages={cgGalleryPages}
+          galleryStyle={cgGalleryStyle}
           resolveMediaUrl={resolveMediaUrl}
           restoreFocusTo={modalTriggerRef.current}
           onClose={() => {

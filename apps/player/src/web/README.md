@@ -14,7 +14,7 @@ Web 导出是嵌入式单游戏模式，因此 `openGame` 明确拒绝本地选�
 
 ## 存储与部署约束
 
-`WebStorage` 以项目 ID、Runtime 版本和 `game.json` 内容指纹隔离存档，恢复时重新校验快照与资源引用。音量等通用设置继续写入全局 `settings-v2`，但语言只有在玩家明确修改语言时才会按“项目 ID + 当前包默认语言”保存；旧的未分域 `settings-v2` 只迁移非语言设置，不能再用历史中文覆盖新导出的英文包。没有同域显式偏好时使用 Runtime v12 `game.defaultLanguage`。全屏状态以浏览器当前状态为准并通过串行队列协调，默认语言来源下的浏览器全屏或音量更新不会固化语言。
+`WebStorage` 以项目 ID、Runtime 版本和 `game.json` 内容指纹隔离存档，恢复时重新校验快照与资源引用。音量等通用设置继续写入全局 `settings-v2`，但语言只有在玩家明确修改语言时才会按“项目 ID + 当前包默认语言”保存；旧的未分域 `settings-v2` 只迁移非语言设置，不能再用历史中文覆盖新导出的英文包。没有同域显式偏好时使用 Runtime v12 引入的 `game.defaultLanguage`。Runtime v13 的标题页/CG 样式在共享 UI 中使用，不写入 IndexedDB。全屏状态以浏览器当前状态为准并通过串行队列协调，默认语言来源下的浏览器全屏或音量更新不会固化语言。
 
 Web Player 必须由 HTTP 或 HTTPS 静态服务器提供，直接打开 `file://` 不受支持。部署时需保持 `web-export.json`、带 build ID 的游戏目录和模板资源相对关系，不要把多个导出的 payload 手工混合。验证命令：
 

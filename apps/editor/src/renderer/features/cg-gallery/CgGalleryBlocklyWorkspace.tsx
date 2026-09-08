@@ -16,6 +16,7 @@ import type {
   AssetDocument,
   ProjectDocument,
 } from '../../../shared/projectTypes';
+import { BLOCKLY_WORKSPACE_MOVE_OPTIONS } from '../block-editor/blocklyWorkspaceMovement';
 import { installInlineZoomControlIcons } from '../block-editor/zoomControlIcons';
 import {
   getCgGalleryFieldUpdate,
@@ -102,7 +103,7 @@ export const CgGalleryBlocklyWorkspace = forwardRef<
     const workspace = Blockly.inject(container, {
       toolbox: createCgGalleryToolbox(initialLabelsRef.current),
       readOnly: false,
-      move: { scrollbars: true, drag: false, wheel: false },
+      move: BLOCKLY_WORKSPACE_MOVE_OPTIONS,
       renderer: 'zelos',
       sounds: false,
       zoom: {

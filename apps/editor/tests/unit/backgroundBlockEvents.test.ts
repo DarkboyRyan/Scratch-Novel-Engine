@@ -74,6 +74,24 @@ describe('background block scale fields', () => {
       invalidNodeId: null,
     });
 
+    setBackgroundBlockAsset(block, 'lake', 'Lake');
+    expect(
+      getBackgroundFieldUpdate(
+        {
+          type: Blockly.Events.BLOCK_CHANGE,
+          blockId: 'background-1',
+          element: 'field',
+          name: BACKGROUND_BLOCK_FIELDS.assetName,
+        } as Blockly.Events.BlockChange,
+        workspaceSvg,
+        scene,
+      ),
+    ).toEqual({
+      nodeId: 'background-1',
+      assetId: 'lake',
+      scalePercent: 125,
+    });
+
     workspace.dispose();
   });
 
@@ -83,7 +101,7 @@ describe('background block scale fields', () => {
         this.appendDummyInput()
           .appendField('Background', 'VN_LABEL_BACKGROUND')
           .appendField(
-            new AssetNameField('None'),
+            new Blockly.FieldTextInput('None'),
             BACKGROUND_BLOCK_FIELDS.assetName,
           );
       },
@@ -92,6 +110,7 @@ describe('background block scale fields', () => {
     const staleBlock = staleWorkspace.newBlock(BACKGROUND_BLOCK_TYPE);
     expect(staleBlock.getField(BACKGROUND_BLOCK_FIELDS.scalePercent)).toBeNull();
 
+    setBackgroundBlockAsset(staleBlock, 'legacy-image', 'Legacy.png');
     setBackgroundBlockScalePercent(staleBlock, 145);
     applyBackgroundBlockLocalization(
       staleBlock,
@@ -100,6 +119,15 @@ describe('background block scale fields', () => {
     expect(
       staleBlock.getFieldValue(BACKGROUND_BLOCK_FIELDS.scalePercent),
     ).toBe(145);
+    expect(
+      staleBlock.getField(BACKGROUND_BLOCK_FIELDS.assetName),
+    ).toBeInstanceOf(AssetNameField);
+    expect(
+      staleBlock.getFieldValue(BACKGROUND_BLOCK_FIELDS.assetName),
+    ).toBe('legacy-image');
+    expect(
+      staleBlock.getField(BACKGROUND_BLOCK_FIELDS.assetName)?.getText(),
+    ).toBe('Legacy.png');
 
     registerBackgroundBlock();
     const freshWorkspace = new Blockly.Workspace();

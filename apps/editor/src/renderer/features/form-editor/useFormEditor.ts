@@ -29,6 +29,10 @@ import {
   getCharacterInsertionPlan,
   getFormNodeMovePlan,
 } from './formLogicTree';
+import {
+  localizeGeneratedSceneName,
+  nextLocalizedGeneratedSceneName,
+} from '../start-screen/startScreenScene';
 
 function trimAsciiWhitespace(value: string): string {
   return value.replace(/^[\t-\r ]+|[\t-\r ]+$/gu, '');
@@ -70,6 +74,7 @@ export function useFormEditor({
   const imageScaleDraftRef = useRef<ImageScaleDraft | null>(null);
   const [editingSceneId, setEditingSceneId] = useState<string | null>(null);
   const [sceneNameDraft, setSceneNameDraftState] = useState('');
+  const sceneNameDraftTouchedRef = useRef(false);
   const [sceneRenameErrorKind, setSceneRenameErrorKind] = useState<
     'required' | 'failed' | null
   >(null);
@@ -111,6 +116,7 @@ export function useFormEditor({
   // author's text and only retranslate surrounding labels and errors.
   useEffect(() => {
     sceneRenameGenerationRef.current += 1;
+    sceneNameDraftTouchedRef.current = false;
     setEditingSceneId(null);
     setSceneNameDraftState('');
     setSceneRenameErrorKind(null);
@@ -387,9 +393,12 @@ export function useFormEditor({
   }
 
   function beginSceneRename(sceneId: string): void {
-    const targetScene = project?.scenes.find(
-      (projectScene) => projectScene.id === sceneId,
-    );
+    const targetSceneIndex =
+      project?.scenes.findIndex(
+        (projectScene) => projectScene.id === sceneId,
+      ) ?? -1;
+    const targetScene =
+      targetSceneIndex < 0 ? undefined : project?.scenes[targetSceneIndex];
     if (
       !targetScene ||
       targetScene.id !== scene?.id ||
@@ -400,12 +409,16 @@ export function useFormEditor({
     }
 
     sceneRenameGenerationRef.current += 1;
+    sceneNameDraftTouchedRef.current = false;
     setEditingSceneId(targetScene.id);
-    setSceneNameDraftState(targetScene.name);
+    setSceneNameDraftState(
+      localizeGeneratedSceneName(targetScene.name, targetSceneIndex, labels),
+    );
     setSceneRenameErrorKind(null);
   }
 
   function setSceneNameDraft(name: string): void {
+    sceneNameDraftTouchedRef.current = true;
     setSceneNameDraftState(name);
     if (sceneRenameErrorKind) {
       setSceneRenameErrorKind(null);
@@ -414,6 +427,7 @@ export function useFormEditor({
 
   function cancelSceneRename(): void {
     sceneRenameGenerationRef.current += 1;
+    sceneNameDraftTouchedRef.current = false;
     setEditingSceneId(null);
     setSceneNameDraftState('');
     setSceneRenameErrorKind(null);
@@ -435,6 +449,14 @@ export function useFormEditor({
       );
       if (!targetScene) {
         return false;
+      }
+
+      // A localized generated name is presentation text. Opening and closing
+      // the field without typing must not rename the authoritative scene or
+      // mark the project dirty.
+      if (!sceneNameDraftTouchedRef.current) {
+        cancelSceneRename();
+        return true;
       }
 
       // Keep Renderer and C++ normalization identical. JavaScript's trim()
@@ -525,12 +547,16 @@ export function useFormEditor({
   }
 
   async function addScene() {
-    if (!(await commitPendingDraft())) {
+    if (!project || !(await commitPendingDraft())) {
       return;
     }
 
-    // 不再由 React 计算“场景 N”或生成 ID；C++ 统一负责这些规则。
-    const result = await runEngineAction(() => authoringCommands.addScene());
+    // IDs remain C++-owned. The generated display name follows the active
+    // Editor language so an English session never creates a Chinese scene.
+    const nextSceneName = nextLocalizedGeneratedSceneName(project, labels);
+    const result = await runEngineAction(() =>
+      authoringCommands.addScene(nextSceneName),
+    );
 
     if (!result?.sceneId) {
       return;

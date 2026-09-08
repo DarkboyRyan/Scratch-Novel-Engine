@@ -15,7 +15,11 @@ import { useFormEditor } from '../../src/renderer/features/form-editor/useFormEd
 import type { FormEditorCommands } from '../../src/renderer/application/authoringPorts';
 import { EditorI18nProvider } from '../../src/renderer/i18n/editorLocalization';
 import type { EngineMutationResult } from '../../src/shared/engineProtocol';
-import type { ProjectDocument } from '../../src/shared/projectTypes';
+import {
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
+  type ProjectDocument,
+} from '../../src/shared/projectTypes';
 
 function setInputValue(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(
@@ -36,12 +40,14 @@ const project: ProjectDocument = {
   name: 'Choice form compatibility',
   entrySceneId: 'scene-entry',
   startScreen: {
+    style: DEFAULT_START_SCREEN_STYLE,
     title: 'Story',
     eyebrow: 'A VN ENGINE STORY',
     backgroundAssetId: null,
     musicAssetId: null,
   },
   cgGallery: {
+    style: DEFAULT_CG_GALLERY_STYLE,
     pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
   },
   scenes: [
@@ -208,6 +214,42 @@ describe('form editor choice compatibility', () => {
     await act(async () => root.unmount());
     container.remove();
     vi.restoreAllMocks();
+  });
+
+  it('adds backgrounds only through the explicit timeline action', async () => {
+    const noop = async () => {};
+    const insertBackground = vi.fn(async () => {});
+
+    await act(async () => {
+      root.render(
+        <ScenePanel
+          project={project}
+          scene={project.scenes[0]}
+          assets={[]}
+          selectedNodeId={null}
+          isBusy={false}
+          {...idleSceneRenameProps}
+          onAddScene={noop}
+          onSelectScene={noop}
+          onSelectNode={noop}
+          onInsertBackground={insertBackground}
+          onInsertSceneJump={noop}
+          onMoveNode={noop}
+          onDeleteNode={noop}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector('.scene-background-settings-panel'),
+    ).toBeNull();
+    const addBackground = container.querySelector<HTMLButtonElement>(
+      '.timeline-add-background-button',
+    );
+    expect(addBackground?.textContent).toContain('背景');
+
+    await act(async () => addBackground?.click());
+    expect(insertBackground).toHaveBeenCalledOnce();
   });
 
   it('shows existing choices read-only without a form creation action', async () => {
@@ -607,6 +649,123 @@ describe('form editor choice compatibility', () => {
     expect(
       container.querySelector('[aria-label="场景名称: 场景 1"]'),
     ).not.toBeNull();
+  });
+
+  it('localizes a legacy generated scene name when English rename starts', async () => {
+    const legacyDefaultProject: ProjectDocument = {
+      ...project,
+      entrySceneId: 'scene-entry',
+      scenes: [
+        {
+          ...project.scenes[0],
+          name: '场景 1',
+        },
+      ],
+    };
+
+    const renameScene = vi.fn(async () => true);
+    await act(async () => {
+      root.render(
+        <EditorI18nProvider language="en-US">
+          <ScenePanelHarness
+            project={legacyDefaultProject}
+            onRenameScene={renameScene}
+            onSelectScene={async () => {}}
+          />
+        </EditorI18nProvider>,
+      );
+    });
+
+    const sceneTrigger = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Select current scene"]',
+    );
+    expect(sceneTrigger?.textContent).toContain('Scene 1');
+    expect(sceneTrigger?.textContent).not.toContain('场景 1');
+
+    await act(async () => {
+      sceneTrigger?.dispatchEvent(
+        new MouseEvent('dblclick', { bubbles: true, detail: 2 }),
+      );
+    });
+
+    const sceneNameInput = container.querySelector<HTMLInputElement>(
+      '[aria-label="Scene name: Scene 1"]',
+    );
+    expect(sceneNameInput?.value).toBe('Scene 1');
+
+    await act(async () => {
+      sceneNameInput?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
+      );
+      await Promise.resolve();
+    });
+    expect(renameScene).not.toHaveBeenCalled();
+  });
+
+  it('passes the next localized default name when English adds a scene', async () => {
+    const legacyDefaultProject: ProjectDocument = {
+      ...project,
+      entrySceneId: 'scene-entry',
+      scenes: [
+        {
+          ...project.scenes[0],
+          name: '场景 1',
+        },
+      ],
+    };
+    const addScene = vi.fn(async (name?: string) => ({
+      project: {
+        ...legacyDefaultProject,
+        scenes: [
+          ...legacyDefaultProject.scenes,
+          {
+            ...legacyDefaultProject.scenes[0],
+            id: 'scene-new',
+            name: name ?? '',
+            nodes: [],
+          },
+        ],
+      },
+      assets: [],
+      session: {
+        revision: 2,
+        savedRevision: 1,
+        isDirty: true,
+      },
+      sceneId: 'scene-new',
+    } satisfies EngineMutationResult));
+    let editor: ReturnType<typeof useFormEditor> | null = null;
+
+    function EnglishAddSceneHarness() {
+      editor = useFormEditor({
+        project: legacyDefaultProject,
+        isBusy: false,
+        engineMessage: '',
+        runEngineAction: async (action) => {
+          try {
+            return await action();
+          } catch {
+            return null;
+          }
+        },
+        authoringCommands: {
+          addScene,
+        } as unknown as FormEditorCommands,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(
+        <EditorI18nProvider language="en-US">
+          <EnglishAddSceneHarness />
+        </EditorI18nProvider>,
+      );
+    });
+    await act(async () => editor?.addScene());
+
+    expect(addScene).toHaveBeenCalledOnce();
+    expect(addScene).toHaveBeenCalledWith('Scene 2');
   });
 
   it('lets the blur source click run before the deferred scene rename', async () => {

@@ -6,30 +6,43 @@
 import { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
-import type { EditorLanguage } from '../../shared/editorSettingsProtocol';
+import type {
+  EditorColorTheme,
+  EditorLanguage,
+} from '../../shared/editorSettingsProtocol';
 import { useEditorLabels } from '../i18n/editorLocalization';
 
 type EditorSettingsDialogProps = {
   language: EditorLanguage;
+  colorTheme: EditorColorTheme;
   isSaving: boolean;
   saveFailed: boolean;
   restartRequired: boolean;
   onLanguageChange: (language: EditorLanguage) => Promise<void>;
+  onColorThemeChange: (colorTheme: EditorColorTheme) => Promise<void>;
   onClose: () => void;
 };
 
 function focusableElements(container: HTMLElement): HTMLElement[] {
   return [...container.querySelectorAll<HTMLElement>(
     'button:not(:disabled), select:not(:disabled), input:not(:disabled), [href], [tabindex]:not([tabindex="-1"])',
-  )].filter((element) => !element.hasAttribute('hidden'));
+  )].filter((element) =>
+    !element.hasAttribute('hidden') &&
+    !(
+      element instanceof HTMLInputElement &&
+      element.type === 'radio' &&
+      !element.checked
+    ));
 }
 
 export function EditorSettingsDialog({
   language,
+  colorTheme,
   isSaving,
   saveFailed,
   restartRequired,
   onLanguageChange,
+  onColorThemeChange,
   onClose,
 }: EditorSettingsDialogProps) {
   const labels = useEditorLabels();
@@ -140,6 +153,57 @@ export function EditorSettingsDialog({
             <option value="en-US">{labels.settings.english}</option>
           </select>
         </label>
+        <fieldset
+          className="editor-settings-fieldset"
+          disabled={isSaving || restartRequired}
+          aria-describedby={restartRequired ? restartRequiredId : undefined}
+        >
+          <legend>{labels.settings.interfaceColor}</legend>
+          <div className="editor-theme-options">
+            {([
+              {
+                value: 'daylight',
+                label: labels.settings.daylight,
+                description: labels.settings.daylightHelp,
+              },
+              {
+                value: 'moonlight',
+                label: labels.settings.moonlight,
+                description: labels.settings.moonlightHelp,
+              },
+            ] as const).map((option) => (
+              <label
+                key={option.value}
+                className={
+                  colorTheme === option.value
+                    ? 'editor-theme-option is-selected'
+                    : 'editor-theme-option'
+                }
+              >
+                <input
+                  type="radio"
+                  name="editor-color-theme"
+                  value={option.value}
+                  checked={colorTheme === option.value}
+                  disabled={isSaving || restartRequired}
+                  onChange={(event) => {
+                    if (event.currentTarget.checked) {
+                      void onColorThemeChange(option.value);
+                    }
+                  }}
+                />
+                <span
+                  className={`editor-theme-swatch is-${option.value}`}
+                  aria-hidden="true"
+                />
+                <span className="editor-theme-option-copy">
+                  <strong>{option.label}</strong>
+                  <small>{option.description}</small>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
         {restartRequired ? (
           <p
             id={restartRequiredId}

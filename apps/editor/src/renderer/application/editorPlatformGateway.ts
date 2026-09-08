@@ -21,6 +21,19 @@ export type EditorPlatformGateway = {
   projectFiles: VnProjectFilesApi;
 };
 
+export type AssetManagementGateway = VnAssetsApi & {
+  readonly managementContractVersion: 1;
+};
+
+export function supportsAssetManagement(
+  assets: VnAssetsApi,
+): assets is AssetManagementGateway {
+  const candidate = assets as Partial<VnAssetsApi>;
+  return candidate.managementContractVersion === 1 &&
+    typeof candidate.renameAsset === 'function' &&
+    typeof candidate.deleteAssets === 'function';
+}
+
 export function getEditorPlatformGateway(): EditorPlatformGateway {
   return {
     assets: window.vnAssets,

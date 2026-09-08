@@ -81,8 +81,10 @@ const START_SCREEN_FIELDS_V10 = [
   'backgroundAssetId',
   'musicAssetId',
 ];
+const START_SCREEN_FIELDS_V13 = [...START_SCREEN_FIELDS_V10, 'style'];
 const CG_GALLERY_FIELDS_V5 = ['imageAssetIds'];
 const CG_GALLERY_FIELDS_V6 = ['pages'];
+const CG_GALLERY_FIELDS_V13 = ['pages', 'style'];
 const CG_GALLERY_PAGE_FIELDS_V6 = ['imageAssetIds'];
 const ASSET_DIRECTORY = {
   image: 'images',
@@ -567,7 +569,8 @@ function validateGameDocument(input) {
       root.runtimeVersion !== 9 &&
       root.runtimeVersion !== 10 &&
       root.runtimeVersion !== 11 &&
-      root.runtimeVersion !== 12
+      root.runtimeVersion !== 12 &&
+      root.runtimeVersion !== 13
     )
   ) {
     throw new Error('game.json 的格式或版本不受支持');
@@ -621,7 +624,9 @@ function validateGameDocument(input) {
         ? START_SCREEN_FIELDS_V2
         : root.runtimeVersion < 10
           ? START_SCREEN_FIELDS_V3
-          : START_SCREEN_FIELDS_V10,
+          : root.runtimeVersion < 13
+            ? START_SCREEN_FIELDS_V10
+            : START_SCREEN_FIELDS_V13,
       'game.json.game.startScreen',
     );
     const nullableAssetId = (field) => {
@@ -667,7 +672,13 @@ function validateGameDocument(input) {
     cgGallery = { imageAssetIds };
   } else if (root.runtimeVersion >= 6) {
     const value = objectValue(metadata.cgGallery, 'game.json.game.cgGallery');
-    exactFields(value, CG_GALLERY_FIELDS_V6, 'game.json.game.cgGallery');
+    exactFields(
+      value,
+      root.runtimeVersion < 13
+        ? CG_GALLERY_FIELDS_V6
+        : CG_GALLERY_FIELDS_V13,
+      'game.json.game.cgGallery',
+    );
     if (!Array.isArray(value.pages) || value.pages.length === 0) {
       throw new Error('game.json.game.cgGallery.pages 至少需要一页');
     }

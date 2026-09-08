@@ -40,11 +40,19 @@ function register() {
   const controller = {
     getSettings: vi.fn().mockResolvedValue({
       status: 'ready',
-      settings: { settingsVersion: 1, language: 'zh-CN' },
+      settings: {
+        settingsVersion: 2,
+        language: 'zh-CN',
+        colorTheme: 'daylight',
+      },
     }),
     updateSettings: vi.fn().mockResolvedValue({
       status: 'updated',
-      settings: { settingsVersion: 1, language: 'en-US' },
+      settings: {
+        settingsVersion: 2,
+        language: 'en-US',
+        colorTheme: 'moonlight',
+      },
     }),
   };
   registerEditorSettingsIpc(
@@ -80,7 +88,21 @@ describe('Editor settings IPC', () => {
 
     await expect(handler(trustedEvent(), {
       action: 'update-settings',
+      params: { patch: { colorTheme: 'moonlight' } },
+    })).resolves.toMatchObject({ status: 'updated' });
+    expect(controller.updateSettings).toHaveBeenCalledWith({
+      colorTheme: 'moonlight',
+    });
+
+    await expect(handler(trustedEvent(), {
+      action: 'update-settings',
       params: { patch: { language: 'en-US', path: '/tmp/injected' } },
+    })).rejects.toThrow('invalid Editor settings request');
+    await expect(handler(trustedEvent(), {
+      action: 'update-settings',
+      params: {
+        patch: { language: 'en-US', colorTheme: 'daylight' },
+      },
     })).rejects.toThrow('invalid Editor settings request');
     await expect(handler({
       ...trustedEvent(),
@@ -94,13 +116,15 @@ describe('Editor settings IPC', () => {
   it('broadcasts a path-free snapshot to every active Editor window', () => {
     const { contexts, sends } = register();
     broadcastEditorSettings(contexts, {
-      settingsVersion: 1,
+      settingsVersion: 2,
       language: 'en-US',
+      colorTheme: 'moonlight',
     });
     for (const send of sends) {
       expect(send).toHaveBeenCalledWith('vn-editor-settings:changed', {
-        settingsVersion: 1,
+        settingsVersion: 2,
         language: 'en-US',
+        colorTheme: 'moonlight',
       });
     }
   });

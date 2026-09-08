@@ -110,16 +110,20 @@ async function openEditorWindow(
 
   try {
     if (options.createProject) {
+      const editorLanguage = currentEditorLanguage();
       const result = await backendClient.request({
         method: 'project.create',
-        params: { name: options.projectName },
+        params: {
+          name: options.projectName,
+          firstSceneName: editorLanguage === 'en-US' ? 'Scene 1' : '场景 1',
+        },
       });
       const session = projectFileSession.markCreated(result.session);
       updateWindowDocumentPresentation(
         editorWindow,
         result.project.name,
         session,
-        currentEditorLanguage(),
+        editorLanguage,
       );
     }
 

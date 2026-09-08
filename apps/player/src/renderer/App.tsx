@@ -1170,6 +1170,7 @@ export function App({ gateway = preloadPlayerGateway }: AppProps) {
         key={state.generation}
         startScreen={state.game.project.startScreen}
         cgGalleryPages={state.game.project.cgGallery?.pages ?? []}
+        cgGalleryStyle={state.game.project.cgGallery?.style}
         mediaPaused={saveDialog !== null}
         interactionBlocked={
           saveDialog !== null ||

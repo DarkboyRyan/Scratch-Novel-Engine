@@ -38,7 +38,7 @@ export function createEditorWindow(
     useContentSize: true,
     center: true,
     show: false,
-    backgroundColor: '#f4f5f7',
+    backgroundColor: '#f3f5f7',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       zoomFactor: 1,

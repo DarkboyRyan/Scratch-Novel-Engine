@@ -15,6 +15,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
+import {
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
+} from '@vnengine/runtime';
 
 import { loadRuntimeBundle } from '../../src/main/content/PlayerBundleLoader';
 import { parseRuntimeBundleDocuments } from '../../src/main/content/runtimeBundleSchema';
@@ -48,7 +52,7 @@ function gameDocument(assetId: string | null = null) {
 
 function manifestDocument(
   files: unknown[] = [],
-  runtimeVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 = 1,
+  runtimeVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 = 1,
 ): Record<string, unknown> {
   return {
     format: 'vn-engine-runtime-manifest',
@@ -210,9 +214,11 @@ describe('runtime bundle loader', () => {
       eyebrow: 'A VN ENGINE STORY',
       backgroundAssetId: null,
       musicAssetId: null,
+      style: DEFAULT_START_SCREEN_STYLE,
     });
     expect(legacy.game.project.cgGallery).toEqual({
       pages: [{ imageAssetIds: Array(9).fill(null) }],
+      style: DEFAULT_CG_GALLERY_STYLE,
     });
 
     const runtimeV2 = gameDocument() as ReturnType<typeof gameDocument> & {
@@ -245,6 +251,7 @@ describe('runtime bundle loader', () => {
       eyebrow: 'A VN ENGINE STORY',
       backgroundAssetId: 'title-background',
       musicAssetId: null,
+      style: DEFAULT_START_SCREEN_STYLE,
     });
 
     runtimeV2.game.startScreen.unexpected = true;
@@ -538,6 +545,51 @@ describe('runtime bundle loader', () => {
       JSON.stringify(runtimeV12),
       JSON.stringify(manifestV12),
     ).game.defaultLanguage).toBe('en-US');
+    expect(parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV12),
+      JSON.stringify(manifestV12),
+    ).game.project).toMatchObject({
+      startScreen: { style: DEFAULT_START_SCREEN_STYLE },
+      cgGallery: { style: DEFAULT_CG_GALLERY_STYLE },
+    });
+
+    const runtimeV13 = structuredClone(runtimeV12);
+    runtimeV13.runtimeVersion = 13;
+    const startScreenStyle = {
+      ...DEFAULT_START_SCREEN_STYLE,
+      layout: 'center' as const,
+      backgroundFit: 'cover' as const,
+    };
+    const cgGalleryStyle = {
+      ...DEFAULT_CG_GALLERY_STYLE,
+      layout: 'edge-to-edge' as const,
+      thumbnailFit: 'cover' as const,
+      gapPx: 32,
+    };
+    (runtimeV13.game.startScreen as Record<string, unknown>).style =
+      startScreenStyle;
+    (runtimeV13.game.cgGallery as Record<string, unknown>).style =
+      cgGalleryStyle;
+    const manifestV13 = {
+      ...manifest,
+      runtimeVersion: 13,
+      playerCompatibility: '>=13 <14',
+    };
+    expect(parseRuntimeBundleDocuments(
+      JSON.stringify(runtimeV13),
+      JSON.stringify(manifestV13),
+    ).game.project).toMatchObject({
+      startScreen: { style: startScreenStyle },
+      cgGallery: { style: cgGalleryStyle },
+    });
+
+    const invalidStyle = structuredClone(runtimeV13);
+    ((invalidStyle.game.startScreen as Record<string, unknown>)
+      .style as Record<string, unknown>).pageColor = '#0b0c0f';
+    expect(() => parseRuntimeBundleDocuments(
+      JSON.stringify(invalidStyle),
+      JSON.stringify(manifestV13),
+    )).toThrow('game.json.game.startScreen.style');
 
     const missingLanguage = structuredClone(runtimeV12);
     delete (missingLanguage.game as Record<string, unknown>).defaultLanguage;
@@ -644,6 +696,7 @@ describe('runtime bundle loader', () => {
       ).game.project.cgGallery,
     ).toEqual({
       pages: [{ imageAssetIds: ['cg-1', ...Array(8).fill(null)] }],
+      style: DEFAULT_CG_GALLERY_STYLE,
     });
 
     const migratedAssetIds = Array.from(
@@ -672,6 +725,7 @@ describe('runtime bundle loader', () => {
           ],
         },
       ],
+      style: DEFAULT_CG_GALLERY_STYLE,
     });
 
     runtimeV5.game.cgGallery.imageAssetIds = [];
@@ -680,7 +734,10 @@ describe('runtime bundle loader', () => {
         JSON.stringify(runtimeV5),
         JSON.stringify(manifestDocument([], 5)),
       ).game.project.cgGallery,
-    ).toEqual({ pages: [{ imageAssetIds: Array(9).fill(null) }] });
+    ).toEqual({
+      pages: [{ imageAssetIds: Array(9).fill(null) }],
+      style: DEFAULT_CG_GALLERY_STYLE,
+    });
 
     runtimeV5.game.cgGallery.imageAssetIds = ['cg-1', 'cg-1'];
     expect(() =>
@@ -746,7 +803,10 @@ describe('runtime bundle loader', () => {
         JSON.stringify(runtimeV6),
         JSON.stringify(manifestDocument([cgAsset], 6)),
       ).game.project.cgGallery,
-    ).toEqual({ pages: [{ imageAssetIds: slots }] });
+    ).toEqual({
+      pages: [{ imageAssetIds: slots }],
+      style: DEFAULT_CG_GALLERY_STYLE,
+    });
 
     runtimeV6.game.cgGallery.pages[0].imageAssetIds.pop();
     expect(() =>

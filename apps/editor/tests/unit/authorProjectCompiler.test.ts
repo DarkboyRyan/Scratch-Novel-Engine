@@ -11,6 +11,8 @@ import {
   compileAuthorProjectV15,
 } from '../../src/main/export/AuthorProjectCompiler';
 import {
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
   toRuntimeProjectDocument,
   type ProjectDocument,
 } from '../../src/shared/projectTypes';
@@ -18,7 +20,7 @@ import {
 function authorProject(): Record<string, unknown> {
   return {
     format: 'vn-engine-project',
-    fileVersion: 21,
+    fileVersion: 22,
     project: {
       schemaVersion: 1,
       id: 'project-1',
@@ -29,6 +31,11 @@ function authorProject(): Record<string, unknown> {
         eyebrow: 'A CUSTOM STORY',
         backgroundAssetId: 'title-background',
         musicAssetId: 'title-music',
+        style: {
+          ...DEFAULT_START_SCREEN_STYLE,
+          layout: 'center',
+          backgroundFit: 'cover',
+        },
       },
       cgGallery: {
         pages: [
@@ -41,6 +48,12 @@ function authorProject(): Record<string, unknown> {
           },
           { imageAssetIds: Array<string | null>(9).fill(null) },
         ],
+        style: {
+          ...DEFAULT_CG_GALLERY_STYLE,
+          layout: 'edge-to-edge',
+          thumbnailFit: 'cover',
+          gapPx: 24,
+        },
       },
       scenes: [
         {
@@ -160,6 +173,14 @@ function downgradeTo(
   fileVersion: number,
 ): void {
   document.fileVersion = fileVersion;
+  if (fileVersion < 22) {
+    const project = document.project as {
+      startScreen: Record<string, unknown>;
+      cgGallery: Record<string, unknown>;
+    };
+    delete project.startScreen.style;
+    delete project.cgGallery.style;
+  }
   if (fileVersion < 20) {
     const startScreen = (document.project as {
       startScreen: Record<string, unknown>;
@@ -195,7 +216,7 @@ function downgradeTo(
   }
 }
 
-describe('author project v21 compiler', () => {
+describe('author project v22 compiler', () => {
   it('preserves empty speaker and text fields in the runtime projection', () => {
     const document = authorProject() as {
       project: { scenes: Array<{ nodes: Array<Record<string, unknown>> }> };
@@ -217,7 +238,7 @@ describe('author project v21 compiler', () => {
     });
   });
 
-  it('builds exact runtime v12 data with the selected default language', () => {
+  it('builds exact runtime v13 data with the selected default language', () => {
     const result = compileAuthorProjectV15(
       JSON.stringify(authorProject()),
       'en-US',
@@ -225,7 +246,7 @@ describe('author project v21 compiler', () => {
 
     expect(result.game).toMatchObject({
       format: 'vn-engine-runtime',
-      runtimeVersion: 12,
+      runtimeVersion: 13,
       game: {
         id: 'project-1',
         title: '导出测试',
@@ -236,6 +257,11 @@ describe('author project v21 compiler', () => {
           eyebrow: 'A CUSTOM STORY',
           backgroundAssetId: 'title-background',
           musicAssetId: 'title-music',
+          style: {
+            ...DEFAULT_START_SCREEN_STYLE,
+            layout: 'center',
+            backgroundFit: 'cover',
+          },
         },
         cgGallery: {
           pages: [
@@ -248,6 +274,12 @@ describe('author project v21 compiler', () => {
             },
             { imageAssetIds: Array<string | null>(9).fill(null) },
           ],
+          style: {
+            ...DEFAULT_CG_GALLERY_STYLE,
+            layout: 'edge-to-edge',
+            thumbnailFit: 'cover',
+            gapPx: 24,
+          },
         },
       },
     });
@@ -325,7 +357,7 @@ describe('author project v21 compiler', () => {
       scenes: Array<{ visuals: Record<string, unknown> }>;
     }).scenes[0]!.visuals.backgroundScalePercent;
     expect(() => compile(missingSceneScale)).toThrow(
-      '字段不符合作者项目 v21',
+      '字段不符合作者项目 v22',
     );
 
     for (const [target, scalePercent] of [
@@ -375,6 +407,33 @@ describe('author project v21 compiler', () => {
     expect(() => compile(invalidClearScale)).toThrow(
       'scalePercent 在 clear 模式下必须是 100',
     );
+  });
+
+  it('preserves strict v22 page styles and injects defaults for v21', () => {
+    const current = compile(authorProject());
+    expect(current.project.startScreen.style).toMatchObject({
+      layout: 'center',
+      backgroundFit: 'cover',
+    });
+    expect(current.project.cgGallery.style).toMatchObject({
+      layout: 'edge-to-edge',
+      thumbnailFit: 'cover',
+      gapPx: 24,
+    });
+
+    const legacy = authorProject();
+    downgradeTo(legacy, 21);
+    expect(compile(legacy).project).toMatchObject({
+      startScreen: { style: DEFAULT_START_SCREEN_STYLE },
+      cgGallery: { style: DEFAULT_CG_GALLERY_STYLE },
+    });
+
+    const invalid = authorProject();
+    const style = (invalid.project as {
+      startScreen: { style: Record<string, unknown> };
+    }).startScreen.style;
+    style.pageColor = '#0b0c0f';
+    expect(() => compile(invalid)).toThrow('project.startScreen.style');
   });
 
   it('keeps unresolved show nodes as preview no-ops and explicit clear nodes destructive', () => {
@@ -746,7 +805,7 @@ describe('author project v21 compiler', () => {
 
     const unknownField = authorProject();
     (unknownField.project as Record<string, unknown>).nativePath = '/private/tmp';
-    expect(() => compile(unknownField)).toThrow('字段不符合作者项目 v21');
+    expect(() => compile(unknownField)).toThrow('字段不符合作者项目 v22');
   });
 
   it('rejects an empty or ASCII-padded custom title', () => {
@@ -801,7 +860,7 @@ describe('author project v21 compiler', () => {
     const missing = authorProject();
     delete (missing.project as { startScreen: Record<string, unknown> })
       .startScreen.eyebrow;
-    expect(() => compile(missing)).toThrow('字段不符合作者项目 v21');
+    expect(() => compile(missing)).toThrow('字段不符合作者项目 v22');
   });
 
   it('rejects duplicate IDs and duplicate asset paths', () => {
@@ -878,6 +937,7 @@ describe('author project v21 compiler', () => {
     };
     expect(compile(empty).sourceProject.cgGallery).toEqual({
       pages: [{ imageAssetIds: Array(9).fill(null) }],
+      style: DEFAULT_CG_GALLERY_STYLE,
     });
 
     const populated = authorProject();
@@ -907,6 +967,7 @@ describe('author project v21 compiler', () => {
           ],
         },
       ],
+      style: DEFAULT_CG_GALLERY_STYLE,
     });
   });
 
@@ -994,7 +1055,7 @@ describe('author project v21 compiler', () => {
     const forgedLegacy = authorProject();
     forgedLegacy.fileVersion = 17;
     expect(() => compile(forgedLegacy)).toThrow(
-      '字段不符合作者项目 v21',
+      '字段不符合作者项目 v22',
     );
 
     const missingCurrentField = authorProject();
@@ -1003,7 +1064,7 @@ describe('author project v21 compiler', () => {
     }).scenes[0]!.nodes[2]!;
     delete missingCharacter.effect;
     expect(() => compile(missingCurrentField)).toThrow(
-      '字段不符合作者项目 v21',
+      '字段不符合作者项目 v22',
     );
   });
 

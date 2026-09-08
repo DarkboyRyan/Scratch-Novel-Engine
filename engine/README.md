@@ -1,4 +1,4 @@
-# VN Engine C++ Core
+# Scratch Novel Engine C++ Core
 
 [返回项目首页](../README.md)
 
@@ -22,9 +22,9 @@ Editor Renderer → Preload → Electron Main → vn_engine_backend → vn_engin
 
 | 契约 | 当前行为 |
 | --- | --- |
-| Author Writer | 固定写出 `fileVersion: 21`。 |
-| Author Reader | 严格读取 v1–v21，先迁移与聚合校验，成功后才替换内存项目。 |
-| Runtime Export | Editor Main 将 Author v21 编译为 Runtime v12 并注入权威 Editor 语言；不在 C++ Core 中执行剧情。 |
+| Author Writer | 固定写出 `fileVersion: 22`。 |
+| Author Reader | 严格读取 v1–v22，先迁移与聚合校验，成功后才替换内存项目。 |
+| Runtime Export | Editor Main 将 Author v22 编译为 Runtime v13 并注入权威 Editor 语言；不在 C++ Core 中执行剧情。 |
 | Save Snapshot | Player 使用 Snapshot v5；它不属于 Author 文件，也不由 Backend 持久化。 |
 
 Author v20 为 `StartScreen` 新增可编辑 `eyebrow`：默认 `A VN ENGINE STORY`，空字符串
@@ -32,8 +32,10 @@ Author v20 为 `StartScreen` 新增可编辑 `eyebrow`：默认 `A VN ENGINE STO
 Author v21 为场景初始背景、时间线背景和人物立绘新增整数 `scalePercent`，范围 10–300、
 默认 100；没有背景或 `mode: "clear"` 的人物节点必须保存为 100。标题页背景和 CG 不使用
 该字段，v1–v20 迁移时补 100。
-Runtime v11 是图片缩放的历史里程碑；当前 Runtime v12 的 `game.defaultLanguage`
-属于 Editor Main 导出元数据，不进入 Author v21 或 C++ Backend。
+Runtime v11 是图片缩放的历史里程碑；Runtime v12 的 `game.defaultLanguage`
+属于 Editor Main 导出元数据，不进入 Author Project 或 C++ Backend。
+Author v22 为 `StartScreen` 和 `CgGallery` 新增严格类型化样式；旧 v1–v21 迁移为默认值。
+样式只包含固定枚举、受界整数和规范 `#RRGGBB` 颜色，不保存 CSS、JS 或 URL。
 Author v19 的人物节点用 `mode: "show" | "clear"` 区分待选图和清除命令：
 `show + assetId:null` 可以作为编辑占位，但导出必须拒绝；`clear` 要求资源、精确位置和
 特效都为空。CG 画廊至少一页、每页恰好九个可空且不重复的图片槽。剧情内 CG 由严格配对

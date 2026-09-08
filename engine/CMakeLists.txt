@@ -1,4 +1,4 @@
-# 文件职责：配置 VN Engine C++20 Core、JSONL Backend 与 CTest 目标。
+# 文件职责：配置 Scratch Novel Engine C++20 Core、JSONL Backend 与 CTest 目标。
 # 关键实现：依赖获取、平台编译选项、可执行文件和四组测试注册。
 cmake_minimum_required(VERSION 3.20)
 

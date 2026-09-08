@@ -97,7 +97,8 @@ export function getCharacterFieldUpdate(
   if (
     changeEvent.element !== 'field' ||
     !changeEvent.blockId ||
-    (changeEvent.name !== CHARACTER_BLOCK_FIELDS.slot &&
+    (changeEvent.name !== CHARACTER_BLOCK_FIELDS.assetName &&
+      changeEvent.name !== CHARACTER_BLOCK_FIELDS.slot &&
       changeEvent.name !== CHARACTER_BLOCK_FIELDS.layer &&
       changeEvent.name !== CHARACTER_BLOCK_FIELDS.scalePercent)
   ) {

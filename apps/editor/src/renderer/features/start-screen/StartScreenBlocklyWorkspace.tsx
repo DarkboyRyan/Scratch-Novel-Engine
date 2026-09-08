@@ -21,6 +21,7 @@ import {
   VN_IMAGE_ASSET_DRAG_TYPE,
 } from '../assets/assetDragTypes';
 import { getBlockClientRectangle } from '../block-editor/blockSelection';
+import { BLOCKLY_WORKSPACE_MOVE_OPTIONS } from '../block-editor/blocklyWorkspaceMovement';
 import { installInlineZoomControlIcons } from '../block-editor/zoomControlIcons';
 import {
   applyStartScreenBlocksLocalization,
@@ -214,11 +215,7 @@ export const StartScreenBlocklyWorkspace = forwardRef<
 
     const workspace = Blockly.inject(container, {
       readOnly: false,
-      move: {
-        scrollbars: true,
-        drag: false,
-        wheel: false,
-      },
+      move: BLOCKLY_WORKSPACE_MOVE_OPTIONS,
       renderer: 'zelos',
       sounds: false,
       zoom: {

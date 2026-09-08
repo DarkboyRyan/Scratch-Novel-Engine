@@ -3,9 +3,11 @@
  * 关键函数与实现：`CgGalleryProps`、`CgGallery`；基于 React 组件、Hooks、可访问交互与受控状态实现。
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { CgGalleryStyleDocument } from '@vnengine/runtime';
 
 import type { PlayerUiLocalizationProps } from './localization';
 import type { MediaUrlResolver } from './mediaPort';
+import { createCgGalleryThemePresentation } from './pageTheme';
 import { usePlayerUiLabels } from './PlayerUiProvider';
 
 const IMAGES_PER_PAGE = 9;
@@ -22,6 +24,7 @@ export type CgGalleryProps = PlayerUiLocalizationProps & {
   pages: ReadonlyArray<{
     imageAssetIds: readonly (string | null)[];
   }>;
+  galleryStyle?: CgGalleryStyleDocument | null;
   resolveMediaUrl: MediaUrlResolver;
   restoreFocusTo?: HTMLElement | null;
   onClose: () => void;
@@ -62,12 +65,14 @@ export function CgGallery({
   language,
   labels: labelsOverride,
   pages,
+  galleryStyle,
   resolveMediaUrl,
   restoreFocusTo = null,
   onClose,
 }: CgGalleryProps) {
   const allLabels = usePlayerUiLabels(language, labelsOverride);
   const labels = allLabels.cgGallery;
+  const theme = createCgGalleryThemePresentation(galleryStyle);
   const [page, setPage] = useState(0);
   const [enlargedIndex, setEnlargedIndex] = useState<number | null>(null);
   const layerRef = useRef<HTMLDivElement>(null);
@@ -183,6 +188,9 @@ export function CgGallery({
     <div
       ref={layerRef}
       className="player-cg-gallery-layer"
+      style={theme.style}
+      data-player-cg-layout={theme.layout}
+      data-player-cg-thumbnail-fit={theme.thumbnailFit}
       role="dialog"
       aria-modal={enlargedIndex === null ? 'true' : undefined}
       aria-label={labels.title}

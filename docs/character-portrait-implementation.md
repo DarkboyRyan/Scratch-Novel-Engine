@@ -6,13 +6,13 @@
 > 升级为 v6，音频升级为 v7，视频升级为 v8，选项分支升级为 v9；主界面媒体配置
 > 在 v10 加入、独立标题在 v11 加入；v17 加入显示 CG，v18 加入人物立绘侧挂特效，
 > v19 增加人物 `mode` 并区分待选图占位与明确清除；v20 再加入标题页 eyebrow；v21 为
-> 场景初始背景、时间线背景和人物立绘加入缩放。当前 Writer 为 v21、Reader 支持 v1–v21。
+> 场景初始背景、时间线背景和人物立绘加入缩放。当前 Writer 为 v22、Reader 支持 v1–v22。
 > 显示 CG 的完整历史里程碑是 Author v17 / Runtime v8 / Snapshot v3；人物特效首次在
-> Author v18 / Runtime v9 / Snapshot v4 引入；当前 Runtime/Snapshot 分别为 v12/v5。
+> Author v18 / Runtime v9 / Snapshot v4 引入；当前 Runtime/Snapshot 分别为 v13/v5。
 > 详见 [视频播放积木](./video-playback-block.md)。测试数量会随功能变化，当前
 > 状态应以 `pnpm --dir apps/editor test` 的结果为准。
 
-> 七类人物动画、右侧 value socket、原子移动、Runtime v9 引入/当前 Runtime v12、Snapshot v4 历史里程碑与暂停/
+> 七类人物动画、右侧 value socket、原子移动、Runtime v9 引入/当前 Runtime v13、Snapshot v4 历史里程碑与暂停/
 > reduced-motion 语义见 [人物立绘特效](./character-portrait-effects.md)。
 
 > 总体技术选型和面试问答见
@@ -151,7 +151,7 @@ type CharacterNode =
 
 公共快照只含 Asset ID 和显示所需字段，不含绝对路径或项目相对路径。
 
-## 文件格式 v5（人物引入版本）、v19 mode 与当前 v21
+## 文件格式 v5（人物引入版本）、v19 mode 与当前 v22
 
 v5 增加人物时间线节点：
 
@@ -165,7 +165,7 @@ v5 增加人物时间线节点：
 }
 ```
 
-v19 起明确清除第 1 层；当前 v21 还精确要求清除节点的缩放为 100：
+v19 起明确清除第 1 层；当前 v22 延续 v21 的规则，仍精确要求清除节点的缩放为 100：
 
 ```json
 {
@@ -183,7 +183,7 @@ v19 起明确清除第 1 层；当前 v21 还精确要求清除节点的缩放�
 
 Author v18 在 v5 字段基础上精确加入 `position` 与 `effect`，无特效时写
 `"effect": null`；v19 再精确加入 `mode`。`show + assetId:null` 是尚未选择图片的
-Author 占位，预览会跳过，所有导出格式都会以稳定错误拒绝；它不会降级成 Runtime v12 的
+Author 占位，预览会跳过，所有导出格式都会以稳定错误拒绝；它不会降级成 Runtime v13 的
 清除指令。完整 effect union 示例见[人物立绘特效](./character-portrait-effects.md)。
 
 Author v21 同时为 `Scene.backgroundScalePercent`、BackgroundNode 和 CharacterNode 加入
@@ -193,13 +193,13 @@ Author v21 同时为 `Scene.backgroundScalePercent`、BackgroundNode 和 Charact
 兼容策略：
 
 - 人物节点在 v5 首次加入。
-- 当前 Reader 严格接受 v1–v21。
+- 当前 Reader 严格接受 v1–v22。
 - v1/v2 只有对白节点。
 - v3 支持必须绑定图片的背景节点。
 - v4 支持 `assetId: null` 的背景节点。
 - v5 支持人物节点。
 - v6 支持场景跳转；v7 增加语音/BGM；v8 增加 VideoNode；v9 增加 ChoiceNode；
-  v10 增加项目级 `startScreen` 媒体，v11 增加独立标题，v12 增加手动延伸，v13 为人物节点增加可空 `position: {x,y}`，v14 增加扁平 CG 画廊，v15 把画廊升级为固定九槽页面，v16 增加变量和配对逻辑，v17 增加显示 CG 控制块，v18 增加人物 sidecar effect，v19 增加人物 `mode`，v20 增加标题页 eyebrow，v21 增加剧情图片缩放；当前 Writer 始终写 v21。
+  v10 增加项目级 `startScreen` 媒体，v11 增加独立标题，v12 增加手动延伸，v13 为人物节点增加可空 `position: {x,y}`，v14 增加扁平 CG 画廊，v15 把画廊升级为固定九槽页面，v16 增加变量和配对逻辑，v17 增加显示 CG 控制块，v18 增加人物 sidecar effect，v19 增加人物 `mode`，v20 增加标题页 eyebrow，v21 增加剧情图片缩放，v22 增加主界面和 CG 画廊严格样式；当前 Writer 始终写 v22。
 - v1–v17 人物节点迁移为 `effect: null`；旧版本伪造 effect、或 v18 缺少 effect 都会被 exact-fields Reader 拒绝。
 - v1–v18 人物根据旧 `assetId` 迁移：非空为 `show`、空值为 `clear`；旧 clear 遗留
   position 会规范化为 `null`。v19 缺少或伪造 `mode` 会被拒绝。
@@ -368,7 +368,7 @@ reduced-motion 和 Snapshot v4 人物特效历史语义见特效专文；当前 
 9. 表单与 Blockly 修改同一 C++ 节点，没有本地第二份真相。
 10. 混合多选拖动、Delete 和垃圾桶对对白/背景/人物都有效。
 11. 保存重开后人物、位置、层级、缩放与时间线顺序不变。
-12. v1–v20 项目仍能打开并在保存时升级到当前 v21；v1–v12 的旧人物节点自动补 `position: null`，v13 及之后的坐标保持不变，v1–v17 人物统一补 `effect: null`，并按旧 assetId 推导 mode；所有旧剧情图片缩放补 100%。
+12. v1–v21 项目仍能打开并在保存时升级到当前 v22；v1–v12 的旧人物节点自动补 `position: null`，v13 及之后的坐标保持不变，v1–v17 人物统一补 `effect: null`，并按旧 assetId 推导 mode；所有旧剧情图片缩放补 100%。
 13. 非图片、缺失资源、非法 slot/layer 失败且 Project/revision 不变。
 14. 图片路径不进入 Renderer、Preload 公共返回或普通 Engine 调用。
 15. 七类特效严格读写；普通人物更新保留特效，清图同步清特效，跨人物移动保持原子性。

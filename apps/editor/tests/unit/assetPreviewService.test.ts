@@ -20,6 +20,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AssetPreviewService } from '../../src/main/assets/AssetPreviewService';
 import type { EngineMutationResult } from '../../src/shared/engineProtocol';
+import {
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
+} from '../../src/shared/projectTypes';
 
 const temporaryDirectories: string[] = [];
 
@@ -81,9 +85,11 @@ function resultFor(assetId = 'asset-1'): EngineMutationResult {
         eyebrow: 'A VN ENGINE STORY',
         backgroundAssetId: null,
         musicAssetId: null,
+        style: { ...DEFAULT_START_SCREEN_STYLE },
       },
       cgGallery: {
         pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+        style: { ...DEFAULT_CG_GALLERY_STYLE },
       },
       scenes: [
         {
@@ -374,6 +380,25 @@ describe('AssetPreviewService', () => {
     await expect(request(beforeSave)).resolves.toMatchObject({
       status: 404,
     });
+  });
+
+  it('synchronizes rename metadata and revokes a deleted asset capability', async () => {
+    const { projectFilePath } = await makeProject();
+    const { service, request } = makeService();
+    const initial = resultFor();
+    await service.activateProjectFile(projectFilePath, initial);
+    const issuedUrl = service.getPreviewUrl('asset-1') as string;
+    const renamed = {
+      ...initial,
+      assets: [{ ...initial.assets[0]!, displayName: 'Renamed' }],
+    };
+
+    expect(service.synchronizeRenamedAsset('asset-1', renamed)).toBe(true);
+    expect(service.getPreviewUrl('asset-1')).toBe(issuedUrl);
+    const deleted = { ...renamed, assets: [] };
+    expect(service.revokeDeletedAssets(['asset-1'], deleted)).toBe(true);
+    expect(service.getPreviewUrl('asset-1')).toBeNull();
+    await expect(request(issuedUrl)).resolves.toMatchObject({ status: 404 });
   });
 
   it('rejects path traversal, unknown assets, wrong magic, and non-GET methods', async () => {

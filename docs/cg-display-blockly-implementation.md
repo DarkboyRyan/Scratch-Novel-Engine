@@ -2,7 +2,7 @@
 
 # 显示 CG Blockly 实现
 
-> 实现状态：已完成。当前作者项目格式为 v21，导出为 runtime v12；桌面 Player、
+> 实现状态：已完成。当前作者项目格式为 v22，导出为 runtime v13；桌面 Player、
 > Web Player 与 Editor 正式预览共用同一套 CG 显示、对白和计时语义。显示 CG 首次
 > 引入的历史里程碑仍是 Author v17 / Runtime v8 / Snapshot v3。
 
@@ -22,7 +22,7 @@ CG 上方，暂停菜单、选项、存读档和选择层仍位于对白上方�
 Then/Else 或 Repeat body，但它自己的开口只接受对白，不能再嵌套逻辑、视频、选项、
 场景跳转、延伸或另一块 CG。
 
-Runtime v11 首次加入、当前 Author v21 / Runtime v12 延续的图片缩放只覆盖剧情背景与
+Author v21 / Runtime v11 首次加入、当前 Author v22 / Runtime v13 延续的图片缩放只覆盖剧情背景与
 人物立绘；CG 仍按完整图片 contain 显示，不拥有 `scalePercent`，因此调整背景或立绘
 大小不会改变 CG 预览和正式播放。
 
@@ -112,7 +112,7 @@ Main 的后端响应解析器同时认识并净化两个新节点；畸形响应
 
 ## 5. Runtime、计时与媒体生命周期
 
-Runtime v8 首次新增、当前 Runtime v12 继续使用以下阻塞状态与展示字段：
+Runtime v8 首次新增、当前 Runtime v13 继续使用以下阻塞状态与展示字段：
 
 ```ts
 status: 'waitingCgLeadIn' | /* existing states */;
@@ -143,12 +143,12 @@ CG 是视觉层，进入等待态不会停止或重置 BGM；没有对白时 voi
 
 ## 6. 保存、导出与兼容
 
-- Writer 固定写 author v21；Reader 支持 v1–v21，v1–v16 迁移后没有 CG 显示节点；
+- Writer 固定写 author v22；Reader 支持 v1–v22，v1–v16 迁移后没有 CG 显示节点；
 - 伪装成旧版本的 `cgDisplay` / `cgEndDisplay` 会被严格拒绝；
-- Editor Main 把 author v21 编译为 runtime v12，并把 CG 图片纳入导出资源闭包；
-- 当前 runtime v12 manifest 使用 `playerCompatibility: ">=12 <13"`；
-- Desktop/Web Player Reader 支持 runtime v1–v12，CG 节点从 v8 起可用；
-- 当前 Player 模板使用 `runtimeCompatibility: ">=1 <13"`。
+- Editor Main 把 author v22 编译为 runtime v13，并把 CG 图片纳入导出资源闭包；
+- 当前 runtime v13 manifest 使用 `playerCompatibility: ">=13 <14"`；
+- Desktop/Web Player Reader 支持 runtime v1–v13，CG 节点从 v8 起可用；
+- 当前 Player 模板使用 `runtimeCompatibility: ">=1 <14"`。
 
 游戏进度当前使用 `GameRuntimeSnapshot v5`，继续保存 snapshot v3 引入的 `cgAssetId`、
 `cgLeadInMs` 和 `cgSequence` 以及 snapshot v4 引入的人物特效最终视觉状态，并增加剧情
@@ -162,12 +162,12 @@ CG 是视觉层，进入等待态不会停止或重置 BGM；没有对白时 voi
 | 层 | 技术与职责 |
 | --- | --- |
 | C++ Core | C++20、`std::variant`、候选副本事务、paired range 校验 |
-| C++ Backend | nlohmann/json、JSONL、exact params、author v21 strict Reader/Writer |
+| C++ Backend | nlohmann/json、JSONL、exact params、author v22 strict Reader/Writer |
 | Electron | TypeScript protocol、trusted IPC、contextBridge、响应净化与即时 pending reject |
 | Editor | React 19、Blockly 13、C 形投影、图片下拉、秒↔整数毫秒转换、表单只读树 |
 | Runtime | 纯 TypeScript reducer、预编译控制流、`waitingCgLeadIn`、snapshot v5 |
 | Player | React、HTML `<img>` load/decode、可暂停剩余时间、CSS 分层与本地化错误 |
-| Web | Vite Web Player、同源媒体 URL、IndexedDB 存档，与 Desktop 共用 runtime v12 |
+| Web | Vite Web Player、同源媒体 URL、IndexedDB 存档，与 Desktop 共用 runtime v13 |
 
 主要实现入口：
 

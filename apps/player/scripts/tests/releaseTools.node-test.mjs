@@ -72,7 +72,7 @@ function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-async function writeMediaBundle(root, runtimeVersion = 12) {
+async function writeMediaBundle(root, runtimeVersion = 13) {
   const png = Buffer.from([
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
     0x00, 0x00, 0x00, 0x0d,
@@ -100,6 +100,25 @@ async function writeMediaBundle(root, runtimeVersion = 12) {
                   : {}),
                 backgroundAssetId: 'background',
                 musicAssetId: null,
+                ...(runtimeVersion >= 13
+                  ? {
+                      style: {
+                        fontPreset: 'system',
+                        fontScalePercent: 100,
+                        pageColor: '#0B0C0F',
+                        textColor: '#FFFFFF',
+                        mutedTextColor: '#B8BCC6',
+                        surfaceColor: '#0C0F14',
+                        surfaceOpacityPercent: 0,
+                        accentColor: '#FFFFFF',
+                        overlayColor: '#040609',
+                        overlayOpacityPercent: 44,
+                        cornerRadiusPx: 0,
+                        layout: 'split-right',
+                        backgroundFit: 'contain',
+                      },
+                    }
+                  : {}),
               },
             }
           : {}),
@@ -115,6 +134,26 @@ async function writeMediaBundle(root, runtimeVersion = 12) {
                         ...Array(7).fill(null),
                       ],
                     }],
+                    ...(runtimeVersion >= 13
+                      ? {
+                          style: {
+                            fontPreset: 'system',
+                            fontScalePercent: 100,
+                            pageColor: '#040609',
+                            textColor: '#F7F8FA',
+                            mutedTextColor: '#969BA5',
+                            surfaceColor: '#0C0F14',
+                            surfaceOpacityPercent: 96,
+                            accentColor: '#FFFFFF',
+                            overlayColor: '#040609',
+                            overlayOpacityPercent: 88,
+                            cornerRadiusPx: 12,
+                            layout: 'framed',
+                            thumbnailFit: 'contain',
+                            gapPx: 16,
+                          },
+                        }
+                      : {}),
                   },
             }
           : {}),

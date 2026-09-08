@@ -37,8 +37,12 @@ describe('title preview modal visual style contract', () => {
     expect(optionsCard).not.toContain('100vw');
     expect(optionsCard).toContain('background: rgb(12 15 20 / 96%)');
     expect(optionsCard).toContain('overflow: auto');
-    expect(cgCard).toContain('background: rgb(12 15 20 / 96%)');
-    expect(cgCard).toContain('border-radius: 12px');
+    expect(cgCard).toContain(
+      'background: var(--player-cg-surface-color, rgb(12 15 20 / 96%))',
+    );
+    expect(cgCard).toContain(
+      'border-radius: var(--player-cg-corner-radius, 12px)',
+    );
     expect(optionsPrimary).toContain('background: rgb(255 255 255 / 94%)');
   });
 

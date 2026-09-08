@@ -46,6 +46,13 @@ export {
   type AutoFitScaleRefs,
 } from './useAutoFitScale';
 export {
+  createCgGalleryThemePresentation,
+  createStartScreenThemePresentation,
+  readableForegroundColor,
+  type CgGalleryThemePresentation,
+  type StartScreenThemePresentation,
+} from './pageTheme';
+export {
   createPreviewAudioController,
   type PreviewAudioController,
   type PreviewAudioControllerOptions,

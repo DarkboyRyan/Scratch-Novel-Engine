@@ -6,6 +6,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { isEngineInvocation } from '../../src/main/ipc/validateEngineInvocation';
+import {
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
+} from '../../src/shared/projectTypes';
 
 describe('engine IPC validation', () => {
   it('keeps project.create off the general Renderer engine channel', () => {
@@ -154,6 +158,41 @@ describe('engine IPC validation', () => {
     }
   });
 
+  it('accepts only exact canonical page-style updates', () => {
+    expect(isEngineInvocation({
+      method: 'startScreen.style.update',
+      params: { style: DEFAULT_START_SCREEN_STYLE },
+    })).toBe(true);
+    expect(isEngineInvocation({
+      method: 'cgGallery.style.update',
+      params: { style: DEFAULT_CG_GALLERY_STYLE },
+    })).toBe(true);
+
+    for (const invocation of [
+      {
+        method: 'startScreen.style.update',
+        params: {
+          style: { ...DEFAULT_START_SCREEN_STYLE, pageColor: '#0b0c0f' },
+        },
+      },
+      {
+        method: 'startScreen.style.update',
+        params: {
+          style: DEFAULT_START_SCREEN_STYLE,
+          unexpected: true,
+        },
+      },
+      {
+        method: 'cgGallery.style.update',
+        params: {
+          style: { ...DEFAULT_CG_GALLERY_STYLE, gapPx: 33 },
+        },
+      },
+    ]) {
+      expect(isEngineInvocation(invocation)).toBe(false);
+    }
+  });
+
   it('accepts setting or clearing a scene background by Asset ID', () => {
     expect(
       isEngineInvocation({
@@ -188,6 +227,104 @@ describe('engine IPC validation', () => {
         params,
       })).toBe(false);
     }
+  });
+
+  it('accepts only exact, bounded nested scene-content replacement drafts', () => {
+    const draft = {
+      name: 'Edited scene',
+      initialBackground: { assetId: 'image-1', scalePercent: 80 },
+      nodes: [
+        {
+          type: 'dialogue',
+          originId: 'dialogue-1',
+          speaker: '',
+          text: 'Hello',
+          voiceAssetId: null,
+        },
+        {
+          type: 'if',
+          originId: 'if-1',
+          condition: {
+            left: { kind: 'variable', name: 'score' },
+            operator: 'gte',
+            right: { kind: 'literal', value: 1 },
+          },
+          thenNodes: [
+            {
+              type: 'repeat',
+              count: 2,
+              bodyNodes: [
+                {
+                  type: 'dialogue',
+                  speaker: 'A',
+                  text: '',
+                  voiceAssetId: 'voice-1',
+                },
+              ],
+            },
+          ],
+          elseNodes: [],
+        },
+        {
+          type: 'cg',
+          assetId: 'image-2',
+          leadInMs: 300,
+          bodyNodes: [
+            {
+              type: 'dialogue',
+              speaker: '',
+              text: 'CG line',
+              voiceAssetId: null,
+            },
+          ],
+        },
+      ],
+    };
+
+    expect(isEngineInvocation({
+      method: 'scene.content.replace',
+      params: { sceneId: 'scene-1', draft },
+    })).toBe(true);
+
+    expect(isEngineInvocation({
+      method: 'scene.content.replace',
+      params: {
+        sceneId: 'scene-1',
+        draft: {
+          ...draft,
+          nodes: [draft.nodes[0], { ...draft.nodes[0] }],
+        },
+      },
+    })).toBe(false);
+    expect(isEngineInvocation({
+      method: 'scene.content.replace',
+      params: {
+        sceneId: 'scene-1',
+        draft: {
+          ...draft,
+          initialBackground: { assetId: null, scalePercent: 80 },
+        },
+      },
+    })).toBe(false);
+    expect(isEngineInvocation({
+      method: 'scene.content.replace',
+      params: {
+        sceneId: 'scene-1',
+        draft: {
+          ...draft,
+          nodes: [{
+            type: 'cg',
+            assetId: 'image-2',
+            leadInMs: 0,
+            bodyNodes: [{ type: 'storyExtension' }],
+          }],
+        },
+      },
+    })).toBe(false);
+    expect(isEngineInvocation({
+      method: 'scene.content.replace',
+      params: { sceneId: 'scene-1', draft, unexpected: true },
+    })).toBe(false);
   });
 
   it('accepts a unique, non-empty selection and a nullable anchor', () => {

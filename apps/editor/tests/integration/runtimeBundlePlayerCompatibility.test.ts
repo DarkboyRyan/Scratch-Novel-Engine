@@ -11,7 +11,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
-import { startGame } from '@vnengine/runtime';
+import {
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
+  startGame,
+} from '@vnengine/runtime';
 
 import { loadRuntimeBundle } from '../../../player/src/main/content/PlayerBundleLoader';
 import { compileAuthorProjectV15 } from '../../src/main/export/AuthorProjectCompiler';
@@ -28,7 +32,7 @@ afterEach(async () => {
 });
 
 describe('Editor export to Player compatibility', () => {
-  it('preserves Author v21 language and image scales in Runtime v12 through the Player strict reader', async () => {
+  it('preserves Author v22 styles, language, and image scales in Runtime v13 through the Player strict reader', async () => {
     const testRoot = await mkdtemp(
       path.join(tmpdir(), 'vn-export-player-contract-'),
     );
@@ -43,7 +47,7 @@ describe('Editor export to Player compatibility', () => {
 
     const authorDocument = {
       format: 'vn-engine-project',
-      fileVersion: 21,
+      fileVersion: 22,
       project: {
         schemaVersion: 1,
         id: 'contract-project',
@@ -54,6 +58,10 @@ describe('Editor export to Player compatibility', () => {
           eyebrow: 'A VN ENGINE STORY',
           backgroundAssetId: 'background-asset',
           musicAssetId: null,
+          style: {
+            ...DEFAULT_START_SCREEN_STYLE,
+            layout: 'center',
+          },
         },
         cgGallery: {
           pages: [{
@@ -63,6 +71,10 @@ describe('Editor export to Player compatibility', () => {
               ...Array<string | null>(7).fill(null),
             ],
           }],
+          style: {
+            ...DEFAULT_CG_GALLERY_STYLE,
+            gapPx: 24,
+          },
         },
         scenes: [
           {
@@ -168,8 +180,8 @@ describe('Editor export to Player compatibility', () => {
     });
     const loaded = await loadRuntimeBundle(bundlePath);
 
-    expect(compiled.game.runtimeVersion).toBe(12);
-    expect(loaded.identity.runtimeVersion).toBe(12);
+    expect(compiled.game.runtimeVersion).toBe(13);
+    expect(loaded.identity.runtimeVersion).toBe(13);
     expect(loaded.game.defaultLanguage).toBe('en-US');
     expect(loaded.game.project).toEqual(compiled.project);
     expect(loaded.game.project.scenes[0]).toMatchObject({

@@ -60,7 +60,7 @@ import {
 export const WEB_EXPORT_FORMAT = 'vn-engine-web-export';
 export const WEB_EXPORT_VERSION = 1;
 
-export const WEB_EXPORT_README = `VN Engine Web 游戏
+export const WEB_EXPORT_README = `Scratch Novel Engine Web 游戏
 
 此 ZIP 必须解压后部署到 HTTP/HTTPS 静态网站，不能保证通过 file:// 直接双击 index.html 运行。
 

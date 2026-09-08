@@ -61,8 +61,12 @@ describe('start screen responsive style contract', () => {
       /\.game-preview-title-overlay \.player-title-actions\s*\{([^}]*)\}/s,
     )?.[1];
 
-    expect(designBackgroundRule).toContain('object-fit: contain');
-    expect(fullBackgroundRule).toContain('object-fit: contain');
+    expect(designBackgroundRule).toContain(
+      'object-fit: var(--player-title-background-fit, contain)',
+    );
+    expect(fullBackgroundRule).toContain(
+      'object-fit: var(--player-title-background-fit, contain)',
+    );
     expect(designCardRule).toContain('display: grid');
     expect(designCardRule).toContain('"eyebrow actions"');
     expect(fullCardRule).toContain('display: grid');

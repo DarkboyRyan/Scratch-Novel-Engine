@@ -32,8 +32,8 @@
 
 选项是 Player 外壳的本地偏好，不属于作者项目、导出内容或剧情存档：
 
-- 作者项目固定写 `fileVersion: 21`，Reader 支持 v1–v21；
-- 导出内容为 runtime v12，Player 兼容 runtime v1–v12；Runtime v11 仍是图片缩放的历史里程碑；
+- 作者项目固定写 `fileVersion: 22`，Reader 支持 v1–v22；
+- 导出内容为 runtime v13，Player 兼容 runtime v1–v13；Runtime v11 仍是图片缩放的历史里程碑；
 - 游戏进度使用独立的 `GameRuntimeSnapshot v5` 和 `saveVersion: 1`，并受限兼容旧 v1–v4；
 - Player 设置当前写 `settingsVersion: 2`，Reader 严格迁移旧 v1；
 - Runtime v12 必须有 `game.defaultLanguage`，v1–v11 迁移为 `zh-CN`；
@@ -312,8 +312,8 @@ Player 的 `onOpenOptions` 时，`TitleScreen` 创建一份仅属于该组件生
 - 语言可以在当前预览生命周期内切换，默认中文；
 - 不调用 `window.vnPlayer`、不访问 `userData`，关闭预览后不会保存；
 - 窗口模式和窗口尺寸控件保持禁用，并明确提示“仅在正式 Player 中应用”；
-- 不会调整 Editor BrowserWindow，也不会把该预览设置写入 Author v21 或
-  Runtime v12；正式导出的包默认另由 Editor Main 权威语言决定。
+- 不会调整 Editor BrowserWindow，也不会把该预览设置写入 Author v22 或
+  Runtime v13；正式导出的包默认另由 Editor Main 权威语言决定。
 
 这样 Editor 能预览正式选项样式和媒体效果，但不会意外获得 Player 的本地持久化或窗口
 控制权限。

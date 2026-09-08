@@ -47,6 +47,7 @@ describe('preload Editor settings API', () => {
   it('forwards only fixed get and narrow update invocations', async () => {
     await settingsApi.getSettings();
     await settingsApi.updateSettings({ language: 'en-US' });
+    await settingsApi.updateSettings({ colorTheme: 'moonlight' });
 
     expect(electron.invoke.mock.calls).toEqual([
       ['vn-editor-settings:request', {
@@ -56,6 +57,10 @@ describe('preload Editor settings API', () => {
       ['vn-editor-settings:request', {
         action: 'update-settings',
         params: { patch: { language: 'en-US' } },
+      }],
+      ['vn-editor-settings:request', {
+        action: 'update-settings',
+        params: { patch: { colorTheme: 'moonlight' } },
       }],
     ]);
   });
@@ -68,17 +73,27 @@ describe('preload Editor settings API', () => {
       settings: unknown,
     ) => void;
 
-    registered({}, { settingsVersion: 1, language: 'en-US' });
-    registered({}, { settingsVersion: 1, language: 'fr-FR' });
     registered({}, {
-      settingsVersion: 1,
+      settingsVersion: 2,
+      language: 'en-US',
+      colorTheme: 'moonlight',
+    });
+    registered({}, {
+      settingsVersion: 2,
+      language: 'fr-FR',
+      colorTheme: 'daylight',
+    });
+    registered({}, {
+      settingsVersion: 2,
       language: 'zh-CN',
+      colorTheme: 'daylight',
       injected: true,
     });
     expect(listener).toHaveBeenCalledOnce();
     expect(listener).toHaveBeenCalledWith({
-      settingsVersion: 1,
+      settingsVersion: 2,
       language: 'en-US',
+      colorTheme: 'moonlight',
     });
 
     unsubscribe();
@@ -88,4 +103,3 @@ describe('preload Editor settings API', () => {
     );
   });
 });
-

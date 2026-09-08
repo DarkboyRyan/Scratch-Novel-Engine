@@ -6,7 +6,12 @@
 
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { startGame, type ProjectDocument } from '@vnengine/runtime';
+import {
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
+  startGame,
+  type ProjectDocument,
+} from '@vnengine/runtime';
 import { TitleScreen, usePreviewAudio } from '@vnengine/player-ui';
 import type * as PlayerUi from '@vnengine/player-ui';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -38,8 +43,12 @@ const project: ProjectDocument = {
     eyebrow: 'A VN ENGINE STORY',
     backgroundAssetId: null,
     musicAssetId: null,
+    style: { ...DEFAULT_START_SCREEN_STYLE },
   },
-  cgGallery: { pages: [{ imageAssetIds: Array(9).fill(null) }] },
+  cgGallery: {
+    pages: [{ imageAssetIds: Array(9).fill(null) }],
+    style: { ...DEFAULT_CG_GALLERY_STYLE },
+  },
   scenes: [
     {
       schemaVersion: 1,

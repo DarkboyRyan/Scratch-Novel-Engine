@@ -1,11 +1,12 @@
 /**
- * 文件主要作用：组合场景表单、属性检查器、资源面板和预览面板。
+ * 文件主要作用：组合场景时间线、属性检查器和预览面板。
  * 包含实现：`FormEditor`。
  */
 
 import { PreviewPanel } from '../../components/PreviewPanel';
 import type { PreviewCharacter } from '../../components/PreviewPanel';
 import type { AssetDocument } from '../../../shared/projectTypes';
+import type { SceneBackgroundSelection } from '../assets/SceneBackgroundSettings';
 import { InspectorPanel } from './InspectorPanel';
 import { ScenePanel } from './ScenePanel';
 import type { FormEditorState } from './useFormEditor';
@@ -16,6 +17,10 @@ type FormEditorProps = {
   backgroundUrl: string | null;
   backgroundName: string | null;
   backgroundScalePercent: number;
+  backgroundAssetId: string | null;
+  sceneBackgroundScalePercent: number;
+  sceneBackgroundScaleDraft: string;
+  sceneBackgroundScaleDraftInvalid: boolean;
   cgUrl: string | null;
   cgName: string | null;
   showDialogue: boolean;
@@ -28,6 +33,11 @@ type FormEditorProps = {
   onSelectScene: (sceneId: string) => Promise<void>;
   onSelectStartScreen: () => Promise<void>;
   onSelectCgGallery: () => Promise<void>;
+  onSceneBackgroundScaleDraftChange: (value: string) => void;
+  onCommitSceneBackgroundScaleDraft: () => Promise<boolean>;
+  onSelectSceneBackground: (
+    next: SceneBackgroundSelection,
+  ) => Promise<void>;
 };
 
 export function FormEditor({

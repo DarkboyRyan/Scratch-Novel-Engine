@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { createCgGalleryThemePresentation } from '@vnengine/player-ui';
 
 import type {
   AssetDocument,
@@ -68,6 +69,7 @@ export const CgGalleryFormEditor = forwardRef<
   const activeMutationRef = useRef<Promise<boolean> | null>(null);
   const galleryRef = useRef(project.cgGallery);
   galleryRef.current = project.cgGallery;
+  const theme = createCgGalleryThemePresentation(project.cgGallery.style);
 
   const controlsDisabled = isBusy || isMutating;
   const imageAssets = assets.filter((asset) => asset.type === 'image');
@@ -244,7 +246,12 @@ export const CgGalleryFormEditor = forwardRef<
             <span aria-hidden="true">▶</span>
           </button>
         </div>
-        <div className="cg-gallery-design-preview">
+        <div
+          className="cg-gallery-design-preview"
+          style={theme.style}
+          data-player-cg-layout={theme.layout}
+          data-player-cg-thumbnail-fit={theme.thumbnailFit}
+        >
           <div className="cg-gallery-grid">
             {Array.from(
               { length: CG_GALLERY_PAGE_SIZE },
@@ -355,6 +362,9 @@ export const CgGalleryFormEditor = forwardRef<
       {expandedAssetId !== null ? (
         <div
           className="cg-gallery-lightbox"
+          style={theme.style}
+          data-player-cg-layout={theme.layout}
+          data-player-cg-thumbnail-fit={theme.thumbnailFit}
           role="dialog"
           aria-modal="true"
           aria-label={labels.cgGallery.viewLarge}

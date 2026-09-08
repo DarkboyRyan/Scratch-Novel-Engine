@@ -19,6 +19,7 @@ import {
   MAX_IMAGE_SCALE_PERCENT,
   MIN_IMAGE_SCALE_PERCENT,
 } from '../../../shared/projectTypes';
+import { formatEditorSceneLabel } from '../start-screen/startScreenScene';
 import { useEditorLabels } from '../../i18n/editorLocalization';
 import { formatCharacterEffect } from '../block-editor/blocks/characterEffectBlock';
 
@@ -395,8 +396,7 @@ export function InspectorPanel({
             {scenes.map((scene, index) =>
               scene.id === currentSceneId ? null : (
                 <option key={scene.id} value={scene.id}>
-                  {labels.common.scene} {index + 1}
-                  {scene.name !== `场景 ${index + 1}` ? ` · ${scene.name}` : ''}
+                  {formatEditorSceneLabel(scene.name, index, labels)}
                 </option>
               ),
             )}

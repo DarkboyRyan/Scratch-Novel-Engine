@@ -5,26 +5,127 @@
 
 :root {
   color-scheme: light;
-  font-family:
-    Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
-  color: #25282f;
-  background: #f4f5f7;
+  font-family: var(--font-body);
+  color: #22252b;
+  background: #f3f5f7;
 
-  --canvas: #f4f5f7;
+  --font-display:
+    "Avenir Next", "Segoe UI Variable Display", "PingFang SC", sans-serif;
+  --font-body:
+    Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono:
+    "SFMono-Regular", "Cascadia Code", Consolas, "Liberation Mono",
+    monospace;
+  --canvas: #f3f5f7;
   --panel: #ffffff;
-  --panel-subtle: #fafbfc;
-  --border: #e3e6ea;
-  --border-strong: #cbd1d9;
-  --text: #25282f;
-  --text-muted: #747b87;
-  --text-faint: #9ba1ab;
-  --selection: #f0f3f7;
-  --selection-border: #9aa7b8;
-  --primary: #30343b;
-  --primary-hover: #1e2127;
+  --panel-subtle: #f8f9fb;
+  --border: #dce1e7;
+  --border-strong: #c7ced7;
+  --text: #22252b;
+  --text-muted: #6e7480;
+  --text-faint: #969da8;
+  --selection: #f0f0fa;
+  --selection-border: #aaa9d4;
+  --primary: #514f9d;
+  --primary-hover: #403e85;
+  --primary-soft: #f1f0fa;
+  --focus-ring: #7775bd;
   --danger: #b55a65;
   --danger-soft: #fff0f2;
+  --success: #4f765d;
+  --warning: #9a681e;
+  --on-primary: #ffffff;
+  --toolbar-surface: #ffffff;
+  --control-track: #f0f2f5;
+  --control-surface: #ffffff;
+  --input-surface: #ffffff;
+  --preview-canvas: #edf0f3;
+  --stage-empty: #f8f9fb;
+  --code-surface: #111821;
+  --code-surface-raised: #18222d;
+  --code-border: #293746;
+  --code-text: #dbe4ee;
+  --code-muted: #b9c6d8;
+  --code-focus: #8f8dd5;
+  --scrollbar: #c4cad2;
+  --checker-light: #f7f8fa;
+  --checker-dark: #eceff3;
+  --blockly-workspace: #ffffff;
+  --blockly-toolbox: #f3f5f7;
+  --blockly-flyout: #ffffff;
+  --blockly-field: #ffffff;
+  --blockly-field-text: #242a32;
+  --blockly-popup: #ffffff;
+  --blockly-popup-border: #cbd5e1;
+  --blockly-control: #ffffff;
+  --blockly-control-stroke: #4f5d6b;
+  --notice-surface: #fff9e0;
+  --notice-border: #e9d99b;
+  --notice-text: #624a19;
+  --overlay-scrim: rgb(20 25 35 / 42%);
+  --shadow-menu: 0 12px 30px rgb(34 37 43 / 18%);
+  --radius-control: 6px;
+  --radius-panel: 10px;
+  --shadow-stage: 0 12px 32px rgb(34 37 43 / 9%);
+  --shadow-overlay: 0 18px 48px rgb(24 27 35 / 22%);
+}
+
+:root[data-editor-theme='moonlight'] {
+  color-scheme: dark;
+  color: #eceef7;
+  background: #0f1118;
+
+  --canvas: #0f1118;
+  --panel: #171a24;
+  --panel-subtle: #202431;
+  --border: #343a4d;
+  --border-strong: #4a5268;
+  --text: #eceef7;
+  --text-muted: #a5abbd;
+  --text-faint: #7f879b;
+  --selection: #292b47;
+  --selection-border: #7772c1;
+  --primary: #aaa3ff;
+  --primary-hover: #c0bbff;
+  --primary-soft: #292a46;
+  --focus-ring: #aaa3ff;
+  --danger: #ff9ca7;
+  --danger-soft: #351f29;
+  --success: #91d0a4;
+  --warning: #e7bd72;
+  --on-primary: #151622;
+  --toolbar-surface: #141720;
+  --control-track: #10131b;
+  --control-surface: #1c202c;
+  --input-surface: #121620;
+  --preview-canvas: #0d1018;
+  --stage-empty: #191d29;
+  --code-surface: #0b0f17;
+  --code-surface-raised: #131927;
+  --code-border: #2d3548;
+  --code-text: #e5e9f2;
+  --code-muted: #a9b1c2;
+  --code-focus: #aaa3ff;
+  --scrollbar: #4a5268;
+  --checker-light: #242938;
+  --checker-dark: #1a1e2a;
+  --blockly-workspace: #11151f;
+  --blockly-toolbox: #171b27;
+  --blockly-flyout: #1d2230;
+  --blockly-field: #252b3a;
+  --blockly-field-text: #eef0f8;
+  --blockly-popup: #1b202c;
+  --blockly-popup-border: #454d62;
+  --blockly-control: #242a38;
+  --blockly-control-stroke: #bac1d4;
+  --notice-surface: #302819;
+  --notice-border: #6e5830;
+  --notice-text: #f0cf8a;
+  --overlay-scrim: rgb(3 5 10 / 68%);
+  --shadow-menu: 0 14px 34px rgb(0 0 0 / 42%);
+  --shadow-stage: 0 14px 36px rgb(0 0 0 / 32%);
+  --shadow-overlay: 0 20px 56px rgb(0 0 0 / 48%);
 }
 
 * {
@@ -35,7 +136,12 @@ body {
   margin: 0;
   min-width: 900px;
   min-height: 100vh;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.45;
   background: var(--canvas);
+  text-rendering: optimizeLegibility;
 }
 
 button,
@@ -49,7 +155,7 @@ button:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
-  outline: 2px solid #aab4c2;
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 

@@ -3,6 +3,7 @@
  * 关键函数与实现：parseRuntimeBundleDocuments；以 TypeScript 类型边界和可组合函数实现。
  */
 import type {
+  CgGalleryStyleDocument,
   CharacterEffect,
   ChoiceOption,
   LogicCondition,
@@ -11,13 +12,18 @@ import type {
   ProjectDocument,
   SceneDocument,
   SceneNode,
+  StartScreenStyleDocument,
 } from '@vnengine/runtime';
 import {
+  DEFAULT_CG_GALLERY_STYLE,
   isLogicValue,
   isCharacterEffect,
   isImageScalePercent,
+  isCgGalleryStyleDocument,
   isLogicVariableName,
   DEFAULT_IMAGE_SCALE_PERCENT,
+  DEFAULT_START_SCREEN_STYLE,
+  isStartScreenStyleDocument,
   MAX_CG_LEAD_IN_MS,
   MAX_REPEAT_COUNT,
   validateProjectLogicVariableBudget,
@@ -52,7 +58,7 @@ export type ParsedRuntimeBundle = {
 };
 
 type SupportedRuntimeVersion =
-  1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
+  1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13;
 
 const LEGACY_START_SCREEN_EYEBROW = 'A VN ENGINE STORY';
 const UTF8_ENCODER = new TextEncoder();
@@ -172,6 +178,26 @@ function nullableId(
   return idValue(value, field, context);
 }
 
+function startScreenStyleValue(
+  value: unknown,
+  context: string,
+): StartScreenStyleDocument {
+  if (!isStartScreenStyleDocument(value)) {
+    throw new Error(`${context} 不是有效的主界面样式`);
+  }
+  return { ...value };
+}
+
+function cgGalleryStyleValue(
+  value: unknown,
+  context: string,
+): CgGalleryStyleDocument {
+  if (!isCgGalleryStyleDocument(value)) {
+    throw new Error(`${context} 不是有效的 CG 画廊样式`);
+  }
+  return { ...value };
+}
+
 function arrayValue(value: JsonObject, field: string, context: string): unknown[] {
   const candidate = value[field];
   if (!Array.isArray(candidate)) {
@@ -219,6 +245,8 @@ function playerCompatibilityForRuntime(
       return '>=11 <12';
     case 12:
       return '>=12 <13';
+    case 13:
+      return '>=13 <14';
   }
 }
 
@@ -623,7 +651,8 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
     root.runtimeVersion !== 9 &&
     root.runtimeVersion !== 10 &&
     root.runtimeVersion !== 11 &&
-    root.runtimeVersion !== 12
+    root.runtimeVersion !== 12 &&
+    root.runtimeVersion !== 13
   ) {
     throw new Error('game.json.runtimeVersion 版本或格式不受支持');
   }
@@ -670,11 +699,12 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
     }
     defaultLanguage = metadata.defaultLanguage;
   }
-  let startScreen = {
+  let startScreen: ProjectDocument['startScreen'] = {
     title: projectName,
     eyebrow: LEGACY_START_SCREEN_EYEBROW,
     backgroundAssetId: null as string | null,
     musicAssetId: null as string | null,
+    style: { ...DEFAULT_START_SCREEN_STYLE },
   };
   if (runtimeVersion >= 2) {
     const startScreenValue = objectValue(
@@ -687,7 +717,15 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
         ? ['backgroundAssetId', 'musicAssetId']
         : runtimeVersion < 10
           ? ['title', 'backgroundAssetId', 'musicAssetId']
-          : ['title', 'eyebrow', 'backgroundAssetId', 'musicAssetId'],
+          : runtimeVersion < 13
+            ? ['title', 'eyebrow', 'backgroundAssetId', 'musicAssetId']
+            : [
+                'title',
+                'eyebrow',
+                'backgroundAssetId',
+                'musicAssetId',
+                'style',
+              ],
       'game.json.game.startScreen',
     );
     startScreen = {
@@ -715,11 +753,18 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
         'musicAssetId',
         'game.json.game.startScreen',
       ),
+      style: runtimeVersion >= 13
+        ? startScreenStyleValue(
+            startScreenValue.style,
+            'game.json.game.startScreen.style',
+          )
+        : { ...DEFAULT_START_SCREEN_STYLE },
     };
   }
 
-  let cgGallery = {
+  let cgGallery: ProjectDocument['cgGallery'] = {
     pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+    style: { ...DEFAULT_CG_GALLERY_STYLE },
   };
   if (runtimeVersion === 5) {
     const cgGalleryValue = objectValue(
@@ -763,13 +808,18 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
               ),
             }),
           ),
+      style: { ...DEFAULT_CG_GALLERY_STYLE },
     };
   } else if (runtimeVersion >= 6) {
     const cgGalleryValue = objectValue(
       metadata.cgGallery,
       'game.json.game.cgGallery',
     );
-    exactFields(cgGalleryValue, ['pages'], 'game.json.game.cgGallery');
+    exactFields(
+      cgGalleryValue,
+      runtimeVersion >= 13 ? ['pages', 'style'] : ['pages'],
+      'game.json.game.cgGallery',
+    );
     const pageValues = arrayValue(
       cgGalleryValue,
       'pages',
@@ -809,8 +859,14 @@ function parseRuntimeGame(input: unknown, ids: Set<string>): ParsedRuntimeGame {
             seenAssetIds.add(parsed);
             return parsed;
           }),
-        };
+          };
       }),
+      style: runtimeVersion >= 13
+        ? cgGalleryStyleValue(
+            cgGalleryValue.style,
+            'game.json.game.cgGallery.style',
+          )
+        : { ...DEFAULT_CG_GALLERY_STYLE },
     };
   }
 

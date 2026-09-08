@@ -26,6 +26,10 @@ import {
   exportRuntimeBundle,
   type RuntimeBundleExportFaultPoint,
 } from '../../src/main/export/RuntimeBundleExporter';
+import {
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
+} from '../../src/shared/projectTypes';
 
 const temporaryDirectories: string[] = [];
 
@@ -149,6 +153,7 @@ function legacyV12Snapshot(contents: string) {
       ...current.expectedProject,
       cgGallery: {
         pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+        style: { ...DEFAULT_CG_GALLERY_STYLE },
       },
       scenes: current.expectedProject.scenes.map((scene, sceneIndex) =>
         sceneIndex === 0
@@ -235,7 +240,7 @@ afterEach(async () => {
 });
 
 describe('runtime bundle exporter', () => {
-  it('publishes a verified runtime v12 bundle with the selected default language', async () => {
+  it('publishes a verified runtime v13 bundle with the selected default language', async () => {
     const {
       projectRoot,
       outputParent,
@@ -280,10 +285,11 @@ describe('runtime bundle exporter', () => {
       'eyebrow',
       'backgroundAssetId',
       'musicAssetId',
+      'style',
     ]);
     expect(game).toMatchObject({
       format: 'vn-engine-runtime',
-      runtimeVersion: 12,
+      runtimeVersion: 13,
       game: {
         id: 'project-1',
         title: 'Export Game',
@@ -294,6 +300,7 @@ describe('runtime bundle exporter', () => {
           eyebrow: 'A VN ENGINE STORY',
           backgroundAssetId: 'image-1',
           musicAssetId: 'title-music',
+          style: DEFAULT_START_SCREEN_STYLE,
         },
         cgGallery: {
           pages: [{
@@ -303,6 +310,7 @@ describe('runtime bundle exporter', () => {
               ...Array<string | null>(7).fill(null),
             ],
           }],
+          style: DEFAULT_CG_GALLERY_STYLE,
         },
       },
     });
@@ -319,8 +327,8 @@ describe('runtime bundle exporter', () => {
       'files',
     ]);
     expect(manifest).toMatchObject({
-      runtimeVersion: 12,
-      playerCompatibility: '>=12 <13',
+      runtimeVersion: 13,
+      playerCompatibility: '>=13 <14',
     });
     expect(manifest.files).toEqual([
       {
@@ -419,6 +427,7 @@ describe('runtime bundle exporter', () => {
           ...Array(8).fill(null),
         ],
       }],
+      style: DEFAULT_CG_GALLERY_STYLE,
     });
   });
 
@@ -447,10 +456,11 @@ describe('runtime bundle exporter', () => {
     const manifest = JSON.parse(
       await readFile(path.join(targetPath, 'manifest.json'), 'utf8'),
     ) as { files: Array<{ assetId: string }> };
-    expect(game.runtimeVersion).toBe(12);
+    expect(game.runtimeVersion).toBe(13);
     expect(game.game.defaultLanguage).toBe('en-US');
     expect(game.game.cgGallery).toEqual({
       pages: [{ imageAssetIds: Array(9).fill(null) }],
+      style: DEFAULT_CG_GALLERY_STYLE,
     });
     expect(game.scenes[0].nodes).toEqual([
       {
@@ -522,9 +532,11 @@ describe('runtime bundle exporter', () => {
           eyebrow: 'A VN ENGINE STORY',
           backgroundAssetId: null,
           musicAssetId: null,
+          style: { ...DEFAULT_START_SCREEN_STYLE },
         },
         cgGallery: {
           pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
+          style: { ...DEFAULT_CG_GALLERY_STYLE },
         },
         scenes: [{
           schemaVersion: 1,
@@ -558,16 +570,18 @@ describe('runtime bundle exporter', () => {
       };
       scenes: Array<{ backgroundAssetId: string | null; nodes: unknown[] }>;
     };
-    expect(game.runtimeVersion).toBe(12);
+    expect(game.runtimeVersion).toBe(13);
     expect(game.game.defaultLanguage).toBe('en-US');
     expect(game.game.startScreen).toEqual({
       title: 'Legacy v1',
       eyebrow: 'A VN ENGINE STORY',
       backgroundAssetId: null,
       musicAssetId: null,
+      style: DEFAULT_START_SCREEN_STYLE,
     });
     expect(game.game.cgGallery).toEqual({
       pages: [{ imageAssetIds: Array(9).fill(null) }],
+      style: DEFAULT_CG_GALLERY_STYLE,
     });
     expect(game.scenes[0]).toMatchObject({
       backgroundAssetId: null,
@@ -587,7 +601,7 @@ describe('runtime bundle exporter', () => {
     const expected = currentSnapshot();
 
     const future = projectDocument() as { fileVersion: number };
-    future.fileVersion = 22;
+    future.fileVersion = 23;
     const futureContents = JSON.stringify(future);
     await writeFile(path.join(projectRoot, 'project.vn.json'), futureContents);
     await expect(exportRuntimeBundle({

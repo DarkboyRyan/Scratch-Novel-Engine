@@ -7,6 +7,10 @@
 
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import {
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
+} from '@vnengine/runtime';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GamePreview } from '../../src/renderer/features/game-preview/GamePreview';
@@ -31,12 +35,14 @@ const session: GamePreviewSession = {
     name: 'Choice input',
     entrySceneId: 'scene-entry',
     startScreen: {
+      style: DEFAULT_START_SCREEN_STYLE,
       title: 'Choice input',
       eyebrow: 'A VN ENGINE STORY',
       backgroundAssetId: null,
       musicAssetId: null,
     },
     cgGallery: {
+      style: DEFAULT_CG_GALLERY_STYLE,
       pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
     },
     scenes: [
@@ -182,12 +188,14 @@ describe('GamePreview choices', () => {
         ...session.project,
         name: '完整主界面',
         startScreen: {
+          style: DEFAULT_START_SCREEN_STYLE,
           title: '自定义预览标题',
           eyebrow: '自定义预览标语',
           backgroundAssetId: 'title-background',
           musicAssetId: 'title-music',
         },
         cgGallery: {
+          style: DEFAULT_CG_GALLERY_STYLE,
           pages: [{
             imageAssetIds: [
               'cg-1',

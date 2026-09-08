@@ -3,7 +3,12 @@
  * 关键函数与实现：测试套件“Player trusted IPC”、`RegisteredHandler`、`trustedEvent`；使用 Vitest、测试夹具与必要的 DOM/文件系统模拟覆盖公开行为。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createGameRuntimeSnapshot, startGame } from '@vnengine/runtime';
+import {
+  createGameRuntimeSnapshot,
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
+  startGame,
+} from '@vnengine/runtime';
 
 import { registerPlayerIpc } from '../../src/main/ipc/registerPlayerIpc';
 import type { PlayerWindowContexts } from '../../src/main/window/PlayerWindowContext';
@@ -39,8 +44,12 @@ describe('Player trusted IPC', () => {
         eyebrow: 'A VN ENGINE STORY',
         backgroundAssetId: null,
         musicAssetId: null,
+        style: { ...DEFAULT_START_SCREEN_STYLE },
       },
-      cgGallery: { pages: [{ imageAssetIds: Array(9).fill(null) }] },
+      cgGallery: {
+        pages: [{ imageAssetIds: Array(9).fill(null) }],
+        style: { ...DEFAULT_CG_GALLERY_STYLE },
+      },
       scenes: [
         {
           schemaVersion: 1 as const,

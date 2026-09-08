@@ -93,7 +93,7 @@ async function main() {
     platform: 'darwin',
     arch,
     playerVersion,
-    runtimeCompatibility: '>=1 <13',
+    runtimeCompatibility: '>=1 <14',
     payloadRoot: 'payload',
     artifactEntry: GENERIC_PLAYER_ARTIFACT_ENTRY,
     gameResourceDirectory: 'Contents/Resources/game',

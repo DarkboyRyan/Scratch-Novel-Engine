@@ -8,6 +8,8 @@ import {
   advanceGame,
   completeCgLeadIn,
   createGameRuntimeSnapshot,
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
   restoreGameRuntimeSnapshot,
   selectChoice,
   startGame,
@@ -23,8 +25,12 @@ const project: ProjectDocument = {
     title: 'Snapshot game', eyebrow: '',
     backgroundAssetId: null,
     musicAssetId: null,
+    style: { ...DEFAULT_START_SCREEN_STYLE },
   },
-  cgGallery: { pages: [{ imageAssetIds: Array(9).fill(null) }] },
+  cgGallery: {
+    pages: [{ imageAssetIds: Array(9).fill(null) }],
+    style: { ...DEFAULT_CG_GALLERY_STYLE },
+  },
   scenes: [
     {
       schemaVersion: 1,

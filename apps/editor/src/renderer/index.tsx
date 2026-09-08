@@ -10,6 +10,7 @@ import App from './App';
 import { RendererErrorBoundary } from './components/RendererErrorBoundary';
 import './styles/base.css';
 import './styles/editor.css';
+import './styles/editorTheme.css';
 
 const rootElement = document.getElementById('root');
 

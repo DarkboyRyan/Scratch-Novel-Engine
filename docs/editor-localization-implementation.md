@@ -1,23 +1,28 @@
-<!-- 文件职责：记录 Editor 本地化系统；关键内容：设置存储、多窗口同步、catalog、Blockly 与原生菜单。 -->
+<!-- 文件职责：记录 Editor 语言与颜色主题设置；关键内容：v2 存储、多窗口同步、catalog、主题 token、Blockly 与原生菜单。 -->
 
-# Editor 中英文切换实现
+# Editor 语言与颜色主题设置实现
 
-> 实现状态：Editor 顶栏“导出”旁已提供“设置”，可在简体中文和 English 之间切换。
-> 语言是 Editor 的全局本地偏好，不进入 Author v21 或 Player 设置；当前导出
-> Runtime v12 会把导出时 Main 权威值写入 `game.defaultLanguage`。
+> 实现状态：Editor 顶栏“导出”旁已提供“设置”，可切换简体中文 / English 和
+> Daylight / Moonlight。两项都是 Editor 的全局本机偏好；只有语言会在导出时由 Main
+> 写入 Runtime v13 的 `game.defaultLanguage`，颜色主题只改变 Editor chrome。
 
 ## 1. 用户行为
 
 - 点击顶栏“设置 / Settings”打开设置弹层；
 - “界面语言 / Interface language”提供 `中文` 与 `English`；
-- 选择后当前窗口立即预览，Main 写入成功后向所有 Editor 窗口广播；
-- 写入失败时恢复 Main 最近确认的语言，并显示当前语言下的稳定错误；
-- 下次启动先读取设置，读取完成前只显示中性的品牌加载页，避免中文界面闪现后再切英文；
+- “界面主题 / Color theme”提供 `日光 / Daylight` 与 `月色 / Moonlight`；
+- 任一选择都会在当前窗口乐观预览，Main 写入成功后向所有 Editor 窗口广播完整 v2 快照；
+- 写入失败时恢复 Main 最近确认的语言与主题，并显示当前语言下的稳定错误；
+- 下次启动先读取设置，读取完成前只显示中性的品牌加载页，避免先渲染完整默认工作台再切换偏好；
 - 原生应用菜单、项目打开/保存位置、资源导入和导出对话框使用同一份 Main 权威语言；
-- 导出 Runtime Bundle、独立应用或 Web ZIP 时，Main 把该权威语言固化为 Runtime v12
+- 导出 Runtime Bundle、独立应用或 Web ZIP 时，Main 把该权威语言固化为 Runtime v13
   `game.defaultLanguage`；Renderer 导出 payload 不包含可伪造的语言字段；
-- 作者填写的项目名、游戏标题、场景名、角色名、对白、Choice 文本和素材名始终保持原文，
-  不会被界面语言改写。
+- 作者填写的项目名、游戏标题、自定义场景名、角色名、对白、Choice 文本和素材名始终
+  保持原文；为兼容历史工程，只有精确匹配所在序号的旧默认 `场景 N` 会在英文 Editor
+  中显示为 `Scene N`。新项目首场景和后续新建场景都会把当前语言的默认名明确传给
+  C++，已存储的英文名称不会在中文界面被反向改写。
+- 颜色主题只覆盖顶栏、编辑面板、表单、Blockly / Code 外壳、资源管理和弹层等 Editor
+  chrome；主界面 / CG 的作者样式、预览媒体、Author / Runtime 文档和导出游戏都不改变。
 
 ## 2. 设置模型与磁盘格式
 
@@ -25,15 +30,18 @@
 
 ```ts
 type EditorSettings = {
-  settingsVersion: 1;
+  settingsVersion: 2;
   language: 'zh-CN' | 'en-US';
+  colorTheme: 'daylight' | 'moonlight';
 };
 ```
 
-默认语言是 `zh-CN`。Renderer 更新时只能发送精确的
-`{ language: 'zh-CN' | 'en-US' }` patch，不能发送路径、版本或未知字段。
+默认值是 `language: 'zh-CN'` 与 `colorTheme: 'daylight'`。Renderer 更新时每次只能发送
+一个精确窄 patch：`{ language: 'zh-CN' | 'en-US' }` 或
+`{ colorTheme: 'daylight' | 'moonlight' }`；不能把两项合并提交，也不能发送路径、版本或
+未知字段。
 
-Main 把 exact V1 文档写入：
+Main 把 exact v2 文档写入：
 
 ```text
 app.getPath('userData')/
@@ -45,18 +53,24 @@ app.getPath('userData')/
 ```json
 {
   "format": "vn-engine-editor-settings",
-  "settingsVersion": 1,
-  "settings": { "language": "zh-CN" }
+  "settingsVersion": 2,
+  "settings": {
+    "language": "zh-CN",
+    "colorTheme": "daylight"
+  }
 }
 ```
 
 [`EditorSettingsStore.ts`](../apps/editor/src/main/settings/EditorSettingsStore.ts) 使用 0700 目录、
 0600 临时文件、`O_EXCL`、`O_NOFOLLOW`、文件大小上限、单硬链接检查、`fsync`、备份和
-rename 发布。主文件损坏时尝试备份；两者都不可用时安全回退中文。路径和原始文件异常只
-写 Main 诊断，Renderer 只收到 `settings-storage-unavailable` 或 `settings-invalid`。
+rename 发布。exact v1 `{ language }` 文档会自动迁移：保留原语言、补
+`colorTheme: 'daylight'`，并在下一次成功修改设置时写成 v2。主文件损坏时尝试备份；两者
+都不可用时安全回退中文与 Daylight。路径和原始文件异常只写 Main 诊断，Renderer 只收到
+`settings-storage-unavailable` 或 `settings-invalid`。
 
-这套设置不会提升 Author v21，也不会让 C++ Backend 感知语言。
-Runtime v12 仅在 Editor Main 导出边界增加 `game.defaultLanguage`；Author 文本原样保留。
+这套设置不会提升 Author v22，也不会让 C++ Backend 感知语言或 Editor 主题。Runtime v12
+只在 Editor Main 导出边界增加 `game.defaultLanguage`；当前 Runtime v13 延续该字段且
+Author 文本原样保留。`colorTheme` 不进入 Runtime、Player 设置或导出包。
 
 ## 3. 进程与同步链路
 
@@ -69,14 +83,16 @@ flowchart LR
   IPC --> MANAGER["EditorSettingsManager serial queue"]
   MANAGER --> STORE["EditorSettingsStore"]
   MANAGER --> NATIVE["menu and native dialogs"]
-  MANAGER --> EXPORT["Runtime v12 game.defaultLanguage"]
+  MANAGER --> EXPORT["language only: Runtime v13 game.defaultLanguage"]
   MANAGER --> BROADCAST["settings:changed to every Editor window"]
   BROADCAST --> HOOK
+  HOOK --> THEME["html[data-editor-theme] / semantic tokens"]
 ```
 
 [`EditorSettingsManager.ts`](../apps/editor/src/main/settings/EditorSettingsManager.ts) 串行执行读取和
 写入。成功写入后先更新 Main 权威值，再重建应用菜单并广播无路径快照。每个 BrowserWindow
-仍拥有独立 C++ Project 会话，但共享这一项 Editor 偏好。
+仍拥有独立 C++ Project 会话，但共享这组 Editor 偏好。原生菜单只消费快照中的语言；颜色
+主题由收到广播的 Renderer 应用。
 
 [`registerEditorSettingsIpc.ts`](../apps/editor/src/main/ipc/registerEditorSettingsIpc.ts) 只接受可信
 Editor 主 frame、仍存在的窗口上下文和 exact invocation。Preload 仅暴露：
@@ -89,14 +105,20 @@ onChanged(listener: (settings: EditorSettings) => void): () => void;
 
 [`useEditorSettings.ts`](../apps/editor/src/renderer/hooks/useEditorSettings.ts) 使用 generation 防止
 跨窗口竞态：如果较新的 `settings:changed` 已到达，旧的首次读取、旧的成功响应或旧的失败
-回滚都不能覆盖它。组件卸载时会移除精确 listener。
+回滚都不能覆盖它。语言与主题共用这一权威快照、乐观更新和失败回滚链路；组件卸载时会
+移除精确 listener。
 
-## 4. React 本地化层
+## 4. React 本地化与主题层
 
 [`editorLocalization.tsx`](../apps/editor/src/renderer/i18n/editorLocalization.tsx) 保存完整、同构的
 中英文 typed catalog；`EditorI18nProvider` 通过 React Context 提供当前 `language` 与
 `labels`。`App` 不使用 `key={language}`，因此切换语言不会重建项目、表单草稿、预览会话或
 Blockly Workspace。`<html lang>` 会同步更新。
+
+颜色主题也不使用 React key。`App` 把 `colorTheme` 同步到文档根节点的
+`data-editor-theme="daylight|moonlight"` 和原生 `color-scheme`；`base.css` 以 Daylight
+作为默认 token，并在 `:root[data-editor-theme='moonlight']` 覆盖同名语义 token。
+`editorTheme.css` 和组件样式主要消费这些 token，因此主题切换不会重挂项目或改变作者页面样式。
 
 当前目录覆盖：
 
@@ -138,14 +160,15 @@ Main 每次打开原生对话框前读取当前权威语言，用于：
 Renderer 不把 language 作为原生操作的参数，因此不可信页面不能伪造另一套文案，也不会
 出现 Renderer 乐观语言与 Main 已确认语言不一致的问题。
 同一原则用于导出：`ExportGameWorkflow` 在 Main 取得语言快照，与已保存
-Author v21 一起编译为 Runtime v12，不信任 Renderer 中可能尚未确认的预览值。
+Author v22 一起编译为 Runtime v13，不信任 Renderer 中可能尚未确认的预览值。
 
 ## 7. 弹层与无障碍
 
 `EditorSettingsDialog` 使用 `role="dialog"`、`aria-modal="true"`：
 
 - 打开后聚焦语言选择框；
-- Tab / Shift+Tab 在弹层内循环；
+- 主题使用带 legend 的互斥 radio 组，Tab / Shift+Tab 在语言、主题和关闭控件之间循环；
+- 保存中或检测到 Main / Preload 版本漂移时禁用语言与主题控件；
 - 保存中禁止关闭和重复提交；
 - Esc 和点击背景关闭；
 - 关闭后仅在触发按钮仍连接、可用且不处于 `inert` 时恢复焦点。
@@ -157,7 +180,7 @@ Author v21 一起编译为 Runtime v12，不信任 Renderer 中可能尚未确�
 
 | 层 | 技术 | 作用 |
 | --- | --- | --- |
-| UI | React 19、TypeScript 5.9、Context、HTML/CSS | 设置弹层、typed catalog、原地重渲染 |
+| UI | React 19、TypeScript 5.9、Context、HTML/CSS | 设置弹层、typed catalog、主题属性和语义 token、原地重渲染 |
 | 图形编辑 | Blockly 13.1 | 原位更新字段、Tooltip、Dropdown 与 Toolbox |
 | 桌面边界 | Electron 43、contextBridge、IPC | trusted frame、窄设置 API、多窗口广播、原生菜单/对话框 |
 | 存储 | Node `fs/promises`、`randomUUID` | exact JSON、nofollow、备份和原子发布 |
@@ -165,15 +188,16 @@ Author v21 一起编译为 Runtime v12，不信任 Renderer 中可能尚未确�
 
 核心自动化覆盖：
 
-- exact V1、非法语言/未知字段拒绝；
-- 设置文件 round-trip、备份恢复和 symlink fail-closed；
+- exact v2、非法语言 / 主题、合并 patch 与未知字段拒绝；
+- exact v1 保留语言并迁移到 Daylight、v2 round-trip、备份恢复和 symlink fail-closed；
 - Manager 串行写入与广播；
 - Preload exact listener 注册/移除；
 - stale read/success/failure 不覆盖较新跨窗口事件；
-- 设置按钮位于导出旁、焦点陷阱、Esc 与恢复焦点；
+- 语言 / 主题乐观更新与失败回滚、设置按钮位于导出旁、焦点陷阱、Esc 与恢复焦点；
 - 中英文 catalog、React shell 和三套 Blockly 投影；
 - 切语言后 workspace/block 与作者字段保持不变；
-- 中英导出分别写入 Runtime v12 `defaultLanguage`，并且该值只来自 Main 权威设置；
+- Daylight / Moonlight token、根节点 `data-editor-theme` 与 Editor-only 作用域；
+- 中英导出分别写入 Runtime v13 `defaultLanguage`，并且该值只来自 Main 权威设置；
 - TypeScript、ESLint 和 Editor 全量 Vitest。
 
 常用命令：
@@ -188,10 +212,11 @@ git diff --check
 ## 9. 开发态 Main / Preload 版本漂移
 
 Electron Forge Vite 可以热更新 Renderer，但正在运行的 Main 与已载入的 Preload 不一定同步
-获得新 IPC。若 Renderer 已显示语言设置，而旧进程尚未注册
+获得新 IPC。若 Renderer 已显示语言与主题设置，而旧进程尚未注册
 `vn-editor-settings:request`，保存必然无法成功。
 
-Renderer 会把“Preload API 缺失”和该 channel 的“No handler registered”精确分类为
-`EditorSettingsRestartRequiredError`。此时设置弹层禁用语言选择，并提示完整退出、重新启动
-Editor；它不会把版本漂移误报成磁盘写入失败，也不会自动退出而使未保存项目丢失。全新启动
+Renderer 会把“Preload API 缺失”、该 channel 的“No handler registered”、旧 Main 返回的 v1
+快照，以及旧合同对新主题 patch 的 `settings-invalid` 精确分类为
+`EditorSettingsRestartRequiredError`。此时设置弹层禁用语言与主题控件，并提示完整退出、
+重新启动 Editor；它不会把版本漂移误报成磁盘写入失败，也不会自动退出而使未保存项目丢失。全新启动
 后仍使用正常的 Main-owned Store 与 IPC，不走 Renderer 本地降级存储。

@@ -24,6 +24,19 @@ describe('backend request timeout', () => {
     ).toBeNull();
   });
 
+  it.each([
+    {
+      method: 'asset.rename' as const,
+      params: { assetId: 'asset-1', displayName: 'Portrait' },
+    },
+    {
+      method: 'asset.deleteMany' as const,
+      params: { assetIds: ['asset-1'] },
+    },
+  ])('does not abandon $method while its transaction may still commit', (invocation) => {
+    expect(backendRequestTimeoutMs(invocation)).toBeNull();
+  });
+
   it('does not abandon project.open after it may still commit', () => {
     expect(
       backendRequestTimeoutMs({
@@ -38,6 +51,22 @@ describe('backend request timeout', () => {
       backendRequestTimeoutMs({
         method: 'project.save',
         params: { filePath: '/project/project.vn.json' },
+      }),
+    ).toBeNull();
+  });
+
+  it('does not report a failed scene replacement while C++ may still commit it', () => {
+    expect(
+      backendRequestTimeoutMs({
+        method: 'scene.content.replace',
+        params: {
+          sceneId: 'scene-1',
+          draft: {
+            name: 'Scene 1',
+            initialBackground: { assetId: null, scalePercent: 100 },
+            nodes: [],
+          },
+        },
       }),
     ).toBeNull();
   });

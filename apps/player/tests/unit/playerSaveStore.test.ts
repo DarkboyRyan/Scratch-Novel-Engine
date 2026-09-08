@@ -19,6 +19,8 @@ import path from 'node:path';
 import {
   completeCgLeadIn,
   createGameRuntimeSnapshot,
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
   startGame,
   type GameRuntime,
   type GameRuntimeSnapshot,
@@ -42,8 +44,12 @@ const project: ProjectDocument = {
     eyebrow: 'A VN ENGINE STORY',
     backgroundAssetId: null,
     musicAssetId: null,
+    style: { ...DEFAULT_START_SCREEN_STYLE },
   },
-  cgGallery: { pages: [{ imageAssetIds: Array(9).fill(null) }] },
+  cgGallery: {
+    pages: [{ imageAssetIds: Array(9).fill(null) }],
+    style: { ...DEFAULT_CG_GALLERY_STYLE },
+  },
   scenes: [
     {
       schemaVersion: 1,

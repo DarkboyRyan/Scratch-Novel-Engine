@@ -76,14 +76,41 @@ vi.mock('../../src/renderer/components/Toolbar', () => ({
   ),
 }));
 
-vi.mock('../../src/renderer/features/form-editor/FormEditor', () => ({
+vi.mock('../../src/renderer/features/form-editor/FormEditor', async () => {
+  const { SceneBackgroundSettings } = await import(
+    '../../src/renderer/features/assets/SceneBackgroundSettings'
+  );
+  return {
   FormEditor: ({
+    assets,
+    backgroundAssetId,
+    sceneBackgroundScalePercent,
+    sceneBackgroundScaleDraft,
+    sceneBackgroundScaleDraftInvalid,
+    onSceneBackgroundScaleDraftChange,
+    onCommitSceneBackgroundScaleDraft,
+    onSelectSceneBackground,
     backgroundScalePercent,
     characters,
     onStartPreview,
     onSelectScene,
     onAddScene,
   }: {
+    assets: Array<{
+      id: string;
+      type: 'image' | 'audio' | 'video';
+      displayName: string;
+    }>;
+    backgroundAssetId: string | null;
+    sceneBackgroundScalePercent: number;
+    sceneBackgroundScaleDraft: string;
+    sceneBackgroundScaleDraftInvalid: boolean;
+    onSceneBackgroundScaleDraftChange: (value: string) => void;
+    onCommitSceneBackgroundScaleDraft: () => Promise<boolean>;
+    onSelectSceneBackground: (next: {
+      assetId: string | null;
+      scalePercent: number;
+    }) => Promise<void>;
     backgroundScalePercent: number;
     characters: Array<{ scalePercent: number }>;
     onStartPreview: () => void;
@@ -91,6 +118,21 @@ vi.mock('../../src/renderer/features/form-editor/FormEditor', () => ({
     onAddScene: () => Promise<void>;
   }) => (
     <>
+      <SceneBackgroundSettings
+        assets={assets}
+        backgroundAssetId={backgroundAssetId}
+        backgroundScalePercent={sceneBackgroundScalePercent}
+        backgroundScaleDraft={sceneBackgroundScaleDraft}
+        backgroundScaleDraftInvalid={sceneBackgroundScaleDraftInvalid}
+        isBusy={false}
+        onBackgroundScaleDraftChange={
+          onSceneBackgroundScaleDraftChange
+        }
+        onCommitBackgroundScaleDraft={
+          onCommitSceneBackgroundScaleDraft
+        }
+        onSelectBackground={onSelectSceneBackground}
+      />
       <output
         data-testid="static-preview-scale"
         data-background-scale={String(backgroundScalePercent)}
@@ -117,7 +159,8 @@ vi.mock('../../src/renderer/features/form-editor/FormEditor', () => ({
       </button>
     </>
   ),
-}));
+  };
+});
 
 function setNativeInputValue(input: HTMLInputElement, value: string): void {
   const nativeSetter = Object.getOwnPropertyDescriptor(
@@ -126,6 +169,15 @@ function setNativeInputValue(input: HTMLInputElement, value: string): void {
   )?.set;
   nativeSetter?.call(input, value);
   input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function setNativeSelectValue(select: HTMLSelectElement, value: string): void {
+  const nativeSetter = Object.getOwnPropertyDescriptor(
+    HTMLSelectElement.prototype,
+    'value',
+  )?.set;
+  nativeSetter?.call(select, value);
+  select.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 describe('scene initial background scale', () => {
@@ -433,11 +485,16 @@ describe('scene initial background scale draft boundaries', () => {
     await act(async () => {
       root.render(
         <EditorApplication
-          settings={{ settingsVersion: 1, language: 'zh-CN' }}
+          settings={{
+            settingsVersion: 2,
+            language: 'zh-CN',
+            colorTheme: 'daylight',
+          }}
           isSettingsSaving={false}
           settingsSaveFailed={false}
           settingsRestartRequired={false}
           onLanguageChange={async () => {}}
+          onColorThemeChange={async () => {}}
           onOpenSettings={() => {}}
         />,
       );
@@ -456,6 +513,14 @@ describe('scene initial background scale draft boundaries', () => {
     );
     if (!input) throw new Error('missing background scale input');
     return input;
+  }
+
+  function backgroundSelect(): HTMLSelectElement {
+    const select = container.querySelector<HTMLSelectElement>(
+      '.scene-background-select',
+    );
+    if (!select) throw new Error('missing background select');
+    return select;
   }
 
   async function enterFocusedScale(value: string): Promise<void> {
@@ -491,11 +556,16 @@ describe('scene initial background scale draft boundaries', () => {
     await act(async () => {
       root.render(
         <EditorApplication
-          settings={{ settingsVersion: 1, language: 'zh-CN' }}
+          settings={{
+            settingsVersion: 2,
+            language: 'zh-CN',
+            colorTheme: 'daylight',
+          }}
           isSettingsSaving={false}
           settingsSaveFailed={false}
           settingsRestartRequired={false}
           onLanguageChange={async () => {}}
+          onColorThemeChange={async () => {}}
           onOpenSettings={() => {}}
         />,
       );
@@ -645,16 +715,13 @@ describe('scene initial background scale draft boundaries', () => {
 
   it('applies the latest focused scale when a different resource is selected', async () => {
     await enterFocusedScale('175');
-    const streetButton = Array.from(container.querySelectorAll('button')).find(
-      (button) => button.textContent?.includes('Street'),
-    );
-    if (!streetButton) throw new Error('missing Street resource button');
+    const select = backgroundSelect();
     await act(async () => {
       backgroundScaleInput().dispatchEvent(new FocusEvent('focusout', {
         bubbles: true,
-        relatedTarget: streetButton,
+        relatedTarget: select,
       }));
-      streetButton.click();
+      setNativeSelectValue(select, 'image-2');
       await waitForMacrotask();
     });
 
@@ -669,16 +736,13 @@ describe('scene initial background scale draft boundaries', () => {
   it('preserves the scale draft when the atomic background replacement fails', async () => {
     setSceneBackground.mockResolvedValue(false);
     await enterFocusedScale('176');
-    const streetButton = Array.from(container.querySelectorAll('button')).find(
-      (button) => button.textContent?.includes('Street'),
-    );
-    if (!streetButton) throw new Error('missing Street resource button');
+    const select = backgroundSelect();
     await act(async () => {
       backgroundScaleInput().dispatchEvent(new FocusEvent('focusout', {
         bubbles: true,
-        relatedTarget: streetButton,
+        relatedTarget: select,
       }));
-      streetButton.click();
+      setNativeSelectValue(select, 'image-2');
       await waitForMacrotask();
     });
 
@@ -702,12 +766,9 @@ describe('scene initial background scale draft boundaries', () => {
     await clickTestButton('start-preview');
     await clickTestButton('select-scene-2');
     await clickTestButton('add-scene');
-    const streetButton = Array.from(container.querySelectorAll('button')).find(
-      (button) => button.textContent?.includes('Street'),
-    );
-    if (!streetButton) throw new Error('missing Street resource button');
+    const select = backgroundSelect();
     await act(async () => {
-      streetButton.click();
+      setNativeSelectValue(select, 'image-2');
       await waitForMacrotask();
     });
 

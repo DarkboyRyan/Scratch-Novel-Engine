@@ -75,7 +75,6 @@ export const StartScreenEditor = forwardRef<
       <header className="block-editor-heading">
         <div>
           <h1 id="start-screen-editor-title">{labels.startScreen.editorTitle}</h1>
-          <p>{labels.startScreen.editorHelp}</p>
         </div>
 
         <div className="block-editor-heading-controls">
@@ -113,9 +112,6 @@ export const StartScreenEditor = forwardRef<
             </select>
           </label>
 
-          <span className="block-editor-sync-badge">
-            {labels.startScreen.managedStructure}
-          </span>
           <button
             type="button"
             className="preview-play-button start-screen-preview-button"

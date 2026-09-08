@@ -133,6 +133,56 @@ export type EditorSceneOption = {
   kind: 'start-screen' | 'cg-gallery' | 'story';
 };
 
+/**
+ * The author schema has no UI-locale field and older projects used a Chinese
+ * generated scene name. Treat only that exact legacy convention for this
+ * scene index as presentation text so an English Editor does not expose the
+ * old locale when the user starts renaming it. English names remain authored
+ * text when the UI later switches to Chinese.
+ */
+export function localizeGeneratedSceneName(
+  sceneName: string,
+  sceneIndex: number,
+  labels: EditorLabels = getEditorLabels(DEFAULT_EDITOR_LANGUAGE),
+): string {
+  const sceneNumber = sceneIndex + 1;
+  if (sceneName === `场景 ${sceneNumber}`) {
+    return `${labels.common.scene} ${sceneNumber}`;
+  }
+  return sceneName;
+}
+
+export function nextLocalizedGeneratedSceneName(
+  project: Pick<ProjectDocument, 'scenes'>,
+  labels: EditorLabels = getEditorLabels(DEFAULT_EDITOR_LANGUAGE),
+): string {
+  const existingNames = new Set(project.scenes.map((scene) => scene.name));
+  for (let sceneNumber = 1;; sceneNumber += 1) {
+    if (
+      !existingNames.has(`场景 ${sceneNumber}`) &&
+      !existingNames.has(`Scene ${sceneNumber}`)
+    ) {
+      return `${labels.common.scene} ${sceneNumber}`;
+    }
+  }
+}
+
+export function formatEditorSceneLabel(
+  sceneName: string,
+  sceneIndex: number,
+  labels: EditorLabels = getEditorLabels(DEFAULT_EDITOR_LANGUAGE),
+): string {
+  const generatedLabel = `${labels.common.scene} ${sceneIndex + 1}`;
+  const localizedName = localizeGeneratedSceneName(
+    sceneName,
+    sceneIndex,
+    labels,
+  );
+  return localizedName === generatedLabel
+    ? generatedLabel
+    : `${generatedLabel} · ${localizedName}`;
+}
+
 export function createEditorSceneOptions(
   project: Pick<ProjectDocument, 'scenes'>,
   labels: EditorLabels = getEditorLabels(DEFAULT_EDITOR_LANGUAGE),
@@ -150,10 +200,7 @@ export function createEditorSceneOptions(
     },
     ...project.scenes.map((scene, index) => ({
       id: scene.id,
-      label:
-        scene.name === `场景 ${index + 1}`
-          ? `${labels.common.scene} ${index + 1}`
-          : `${labels.common.scene} ${index + 1} · ${scene.name}`,
+      label: formatEditorSceneLabel(scene.name, index, labels),
       kind: 'story' as const,
     })),
   ];

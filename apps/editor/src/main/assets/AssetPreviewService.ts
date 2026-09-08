@@ -525,6 +525,95 @@ export class AssetPreviewService {
     return true;
   }
 
+  synchronizeRenamedAsset(
+    assetId: string,
+    result: EngineMutationResult,
+  ): boolean {
+    const active = this.activeProject;
+    if (active === null) {
+      return false;
+    }
+
+    const resultAssets = new Map(
+      result.assets.map((asset) => [asset.id, asset]),
+    );
+    const renamedAsset = resultAssets.get(assetId);
+    const privateAsset = active.assets.get(assetId);
+    const matches =
+      active.projectId === result.project.id &&
+      renamedAsset !== undefined &&
+      privateAsset !== undefined &&
+      renamedAsset.type === privateAsset.type &&
+      resultAssets.size === active.assets.size &&
+      [...active.assets.values()].every((asset) =>
+        resultAssets.get(asset.id)?.type === asset.type
+      );
+    if (!matches) {
+      // The authoritative result and private manifest no longer describe the
+      // same project. Revoke all capabilities instead of preserving a stale
+      // path association.
+      this.activeProject = null;
+      return false;
+    }
+
+    // Rename changes only public metadata. Preserve the generation and issued
+    // media capabilities because the underlying file identity/path is stable.
+    for (const [id, asset] of active.assets) {
+      const publicAsset = resultAssets.get(id);
+      if (publicAsset !== undefined) {
+        asset.displayName = publicAsset.displayName;
+      }
+    }
+    return true;
+  }
+
+  revokeDeletedAssets(
+    assetIds: readonly string[],
+    result: EngineMutationResult,
+  ): boolean {
+    const active = this.activeProject;
+    if (active === null) {
+      return false;
+    }
+
+    const deletedIds = new Set(assetIds);
+    const remainingAssets = new Map(
+      [...active.assets].filter(([id]) => !deletedIds.has(id)),
+    );
+    const resultAssets = new Map(
+      result.assets.map((asset) => [asset.id, asset]),
+    );
+    const matches =
+      active.projectId === result.project.id &&
+      deletedIds.size === assetIds.length &&
+      assetIds.every((assetId) => active.assets.has(assetId)) &&
+      resultAssets.size === remainingAssets.size &&
+      [...remainingAssets.values()].every((asset) => {
+        const publicAsset = resultAssets.get(asset.id);
+        return (
+          publicAsset?.type === asset.type &&
+          publicAsset.displayName === asset.displayName
+        );
+      });
+    if (!matches) {
+      this.activeProject = null;
+      return false;
+    }
+
+    // Replace the active object and generation, rather than mutating Maps in
+    // place. Old URLs stop resolving immediately, and an in-flight request
+    // fails its `this.activeProject !== active` identity check before stream
+    // publication.
+    this.activeProject = {
+      ...active,
+      assets: remainingAssets,
+      generationToken: freshGenerationToken(),
+      previewTokensByAssetId: new Map(),
+      assetIdsByPreviewToken: new Map(),
+    };
+    return true;
+  }
+
   getPreviewUrl(assetId: string): string | null {
     const active = this.activeProject;
     if (

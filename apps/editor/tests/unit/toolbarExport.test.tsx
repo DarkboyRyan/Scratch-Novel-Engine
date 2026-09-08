@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Toolbar } from '../../src/renderer/components/Toolbar';
 import { EditorI18nProvider } from '../../src/renderer/i18n/editorLocalization';
 import type { GameExportRequest } from '../../src/shared/exportProtocol';
+import type { EditorColorTheme } from '../../src/shared/editorSettingsProtocol';
 
 describe('Toolbar game export action', () => {
   let container: HTMLDivElement;
@@ -40,8 +41,10 @@ describe('Toolbar game export action', () => {
       operationMessage?: string;
       onExportGame?: (request: GameExportRequest) => void;
       onLanguageChange?: (language: 'zh-CN' | 'en-US') => Promise<void>;
+      onColorThemeChange?: (colorTheme: EditorColorTheme) => Promise<void>;
       onOpenSettings?: () => void;
       language?: 'zh-CN' | 'en-US';
+      colorTheme?: EditorColorTheme;
       settingsRestartRequired?: boolean;
     } = {},
   ): void {
@@ -53,6 +56,7 @@ describe('Toolbar game export action', () => {
         projectNameDraft="Story"
         isRenamingProject={false}
         editorMode="form"
+        workspaceSection="dialogue"
         isBusy={options.isBusy ?? false}
         isDirty={false}
         isSaving={false}
@@ -61,6 +65,7 @@ describe('Toolbar game export action', () => {
         operationMessage={options.operationMessage ?? ''}
         projectFolderName="Story"
         language={language}
+        colorTheme={options.colorTheme ?? 'daylight'}
         isSettingsSaving={false}
         settingsSaveFailed={false}
         settingsRestartRequired={options.settingsRestartRequired ?? false}
@@ -72,8 +77,12 @@ describe('Toolbar game export action', () => {
         onProjectNameDraftChange={() => {}}
         onCommitProjectName={async () => true}
         onCancelProjectName={() => {}}
+        onWorkspaceSectionChange={() => {}}
         onEditorModeChange={() => {}}
         onLanguageChange={options.onLanguageChange ?? (async () => {})}
+        onColorThemeChange={
+          options.onColorThemeChange ?? (async () => {})
+        }
         onOpenSettings={options.onOpenSettings ?? (() => {})}
         />
       </EditorI18nProvider>,
@@ -100,6 +109,9 @@ describe('Toolbar game export action', () => {
     expect(exportButton).toBeDefined();
     await act(async () => exportButton!.click());
     expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(document.activeElement).toBe(
+      document.querySelector('[aria-label="产物类型"]'),
+    );
 
     const submitButton = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
       (button) => button.textContent === '导出',
@@ -107,6 +119,60 @@ describe('Toolbar game export action', () => {
     await act(async () => submitButton!.click());
     expect(onExportGame).toHaveBeenCalledWith({ output: 'runtime-bundle' });
     expect(JSON.stringify(onExportGame.mock.calls)).not.toContain('/');
+  });
+
+  it('traps keyboard focus, closes on Escape, and restores the Export trigger', async () => {
+    await act(async () => renderToolbar());
+    const exportButton = [...container.querySelectorAll<HTMLButtonElement>(
+      '.project-file-actions button',
+    )].find((button) => button.textContent === '导出');
+    if (!exportButton) throw new Error('missing Export button');
+    exportButton.focus();
+
+    await act(async () => exportButton.click());
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    const output = dialog?.querySelector<HTMLSelectElement>(
+      '[aria-label="产物类型"]',
+    );
+    const actions = dialog?.querySelectorAll<HTMLButtonElement>(
+      '.export-dialog-actions button',
+    );
+    const cancel = actions?.[0];
+    const submit = actions?.[1];
+    if (!dialog || !output || !cancel || !submit) {
+      throw new Error('missing Export dialog controls');
+    }
+    expect(document.activeElement).toBe(output);
+
+    await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Tab',
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    })));
+    expect(document.activeElement).toBe(submit);
+
+    await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Tab',
+      bubbles: true,
+      cancelable: true,
+    })));
+    expect(document.activeElement).toBe(output);
+
+    await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Tab',
+      bubbles: true,
+      cancelable: true,
+    })));
+    expect(document.activeElement).toBe(cancel);
+
+    await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    })));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(exportButton);
   });
 
   it('collects only validated standalone metadata and documents the default icon', async () => {
@@ -192,6 +258,7 @@ describe('Toolbar game export action', () => {
 
     expect(exportButton).toBeInstanceOf(HTMLButtonElement);
     expect((exportButton as HTMLButtonElement).disabled).toBe(true);
+    expect(container.querySelector('.engine-ready')?.textContent).toBe('处理中…');
 
     await act(async () =>
       renderToolbar({
@@ -202,11 +269,27 @@ describe('Toolbar game export action', () => {
     expect(status?.textContent).toContain('已导出内容包 Story.vngame');
   });
 
-  it('opens Settings beside Export, changes language, traps focus and restores its trigger', async () => {
+  it('omits the idle connected indicator while keeping the saved state', async () => {
+    await act(async () => renderToolbar());
+
+    expect(container.textContent).not.toContain('已连接');
+    expect(container.querySelector('.engine-ready')).toBeNull();
+    expect(container.querySelector('[aria-live="polite"]')?.textContent).toBe(
+      '已保存',
+    );
+    expect(container.querySelector('.toolbar-status-live')?.textContent).toBe(
+      '',
+    );
+    expect(container.querySelector('.save-state')?.textContent).toBe('已保存');
+  });
+
+  it('opens Settings, changes language and theme, then restores its trigger', async () => {
     const onLanguageChange = vi.fn().mockResolvedValue(undefined);
+    const onColorThemeChange = vi.fn().mockResolvedValue(undefined);
     const onOpenSettings = vi.fn();
     await act(async () => renderToolbar({
       onLanguageChange,
+      onColorThemeChange,
       onOpenSettings,
     }));
     const actions = container.querySelector('.project-file-actions');
@@ -222,12 +305,35 @@ describe('Toolbar game export action', () => {
     const language = dialog?.querySelector('select') as HTMLSelectElement;
     expect(document.activeElement).toBe(language);
 
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Tab',
+      bubbles: true,
+    }));
+    const daylight = dialog?.querySelector<HTMLInputElement>(
+      'input[name="editor-color-theme"][value="daylight"]',
+    );
+    expect(document.activeElement).toBe(daylight);
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Tab',
+      bubbles: true,
+    }));
+    expect(document.activeElement?.textContent).toBe('关闭');
+    language.focus();
+
     await act(async () => {
       language.value = 'en-US';
       language.dispatchEvent(new Event('change', { bubbles: true }));
     });
     expect(onOpenSettings).toHaveBeenCalledOnce();
     expect(onLanguageChange).toHaveBeenCalledWith('en-US');
+
+    const moonlight = dialog?.querySelector<HTMLInputElement>(
+      'input[name="editor-color-theme"][value="moonlight"]',
+    );
+    expect(dialog?.textContent).toContain('日光');
+    expect(dialog?.textContent).toContain('月色');
+    await act(async () => moonlight?.click());
+    expect(onColorThemeChange).toHaveBeenCalledWith('moonlight');
 
     await act(async () => {
       document.dispatchEvent(new KeyboardEvent('keydown', {
@@ -256,7 +362,11 @@ describe('Toolbar game export action', () => {
       '[aria-label="界面语言"]',
     ) as HTMLSelectElement;
     const alert = document.querySelector('[role="alert"]');
+    const themeOptions = document.querySelectorAll<HTMLInputElement>(
+      'input[name="editor-color-theme"]',
+    );
     expect(language.disabled).toBe(true);
+    expect([...themeOptions].every((option) => option.disabled)).toBe(true);
     expect(alert?.textContent).toContain('完全退出并重新启动');
     expect(document.activeElement?.textContent).toBe('关闭');
     expect(onLanguageChange).not.toHaveBeenCalled();
@@ -275,6 +385,9 @@ describe('Toolbar game export action', () => {
     await act(async () => englishSettingsButton!.click());
     expect(document.querySelector('[role="alert"]')?.textContent).toContain(
       'Fully quit and restart',
+    );
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      'Moonlight',
     );
   });
 

@@ -2,13 +2,13 @@
 
 [返回功能模块](../README.md)
 
-本目录编辑游戏标题页的标题上方文字、显示名称、背景图和循环音乐，并管理标题页、CG 画廊与故事编辑界面之间的导航。和故事编辑器一样，它同时提供表单与固定结构 Blockly 两种视图，并始终写回同一作者工程字段。
+本目录编辑游戏标题页的标题上方文字、显示名称、背景图和循环音乐，并管理标题页、CG 画廊与故事编辑界面之间的导航。表单与固定结构 Blockly 写回标题内容/媒体；Code 页通过受限 DSL 独立更新 `startScreen.style`。
 
 ## 架构位置与工作方式
 
 1. `startScreenScene.ts` 保存当前 Editor surface 与返回关系，`StartScreenEditor` 根据编辑模式选择表单或 Blockly。
 2. 两种编辑器从项目生成标题页投影，资源拖放或字段变化经统一动作提交；Blockly 事件由 `startScreenBlockEvents.ts` 解析。
-3. 更新后的项目同时驱动标题页编辑预览，并在导出后成为 Player 的主界面配置。标题上方
+3. 更新后的内容和样式同时驱动标题页编辑预览，并在导出后成为 Player 的主界面配置。标题上方
    文字默认是 `A VN ENGINE STORY`；保存空字符串会隐藏该行。
 
 `startScreen.eyebrow` 与游戏名一起位于表单右侧内容区，也投影到 Blockly 根积木。提交时
@@ -31,4 +31,5 @@
 
 - 表单和 Blockly 必须保持双向等价；根积木结构与软件托管入口不可被用户删除或任意重排。
 - 标题资源为空时应使用明确默认状态；标题上方文字为空则不渲染，导航 ID 不得与真实故事场景 ID 混淆。
+- 样式只允许共享 DTO 声明的字体、颜色、透明度、圆角、布局和背景适配值；不执行原始 CSS/JS。
 - 运行 `pnpm --dir apps/editor exec vitest run tests/unit/startScreenEditor.test.tsx tests/unit/startScreenResponsiveStyle.test.ts`。

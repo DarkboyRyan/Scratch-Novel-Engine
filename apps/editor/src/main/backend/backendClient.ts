@@ -31,8 +31,11 @@ export function backendRequestTimeoutMs(
   // to arrive later.
   if (
     invocation.method === 'asset.import' ||
+    invocation.method === 'asset.rename' ||
+    invocation.method === 'asset.deleteMany' ||
     invocation.method === 'project.open' ||
-    invocation.method === 'project.save'
+    invocation.method === 'project.save' ||
+    invocation.method === 'scene.content.replace'
   ) {
     return null;
   }

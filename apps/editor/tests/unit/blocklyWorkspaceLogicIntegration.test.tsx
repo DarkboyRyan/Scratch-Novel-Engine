@@ -201,6 +201,8 @@ describe('BlocklyWorkspace logic action integration', () => {
     if (!(workspace instanceof Blockly.WorkspaceSvg)) {
       throw new Error('Blockly workspace was not injected');
     }
+    expect(workspace.isDraggable()).toBe(true);
+    expect(workspace.isMovableHorizontally()).toBe(true);
 
     const temporaryIf = workspace.newBlock(LOGIC_IF_BLOCK_TYPE, 'toolbox-if');
     temporaryIf.initSvg();

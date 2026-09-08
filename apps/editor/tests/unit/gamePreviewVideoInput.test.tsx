@@ -8,6 +8,10 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
+} from '@vnengine/runtime';
 
 import { GamePreview } from '../../src/renderer/features/game-preview/GamePreview';
 import type { GamePreviewSession } from '../../src/renderer/features/game-preview/useGamePreview';
@@ -25,12 +29,14 @@ const session: GamePreviewSession = {
     name: 'Video input',
     entrySceneId: 'scene-1',
     startScreen: {
+      style: DEFAULT_START_SCREEN_STYLE,
       title: 'Story',
       eyebrow: 'A VN ENGINE STORY',
       backgroundAssetId: null,
       musicAssetId: null,
     },
     cgGallery: {
+      style: DEFAULT_CG_GALLERY_STYLE,
       pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
     },
     scenes: [

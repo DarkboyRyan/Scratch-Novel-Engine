@@ -12,7 +12,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FormEditorCommands } from '../../src/renderer/application/authoringPorts';
 import { useFormEditor } from '../../src/renderer/features/form-editor/useFormEditor';
 import type { EngineMutationResult } from '../../src/shared/engineProtocol';
-import type { ProjectDocument } from '../../src/shared/projectTypes';
+import {
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
+  type ProjectDocument,
+} from '../../src/shared/projectTypes';
 
 const project: ProjectDocument = {
   schemaVersion: 1,
@@ -20,12 +24,14 @@ const project: ProjectDocument = {
   name: 'Portrait form project',
   entrySceneId: 'scene-1',
   startScreen: {
+    style: DEFAULT_START_SCREEN_STYLE,
     title: 'Portrait form project',
     eyebrow: 'A VN ENGINE STORY',
     backgroundAssetId: null,
     musicAssetId: null,
   },
   cgGallery: {
+    style: DEFAULT_CG_GALLERY_STYLE,
     pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
   },
   scenes: [

@@ -7,6 +7,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   advanceGame as advanceGamePreview,
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
   getChoices as getGamePreviewChoices,
   selectChoice as selectGamePreviewChoice,
   startGame as startGamePreview,
@@ -20,12 +22,14 @@ const project: ProjectDocument = {
   name: 'Preview',
   entrySceneId: 'scene-entry',
   startScreen: {
+    style: DEFAULT_START_SCREEN_STYLE,
     title: 'Story',
     eyebrow: 'A VN ENGINE STORY',
     backgroundAssetId: null,
     musicAssetId: null,
   },
   cgGallery: {
+    style: DEFAULT_CG_GALLERY_STYLE,
     pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
   },
   scenes: [
@@ -349,12 +353,14 @@ describe('game preview runtime', () => {
       name: 'Looping dialogue',
       entrySceneId: 'loop',
       startScreen: {
+        style: DEFAULT_START_SCREEN_STYLE,
         title: 'Story',
         eyebrow: 'A VN ENGINE STORY',
         backgroundAssetId: null,
         musicAssetId: null,
       },
       cgGallery: {
+        style: DEFAULT_CG_GALLERY_STYLE,
         pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
       },
       scenes: [
@@ -432,12 +438,14 @@ describe('game preview runtime', () => {
       name: 'Cycle',
       entrySceneId: 'a',
       startScreen: {
+        style: DEFAULT_START_SCREEN_STYLE,
         title: 'Story',
         eyebrow: 'A VN ENGINE STORY',
         backgroundAssetId: null,
         musicAssetId: null,
       },
       cgGallery: {
+        style: DEFAULT_CG_GALLERY_STYLE,
         pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
       },
       scenes: [
@@ -506,12 +514,14 @@ describe('game preview runtime', () => {
       name: 'Branching',
       entrySceneId: 'entry',
       startScreen: {
+        style: DEFAULT_START_SCREEN_STYLE,
         title: 'Story',
         eyebrow: 'A VN ENGINE STORY',
         backgroundAssetId: null,
         musicAssetId: null,
       },
       cgGallery: {
+        style: DEFAULT_CG_GALLERY_STYLE,
         pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
       },
       scenes: [
@@ -602,12 +612,14 @@ describe('game preview runtime', () => {
       name: 'Missing target',
       entrySceneId: 'entry',
       startScreen: {
+        style: DEFAULT_START_SCREEN_STYLE,
         title: 'Story',
         eyebrow: 'A VN ENGINE STORY',
         backgroundAssetId: null,
         musicAssetId: null,
       },
       cgGallery: {
+        style: DEFAULT_CG_GALLERY_STYLE,
         pages: [{ imageAssetIds: Array<string | null>(9).fill(null) }],
       },
       scenes: [

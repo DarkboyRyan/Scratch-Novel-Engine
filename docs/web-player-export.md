@@ -3,12 +3,12 @@
 # Web Player ZIP 导出实现
 
 > 实现目标：Editor 的导出面板新增“Web 游戏 ZIP（HTML5）”，把当前已保存的作者项目
-> 编译为可部署到静态网站的浏览器版游戏。它沿用 Runtime v12、共享 React Player UI 和
+> 编译为可部署到静态网站的浏览器版游戏。它沿用 Runtime v13、共享 React Player UI 和
 > 现有媒体资源，不携带 Electron、C++ Backend 或作者编辑能力。
 
 ## 1. 名称和功能边界
 
-用户习惯把浏览器游戏包称为 `WebGL.zip`，但当前 VN Engine 的画面由 React、DOM、CSS
+用户习惯把浏览器游戏包称为 `WebGL.zip`，但当前 Scratch Novel Engine 的画面由 React、DOM、CSS
 和浏览器原生图片/音频/视频元素渲染，并没有把 C++ 编译成 WebAssembly，也没有把舞台
 改写成 WebGL。因此产品中的准确名称是“Web 游戏 ZIP（HTML5）”，协议输出类型是
 `web-player`，默认文件名为：
@@ -24,6 +24,7 @@
 - 场景初始背景、时间线背景和人物立绘的 10%–300% 整数缩放；标题页背景和 CG 不参与缩放；
 - 变量 Set/Change、If/Else 和固定次数 Repeat；
 - CG 画廊、九宫格分页与大图查看；
+- 与桌面 Player 一致的标题页/CG 画廊 DIY 样式，由受限 Code DSL 产生类型化 DTO；
 - 浏览器本地的 3 个手动存档槽和 1 个快速槽；
 - 主音量、BGM、语音和视频音量设置；
 - 没有持久玩家语言时使用导出包默认中/英界面，已保存语言优先；
@@ -56,9 +57,9 @@
 
 ```mermaid
 flowchart LR
-  AUTHOR["作者项目 v21<br/>project.vn.json + assets"]
+  AUTHOR["作者项目 v22<br/>project.vn.json + assets"]
   EDITOR["Electron Editor Main<br/>冻结 revision 与严格编译"]
-  RUNTIME["Runtime Bundle v12<br/>game.json + manifest + assets"]
+  RUNTIME["Runtime Bundle v13<br/>game.json + manifest + assets"]
   TEMPLATE["预构建 Web Player 模板<br/>index.html + player-assets"]
   ZIP["Web ZIP<br/>web-export.json + game/&lt;buildId&gt;"]
   HOST["HTTP/HTTPS 静态站点"]
@@ -76,8 +77,8 @@ flowchart LR
 - Editor Renderer 只表达 `output: 'web-player'` 的导出意图，不传入模板路径、输出目录或
   任意文件系统路径；
 - Electron Main 冻结当前保存版本并负责文件事务、模板验证和 ZIP 生成；
-- Runtime Compiler 继续把 Author v21 编译为 Runtime v12，从 Main 权威 Editor
-  语言注入 `game.defaultLanguage`，不为 Web 复制另一套剧情语义；
+- Runtime Compiler 继续把 Author v22 编译为 Runtime v13，保留页面样式并从 Main 权威 Editor
+  语言注入 `game.defaultLanguage`，不为 Web 复制另一套剧情或渲染语义；
 - `@vnengine/runtime` 继续提供纯 TypeScript 状态机；
 - `@vnengine/player-ui` 继续提供标题页、舞台、CG、存档和选项组件；
 - WebGateway 只替换桌面 Player 的 Electron Preload/Main 传输与本地存储端口。
@@ -122,7 +123,7 @@ ZIP 解压后的根目录是一个可直接部署的静态站点：
   "format": "vn-engine-web-export",
   "webExportVersion": 1,
   "runtimeVersion": 12,
-  "playerCompatibility": ">=12 <13",
+  "playerCompatibility": ">=13 <14",
   "gameRoot": "game/018f-example-build-id"
 }
 ```
@@ -167,7 +168,7 @@ Vite 配置的关键约束是：
   "templateVersion": 1,
   "payloadRoot": "payload",
   "entry": "index.html",
-  "runtimeCompatibility": ">=1 <13",
+  "runtimeCompatibility": ">=1 <14",
   "playerVersion": "<模板构建版本>",
   "files": [
     {
@@ -181,8 +182,8 @@ Vite 配置的关键约束是：
 
 `files` 精确列出 payload 的每个普通文件及其大小、SHA-256；加载模板时既要验证每个条目，
 也要确认实际文件集合没有缺失或额外内容。Editor 只消费经过验证的模板，不接受 Renderer
-指定的模板路径。模板可以读取 runtime v1–v12；当前新导出固定生成 runtime v12，且
-`web-export.json` 声明 `playerCompatibility: ">=12 <13"`。
+指定的模板路径。模板可以读取 runtime v1–v13；当前新导出固定生成 runtime v13，且
+`web-export.json` 声明 `playerCompatibility: ">=13 <14"`。
 
 ## 6. WebGateway 和浏览器运行链
 
@@ -341,11 +342,11 @@ Node 依赖：
 | 导出 UI | React 19、TypeScript 5.9 | 新增 `web-player` 选项，隐藏桌面应用 metadata，显示产物结果 |
 | 导出边界 | Electron 43 Main / Preload / IPC | exact invocation、可信 frame、Main-owned 保存对话框和稳定错误 |
 | 作者模型 | C++20 Backend、JSONL | 提供当前窗口的权威 Project/Asset 快照和 revision，不进入 Web 产物 |
-| Runtime 编译 | TypeScript、现有 Runtime Bundle Exporter | Author v21 → Runtime v12，Main 权威默认语言、标题上方文字、剧情图片缩放、逻辑结构、资源闭包、人物 effect/mode、hash、媒体魔数和源稳定性验证 |
+| Runtime 编译 | TypeScript、现有 Runtime Bundle Exporter | Author v22 → Runtime v13，页面样式、Main 权威默认语言、标题上方文字、剧情图片缩放、逻辑结构、资源闭包、人物 effect/mode、hash、媒体魔数和源稳定性验证 |
 | ZIP | Node.js streams、`yazl`、`yauzl` | 跨平台流式压缩、重新读取、ZIP Slip/重复 entry/大小与结构验证 |
 | Web 构建 | Vite 5、`@vitejs/plugin-react` | `base: './'`、hash 资源、独立 Web payload 和模板 staging |
 | Web UI | React 19、`@vnengine/player-ui` | 复用标题页、剧情舞台、CG、存档和选项，不携带编辑器界面 |
-| 剧情状态机 | `@vnengine/runtime` | 复用 runtime v12 逻辑/立绘特效/图片缩放语义与 `GameRuntimeSnapshot v5`；Runtime v11 保留为缩放历史里程碑 |
+| 剧情状态机 | `@vnengine/runtime` | 复用 runtime v13 逻辑/立绘特效/图片缩放语义与 `GameRuntimeSnapshot v5`；Runtime v11 保留为缩放历史里程碑 |
 | 浏览器端口 | Fetch、URL、Web Crypto、IndexedDB、Fullscreen API | 同源 bundle 加载、资源 URL、内容身份、本地存储和全屏 |
 | 验证 | Vitest、Node Test、jsdom、真实浏览器 smoke | 协议、导出回滚、ZIP 契约、Gateway、存储、UI 与部署行为 |
 
@@ -372,7 +373,7 @@ Electron runtime，因此体积和权限面都明显小于独立桌面应用 ZIP
 
 ### 13.3 WebGateway 与存储
 
-- 正常 HTTP 响应可加载 runtime v12、包默认语言、标题上方文字、逻辑节点、人物 effect、剧情图片缩放
+- 正常 HTTP 响应可加载 runtime v13、页面样式、包默认语言、标题上方文字、逻辑节点、人物 effect、剧情图片缩放
   和全部 Asset ID；
 - 404、HTML fallback、畸形 JSON、未知字段、不兼容版本和危险路径被拒绝；
 - 资源 URL 保持同源且不能越出 `gameRoot`；

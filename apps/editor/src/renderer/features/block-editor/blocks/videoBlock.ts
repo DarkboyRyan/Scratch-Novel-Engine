@@ -5,6 +5,10 @@
 
 import * as Blockly from 'blockly';
 import { DEFAULT_EDITOR_LANGUAGE, getEditorLabels, type EditorLabels } from '../../../i18n/editorLocalization';
+import {
+  AssetNameField,
+  ensureAssetNameField,
+} from './assetNameField';
 
 export const VIDEO_BLOCK_TYPE = 'vn_video';
 
@@ -19,6 +23,14 @@ let currentLabels = getEditorLabels(DEFAULT_EDITOR_LANGUAGE);
 
 export function applyVideoBlockLocalization(block: Blockly.Block, labels: EditorLabels): void {
   block.setFieldValue(labels.blockly.video, LABEL_FIELD);
+  ensureAssetNameField(
+    block,
+    VIDEO_BLOCK_FIELDS.assetName,
+    labels.scenes.noVideo,
+    'video',
+    getVideoBlockAssetId(block),
+    labels.common.missingVideo,
+  );
   block.setTooltip(labels.blockly.videoTooltip);
 }
 
@@ -28,15 +40,28 @@ export function setVideoBlockAsset(
   displayName = '',
 ): void {
   block.data = assetId === null ? null : `${ASSET_DATA_PREFIX}${assetId}`;
-  block.setFieldValue(
-    displayName || EMPTY_VIDEO_FIELD_VALUE,
-    VIDEO_BLOCK_FIELDS.assetName,
-  );
+  const assetField = typeof block.getField === 'function'
+    ? block.getField(VIDEO_BLOCK_FIELDS.assetName)
+    : null;
+  if (assetField instanceof AssetNameField) {
+    assetField.setAssetValue(assetId, displayName);
+  } else {
+    block.setFieldValue(
+      displayName || EMPTY_VIDEO_FIELD_VALUE,
+      VIDEO_BLOCK_FIELDS.assetName,
+    );
+  }
 }
 
 export function getVideoBlockAssetId(
   block: Blockly.Block,
 ): string | null {
+  const assetField = typeof block.getField === 'function'
+    ? block.getField(VIDEO_BLOCK_FIELDS.assetName)
+    : null;
+  if (assetField instanceof AssetNameField) {
+    return assetField.getAssetId();
+  }
   return block.data?.startsWith(ASSET_DATA_PREFIX)
     ? block.data.slice(ASSET_DATA_PREFIX.length)
     : null;
@@ -44,24 +69,16 @@ export function getVideoBlockAssetId(
 
 export function registerVideoBlock(labels: EditorLabels = currentLabels): void {
   currentLabels = labels;
-  if (Blockly.Blocks[VIDEO_BLOCK_TYPE]) {
-    return;
-  }
-
   Blockly.Blocks[VIDEO_BLOCK_TYPE] = {
     init(): void {
-      const assetField = new Blockly.FieldTextInput(
-        EMPTY_VIDEO_FIELD_VALUE,
-        undefined,
-        { spellcheck: false },
+      const assetField = new AssetNameField(
+        currentLabels.scenes.noVideo,
+        'video',
       );
 
       this.appendDummyInput()
         .appendField(currentLabels.blockly.video, LABEL_FIELD)
         .appendField(assetField, VIDEO_BLOCK_FIELDS.assetName);
-      // The label must always represent an imported video Asset ID. Users
-      // assign it by dragging a video from the shared resource panel.
-      assetField.setEnabled(false);
       this.setPreviousStatement(true);
       this.setNextStatement(true);
       this.setColour(285);

@@ -1,10 +1,11 @@
-// 文件职责：严格读取、迁移并写出 VN Engine Author 项目 JSON。
-// 关键实现：v1–v21 迁移、exact-field 校验、节点/资源序列化和 v21 Writer。
+// 文件职责：严格读取、迁移并写出 Scratch Novel Engine Author 项目 JSON。
+// 关键实现：v1–v22 迁移、exact-field 校验、节点/资源序列化和 v22 Writer。
 #include "serialization.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <initializer_list>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -81,12 +82,24 @@ int require_integer(
         std::string(context) + "." + key + " must be an integer");
   }
 
-  try {
-    return object.at(key).get<int>();
-  } catch (const Json::exception&) {
-    invalid(
-        std::string(context) + "." + key + " is outside the supported range");
+  const Json& encoded = object.at(key);
+  if (encoded.is_number_unsigned()) {
+    const Json::number_unsigned_t value =
+        encoded.get<Json::number_unsigned_t>();
+    if (value <= static_cast<Json::number_unsigned_t>(
+                     std::numeric_limits<int>::max())) {
+      return static_cast<int>(value);
+    }
+  } else {
+    const Json::number_integer_t value =
+        encoded.get<Json::number_integer_t>();
+    if (value >= std::numeric_limits<int>::min() &&
+        value <= std::numeric_limits<int>::max()) {
+      return static_cast<int>(value);
+    }
   }
+  invalid(
+      std::string(context) + "." + key + " is outside the supported range");
 }
 
 int image_scale_percent_from_json(
@@ -1198,6 +1211,54 @@ SceneVisualState scene_visuals_from_json(
 }
 
 Json start_screen_to_json(const StartScreen& start_screen) {
+  const auto font_preset_to_string = [](const PageFontPreset preset) {
+    switch (preset) {
+      case PageFontPreset::system:
+        return "system";
+      case PageFontPreset::serif:
+        return "serif";
+      case PageFontPreset::rounded:
+        return "rounded";
+      case PageFontPreset::mono:
+        return "mono";
+    }
+    invalid("page font preset is invalid");
+  };
+  const auto image_fit_to_string = [](const PageImageFit fit) {
+    switch (fit) {
+      case PageImageFit::contain:
+        return "contain";
+      case PageImageFit::cover:
+        return "cover";
+    }
+    invalid("page image fit is invalid");
+  };
+  const CommonPageStyle& common = start_screen.style.common;
+  Json style{
+      {"fontPreset", font_preset_to_string(common.font_preset)},
+      {"fontScalePercent", common.font_scale_percent},
+      {"pageColor", common.page_color},
+      {"textColor", common.text_color},
+      {"mutedTextColor", common.muted_text_color},
+      {"surfaceColor", common.surface_color},
+      {"surfaceOpacityPercent", common.surface_opacity_percent},
+      {"accentColor", common.accent_color},
+      {"overlayColor", common.overlay_color},
+      {"overlayOpacityPercent", common.overlay_opacity_percent},
+      {"cornerRadiusPx", common.corner_radius_px},
+      {"backgroundFit", image_fit_to_string(start_screen.style.background_fit)},
+  };
+  switch (start_screen.style.layout) {
+    case StartScreenLayout::split_right:
+      style["layout"] = "split-right";
+      break;
+    case StartScreenLayout::split_left:
+      style["layout"] = "split-left";
+      break;
+    case StartScreenLayout::center:
+      style["layout"] = "center";
+      break;
+  }
   return {
       {"title", start_screen.title},
       {"eyebrow", start_screen.eyebrow},
@@ -1209,7 +1270,131 @@ Json start_screen_to_json(const StartScreen& start_screen) {
        start_screen.music_asset_id.has_value()
            ? Json(*start_screen.music_asset_id)
            : Json(nullptr)},
+      {"style", std::move(style)},
   };
+}
+
+CommonPageStyle common_page_style_from_json(
+    const Json& value,
+    const std::string& context) {
+  const auto color = [&value, &context](const std::string_view field) {
+    std::string result = require_string(value, field, context);
+    if (!is_canonical_page_color(result)) {
+      invalid(
+          context + "." + std::string(field) +
+          " must be canonical #RRGGBB");
+    }
+    return result;
+  };
+  const auto bounded_integer = [&value, &context](
+                                   const std::string_view field,
+                                   const int minimum,
+                                   const int maximum) {
+    const int result = require_integer(value, field, context);
+    if (result < minimum || result > maximum) {
+      invalid(
+          context + "." + std::string(field) + " must be between " +
+          std::to_string(minimum) + " and " + std::to_string(maximum));
+    }
+    return result;
+  };
+
+  const std::string font_preset_text =
+      require_string(value, "fontPreset", context);
+  PageFontPreset font_preset;
+  if (font_preset_text == "system") {
+    font_preset = PageFontPreset::system;
+  } else if (font_preset_text == "serif") {
+    font_preset = PageFontPreset::serif;
+  } else if (font_preset_text == "rounded") {
+    font_preset = PageFontPreset::rounded;
+  } else if (font_preset_text == "mono") {
+    font_preset = PageFontPreset::mono;
+  } else {
+    invalid(context + ".fontPreset is not supported");
+  }
+
+  return CommonPageStyle{
+      .font_preset = font_preset,
+      .font_scale_percent = bounded_integer(
+          "fontScalePercent",
+          kMinimumPageFontScalePercent,
+          kMaximumPageFontScalePercent),
+      .page_color = color("pageColor"),
+      .text_color = color("textColor"),
+      .muted_text_color = color("mutedTextColor"),
+      .surface_color = color("surfaceColor"),
+      .surface_opacity_percent = bounded_integer(
+          "surfaceOpacityPercent",
+          kMinimumPageOpacityPercent,
+          kMaximumPageOpacityPercent),
+      .accent_color = color("accentColor"),
+      .overlay_color = color("overlayColor"),
+      .overlay_opacity_percent = bounded_integer(
+          "overlayOpacityPercent",
+          kMinimumPageOpacityPercent,
+          kMaximumPageOpacityPercent),
+      .corner_radius_px = bounded_integer(
+          "cornerRadiusPx",
+          kMinimumPageCornerRadiusPx,
+          kMaximumPageCornerRadiusPx),
+  };
+}
+
+PageImageFit page_image_fit_from_json(
+    const Json& value,
+    const std::string_view field,
+    const std::string& context) {
+  const std::string fit = require_string(value, field, context);
+  if (fit == "contain") {
+    return PageImageFit::contain;
+  }
+  if (fit == "cover") {
+    return PageImageFit::cover;
+  }
+  invalid(context + "." + std::string(field) + " is not supported");
+}
+
+StartScreenStyle start_screen_style_from_json(
+    const Json& value,
+    const std::string& context) {
+  require_exact_fields(
+      value,
+      {"fontPreset",
+       "fontScalePercent",
+       "pageColor",
+       "textColor",
+       "mutedTextColor",
+       "surfaceColor",
+       "surfaceOpacityPercent",
+       "accentColor",
+       "overlayColor",
+       "overlayOpacityPercent",
+       "cornerRadiusPx",
+       "layout",
+       "backgroundFit"},
+      context);
+  const std::string layout_text = require_string(value, "layout", context);
+  StartScreenLayout layout;
+  if (layout_text == "split-right") {
+    layout = StartScreenLayout::split_right;
+  } else if (layout_text == "split-left") {
+    layout = StartScreenLayout::split_left;
+  } else if (layout_text == "center") {
+    layout = StartScreenLayout::center;
+  } else {
+    invalid(context + ".layout is not supported");
+  }
+  StartScreenStyle style{
+      .common = common_page_style_from_json(value, context),
+      .layout = layout,
+      .background_fit = page_image_fit_from_json(
+          value, "backgroundFit", context),
+  };
+  if (!is_valid_start_screen_style(style)) {
+    invalid(context + " is invalid");
+  }
+  return style;
 }
 
 StartScreen start_screen_from_json(
@@ -1217,7 +1402,12 @@ StartScreen start_screen_from_json(
     const std::string_view context,
     const int file_version,
     const std::string& legacy_title) {
-  if (file_version >= 20) {
+  if (file_version >= 22) {
+    require_exact_fields(
+        value,
+        {"title", "eyebrow", "backgroundAssetId", "musicAssetId", "style"},
+        context);
+  } else if (file_version >= 20) {
     require_exact_fields(
         value,
         {"title", "eyebrow", "backgroundAssetId", "musicAssetId"},
@@ -1253,6 +1443,10 @@ StartScreen start_screen_from_json(
           : "A VN ENGINE STORY",
       .background_asset_id = nullable_asset_id("backgroundAssetId"),
       .music_asset_id = nullable_asset_id("musicAssetId"),
+      .style = file_version >= 22
+          ? start_screen_style_from_json(
+                value.at("style"), std::string(context) + ".style")
+          : StartScreenStyle{},
   };
 }
 
@@ -1266,7 +1460,98 @@ Json cg_gallery_to_json(const CgGallery& cg_gallery) {
     }
     pages.push_back({{"imageAssetIds", std::move(image_asset_ids)}});
   }
-  return {{"pages", std::move(pages)}};
+  const CommonPageStyle& common = cg_gallery.style.common;
+  const auto font_preset = [&common]() {
+    switch (common.font_preset) {
+      case PageFontPreset::system:
+        return "system";
+      case PageFontPreset::serif:
+        return "serif";
+      case PageFontPreset::rounded:
+        return "rounded";
+      case PageFontPreset::mono:
+        return "mono";
+    }
+    invalid("page font preset is invalid");
+  }();
+  Json style{
+      {"fontPreset", font_preset},
+      {"fontScalePercent", common.font_scale_percent},
+      {"pageColor", common.page_color},
+      {"textColor", common.text_color},
+      {"mutedTextColor", common.muted_text_color},
+      {"surfaceColor", common.surface_color},
+      {"surfaceOpacityPercent", common.surface_opacity_percent},
+      {"accentColor", common.accent_color},
+      {"overlayColor", common.overlay_color},
+      {"overlayOpacityPercent", common.overlay_opacity_percent},
+      {"cornerRadiusPx", common.corner_radius_px},
+      {"gapPx", cg_gallery.style.gap_px},
+  };
+  switch (cg_gallery.style.layout) {
+    case CgGalleryLayout::framed:
+      style["layout"] = "framed";
+      break;
+    case CgGalleryLayout::edge_to_edge:
+      style["layout"] = "edge-to-edge";
+      break;
+  }
+  switch (cg_gallery.style.thumbnail_fit) {
+    case PageImageFit::contain:
+      style["thumbnailFit"] = "contain";
+      break;
+    case PageImageFit::cover:
+      style["thumbnailFit"] = "cover";
+      break;
+  }
+  return {{"pages", std::move(pages)}, {"style", std::move(style)}};
+}
+
+CgGalleryStyle cg_gallery_style_from_json(
+    const Json& value,
+    const std::string& context) {
+  require_exact_fields(
+      value,
+      {"fontPreset",
+       "fontScalePercent",
+       "pageColor",
+       "textColor",
+       "mutedTextColor",
+       "surfaceColor",
+       "surfaceOpacityPercent",
+       "accentColor",
+       "overlayColor",
+       "overlayOpacityPercent",
+       "cornerRadiusPx",
+       "layout",
+       "thumbnailFit",
+       "gapPx"},
+      context);
+  const std::string layout_text = require_string(value, "layout", context);
+  CgGalleryLayout layout;
+  if (layout_text == "framed") {
+    layout = CgGalleryLayout::framed;
+  } else if (layout_text == "edge-to-edge") {
+    layout = CgGalleryLayout::edge_to_edge;
+  } else {
+    invalid(context + ".layout is not supported");
+  }
+  const int gap_px = require_integer(value, "gapPx", context);
+  if (gap_px < kMinimumCgGalleryGapPx ||
+      gap_px > kMaximumCgGalleryGapPx) {
+    invalid(context + ".gapPx must be between 0 and 32");
+  }
+  CgGalleryStyle style{
+      .common = common_page_style_from_json(value, context),
+      .layout = layout,
+      .thumbnail_fit = page_image_fit_from_json(
+          value, "thumbnailFit", context),
+      .gap_px = gap_px,
+  };
+  if (!is_valid_cg_gallery_style(style)) {
+    invalid(context + " is invalid");
+  }
+  return style;
 }
 
 CgGallery cg_gallery_from_json(
@@ -1303,7 +1588,11 @@ CgGallery cg_gallery_from_json(
     return gallery;
   }
 
-  require_exact_fields(value, {"pages"}, context);
+  if (file_version >= 22) {
+    require_exact_fields(value, {"pages", "style"}, context);
+  } else {
+    require_exact_fields(value, {"pages"}, context);
+  }
   const Json& pages = value.at("pages");
   if (!pages.is_array() || pages.empty()) {
     invalid("project.cgGallery.pages must be a non-empty array");
@@ -1341,6 +1630,10 @@ CgGallery cg_gallery_from_json(
       page.image_asset_ids[slot_index] = asset_id.get<std::string>();
     }
     gallery.pages.push_back(std::move(page));
+  }
+  if (file_version >= 22) {
+    gallery.style = cg_gallery_style_from_json(
+        value.at("style"), "project.cgGallery.style");
   }
   return gallery;
 }

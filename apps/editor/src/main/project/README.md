@@ -9,6 +9,7 @@
 1. `ProjectFileWorkflow.ts` 响应新建、打开和保存，使用原生对话框取得用户选择。
 2. 路径策略和存储会话规范化项目根、隔离临时资产，并把合法项目装入 C++ 后端和预览服务。
 3. 保存时后端提供稳定快照，`ProjectPublisher.ts` 校验后同步临时文件并原子替换正式清单；会话随后记录修订与脏状态。
+4. 当前资源删除只更新项目清单和权威聚合；磁盘文件作为未引用数据保留，不进入项目存储发布事务。
 
 ## 文件
 
@@ -22,6 +23,6 @@
 
 ## 开发与验证
 
-- 路径策略必须防止符号链接和目录逃逸；保存失败不得破坏上一份有效清单或错误清除脏状态。
+- 路径策略必须防止符号链接和目录逃逸；保存失败不得破坏上一份有效清单或错误清除脏状态。逻辑删除不得尝试直接清理磁盘文件。
 - 项目格式变化要同步后端解析、Shared 项目类型和兼容性测试。
 - 运行 `pnpm --dir apps/editor exec vitest run tests/unit/projectFileSession.test.ts tests/unit/projectStorageSession.test.ts tests/unit/registerProjectFileIpc.test.ts`。

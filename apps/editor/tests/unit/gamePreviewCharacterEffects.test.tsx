@@ -10,7 +10,12 @@ import path from 'node:path';
 
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { startGame, type ProjectDocument } from '@vnengine/runtime';
+import {
+  DEFAULT_CG_GALLERY_STYLE,
+  DEFAULT_START_SCREEN_STYLE,
+  startGame,
+  type ProjectDocument,
+} from '@vnengine/runtime';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PreviewPanel } from '../../src/renderer/components/PreviewPanel';
@@ -32,12 +37,16 @@ const project: ProjectDocument = {
   name: 'Preview character effect',
   entrySceneId: 'entry',
   startScreen: {
+    style: DEFAULT_START_SCREEN_STYLE,
     title: '',
     eyebrow: 'A VN ENGINE STORY',
     backgroundAssetId: null,
     musicAssetId: null,
   },
-  cgGallery: { pages: [{ imageAssetIds: Array(9).fill(null) }] },
+  cgGallery: {
+    style: DEFAULT_CG_GALLERY_STYLE,
+    pages: [{ imageAssetIds: Array(9).fill(null) }],
+  },
   scenes: [{
     schemaVersion: 1,
     id: 'entry',

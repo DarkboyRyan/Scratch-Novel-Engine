@@ -1,5 +1,5 @@
-// 主要作用：定义 Renderer、Preload 与 Main 之间的资产导入 IPC 契约。
-// 关键实现：声明动作、返回联合类型及 window.vnAssets API。
+// 主要作用：定义 Renderer、Preload 与 Main 之间的资产 IPC 契约。
+// 关键实现：声明导入、预览和资源管理动作及 window.vnAssets API。
 import type { EngineMutationResult } from './engineProtocol';
 
 export const ASSET_IPC_CHANNEL = 'vn-assets:request';
@@ -30,6 +30,19 @@ export type AssetInvocation =
       params: {
         assetId: string;
       };
+    }
+  | {
+      action: 'rename';
+      params: {
+        assetId: string;
+        displayName: string;
+      };
+    }
+  | {
+      action: 'delete-many';
+      params: {
+        assetIds: string[];
+      };
     };
 
 export type ImportAssetResult =
@@ -45,9 +58,16 @@ export type ImportImageResult = ImportAssetResult;
 export type ImportVideoResult = ImportAssetResult;
 export type ImportAudioResult = ImportAssetResult;
 
-export type AssetResponse = ImportAssetResult | string | null;
+export type AssetResponse =
+  | ImportAssetResult
+  | EngineMutationResult
+  | string
+  | null;
 
 export type VnAssetsApi = {
+  // Renderer must not call the management methods when an older live Preload
+  // is still attached after HMR. That process does not own their IPC shape.
+  readonly managementContractVersion?: 1;
   importImage(): Promise<ImportImageResult>;
   importVideo(): Promise<ImportVideoResult>;
   importAudio(): Promise<ImportAudioResult>;
@@ -55,4 +75,9 @@ export type VnAssetsApi = {
   // path and becomes unusable when the window changes to another project.
   getPreviewUrl(assetId: string): Promise<string | null>;
   getMediaUrl(assetId: string): Promise<string | null>;
+  renameAsset(
+    assetId: string,
+    displayName: string,
+  ): Promise<EngineMutationResult>;
+  deleteAssets(assetIds: string[]): Promise<EngineMutationResult>;
 };
