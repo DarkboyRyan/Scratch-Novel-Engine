@@ -462,6 +462,9 @@ describe('start screen Editor projection', () => {
     expect(
       document.querySelector('[aria-label="预览完整主界面"]'),
     ).toBeInstanceOf(HTMLButtonElement);
+    expect(document.querySelector('.block-editor-sync-badge')).toBeNull();
+    expect(document.body.textContent).not.toContain('软件托管结构');
+    expect(document.body.textContent).not.toContain('主界面结构由软件管理');
     expect(document.body.textContent).not.toContain('清除背景');
     expect(document.body.textContent).not.toContain('清除音乐');
   });
@@ -512,6 +515,8 @@ describe('start screen Editor projection', () => {
     ) as HTMLInputElement;
     expect(titleInput).toBeInstanceOf(HTMLInputElement);
     expect(eyebrowInput).toBeInstanceOf(HTMLInputElement);
+    expect(container.querySelector('.start-screen-form-note')).toBeNull();
+    expect(container.textContent).not.toContain('软件托管结构');
     expect(titleInput.value).toBe('Start screen title');
     expect(eyebrowInput.value).toBe('A VN ENGINE STORY');
     await act(async () => {

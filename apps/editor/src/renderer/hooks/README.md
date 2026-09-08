@@ -14,7 +14,7 @@
 
 | 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
 | --- | --- | --- | --- |
-| [useEditorSettings.ts](./useEditorSettings.ts) | TypeScript | 读取、订阅并更新编辑器语言等持久化设置 | `EditorSettingsState`、`useEditorSettings` |
+| [useEditorSettings.ts](./useEditorSettings.ts) | TypeScript | 读取、订阅并乐观更新编辑器语言与颜色主题，失败时恢复 Main 权威值 | `EditorSettingsState`、`useEditorSettings` |
 | [useEngineProject.ts](./useEngineProject.ts) | TypeScript | 管理引擎项目加载、刷新、修订、错误和保存状态 | `OpenProjectStatus`、`ImportAssetStatus`、`ImportImageStatus`、`ExportGameStatus`、`useEngineProject`、`EngineProjectState` |
 
 ## 开发与验证

@@ -15,16 +15,18 @@ Shared 定义 Main、Preload 与 Renderer 都能安全导入的 IPC 通道、DTO
    marker 与新 ID 分配细节，并要求 Preload 的 `storyCodeContractVersion: 1`，防止 HMR
    期间把新草稿误发给旧 Main。
 
-Editor 语言设置仍由 Main 持久。当前 Runtime v13 保留 v12 引入的 `game.defaultLanguage`
-在导出工作流内从 Main 权威设置注入，不是 `exportProtocol.ts` 中由 Renderer
-提供的参数；作者字段不因此翻译。
+Editor 设置仍由 Main 持久。当前 exact v2 合同包含 `language` 与
+`colorTheme: 'daylight' | 'moonlight'`；v1 语言文档会保留语言并自动补为 Daylight。
+Runtime v13 保留 v12 引入的 `game.defaultLanguage`，在导出工作流内从 Main 权威语言注入，
+不是 `exportProtocol.ts` 中由 Renderer 提供的参数；作者字段不因此翻译。`colorTheme`
+只控制 Editor chrome，不进入 Author、Runtime 或导出游戏。
 
 ## 文件
 
 | 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
 | --- | --- | --- | --- |
 | [`assetProtocol.ts`](./assetProtocol.ts) | TypeScript IPC DTO | 定义资产导入动作和结果。 | `ASSET_IPC_CHANNEL`、`AssetInvocation`、`VnAssetsApi`。 |
-| [`editorSettingsProtocol.ts`](./editorSettingsProtocol.ts) | TypeScript Runtime Guard | 定义版本化语言设置。 | 默认设置、`isEditorLanguage`、`isEditorSettings`、`isEditorSettingsPatch`、`VnEditorSettingsApi`。 |
+| [`editorSettingsProtocol.ts`](./editorSettingsProtocol.ts) | TypeScript Runtime Guard | 定义 v2 语言与颜色主题设置。 | 默认设置、`isEditorLanguage`、`isEditorColorTheme`、`isEditorSettings`、`isEditorSettingsPatch`、`VnEditorSettingsApi`。 |
 | [`engineProtocol.ts`](./engineProtocol.ts) | TypeScript 映射类型 | 定义全部引擎方法、参数和响应。 | `ENGINE_METHODS`、`EngineParamsByMethod`、`BackendRequest/Response`、`VnEngineApi`。 |
 | [`exportIpcChannel.ts`](./exportIpcChannel.ts) | TypeScript | 提供 Preload 安全的最小导出通道常量。 | `EXPORT_GAME_IPC_CHANNEL`；不引入 Node 或文件名模块。 |
 | [`exportProtocol.ts`](./exportProtocol.ts) | TypeScript、filenamify/browser | 定义运行包、Web 包和独立应用导出契约。 | `standaloneApplicationMetadataError`、`ExportGameInvocation/Result`、`VnGameExportApi`。 |

@@ -232,10 +232,6 @@ export const StartScreenFormEditor = forwardRef<
             ))}
           </select>
         </label>
-        <div className="start-screen-form-note">
-          <strong>{labels.startScreen.managedStructureTitle}</strong>
-          <p>{labels.startScreen.managedStructureHelp}</p>
-        </div>
       </aside>
 
       <section

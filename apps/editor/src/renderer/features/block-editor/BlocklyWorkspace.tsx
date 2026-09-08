@@ -116,6 +116,7 @@ import {
   getBlockClientRectangle,
   type BlockSelectionController,
 } from './blockSelection';
+import { BLOCKLY_WORKSPACE_MOVE_OPTIONS } from './blocklyWorkspaceMovement';
 import {
   createBlockGroupDragController,
   type BlockGroupDragController,
@@ -654,11 +655,7 @@ export const BlocklyWorkspace = forwardRef<
           trashcan: true,
           maxTrashcanContents: 0,
           readOnly: false,
-          move: {
-            scrollbars: true,
-            drag: false,
-            wheel: false,
-          },
+          move: BLOCKLY_WORKSPACE_MOVE_OPTIONS,
           renderer: 'zelos',
           plugins: {
             connectionChecker: CharacterEffectConnectionChecker,

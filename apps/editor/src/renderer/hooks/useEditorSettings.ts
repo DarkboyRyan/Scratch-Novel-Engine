@@ -1,5 +1,5 @@
 /**
- * 文件主要作用：读取、订阅并更新编辑器语言等持久化设置。
+ * 文件主要作用：读取、订阅并更新编辑器语言与颜色主题等持久化设置。
  * 包含实现：`EditorSettingsState`、`useEditorSettings`。
  */
 
@@ -7,8 +7,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   createDefaultEditorSettings,
+  type EditorColorTheme,
   type EditorLanguage,
   type EditorSettings,
+  type EditorSettingsPatch,
 } from '../../shared/editorSettingsProtocol';
 import {
   isEditorSettingsRestartRequiredError,
@@ -23,6 +25,7 @@ export type EditorSettingsState = {
   saveFailed: boolean;
   restartRequired: boolean;
   changeLanguage(language: EditorLanguage): Promise<void>;
+  changeColorTheme(colorTheme: EditorColorTheme): Promise<void>;
   dismissSaveError(): void;
 };
 
@@ -96,27 +99,32 @@ export function useEditorSettings(): EditorSettingsState {
     };
   }, [acceptAuthoritative]);
 
-  const changeLanguage = async (
-    language: EditorLanguage,
+  const changeSetting = async (
+    patch: EditorSettingsPatch,
   ): Promise<void> => {
     const current = settingsRef.current;
+    const unchanged = current !== null && (
+      'language' in patch
+        ? patch.language === current.language
+        : patch.colorTheme === current.colorTheme
+    );
     if (
       current === null ||
       savingRef.current ||
       restartRequired ||
-      language === current.language
+      unchanged
     ) {
       return;
     }
     const requestGeneration = authoritativeGenerationRef.current;
-    const optimistic = { ...current, language };
+    const optimistic: EditorSettings = { ...current, ...patch };
     settingsRef.current = optimistic;
     setSettings(optimistic);
     setSaveFailed(false);
     savingRef.current = true;
     setIsSaving(true);
     try {
-      const result = await updateEditorSettings({ language });
+      const result = await updateEditorSettings(patch);
       if (
         mountedRef.current &&
         authoritativeGenerationRef.current === requestGeneration
@@ -148,12 +156,20 @@ export function useEditorSettings(): EditorSettingsState {
     }
   };
 
+  const changeLanguage = (language: EditorLanguage): Promise<void> =>
+    changeSetting({ language });
+
+  const changeColorTheme = (
+    colorTheme: EditorColorTheme,
+  ): Promise<void> => changeSetting({ colorTheme });
+
   return {
     settings,
     isSaving,
     saveFailed,
     restartRequired,
     changeLanguage,
+    changeColorTheme,
     dismissSaveError: () => setSaveFailed(false),
   };
 }

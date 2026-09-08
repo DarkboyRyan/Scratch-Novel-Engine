@@ -11,7 +11,10 @@ import {
   type GameExportRequest,
   type StandaloneApplicationMetadataErrorCode,
 } from '../../shared/exportProtocol';
-import type { EditorLanguage } from '../../shared/editorSettingsProtocol';
+import type {
+  EditorColorTheme,
+  EditorLanguage,
+} from '../../shared/editorSettingsProtocol';
 import type { EditorMode } from '../application/editorMode';
 import type { WorkspaceSection } from '../application/editorSection';
 import { useEditorLabels } from '../i18n/editorLocalization';
@@ -31,6 +34,7 @@ type ToolbarProps = {
   operationMessage: string;
   projectFolderName: string | null;
   language: EditorLanguage;
+  colorTheme: EditorColorTheme;
   isSettingsSaving: boolean;
   settingsSaveFailed: boolean;
   settingsRestartRequired: boolean;
@@ -45,8 +49,15 @@ type ToolbarProps = {
   onWorkspaceSectionChange: (section: WorkspaceSection) => void;
   onEditorModeChange: (mode: EditorMode) => void;
   onLanguageChange: (language: EditorLanguage) => Promise<void>;
+  onColorThemeChange: (colorTheme: EditorColorTheme) => Promise<void>;
   onOpenSettings: () => void;
 };
+
+function focusableElements(container: HTMLElement): HTMLElement[] {
+  return [...container.querySelectorAll<HTMLElement>(
+    'button:not(:disabled), select:not(:disabled), input:not(:disabled), [href], [tabindex]:not([tabindex="-1"])',
+  )].filter((element) => !element.hasAttribute('hidden'));
+}
 
 function defaultApplicationId(projectName: string): string {
   const suffix = projectName
@@ -72,6 +83,7 @@ export function Toolbar({
   operationMessage,
   projectFolderName,
   language,
+  colorTheme,
   isSettingsSaving,
   settingsSaveFailed,
   settingsRestartRequired,
@@ -86,10 +98,14 @@ export function Toolbar({
   onWorkspaceSectionChange,
   onEditorModeChange,
   onLanguageChange,
+  onColorThemeChange,
   onOpenSettings,
 }: ToolbarProps) {
   const labels = useEditorLabels();
   const inputRef = useRef<HTMLInputElement>(null);
+  const exportButtonRef = useRef<HTMLButtonElement>(null);
+  const exportDialogRef = useRef<HTMLElement>(null);
+  const exportOutputRef = useRef<HTMLSelectElement>(null);
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
   const [exportOutput, setExportOutput] = useState<GameExportRequest['output']>(
@@ -132,6 +148,64 @@ export function Toolbar({
     }
   }, [isExportDialogOpen, projectName]);
 
+  useEffect(() => {
+    if (!isExportDialogOpen) {
+      return undefined;
+    }
+
+    queueMicrotask(() => {
+      (exportOutputRef.current ?? exportDialogRef.current)?.focus();
+    });
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      const dialog = exportDialogRef.current;
+      if (dialog === null) {
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        setIsExportDialogOpen(false);
+        return;
+      }
+      if (event.key !== 'Tab') {
+        return;
+      }
+
+      const focusable = focusableElements(dialog);
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const currentIndex = document.activeElement instanceof HTMLElement
+        ? focusable.indexOf(document.activeElement)
+        : -1;
+      const nextIndex = event.shiftKey
+        ? currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1
+        : currentIndex < 0 || currentIndex === focusable.length - 1
+          ? 0
+          : currentIndex + 1;
+      event.preventDefault();
+      focusable[nextIndex]?.focus();
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      queueMicrotask(() => {
+        const trigger = exportButtonRef.current;
+        if (
+          trigger?.isConnected &&
+          !trigger.matches(':disabled') &&
+          trigger.closest('[inert]') === null
+        ) {
+          trigger.focus();
+        }
+      });
+    };
+  }, [isExportDialogOpen]);
+
   function submitExportConfiguration(): void {
     if (exportOutput !== 'standalone-application') {
       setIsExportDialogOpen(false);
@@ -163,7 +237,7 @@ export function Toolbar({
   return (
     <header className="toolbar">
       <div className="toolbar-main-row">
-        <strong>Scratch Novel Engine</strong>
+        <strong className="toolbar-brand">Scratch Novel Engine</strong>
 
         <div
           className="project-file-actions"
@@ -194,7 +268,10 @@ export function Toolbar({
             {labels.toolbar.save}
           </button>
           <button
+            ref={exportButtonRef}
             type="button"
+            className="project-export-action"
+            aria-haspopup="dialog"
             disabled={isBusy}
             onMouseDown={preserveRenameDraftFocus}
             onClick={() => {
@@ -207,6 +284,7 @@ export function Toolbar({
           </button>
           <button
             type="button"
+            className="project-settings-action"
             aria-haspopup="dialog"
             onMouseDown={preserveRenameDraftFocus}
             onClick={() => {
@@ -223,10 +301,12 @@ export function Toolbar({
         {isSettingsDialogOpen ? (
           <EditorSettingsDialog
             language={language}
+            colorTheme={colorTheme}
             isSaving={isSettingsSaving}
             saveFailed={settingsSaveFailed}
             restartRequired={settingsRestartRequired}
             onLanguageChange={onLanguageChange}
+            onColorThemeChange={onColorThemeChange}
             onClose={() => setIsSettingsDialogOpen(false)}
           />
         ) : null}
@@ -243,15 +323,18 @@ export function Toolbar({
             }}
           >
             <section
+              ref={exportDialogRef}
               className="export-dialog"
               role="dialog"
               aria-modal="true"
               aria-labelledby="export-dialog-title"
+              tabIndex={-1}
             >
               <h2 id="export-dialog-title">{labels.toolbar.exportTitle}</h2>
               <label>
                 <span>{labels.toolbar.artifactType}</span>
                 <select
+                  ref={exportOutputRef}
                   aria-label={labels.toolbar.artifactType}
                   value={exportOutput}
                   onChange={(event) => {
@@ -401,77 +484,85 @@ export function Toolbar({
       </div>
 
       <div className="toolbar-mode-row">
-        <span className="toolbar-mode-label">
-          {labels.toolbar.workspace}
-        </span>
-        <div
-          className="editor-mode-switch"
-          role="group"
-          data-toolbar-switch="workspace"
-          aria-label={labels.toolbar.workspaceSection}
-        >
-          <button
-            type="button"
-            className="editor-mode-button"
-            disabled={isBusy}
-            aria-pressed={workspaceSection === 'dialogue'}
-            onMouseDown={preserveRenameDraftFocus}
-            onClick={() => onWorkspaceSectionChange('dialogue')}
+        <div className="toolbar-workspace-group">
+          <span className="toolbar-mode-label">
+            {labels.toolbar.workspace}
+          </span>
+          <div
+            className="editor-mode-switch"
+            role="group"
+            data-toolbar-switch="workspace"
+            aria-label={labels.toolbar.workspaceSection}
           >
-            {labels.toolbar.dialogueWorkspace}
-          </button>
-          <button
-            type="button"
-            className="editor-mode-button"
-            disabled={isBusy}
-            aria-pressed={workspaceSection === 'resources'}
-            onMouseDown={preserveRenameDraftFocus}
-            onClick={() => onWorkspaceSectionChange('resources')}
-          >
-            {labels.toolbar.resourceManager}
-          </button>
+            <button
+              type="button"
+              className="editor-mode-button"
+              disabled={isBusy}
+              aria-pressed={workspaceSection === 'dialogue'}
+              aria-current={workspaceSection === 'dialogue' ? 'page' : undefined}
+              onMouseDown={preserveRenameDraftFocus}
+              onClick={() => onWorkspaceSectionChange('dialogue')}
+            >
+              {labels.toolbar.dialogueWorkspace}
+            </button>
+            <button
+              type="button"
+              className="editor-mode-button"
+              disabled={isBusy}
+              aria-pressed={workspaceSection === 'resources'}
+              aria-current={workspaceSection === 'resources' ? 'page' : undefined}
+              onMouseDown={preserveRenameDraftFocus}
+              onClick={() => onWorkspaceSectionChange('resources')}
+            >
+              {labels.toolbar.resourceManager}
+            </button>
+          </div>
         </div>
 
-        <span className="toolbar-mode-label">
-          {labels.toolbar.editMethod}
-        </span>
-        <div
-          className="editor-mode-switch"
-          role="group"
-          data-toolbar-switch="editor-mode"
-          aria-label={labels.toolbar.editorMode}
-        >
-          <button
-            type="button"
-            className="editor-mode-button"
-            disabled={isBusy || workspaceSection !== 'dialogue'}
-            aria-pressed={editorMode === 'form'}
-            onMouseDown={preserveRenameDraftFocus}
-            onClick={() => onEditorModeChange('form')}
-          >
-            {labels.toolbar.formEditor}
-          </button>
-          <button
-            type="button"
-            className="editor-mode-button"
-            disabled={isBusy || workspaceSection !== 'dialogue'}
-            aria-pressed={editorMode === 'blocks'}
-            onMouseDown={preserveRenameDraftFocus}
-            onClick={() => onEditorModeChange('blocks')}
-          >
-            {labels.toolbar.blockEditor}
-          </button>
-          <button
-            type="button"
-            className="editor-mode-button"
-            disabled={isBusy || workspaceSection !== 'dialogue'}
-            aria-pressed={editorMode === 'code'}
-            onMouseDown={preserveRenameDraftFocus}
-            onClick={() => onEditorModeChange('code')}
-          >
-            {labels.toolbar.codePreview}
-          </button>
-        </div>
+        {workspaceSection === 'dialogue' ? (
+          <div className="toolbar-editor-method-group">
+            <span className="toolbar-mode-label">
+              {labels.toolbar.editMethod}
+            </span>
+            <div
+              className="editor-mode-switch"
+              role="group"
+              data-toolbar-switch="editor-mode"
+              aria-label={labels.toolbar.editorMode}
+            >
+              <button
+                type="button"
+                className="editor-mode-button"
+                disabled={isBusy}
+                aria-pressed={editorMode === 'form'}
+                onMouseDown={preserveRenameDraftFocus}
+                onClick={() => onEditorModeChange('form')}
+              >
+                {labels.toolbar.formEditor}
+              </button>
+              <button
+                type="button"
+                className="editor-mode-button"
+                disabled={isBusy}
+                aria-pressed={editorMode === 'blocks'}
+                onMouseDown={preserveRenameDraftFocus}
+                onClick={() => onEditorModeChange('blocks')}
+              >
+                {labels.toolbar.blockEditor}
+              </button>
+              <button
+                type="button"
+                className="editor-mode-button"
+                disabled={isBusy}
+                aria-pressed={editorMode === 'code'}
+                onMouseDown={preserveRenameDraftFocus}
+                onClick={() => onEditorModeChange('code')}
+              >
+                {labels.toolbar.codePreview}
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </header>
   );

@@ -485,11 +485,16 @@ describe('scene initial background scale draft boundaries', () => {
     await act(async () => {
       root.render(
         <EditorApplication
-          settings={{ settingsVersion: 1, language: 'zh-CN' }}
+          settings={{
+            settingsVersion: 2,
+            language: 'zh-CN',
+            colorTheme: 'daylight',
+          }}
           isSettingsSaving={false}
           settingsSaveFailed={false}
           settingsRestartRequired={false}
           onLanguageChange={async () => {}}
+          onColorThemeChange={async () => {}}
           onOpenSettings={() => {}}
         />,
       );
@@ -551,11 +556,16 @@ describe('scene initial background scale draft boundaries', () => {
     await act(async () => {
       root.render(
         <EditorApplication
-          settings={{ settingsVersion: 1, language: 'zh-CN' }}
+          settings={{
+            settingsVersion: 2,
+            language: 'zh-CN',
+            colorTheme: 'daylight',
+          }}
           isSettingsSaving={false}
           settingsSaveFailed={false}
           settingsRestartRequired={false}
           onLanguageChange={async () => {}}
+          onColorThemeChange={async () => {}}
           onOpenSettings={() => {}}
         />,
       );

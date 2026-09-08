@@ -658,10 +658,7 @@ export function AssetManager({
     <main className="asset-manager" aria-labelledby="asset-manager-title">
       <div className="asset-manager-heading">
         <header className="asset-manager-header">
-          <div>
-            <h1 id="asset-manager-title">{labels.resource.managerTitle}</h1>
-            <p>{labels.resource.managerHelp}</p>
-          </div>
+          <h1 id="asset-manager-title">{labels.resource.managerTitle}</h1>
           <div
             className="asset-manager-import-actions"
             role="group"

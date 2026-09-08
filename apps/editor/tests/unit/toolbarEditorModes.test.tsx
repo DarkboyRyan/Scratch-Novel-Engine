@@ -60,6 +60,7 @@ describe('Toolbar editor modes', () => {
             operationMessage=""
             projectFolderName="Story"
             language={language}
+            colorTheme="daylight"
             isSettingsSaving={false}
             settingsSaveFailed={false}
             settingsRestartRequired={false}
@@ -74,6 +75,7 @@ describe('Toolbar editor modes', () => {
             onWorkspaceSectionChange={onWorkspaceSectionChange}
             onEditorModeChange={onEditorModeChange}
             onLanguageChange={async () => {}}
+            onColorThemeChange={async () => {}}
             onOpenSettings={() => {}}
           />
         </EditorI18nProvider>,
@@ -116,6 +118,8 @@ describe('Toolbar editor modes', () => {
       'false',
       'true',
     ]);
+    expect(container.querySelector('.toolbar-workspace-group')).not.toBeNull();
+    expect(container.querySelector('.toolbar-editor-method-group')).not.toBeNull();
 
     await act(async () => {
       buttons[0]?.click();
@@ -139,7 +143,7 @@ describe('Toolbar editor modes', () => {
     expect(onEditorModeChange).toHaveBeenCalledWith('code');
   });
 
-  it('keeps Assets separate from the three editor modes', async () => {
+  it('hides story-only editor modes in the Asset Manager workspace', async () => {
     const onEditorModeChange = vi.fn();
     const onWorkspaceSectionChange = vi.fn();
     await renderToolbar(
@@ -159,8 +163,14 @@ describe('Toolbar editor modes', () => {
       'false',
       'true',
     ]);
-    expect(modeButtons()).toHaveLength(3);
-    expect(modeButtons().every((button) => button.disabled)).toBe(true);
+    expect(buttons.map((button) => button.getAttribute('aria-current'))).toEqual([
+      null,
+      'page',
+    ]);
+    expect(
+      container.querySelector('[data-toolbar-switch="editor-mode"]'),
+    ).toBeNull();
+    expect(container.querySelector('.toolbar-editor-method-group')).toBeNull();
 
     await act(async () => buttons[0]?.click());
     expect(onWorkspaceSectionChange).toHaveBeenCalledWith('dialogue');

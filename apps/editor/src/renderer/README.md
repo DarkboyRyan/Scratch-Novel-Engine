@@ -6,8 +6,8 @@ Renderer 是 Electron Editor 的 React 界面层，负责界面组合、项目�
 
 ## 架构位置与工作方式
 
-1. [`index.tsx`](./index.tsx) 建立 React 根和国际化上下文，[`App.tsx`](./App.tsx) 组合项目状态、编辑模式与全局对话框。
-2. [`hooks/`](./hooks/README.md) 读取设置和项目会话，Application 动作把 UI 意图转换为类型化 Engine/平台调用。
+1. [`index.tsx`](./index.tsx) 建立 React 根并加载全局样式，[`App.tsx`](./App.tsx) 组合项目状态、编辑模式与全局对话框，同时把语言和颜色主题应用到文档根节点。
+2. [`hooks/`](./hooks/README.md) 读取 EditorSettings v2 和项目会话，Application 动作把 UI 意图转换为类型化 Engine/平台调用。
 3. Feature 模块更新作者工程后刷新项目投影，并把当前场景状态交给共享组件或正式游戏预览显示。
 
 ## 子目录
@@ -19,7 +19,7 @@ Renderer 是 Electron Editor 的 React 界面层，负责界面组合、项目�
 | [features](./features/README.md) | 按业务能力划分的编辑器功能模块。 |
 | [hooks](./hooks/README.md) | Renderer 跨组件复用的 React 状态 Hook。 |
 | [i18n](./i18n/README.md) | 编辑器界面的中英文语言资源与上下文。 |
-| [styles](./styles/README.md) | Renderer 的全局基础样式和编辑器业务样式。 |
+| [styles](./styles/README.md) | Renderer 的 Daylight / Moonlight token、全局基础样式和编辑器业务样式。 |
 
 ## 文件
 

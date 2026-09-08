@@ -58,7 +58,7 @@ Author v22 / Runtime v13 为两个页面加入严格样式 DTO，旧版本迁移
 | [`web-player-export.md`](./web-player-export.md) | 修改 WebGL/Web Player ZIP | Runtime v13 页面样式/包语言、Vite 模板、WebGateway、IndexedDB、ZIP 事务和部署限制 |
 | [`save-load-implementation.md`](./save-load-implementation.md) | 修改保存读取 | 三个手动槽、快速槽、Snapshot v5、游戏身份隔离和原子存储 |
 | [`player-options-implementation.md`](./player-options-implementation.md) | 修改 Player 选项 | 包默认/玩家持久语言优先级、四路音量、窗口/全屏、三档尺寸和设置迁移 |
-| [`editor-localization-implementation.md`](./editor-localization-implementation.md) | 修改 Editor 语言 | typed catalog、Main 持久化、Runtime v12 默认语言里程碑、当前 Runtime v13 导出、多窗口同步和 Blockly 标签 |
+| [`editor-localization-implementation.md`](./editor-localization-implementation.md) | 修改 Editor 设置 | EditorSettings v2、语言与 Daylight / Moonlight、v1 迁移、多窗口同步、Runtime 默认语言和 Blockly 标签 |
 
 ## 文档维护约定
 

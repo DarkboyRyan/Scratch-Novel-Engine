@@ -9,7 +9,11 @@ import { EditorSettingsManager } from '../../src/main/settings/EditorSettingsMan
 import type { EditorSettings } from '../../src/shared/editorSettingsProtocol';
 
 class FakeStore {
-  current: EditorSettings = { settingsVersion: 1, language: 'zh-CN' };
+  current: EditorSettings = {
+    settingsVersion: 2,
+    language: 'zh-CN',
+    colorTheme: 'daylight',
+  };
   failWrite = false;
 
   async load(): Promise<EditorSettings> {
@@ -34,33 +38,52 @@ describe('EditorSettingsManager', () => {
     manager.subscribe(first);
     manager.subscribe(second);
 
-    const result = await manager.updateSettings({ language: 'en-US' });
+    const result = await manager.updateSettings({ colorTheme: 'moonlight' });
 
+    expect(manager.language).toBe('zh-CN');
     expect(result).toEqual({
       status: 'updated',
-      settings: { settingsVersion: 1, language: 'en-US' },
+      settings: {
+        settingsVersion: 2,
+        language: 'zh-CN',
+        colorTheme: 'moonlight',
+      },
     });
-    expect(first).toHaveBeenCalledWith({ settingsVersion: 1, language: 'en-US' });
-    expect(second).toHaveBeenCalledWith({ settingsVersion: 1, language: 'en-US' });
+    expect(first).toHaveBeenCalledWith({
+      settingsVersion: 2,
+      language: 'zh-CN',
+      colorTheme: 'moonlight',
+    });
+    expect(second).toHaveBeenCalledWith({
+      settingsVersion: 2,
+      language: 'zh-CN',
+      colorTheme: 'moonlight',
+    });
     await expect(manager.getSettings()).resolves.toEqual({
       status: 'ready',
-      settings: { settingsVersion: 1, language: 'en-US' },
+      settings: {
+        settingsVersion: 2,
+        language: 'zh-CN',
+        colorTheme: 'moonlight',
+      },
     });
   });
 
-  it('keeps the authoritative language unchanged when persistence fails', async () => {
+  it('keeps the authoritative theme unchanged when persistence fails', async () => {
     const store = new FakeStore();
     store.failWrite = true;
     const listener = vi.fn();
     const manager = new EditorSettingsManager(store);
     manager.subscribe(listener);
 
-    await expect(manager.updateSettings({ language: 'en-US' })).resolves.toEqual({
+    await expect(
+      manager.updateSettings({ colorTheme: 'moonlight' }),
+    ).resolves.toEqual({
       status: 'rejected',
       error: 'settings-storage-unavailable',
     });
     await expect(manager.getSettings()).resolves.toMatchObject({
-      settings: { language: 'zh-CN' },
+      settings: { colorTheme: 'daylight' },
     });
     expect(listener).not.toHaveBeenCalled();
   });

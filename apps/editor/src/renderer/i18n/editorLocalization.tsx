@@ -51,8 +51,13 @@ const zhCN = {
     interfaceLanguage: '界面语言',
     chinese: '中文',
     english: 'English',
-    saveFailed: '设置保存失败，已恢复之前的语言。',
-    restartRequired: 'Editor 已更新，请完全退出并重新启动 Editor 后再切换语言。',
+    interfaceColor: '界面主题',
+    daylight: '日光',
+    daylightHelp: '明亮、清晰的创作工作台',
+    moonlight: '月色',
+    moonlightHelp: '适合低光环境的深蓝灰放映室',
+    saveFailed: '设置保存失败，已恢复之前的设置。',
+    restartRequired: 'Editor 已更新，请完全退出并重新启动 Editor 后再更改设置。',
     saving: '正在保存…',
   },
   app: {
@@ -255,7 +260,8 @@ const zhCN = {
   blockEditor: {
     title: '图形化编辑器',
     currentProject: '当前项目',
-    selectionHelp: '长按空白框选 · 拖动选择组 · Delete 删除',
+    selectionHelp:
+      '拖动空白移动工作区 · 长按空白框选 · 拖动选择组 · Delete 删除',
     workspace: '图形化积木工作区',
     groupMoveHint: '作为一组移动',
     deleteSelection: '删除选中的剧情节点或分支选项',
@@ -364,12 +370,8 @@ const zhCN = {
   },
   startScreen: {
     editorTitle: '主界面编辑器',
-    editorHelp: '软件托管结构 · 使用白色下拉框选择素材，也可拖入对应积木',
-    managedStructure: '主界面结构由软件管理',
     previewFull: '预览完整主界面',
     workspace: '主界面积木工作区',
-    managedStructureTitle: '软件托管结构',
-    managedStructureHelp: '开始游戏、读取游戏、CG 画廊、选项和退出游戏由 Player 自动提供。',
     designPreview: '主界面设计预览',
     startGame: '开始游戏',
     loadGame: '读取游戏',
@@ -580,8 +582,10 @@ const enUS = {
   },
   settings: {
     button: 'Settings', title: 'Editor Settings', interfaceLanguage: 'Interface language', chinese: '中文', english: 'English',
-    saveFailed: 'Could not save settings. The previous language has been restored.',
-    restartRequired: 'The Editor has been updated. Fully quit and restart the Editor before changing the language.',
+    interfaceColor: 'Color theme', daylight: 'Daylight', daylightHelp: 'A bright, quiet authoring desk',
+    moonlight: 'Moonlight', moonlightHelp: 'A deep blue-gray projection room for low light',
+    saveFailed: 'Could not save settings. The previous settings have been restored.',
+    restartRequired: 'The Editor has been updated. Fully quit and restart the Editor before changing settings.',
     saving: 'Saving…',
   },
   app: {
@@ -655,7 +659,7 @@ const enUS = {
     noOptionsSkip: 'No options (skipped in preview)', moveUp: 'Move up', moveDown: 'Move down', deleteNode: 'Delete this story node', delete: 'Delete', nodeAriaPrefix: 'story node ', nodeAriaSuffix: '',
   },
   blockEditor: {
-    title: 'Block Editor', currentProject: 'Current project', selectionHelp: 'Hold on empty space to marquee-select · Drag a selection group · Delete to remove', workspace: 'Block workspace',
+    title: 'Block Editor', currentProject: 'Current project', selectionHelp: 'Drag empty space to pan · Hold on empty space to marquee-select · Drag a selection group · Delete to remove', workspace: 'Block workspace',
     groupMoveHint: 'Move as a group', deleteSelection: 'Delete selected story nodes or branch options',
   },
   codeEditor: {
@@ -697,9 +701,7 @@ const enUS = {
     insertBgm: 'Insert background music after the current node', insertDialogue: 'Insert an empty dialogue after the current node', portrait: 'Portrait', dialogue: 'Dialogue',
   },
   startScreen: {
-    editorTitle: 'Title Screen Editor', editorHelp: 'Software-managed layout · Choose assets from the white dropdowns or drag them onto the matching blocks', managedStructure: 'Title-screen structure is managed by the software',
-    previewFull: 'Preview full title screen', workspace: 'Title-screen block workspace', managedStructureTitle: 'Software-managed layout',
-    managedStructureHelp: 'Start Game, Load Game, CG Gallery, Options, and Exit Game are provided automatically by Player.', designPreview: 'Title-screen design preview',
+    editorTitle: 'Title Screen Editor', previewFull: 'Preview full title screen', workspace: 'Title-screen block workspace', designPreview: 'Title-screen design preview',
     startGame: 'Start Game', loadGame: 'Load Game', options: 'Options', exitGame: 'Exit Game', content: 'Title Screen Content', eyebrow: 'Text above title', eyebrowAria: 'Title-screen text above the game name', displayName: 'Game display name', gameNameAria: 'Title-screen game name',
     backgroundImage: 'Background image', backgroundImageAria: 'Title-screen background image', backgroundMusic: 'Background music', backgroundMusicAria: 'Title-screen background music',
     formHelp: 'Selections in the white fields are reflected in both the block editor and full preview.',

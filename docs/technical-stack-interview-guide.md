@@ -133,7 +133,7 @@ JSON Lines 协议通信，而不是 HTTP。C++ 返回完整权威快照，表单
 | 安全资源读取 | Electron 自定义 `vn-asset://` 协议 | 用 capability token 加载图片/音频/视频，用 Range 播放音频和视频且不暴露路径 |
 | 独立 Player | Electron、`vn-game-asset://`、原生目录选择器 | 候选先校验后 commit，成功换包轮换 token，失败保留旧包 |
 | Player 选项 | `PlayerSettingsV2`、typed i18n catalog、React Context/模态层、Node `fs`、Electron BrowserWindow/Display | 中英外壳即时切换、v1迁移、四路音量预览、exact patch IPC、userData 原子持久化、workArea 与原生全屏同步 |
-| Editor 本地化 | `EditorSettingsV1`、typed catalog、React Context、Blockly 动态字段、Electron IPC、Node `fs` | 顶栏中英切换、全窗口广播、原生菜单/对话框同步、作者内容不翻译、设置原子持久化 |
+| Editor 设置与本地化 | `EditorSettingsV2`、typed catalog、React Context、CSS semantic tokens、Blockly 动态字段、Electron IPC、Node `fs` | 中英与 Daylight / Moonlight 即时切换、v1 迁移、全窗口广播、原生界面同步、Editor-only 主题和设置原子持久化 |
 | 独立应用导出 | exact Player template、私有 staging、`plutil`、`codesign`、`ditto` | macOS 先组装/签名，再 ZIP、私有解压验签，失败不覆盖已有 ZIP |
 | Web Player 导出 | Vite、Fetch、Web Crypto、IndexedDB、Fullscreen API、yazl/yauzl | 相对路径静态模板、同源内容加载、浏览器存档/设置、跨平台 ZIP 生成和复验 |
 | 前端构建 | Vite 5、Electron Forge 7、pnpm | 构建时 metadata/icon/extraResource 与通用、embedded 两种 Player |
@@ -524,21 +524,27 @@ small、medium、large 同时把 `.player-app` 的根字号设为 14px、16px、
 组件内存，窗口控件禁用且不会调用 Player IPC。详见
 [Player 选项系统](./player-options-implementation.md)。
 
-### 4.13 Editor 本地化
+### 4.13 Editor 设置与本地化
 
-使用技术：React Context、TypeScript typed catalog、Blockly 13 动态字段、Electron
-contextBridge/IPC、Node `fs/promises`。
+使用技术：React Context、TypeScript typed catalog、CSS custom properties、Blockly 13
+动态字段、Electron contextBridge/IPC、Node `fs/promises`。
 
-顶栏“导出”旁的“设置”切换 `zh-CN / en-US`。Renderer 先即时预览，再通过窄 patch 把
-选择交给 Main；Main 串行写入 exact `EditorSettingsV1`，成功后广播全部 Editor 窗口并
-重建应用菜单。generation 防止旧读取、旧成功响应或旧失败回滚覆盖更新的跨窗口事件。
-设置文件位于 `userData/editor-settings`，以 nofollow、fsync、备份和 rename 发布。
+顶栏“导出”旁的“设置”切换 `zh-CN / en-US` 和 `daylight / moonlight`。Renderer 先即时
+预览，再通过一次只含一个字段的窄 patch 把选择交给 Main；Main 串行写入 exact
+`EditorSettingsV2`，成功后广播全部 Editor 窗口，并用快照中的语言重建应用菜单。exact v1
+语言文档自动保留原语言并补为 Daylight。generation 防止旧读取、旧成功响应或旧失败回滚
+覆盖更新的跨窗口事件。设置文件位于 `userData/editor-settings`，以 nofollow、fsync、备份和
+rename 发布。
+
+颜色主题通过文档根节点 `data-editor-theme` 与共享语义 token 只改变 Editor chrome，不改变
+作者页面样式、媒体、Author/Runtime 文档或导出游戏。导出边界仍只读取 Main 权威语言并写入
+Runtime v13 `game.defaultLanguage`。
 
 React 不使用 locale key。普通剧情、主界面和 CG 三套 Blockly 工作区只原位更新静态
 字段、Tooltip、Dropdown 与 Toolbox，关闭 Blockly Events 后再渲染；speaker、对白、
 Choice、标题、素材 ID、连接和 Workspace 都不改。项目名、场景名和作者文本保持原文。
 原生菜单、项目/资源/导出对话框每次从 Main 权威语言取文案。详见
-[Editor 中英文切换](./editor-localization-implementation.md)。
+[Editor 语言与颜色主题设置](./editor-localization-implementation.md)。
 
 ### 4.14 构建、打包和测试
 

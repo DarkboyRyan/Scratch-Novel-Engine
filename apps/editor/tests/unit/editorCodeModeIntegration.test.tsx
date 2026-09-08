@@ -12,7 +12,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EditorApplication } from '../../src/renderer/App';
 import type * as EditorPlatformGatewayModule from '../../src/renderer/application/editorPlatformGateway';
 import { EditorI18nProvider } from '../../src/renderer/i18n/editorLocalization';
-import type { EditorLanguage } from '../../src/shared/editorSettingsProtocol';
+import type {
+  EditorColorTheme,
+  EditorLanguage,
+} from '../../src/shared/editorSettingsProtocol';
 import type {
   ProjectDocument,
   SceneDocument,
@@ -371,16 +374,24 @@ describe('EditorApplication Code mode integration', () => {
     });
   }
 
-  async function renderApplication(language: EditorLanguage): Promise<void> {
+  async function renderApplication(
+    language: EditorLanguage,
+    colorTheme: EditorColorTheme = 'daylight',
+  ): Promise<void> {
     await act(async () => {
       root.render(
         <EditorI18nProvider language={language}>
           <EditorApplication
-            settings={{ settingsVersion: 1, language }}
+            settings={{
+              settingsVersion: 2,
+              language,
+              colorTheme,
+            }}
             isSettingsSaving={false}
             settingsSaveFailed={false}
             settingsRestartRequired={false}
             onLanguageChange={async () => {}}
+            onColorThemeChange={async () => {}}
             onOpenSettings={() => {}}
           />
         </EditorI18nProvider>,
@@ -542,9 +553,11 @@ describe('EditorApplication Code mode integration', () => {
     expect(codeSource()).toContain('The authoritative snapshot changed.');
     const sourceBeforeLanguageChange = codeSource();
 
-    await renderApplication('en-US');
+    await renderApplication('en-US', 'moonlight');
     expect(mode()).toBe('code');
     expect(container.querySelector('h1')?.textContent).toBe('Code');
+    expect(container.querySelector<HTMLElement>('.editor')?.dataset.editorTheme)
+      .toBe('moonlight');
     expect(codeSource()).toBe(sourceBeforeLanguageChange);
   });
 

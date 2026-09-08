@@ -3,9 +3,17 @@
  * 包含实现：`App`。
  */
 
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useReducer,
+  useRef,
+  useState,
+} from 'react';
 
 import {
+  type EditorColorTheme,
   type EditorLanguage,
   type EditorSettings,
 } from '../shared/editorSettingsProtocol';
@@ -77,6 +85,7 @@ type EditorApplicationProps = {
   settingsSaveFailed: boolean;
   settingsRestartRequired: boolean;
   onLanguageChange: (language: EditorLanguage) => Promise<void>;
+  onColorThemeChange: (colorTheme: EditorColorTheme) => Promise<void>;
   onOpenSettings: () => void;
 };
 
@@ -145,6 +154,7 @@ export function EditorApplication({
   settingsSaveFailed,
   settingsRestartRequired,
   onLanguageChange,
+  onColorThemeChange,
   onOpenSettings,
 }: EditorApplicationProps) {
   const labels = useEditorLabels();
@@ -889,6 +899,7 @@ export function EditorApplication({
     <div
       className="editor"
       data-editor-language={settings.language}
+      data-editor-theme={settings.colorTheme}
     >
       <Toolbar
         projectName={project.name}
@@ -904,6 +915,7 @@ export function EditorApplication({
         operationMessage={engine.exportMessage}
         projectFolderName={engine.projectFolderName}
         language={settings.language}
+        colorTheme={settings.colorTheme}
         isSettingsSaving={isSettingsSaving}
         settingsSaveFailed={settingsSaveFailed}
         settingsRestartRequired={settingsRestartRequired}
@@ -928,6 +940,7 @@ export function EditorApplication({
           void handleEditorModeChange(mode);
         }}
         onLanguageChange={onLanguageChange}
+        onColorThemeChange={onColorThemeChange}
         onOpenSettings={onOpenSettings}
       />
 
@@ -1178,6 +1191,27 @@ export default function App() {
     };
   }, [settings?.language]);
 
+  useLayoutEffect(() => {
+    if (settings === null) {
+      return;
+    }
+    const root = document.documentElement;
+    const previousTheme = root.dataset.editorTheme;
+    const previousColorScheme = root.style.colorScheme;
+    root.dataset.editorTheme = settings.colorTheme;
+    root.style.colorScheme = settings.colorTheme === 'moonlight'
+      ? 'dark'
+      : 'light';
+    return () => {
+      if (previousTheme === undefined) {
+        delete root.dataset.editorTheme;
+      } else {
+        root.dataset.editorTheme = previousTheme;
+      }
+      root.style.colorScheme = previousColorScheme;
+    };
+  }, [settings?.colorTheme]);
+
   if (settings === null) {
     return (
       <main className="engine-startup" role="status" aria-busy="true">
@@ -1196,6 +1230,7 @@ export default function App() {
           settingsSaveFailed={editorSettings.saveFailed}
           settingsRestartRequired={editorSettings.restartRequired}
           onLanguageChange={editorSettings.changeLanguage}
+          onColorThemeChange={editorSettings.changeColorTheme}
           onOpenSettings={editorSettings.dismissSaveError}
         />
       </RendererErrorBoundary>

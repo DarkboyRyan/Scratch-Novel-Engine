@@ -456,8 +456,8 @@ Application ID，不能传目标目录、模板位置、项目根、资源相对
 5. Renderer 发送无路径 `exportGame()`，Main 再强制检查相同条件并用 `project.get`
    核对内存 Project 和已保存 revision；
 6. Main 稳定读取磁盘 `project.vn.json`，先核对保存时的可信 SHA-256，再由 TypeScript
-   `AuthorProjectCompiler` 严格编译 runtime v13，并从 Main 权威 Editor 设置写入
-   `game.defaultLanguage`；这里**没有新增 C++ export 命令**；
+   `AuthorProjectCompiler` 严格编译 runtime v13，并只从 Main 权威 Editor 设置读取
+   `language` 写入 `game.defaultLanguage`；`colorTheme` 不进入导出，这里**没有新增 C++ export 命令**；
 7. `FileOperationCoordinator` 在 Main 侧串行化保存、编辑命令、导入和导出；导出结束前
    还会复查源清单及 session 未变化；
 8. `sourceRevision` 写入 manifest，之后的编辑只会影响下一次导出。
@@ -1025,7 +1025,9 @@ codesign --verify --deep --strict \
 > 编辑器预览和独立游戏不是两套剧情实现：Editor 与 Player 共用纯 TypeScript
 > Runtime 和 React Player UI。导出前，Renderer 先提交草稿并经过既有 C++ 保存链
 > 固定 v22 与 revision；之后 Editor Main 严格读取磁盘 v22，在事务 staging 中编译
-> runtime v13，并保留页面样式、从 Main 权威 Editor 设置注入包默认语言；只复制剧情、主界面与 CG 画廊非空槽引用媒体并计算 SHA-256，最后原子 rename；
+> runtime v13，并保留页面样式、只从 Main 权威 Editor 设置的 `language` 注入包默认语言；
+> `colorTheme` 不进入游戏包。流程只复制剧情、主界面与 CG 画廊非空槽引用媒体并计算
+> SHA-256，最后原子 rename；
 > `.vngame` 始终
 > 是目录包。独立应用先在系统私有工作区组装和 ad-hoc 签名，再用 `ditto` 生成
 > `*-macOS.zip`；Main 会在另一私有目录解压，确认根目录只有唯一 `.app`、内容不变且

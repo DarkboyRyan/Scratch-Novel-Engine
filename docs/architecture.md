@@ -28,8 +28,9 @@
 - 表单编辑与 Blockly 图形化编辑共享一条剧情时间线；长链只在 Blockly 中按编号“延伸”分页；
 - 剧情 Blockly 按剧情、逻辑、变量、音乐、图片和特效分类，支持变量 Set/Change、可嵌套
   If/Else 与固定次数 Repeat；表单以只读树展示结构，正式预览和 Player 执行真实逻辑；
-- Editor 顶栏提供全局中文 / English 设置；Main 原子保存偏好并同步所有窗口、原生菜单与
-  对话框，Blockly 只原位更新界面标签，作者内容保持原文；
+- Editor 顶栏提供全局中文 / English 与 Daylight / Moonlight 设置；Main 原子保存 v2 偏好并
+  同步所有窗口，原生菜单与对话框只消费语言，颜色主题只改变 Editor chrome；Blockly 只
+  原位更新界面标签，作者内容保持原文；
 - 项目文件夹新建、保存、打开、dirty 状态和 Cmd/Ctrl+S；
 - 未保存项目导入图片/视频/音频，以及 capability 媒体读取；
 - 对白语音、时间线 BGM，以及正式预览中的双音轨播放；
@@ -111,10 +112,12 @@ React 负责当前窗口的交互状态：
 
 React 不生成持久化实体 ID，也不直接修改 `project.scenes` 或 `scene.nodes`。
 `useEngineProject` 发送命令并在成功后应用 C++ 返回的完整快照。
-Editor 语言通过 typed catalog / React Context 原地更新；它不进入 Project 或 Runtime，
-也不以 locale 作为 React key。Blockly 的静态字段、Tooltip、Dropdown 和 Toolbox 分类
+Editor 设置 v2 由 Main 持久化界面语言与颜色主题。语言通过 typed catalog / React Context
+原地更新，导出时只有 Main 权威语言进入 Runtime `game.defaultLanguage`；颜色主题通过
+`data-editor-theme` 与语义 token 作用于 Editor chrome，不进入 Project、Runtime 或导出游戏。
+React 不以 locale 或主题作为 key，Blockly 的静态字段、Tooltip、Dropdown 和 Toolbox 分类
 原位更新，作者输入字段与 Workspace 实例保持不变。完整实现见
-[Editor 中英文切换](./editor-localization-implementation.md)。
+[Editor 语言与颜色主题设置](./editor-localization-implementation.md)。
 
 ### 4.2 Preload
 
@@ -125,7 +128,7 @@ window.vnEngine       // 领域命令
 window.vnProjectFiles // 新建、打开、保存和会话状态
 window.vnAssets       // 导入图片/视频/音频和申请 capability URL
 window.vnGameExport   // 无路径导出模式与安全应用 metadata
-window.vnEditorSettings // 全局语言读取、窄 patch 与变更订阅
+window.vnEditorSettings // 全局语言/颜色主题读取、单字段窄 patch 与变更订阅
 ```
 
 Renderer 看不到 `ipcRenderer`、Node 文件系统、child process 或本机资源路径。
@@ -471,8 +474,8 @@ revision 或磁盘，也不会改写正式游戏使用的 `entrySceneId`。选�
 
 Editor Renderer 点击“导出”后，先提交草稿、等待 Engine 队列并走既有 C++ 保存
 链。只有 `hasStorage=true`、`isDirty=false` 且 `savedRevision===revision` 时，Main
-才稳定读取已保存的 v22 清单，严格编译 runtime v13，并从 Main 权威 Editor
-语言写入 `game.defaultLanguage`。导出只复制剧情、主界面及 CG 画廊非空槽引用媒体，并在目标
+才稳定读取已保存的 v22 清单，严格编译 runtime v13，并只从 Main 权威 Editor 设置中读取
+语言写入 `game.defaultLanguage`；`colorTheme` 不进入导出。导出只复制剧情、主界面及 CG 画廊非空槽引用媒体，并在目标
 父目录使用排他锁、staging、SHA-256、fsync 和原子 rename 发布 `.vngame` 目录。
 Renderer 不传入或接收本机路径。
 

@@ -210,7 +210,7 @@ export function createBlockSelectionController(
       );
 
       if (distance > MOVE_TOLERANCE_PX) {
-        // 普通短拖只取消长按候选；视角只能通过滚动条移动。
+        // 普通短拖只取消长按候选，并继续交给 Blockly 原生画布平移手势。
         finishPointerGesture(false);
       }
       return;

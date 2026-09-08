@@ -1681,6 +1681,14 @@
   inset: 0;
 }
 
+.blockly-workspace .blocklyMainBackground {
+  cursor: grab;
+}
+
+.blockly-workspace .blocklyMainBackground:active {
+  cursor: grabbing;
+}
+
 /*
  * Blockly clones an output block into its animation layer when it is deleted.
  * Keep deletion immediate and visually quiet while leaving connection ripples
@@ -1728,6 +1736,11 @@
 .vn-block-lasso-active {
   cursor: crosshair;
   user-select: none;
+}
+
+.vn-block-lasso-active .blocklyMainBackground,
+.vn-block-lasso-active .blocklyMainBackground:active {
+  cursor: crosshair;
 }
 
 .vn-block-multi-selected > .blocklyPath {

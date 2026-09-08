@@ -6,13 +6,14 @@
 
 ## 架构位置与工作方式
 
-1. `useEditorSettings` 从 Main 设置服务取得持久化语言，并在更新时接收跨窗口通知。
+1. `useEditorSettings` 从 Main 设置服务取得完整 v2 偏好并接收跨窗口通知；本目录只消费其中的 `language`。
 2. `EditorI18nProvider` 规范化语言，选择完整的 `EDITOR_LABELS` 字典并通过 React Context 提供给组件。
 3. 组件使用标签键渲染界面；设置切换后整棵 Renderer 树自动采用新字典。
 
-该设置同时决定新导出 Runtime v13 的 `game.defaultLanguage`，但导出时由 Main
+语言设置同时决定新导出 Runtime v13 的 `game.defaultLanguage`，但导出时由 Main
 重新读取权威值，而不信任 Renderer 状态。项目名、标题、场景名、对白、说话人和 Choice
-仍原样导出。
+仍原样导出。`colorTheme` 只控制 Editor chrome；“日光 / 月色”等选项标签属于 catalog，
+但主题值本身不参与翻译，也不会进入 Runtime 或导出游戏。
 
 ## 文件
 
