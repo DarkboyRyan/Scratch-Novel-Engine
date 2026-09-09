@@ -353,6 +353,31 @@ test('executes pnpm JavaScript through Node without invoking a Windows cmd shim'
   }), { command: 'pnpm', args: [] });
 });
 
+test('invokes the pnpm 11 Windows executable directly and rejects command shims', () => {
+  const executable = 'C:\\Program Files\\pnpm\\pnpm.exe';
+  assert.deepEqual(resolvePnpmLauncher({
+    platform: 'win32',
+    nodeExecutable: 'C:\\nodejs\\node.exe',
+    npmExecPath: executable,
+    fileExists: candidate => candidate === executable,
+  }), { command: executable, args: [] });
+
+  for (const candidate of [
+    'pnpm.exe',
+    'C:\\pnpm\\pnpm.cmd',
+    'C:\\pnpm\\pnpm.bat',
+    'C:\\pnpm\\other.exe',
+    'C:\\pnpm\\pnpm.exe\0',
+  ]) {
+    assert.throws(() => resolvePnpmLauncher({
+      platform: 'win32', npmExecPath: candidate, fileExists: () => true,
+    }), /无法定位安全的 pnpm/u);
+  }
+  assert.throws(() => resolvePnpmLauncher({
+    platform: 'win32', npmExecPath: executable, fileExists: () => false,
+  }), /无法定位安全的 pnpm/u);
+});
+
 test('copies only a verified bundle into a new directory named game', async () => {
   const parent = await temporaryDirectory();
   const target = path.join(parent, 'game');

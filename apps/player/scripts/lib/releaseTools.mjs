@@ -176,6 +176,20 @@ export function resolvePnpmLauncher({
     return { command: nodeExecutable, args: [lifecycleCli] };
   }
 
+  // pnpm 11 can expose its standalone Windows executable as npm_execpath.
+  // Invoke the absolute executable directly; .cmd/.bat shims still require
+  // a shell and must not be used with dynamically supplied arguments.
+  if (
+    platform === 'win32' &&
+    typeof npmExecPath === 'string' &&
+    !npmExecPath.includes('\0') &&
+    path.win32.isAbsolute(npmExecPath) &&
+    path.win32.basename(npmExecPath).toLowerCase() === 'pnpm.exe' &&
+    fileExists(npmExecPath)
+  ) {
+    return { command: npmExecPath, args: [] };
+  }
+
   if (typeof repositoryRoot === 'string' && repositoryRoot.length > 0) {
     const candidates = [
       path.join(repositoryRoot, 'node_modules', 'pnpm', 'bin', 'pnpm.cjs'),
@@ -206,7 +220,7 @@ export function resolvePnpmLauncher({
 
   if (platform === 'win32') {
     throw new Error(
-      '无法定位安全的 pnpm JavaScript 入口；请通过 pnpm 运行 Editor 命令',
+      '无法定位安全的 pnpm JavaScript 入口或独立可执行文件；请通过 pnpm 运行 Editor 命令',
     );
   }
   return { command: 'pnpm', args: [] };
