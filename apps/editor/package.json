@@ -20,7 +20,8 @@
     "typecheck": "tsc --noEmit",
     "test": "pnpm run engine:build && pnpm run engine:test && vitest run",
     "test:integration": "pnpm run engine:build && vitest run tests/integration",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:release-tools": "node --test scripts/tests/*.node-test.mjs"
   },
   "author": {
     "name": "Hongyi Ding",

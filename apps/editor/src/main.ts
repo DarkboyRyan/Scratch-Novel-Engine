@@ -25,6 +25,7 @@ import {
 import { registerExportIpc } from './main/ipc/registerExportIpc';
 import { registerProjectFileIpc } from './main/ipc/registerProjectFileIpc';
 import { installApplicationMenu } from './main/menu/installApplicationMenu';
+import { getEditorNativeLabels } from './main/i18n/editorNativeLabels';
 import { ProjectFileSession } from './main/project/ProjectFileSession';
 import { ProjectStorageSession } from './main/project/ProjectStorageSession';
 import { EditorSettingsManager } from './main/settings/EditorSettingsManager';
@@ -109,12 +110,12 @@ async function openEditorWindow(
   });
 
   try {
-    if (options.createProject) {
+    if (options.createProject !== false) {
       const editorLanguage = currentEditorLanguage();
       const result = await backendClient.request({
         method: 'project.create',
         params: {
-          name: options.projectName,
+          name: options.projectName ?? getEditorNativeLabels(editorLanguage).window.untitledProject,
           firstSceneName: editorLanguage === 'en-US' ? 'Scene 1' : '场景 1',
         },
       });

@@ -2,7 +2,7 @@
 
 [返回 GitHub 自动化](../AUTOMATION.md)
 
-这里定义 Scratch Novel Engine 的跨平台质量门禁与正式发布流水线。三个工作流共享同一原则：先验证源码、依赖和输入，再生成制品；内部构建、独立游戏与正式 Player 的签名等级和发布权限彼此隔离。
+这里定义 Scratch Novel Engine 的跨平台质量门禁与发布流水线。各工作流先验证源码、依赖和输入，再生成制品；内部构建、Editor 测试版、独立游戏与正式 Player 的签名等级和发布权限彼此隔离。
 
 ## 工作流关系
 
@@ -12,8 +12,13 @@ Pull Request、`main` push 或人工调度首先进入 `player-ci.yml`，在 mac
 
 ## 文件索引
 
+`editor-release.yml` 响应 `editor-v*-mac` / `editor-v*-windows`，在对应平台构建 Editor，
+验证内置运行资源并创建预发布草稿。也支持手动构建，不创建标签或 Release。
+首次版本步骤见 [Editor 发布](../../docs/editor-release.md)。
+
 | 文件 | 框架 / 技术 | 主要作用 | 关键实现 |
 | --- | --- | --- | --- |
+| [`editor-release.yml`](./editor-release.yml) | GitHub Actions、Electron Forge | Editor 双平台预发布草稿。 | 平台标签、版本校验、原生构建、内置资源检查和 SHA-256。 |
 | [`player-ci.yml`](./player-ci.yml) | GitHub Actions、pnpm、CMake | PR 与 main 的跨平台内部质量门禁。 | Editor/Player/Runtime 测试、C++ CTest、Win/macOS/Linux 矩阵。 |
 | [`player-game-build.yml`](./player-game-build.yml) | Reusable Workflow、Electron Forge | 将已验证 `.vngame` 注入并构建签名游戏应用。 | 输入校验、平台签名、artifact 发布。 |
 | [`player-release.yml`](./player-release.yml) | GitHub Actions、GitHub Release | 从 `player-v*` tag 生成正式 Player 安装包。 | protected environment、签名、公证和不可变 Release。 |

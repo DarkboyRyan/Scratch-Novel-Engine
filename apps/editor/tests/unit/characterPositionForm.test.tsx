@@ -6,7 +6,7 @@
  */
 
 import { act } from 'react';
-import { createRoot } from 'react-dom/client';
+import { createChineseTestRoot as createRoot } from '../helpers/chineseTestRoot';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { InspectorPanel } from '../../src/renderer/features/form-editor/InspectorPanel';

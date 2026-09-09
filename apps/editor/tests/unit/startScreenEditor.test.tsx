@@ -7,7 +7,7 @@
 
 import * as Blockly from 'blockly';
 import { act, createRef } from 'react';
-import { createRoot } from 'react-dom/client';
+import { createChineseTestRoot as createRoot } from '../helpers/chineseTestRoot';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -135,16 +135,16 @@ describe('start screen Editor projection', () => {
     expect(createEditorSceneOptions(project)).toEqual([
       {
         id: START_SCREEN_SCENE_ID,
-        label: '主界面',
+        label: 'Title Screen',
         kind: 'start-screen',
       },
       {
         id: CG_GALLERY_SCENE_ID,
-        label: 'CG 画廊',
+        label: 'CG Gallery',
         kind: 'cg-gallery',
       },
-      { id: 'scene-1', label: '场景 1', kind: 'story' },
-      { id: 'scene-2', label: '场景 2 · 天台', kind: 'story' },
+      { id: 'scene-1', label: 'Scene 1', kind: 'story' },
+      { id: 'scene-2', label: 'Scene 2 · 天台', kind: 'story' },
     ]);
     expect(project.scenes.map((scene) => scene.id)).toEqual(storySceneIds);
     expect(project.scenes).toHaveLength(2);
@@ -268,13 +268,13 @@ describe('start screen Editor projection', () => {
     expect(
       (backgroundField as Blockly.FieldDropdown).getOptions(false),
     ).toEqual([
-      ['无', ''],
+      ['None', ''],
       ['夜空.png', 'background-1'],
     ]);
     expect(
       (musicField as Blockly.FieldDropdown).getOptions(false),
     ).toEqual([
-      ['无', ''],
+      ['None', ''],
       ['主题曲.ogg', 'music-1'],
     ]);
     expect(
@@ -460,7 +460,7 @@ describe('start screen Editor projection', () => {
       />,
     );
     expect(
-      document.querySelector('[aria-label="预览完整主界面"]'),
+      document.querySelector('[aria-label="Preview full title screen"]'),
     ).toBeInstanceOf(HTMLButtonElement);
     expect(document.querySelector('.block-editor-sync-badge')).toBeNull();
     expect(document.body.textContent).not.toContain('软件托管结构');

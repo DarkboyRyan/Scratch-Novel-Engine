@@ -6,6 +6,10 @@
 
 ## 自动化边界
 
+Editor 首次双平台发布由 `editor-release.yml` 独立处理：`editor-v*-mac` 和
+`editor-v*-windows` 标签分别创建预发布草稿，明确记录 ad-hoc / unsigned 状态。
+它不使用正式 Player 的签名凭据，也不修改以下正式发布要求。
+
 工作流以仓库中的锁定依赖、测试和发布脚本为唯一实现来源。Pull Request 与 `main` 使用跨平台内部质量门禁；正式 Player 只由受保护的 `player-v*` 标签触发；独立游戏则复用签名构建工作流，并在使用证书前验证调用方提供的 Runtime Bundle 与应用元数据。
 
 GitHub Actions 中的第三方 Action 均固定到提交 SHA，签名材料只从受保护环境的 Secrets 注入。修改这里的文件时，应把它视为发布代码：避免宽泛权限、未校验的输入、可变版本标签和任何未签名的降级路径。

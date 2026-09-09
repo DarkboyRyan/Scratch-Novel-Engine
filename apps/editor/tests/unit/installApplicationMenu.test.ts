@@ -28,7 +28,7 @@ vi.mock('electron', () => ({
 }));
 
 function installAndFindSaveItem(): MenuItemConstructorOptions {
-  installApplicationMenu();
+  installApplicationMenu('zh-CN');
 
   const template = electronMocks.buildFromTemplate.mock.calls[0]?.[0] as
     | MenuItemConstructorOptions[]
@@ -96,7 +96,7 @@ describe('application menu', () => {
   });
 
   it('rebuilds the native menu in English for the global Editor language', () => {
-    installApplicationMenu('en-US');
+    installApplicationMenu();
     const template = electronMocks.buildFromTemplate.mock.calls[0]?.[0] as
       MenuItemConstructorOptions[];
     const fileMenu = template.find((item) => item.label === 'File');

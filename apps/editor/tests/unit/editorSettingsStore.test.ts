@@ -32,7 +32,7 @@ describe('EditorSettingsStore', () => {
 
     await expect(store.load()).resolves.toEqual({
       settingsVersion: 2,
-      language: 'zh-CN',
+      language: 'en-US',
       colorTheme: 'daylight',
     });
     await store.write({
@@ -153,7 +153,7 @@ describe('EditorSettingsStore', () => {
 
     await expect(store.load()).resolves.toEqual({
       settingsVersion: 2,
-      language: 'zh-CN',
+      language: 'en-US',
       colorTheme: 'daylight',
     });
     await expect(store.write({

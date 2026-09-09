@@ -6,7 +6,8 @@
  */
 
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
+import type { Root } from 'react-dom/client';
+import { createChineseTestRoot as createRoot } from '../helpers/chineseTestRoot';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { FormEditorCommands } from '../../src/renderer/application/authoringPorts';

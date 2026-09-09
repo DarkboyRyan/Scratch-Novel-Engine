@@ -87,6 +87,9 @@ jobs:
       - name: Typecheck Editor
         run: pnpm --dir apps/editor typecheck
 
+      - name: Test Editor release tooling
+        run: pnpm --dir apps/editor test:release-tools
+
       - name: Lint Editor
         run: pnpm --dir apps/editor lint
 

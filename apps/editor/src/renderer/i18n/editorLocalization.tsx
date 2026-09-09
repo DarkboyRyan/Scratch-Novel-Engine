@@ -778,7 +778,7 @@ export const EDITOR_LABELS: Readonly<Record<EditorLanguage, EditorLabels>> = {
 };
 
 export function normalizeEditorLanguage(value: unknown): EditorLanguage {
-  return value === 'en-US' ? 'en-US' : DEFAULT_EDITOR_LANGUAGE;
+  return value === 'en-US' || value === 'zh-CN' ? value : DEFAULT_EDITOR_LANGUAGE;
 }
 
 export function getEditorLabels(language: EditorLanguage): EditorLabels {

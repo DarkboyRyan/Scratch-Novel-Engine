@@ -117,11 +117,11 @@ describe('useEditorSettings', () => {
     await act(async () => root.render(<Harness />));
     await act(async () => Promise.resolve());
 
-    expect(container.textContent).toBe('zh-CN:daylight');
+    expect(container.textContent).toBe('en-US:daylight');
     expect(latest?.restartRequired).toBe(true);
     expect(latest?.saveFailed).toBe(false);
     await act(async () => latest!.changeLanguage('en-US'));
-    expect(container.textContent).toBe('zh-CN:daylight');
+    expect(container.textContent).toBe('en-US:daylight');
     expect(updateSettings).not.toHaveBeenCalled();
   });
 
@@ -134,7 +134,7 @@ describe('useEditorSettings', () => {
     await act(async () => root.render(<Harness />));
     await act(async () => Promise.resolve());
 
-    expect(container.textContent).toBe('zh-CN:daylight');
+    expect(container.textContent).toBe('en-US:daylight');
     expect(latest?.restartRequired).toBe(true);
     expect(latest?.saveFailed).toBe(false);
   });

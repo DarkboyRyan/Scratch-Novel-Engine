@@ -67,8 +67,8 @@ describe('RendererErrorBoundary', () => {
     });
 
     const alert = container.querySelector('[role="alert"]');
-    expect(alert?.textContent).toContain('编辑器界面加载失败');
-    expect(alert?.textContent).toContain('完全退出并重新启动编辑器');
+    expect(alert?.textContent).toContain('The Editor interface failed to load');
+    expect(alert?.textContent).toContain('Quit and restart the Editor');
     expect(alert?.textContent).not.toContain('/private/project/path');
     expect(consoleError).toHaveBeenCalled();
 

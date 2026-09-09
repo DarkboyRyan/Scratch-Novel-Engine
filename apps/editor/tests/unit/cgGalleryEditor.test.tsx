@@ -7,7 +7,7 @@
 
 import * as Blockly from 'blockly';
 import { act, createRef } from 'react';
-import { createRoot } from 'react-dom/client';
+import { createChineseTestRoot as createRoot } from '../helpers/chineseTestRoot';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ResourcePanel } from '../../src/renderer/features/assets/ResourcePanel';
@@ -133,7 +133,7 @@ describe('CG gallery Editor', () => {
   it('offers CG as a synthetic surface before story scenes', () => {
     expect(createEditorSceneOptions(project)[1]).toEqual({
       id: CG_GALLERY_SCENE_ID,
-      label: 'CG 画廊',
+      label: 'CG Gallery',
       kind: 'cg-gallery',
     });
     expect(
@@ -161,7 +161,7 @@ describe('CG gallery Editor', () => {
     ) as Blockly.FieldDropdown;
     expect(emptyField).toBeInstanceOf(Blockly.FieldDropdown);
     expect(emptyField.getValue()).toBe('');
-    expect(emptyField.getText()).toBe('无');
+    expect(emptyField.getText()).toBe('None');
     expect(emptyField.isEnabled()).toBe(true);
     expect(
       Array.from(

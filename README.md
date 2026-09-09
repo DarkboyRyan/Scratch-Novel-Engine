@@ -100,6 +100,9 @@ pnpm --dir apps/player start
 每个主要源码目录都提供自己的 README，可从上表逐级进入对应实现。CI 与发布配置属于维护
 基础设施，不作为项目首页的核心功能入口。
 
+Editor 的 macOS / Windows 安装包构建及首次发布步骤见 [Editor 发布说明](./docs/editor-release.md)。
+首次启动默认使用 English；在 Settings 中可切换中文，已保存的语言偏好会保留。
+
 ## 数据兼容
 
 | 数据 | 当前写出 | 当前读取 |
