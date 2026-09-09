@@ -1,12 +1,12 @@
 # Editor macOS / Windows 发布
 
-第一版应用版本保持 `apps/editor/package.json` 中的 `1.0.0`。两个平台分别使用以下标签、
+第一版应用版本保持 `apps/editor/package.json` 中的 `1.0.2`。两个平台分别使用以下标签、
 Release 标题和主要下载文件：
 
 | Git 标签 / Release 标题 | 平台 | 下载文件 |
 | --- | --- | --- |
-| `editor-v1.0.0-mac` | macOS Apple Silicon arm64 | `editor-v1.0.0-mac.zip` |
-| `editor-v1.0.0-windows` | Windows x64 | `editor-v1.0.0-windows.exe` |
+| `editor-v1.0.2-mac` | macOS Apple Silicon arm64 | `editor-v1.0.2-mac.zip` |
+| `editor-v1.0.2-windows` | Windows x64 | `editor-v1.0.2-windows.exe` |
 
 首次运行默认显示 **English / Daylight**，不依赖系统语言。设置中仍可切换中文，已经保存
 的语言选择会保留；导出游戏采用导出时的 Editor 语言作为首次启动语言。
@@ -32,23 +32,23 @@ C++ CTest，然后运行 `pnpm --dir apps/editor make`。打包后启动内置 C
 ```sh
 git switch main
 git pull --ff-only origin main
-git tag -a editor-v1.0.0-mac -m "Editor 1.0.0 for macOS Apple Silicon"
-git tag -a editor-v1.0.0-windows -m "Editor 1.0.0 for Windows x64"
-git push origin editor-v1.0.0-mac editor-v1.0.0-windows
+git tag -a editor-v1.0.2-mac -m "Editor 1.0.2 for macOS Apple Silicon"
+git tag -a editor-v1.0.2-windows -m "Editor 1.0.2 for Windows x64"
+git push origin editor-v1.0.2-mac editor-v1.0.2-windows
 ```
 
 两个标签会各自触发对应平台的构建。全部检查成功后，各创建一个带附件和说明的
 **Pre-release 草稿**。在 Releases 页面完成审阅和真实机器测试后手动发布。
 草稿可以通过重跑工作流补全附件；已公开的 Release 不会被工作流覆盖。
 
-后续版本先更新 Editor 的 `package.json`，例如 `1.0.1`，提交后再创建
-`editor-v1.0.1-mac` / `editor-v1.0.1-windows`。标签中的版本必须和应用版本完全一致。
+后续版本先更新 Editor 的 `package.json`，例如 `1.0.3`，提交后再创建
+`editor-v1.0.3-mac` / `editor-v1.0.3-windows`。标签中的版本必须和应用版本完全一致。
 不要移动或复用已发布标签。
 
 ## 安装与验收
 
 - macOS：解压 ZIP，把 `.app` 放到 Applications。当前只构建 arm64，不包含 Intel Mac。
-- Windows：运行 `.exe`。`RELEASES` 和 `editor-1.0.0-full.nupkg` 是 Squirrel 配套文件，
+- Windows：运行 `.exe`。`RELEASES` 和 `editor-1.0.2-full.nupkg` 是 Squirrel 配套文件，
   普通用户只需要下载安装程序。C++ 后端静态链接 MSVC Runtime，不要求用户安装开发工具。
 - 在无开发环境的机器验证启动、新建、保存重开、图片/音频导入、表单/Blockly/Code 编辑、
   正式预览、`.vngame` 和 Web 导出；macOS 额外验证本机独立游戏导出。
