@@ -18,7 +18,6 @@ import { fileURLToPath } from 'node:url';
 import {
   commandOptions,
   enumOption,
-  resolvePnpmLauncher,
 } from './lib/releaseTools.mjs';
 
 function runChecked(command, args, options) {
@@ -42,6 +41,7 @@ async function main() {
   const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
   const repositoryRoot = path.resolve(scriptDirectory, '..', '..', '..');
   const editorDirectory = path.join(repositoryRoot, 'apps', 'editor');
+  const playerDirectory = path.join(repositoryRoot, 'apps', 'player');
   const forgeCliPath = path.join(
     repositoryRoot,
     'node_modules',
@@ -54,12 +54,17 @@ async function main() {
 
   // Web exports consume an immutable, pre-built template. Build and stage it
   // before Forge starts so clicking Export never invokes Vite at runtime.
-  const pnpmLauncher = resolvePnpmLauncher({ repositoryRoot });
-  runChecked(pnpmLauncher.command, [
-    ...pnpmLauncher.args,
-    '--dir',
-    'apps/player',
-    'prepare:web-template',
+  // Call installed JavaScript entry points directly so Windows does not need
+  // a pnpm command shim or depend on the package manager's install layout.
+  runChecked(process.execPath, [
+    path.join(repositoryRoot, 'node_modules', 'vite', 'bin', 'vite.js'),
+    'build', '--config', 'vite.web.config.ts',
+  ], {
+    cwd: playerDirectory,
+    env: process.env,
+  });
+  runChecked(process.execPath, [
+    path.join(scriptDirectory, 'stageWebPlayerTemplate.mjs'),
   ], {
     cwd: repositoryRoot,
     env: process.env,
@@ -107,8 +112,8 @@ async function main() {
     VN_PLAYER_OUT_DIR: packageOut,
   };
   try {
-    runChecked('pnpm', ['--dir', 'apps/player', 'package'], {
-      cwd: repositoryRoot,
+    runChecked(process.execPath, [forgeCliPath, 'package'], {
+      cwd: playerDirectory,
       env: playerEnvironment,
     });
     runChecked(
