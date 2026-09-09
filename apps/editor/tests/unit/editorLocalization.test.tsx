@@ -13,6 +13,7 @@ import * as Blockly from 'blockly';
 import {
   EditorI18nProvider,
   getEditorLabels,
+  normalizeEditorLanguage,
   useEditorLabels,
 } from '../../src/renderer/i18n/editorLocalization';
 import {
@@ -47,6 +48,13 @@ function StatefulProbe({ onMount }: { onMount: () => void }) {
 }
 
 describe('Editor localization', () => {
+  it('defaults to English while preserving both supported language choices', () => {
+    expect(normalizeEditorLanguage(undefined)).toBe('en-US');
+    expect(normalizeEditorLanguage('fr-FR')).toBe('en-US');
+    expect(normalizeEditorLanguage('zh-CN')).toBe('zh-CN');
+    expect(normalizeEditorLanguage('en-US')).toBe('en-US');
+  });
+
   it('switches Context labels without remounting or resetting author input', async () => {
     (
       globalThis as typeof globalThis & {

@@ -71,37 +71,37 @@ describe('story block type registry', () => {
         ?.contents.map((item) => item.type) ?? [];
 
     expect(categories.map((category) => category.name)).toEqual([
-      '剧情',
-      '逻辑',
-      '变量',
-      '音乐',
-      '图片',
-      '特效',
+      'Story',
+      'Logic',
+      'Variables',
+      'Music',
+      'Images',
+      'Effects',
     ]);
-    expect(typesIn('剧情')).toEqual([
+    expect(typesIn('Story')).toEqual([
       DIALOGUE_BLOCK_TYPE,
       CHOICE_BLOCK_TYPE,
       CHOICE_OPTION_BLOCK_TYPE,
       STORY_CONTINUATION_BLOCK_TYPE,
       SCENE_JUMP_BLOCK_TYPE,
     ]);
-    expect(typesIn('音乐')).toEqual([BGM_BLOCK_TYPE]);
-    expect(typesIn('逻辑')).toEqual([
+    expect(typesIn('Music')).toEqual([BGM_BLOCK_TYPE]);
+    expect(typesIn('Logic')).toEqual([
       LOGIC_IF_BLOCK_TYPE,
       LOGIC_REPEAT_BLOCK_TYPE,
     ]);
-    expect(typesIn('变量')).toEqual([
+    expect(typesIn('Variables')).toEqual([
       VARIABLE_SET_BLOCK_TYPE,
       VARIABLE_CHANGE_BLOCK_TYPE,
     ]);
-    expect(typesIn('图片')).toEqual([
+    expect(typesIn('Images')).toEqual([
       BACKGROUND_BLOCK_TYPE,
       CHARACTER_BLOCK_TYPE,
       CLEAR_CHARACTER_BLOCK_TYPE,
       CG_DISPLAY_BLOCK_TYPE,
       VIDEO_BLOCK_TYPE,
     ]);
-    expect(typesIn('特效')).toEqual(
+    expect(typesIn('Effects')).toEqual(
       Object.values(CHARACTER_EFFECT_BLOCK_TYPES),
     );
   });

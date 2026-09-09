@@ -24,7 +24,7 @@ describe('scene start block', () => {
     expect(block.id).toBe('vn-scene-start:scene-1');
     expect(block.previousConnection).toBeNull();
     expect(block.nextConnection).not.toBeNull();
-    expect(block.toString()).toContain('开始');
+    expect(block.toString()).toContain('Start');
 
     workspace.dispose();
   });

@@ -11,7 +11,7 @@ import {
   PROJECT_FILE_COMMAND_CHANNEL,
   type ProjectFileCommand,
 } from '../../shared/projectFileProtocol';
-import type { EditorLanguage } from '../../shared/editorSettingsProtocol';
+import { DEFAULT_EDITOR_LANGUAGE, type EditorLanguage } from '../../shared/editorSettingsProtocol';
 import { getEditorNativeLabels } from '../i18n/editorNativeLabels';
 
 function sendProjectCommand(command: ProjectFileCommand): void {
@@ -23,7 +23,7 @@ function sendProjectCommand(command: ProjectFileCommand): void {
   focusedWindow.webContents.send(PROJECT_FILE_COMMAND_CHANNEL, command);
 }
 
-export function installApplicationMenu(language: EditorLanguage = 'zh-CN'): void {
+export function installApplicationMenu(language: EditorLanguage = DEFAULT_EDITOR_LANGUAGE): void {
   const labels = getEditorNativeLabels(language).menu;
   const template: MenuItemConstructorOptions[] = [];
 

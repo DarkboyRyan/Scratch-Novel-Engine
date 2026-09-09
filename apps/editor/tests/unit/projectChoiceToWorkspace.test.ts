@@ -349,7 +349,7 @@ describe('choice scene projection', () => {
       (block) => block.id === 'character-placeholder',
     );
     expect(portrait?.type).toBe(CHARACTER_BLOCK_TYPE);
-    expect(portrait?.fields.get(CHARACTER_BLOCK_FIELDS.assetName)).toBe('无');
+    expect(portrait?.fields.get(CHARACTER_BLOCK_FIELDS.assetName)).toBe('None');
     expect(portrait?.getNextBlock()?.id).toBe('dialogue-after-character');
   });
 

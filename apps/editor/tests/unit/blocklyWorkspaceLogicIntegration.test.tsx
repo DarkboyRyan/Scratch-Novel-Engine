@@ -7,7 +7,7 @@
 
 import * as Blockly from 'blockly';
 import { act, createRef } from 'react';
-import { createRoot } from 'react-dom/client';
+import { createChineseTestRoot as createRoot } from '../helpers/chineseTestRoot';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SceneDocument } from '../../src/shared/projectTypes';

@@ -86,7 +86,7 @@ describe('choice Blockly blocks', () => {
     ]);
     expect(
       block.getFieldValue(CHOICE_OPTION_BLOCK_FIELDS.text),
-    ).toBe('选项');
+    ).toBe('Option');
     expect(
       block.getFieldValue(CHOICE_OPTION_BLOCK_FIELDS.targetScene),
     ).toBe('scene-1');

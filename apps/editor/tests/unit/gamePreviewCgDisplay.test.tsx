@@ -9,7 +9,8 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import { act, useState } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
+import type { Root } from 'react-dom/client';
+import { createChineseTestRoot as createRoot } from '../helpers/chineseTestRoot';
 import {
   completeCgLeadIn,
   DEFAULT_CG_GALLERY_STYLE,

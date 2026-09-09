@@ -6,7 +6,8 @@
  */
 
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
+import type { Root } from 'react-dom/client';
+import { createChineseTestRoot as createRoot } from '../helpers/chineseTestRoot';
 import {
   DEFAULT_CG_GALLERY_STYLE,
   DEFAULT_START_SCREEN_STYLE,

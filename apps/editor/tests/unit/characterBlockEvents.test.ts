@@ -70,7 +70,7 @@ describe('getCharacterFieldUpdate', () => {
     const field = block.getField(CHARACTER_BLOCK_FIELDS.assetName);
 
     expect(field).toBeInstanceOf(AssetNameField);
-    expect(field?.getText()).toBe('无');
+    expect(field?.getText()).toBe('None');
     setCharacterBlockAsset(block, 'asset-1', fullName);
     expect(field?.maxDisplayLength).toBe(ASSET_NAME_MAX_DISPLAY_LENGTH);
     expect(field?.getText()).toBe(fullName);
@@ -154,7 +154,7 @@ describe('getCharacterFieldUpdate', () => {
     ) as Blockly.FieldDropdown;
     expect(block.getFieldValue(CHARACTER_BLOCK_FIELDS.slot)).toBe('custom');
     expect(positionField.getOptions(false)).toContainEqual([
-      '自定义',
+      'Custom',
       'custom',
     ]);
     expect(block.toString()).not.toContain('28');

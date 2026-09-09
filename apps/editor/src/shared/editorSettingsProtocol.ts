@@ -17,7 +17,7 @@ export type EditorSettingsPatch =
   | Readonly<Pick<EditorSettings, 'language'>>
   | Readonly<Pick<EditorSettings, 'colorTheme'>>;
 
-export const DEFAULT_EDITOR_LANGUAGE: EditorLanguage = 'zh-CN';
+export const DEFAULT_EDITOR_LANGUAGE: EditorLanguage = 'en-US';
 export const DEFAULT_EDITOR_COLOR_THEME: EditorColorTheme = 'daylight';
 
 export const DEFAULT_EDITOR_SETTINGS: Readonly<EditorSettings> = Object.freeze({

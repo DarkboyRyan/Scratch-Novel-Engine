@@ -3,7 +3,7 @@
 import type { BrowserWindow } from 'electron';
 
 import type { ProjectFileSessionSnapshot } from '../../shared/projectFileProtocol';
-import type { EditorLanguage } from '../../shared/editorSettingsProtocol';
+import { DEFAULT_EDITOR_LANGUAGE, type EditorLanguage } from '../../shared/editorSettingsProtocol';
 import { getEditorNativeLabels } from '../i18n/editorNativeLabels';
 
 const PRODUCT_NAME = 'VN Engine Editor';
@@ -12,7 +12,7 @@ export function updateWindowDocumentPresentation(
   editorWindow: BrowserWindow,
   projectName: string,
   session: ProjectFileSessionSnapshot,
-  language: EditorLanguage = 'zh-CN',
+  language: EditorLanguage = DEFAULT_EDITOR_LANGUAGE,
 ): void {
   const labels = getEditorNativeLabels(language).window;
   const safeProjectName = projectName.trim() || labels.untitledProject;

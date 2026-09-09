@@ -4,6 +4,12 @@ cmake_minimum_required(VERSION 3.20)
 
 project(vn_engine VERSION 0.1.0 LANGUAGES CXX)
 
+# Ship the backend without requiring users to install the Visual C++ runtime.
+# Apply the same CRT choice to the core library and every executable.
+if(MSVC)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)

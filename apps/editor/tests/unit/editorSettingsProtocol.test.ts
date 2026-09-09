@@ -13,10 +13,10 @@ import {
 } from '../../src/shared/editorSettingsProtocol';
 
 describe('Editor settings protocol', () => {
-  it('uses Chinese and Daylight as deterministic first-run settings', () => {
+  it('uses English and Daylight as deterministic first-run settings', () => {
     expect(createDefaultEditorSettings()).toEqual({
       settingsVersion: 2,
-      language: 'zh-CN',
+      language: 'en-US',
       colorTheme: 'daylight',
     });
   });

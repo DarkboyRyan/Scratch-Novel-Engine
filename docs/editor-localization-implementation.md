@@ -36,7 +36,8 @@ type EditorSettings = {
 };
 ```
 
-默认值是 `language: 'zh-CN'` 与 `colorTheme: 'daylight'`。Renderer 更新时每次只能发送
+首次运行默认值是 `language: 'en-US'` 与 `colorTheme: 'daylight'`，不随操作系统语言改变；
+已保存的中文或英文偏好继续保留。Renderer 更新时每次只能发送
 一个精确窄 patch：`{ language: 'zh-CN' | 'en-US' }` 或
 `{ colorTheme: 'daylight' | 'moonlight' }`；不能把两项合并提交，也不能发送路径、版本或
 未知字段。
