@@ -115,6 +115,7 @@ describe('application menu', () => {
     expect(editItems.map((item) => item.label).filter(Boolean)).toEqual([
       'Undo',
       'Redo',
+      'Recover Unsaved Project…',
       'Cut',
       'Copy',
       'Paste',

@@ -1,0 +1,193 @@
+# Editor preview releases are separate from the credential-gated formal Player release.
+name: Editor platform release
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/editor-release.yml'
+      - 'apps/editor/package.json'
+      - 'apps/editor/forge.config.ts'
+      - 'apps/editor/scripts/**'
+      - 'apps/player/scripts/**'
+      - 'engine/CMakeLists.txt'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.node-version'
+  push:
+    tags:
+      - 'editor-v*-mac'
+      - 'editor-v*-windows'
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Build only (no Release or tag is created)'
+        required: true
+        default: mac
+        type: choice
+        options:
+          - mac
+          - windows
+
+permissions:
+  contents: read
+
+concurrency:
+  group: editor-release-${{ github.ref }}-${{ inputs.platform || 'tag' }}
+  cancel-in-progress: false
+
+env:
+  CI: 'true'
+  PNPM_VERSION: 11.18.0
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.metadata.outputs.tag }}
+      runner: ${{ steps.metadata.outputs.runner }}
+      platform: ${{ steps.metadata.outputs.platform }}
+      arch: ${{ steps.metadata.outputs.arch }}
+      matrix: ${{ steps.metadata.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+      - name: Validate platform tag and package version
+        id: metadata
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          BUILD_TARGET: ${{ inputs.platform }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            node apps/editor/scripts/release.mjs --mode metadata --tag "$RELEASE_TAG"
+          elif [[ "$EVENT_NAME" == "pull_request" ]]; then
+            node apps/editor/scripts/release.mjs --mode matrix
+          else
+            node apps/editor/scripts/release.mjs --mode metadata --target "$BUILD_TARGET"
+          fi
+
+  build:
+    needs: preflight
+    name: Editor ${{ matrix.platform }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.preflight.outputs.matrix) }}
+    timeout-minutes: 90
+    env:
+      RELEASE_TAG: ${{ matrix.tag }}
+      TARGET_PLATFORM: ${{ matrix.platform }}
+      TARGET_ARCH: ${{ matrix.arch }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Check native architecture
+        run: node -e "if (process.platform !== process.env.TARGET_PLATFORM || process.arch !== process.env.TARGET_ARCH) throw new Error('Unexpected runner architecture')"
+      - name: Set the native temporary output path
+        env:
+          EDITOR_BUILD_OUT: ${{ runner.temp }}/editor-release-out
+        run: node -e "require('node:fs').appendFileSync(process.env.GITHUB_ENV, 'VN_EDITOR_OUT_DIR=' + process.env.EDITOR_BUILD_OUT + '\n')"
+      - run: pnpm install --frozen-lockfile
+      - name: Check shared Runtime, UI, Player and release tooling
+        run: |
+          pnpm --dir packages/runtime test
+          pnpm --dir packages/player-ui typecheck
+          pnpm --dir apps/player typecheck
+          pnpm --dir apps/player lint
+          pnpm --dir apps/player test
+          pnpm --dir apps/editor test:release-tools
+      - name: Check Editor and build C++ tests
+        run: |
+          pnpm --dir apps/editor typecheck
+          pnpm --dir apps/editor lint
+          pnpm --dir apps/editor engine:build
+      - name: Run C++ tests
+        run: ctest --test-dir engine/build -C Debug --output-on-failure
+      - name: Run Editor unit and integration tests
+        run: pnpm --dir apps/editor exec vitest run
+      - name: Build Editor distributables with bundled runtime resources
+        run: pnpm --dir apps/editor make
+      - name: Verify macOS signature and embedded Player template
+        if: matrix.platform == 'darwin'
+        run: |
+          PLAYER_VERSION="$(node -p "require('./apps/player/package.json').version")"
+          node apps/player/scripts/verifyPackagedEditorTemplate.mjs \
+            --out-dir "$VN_EDITOR_OUT_DIR" --arch "$TARGET_ARCH" --player-version "$PLAYER_VERSION"
+      - name: Smoke packaged backend, verify Web template and collect named assets
+        env:
+          ASSET_DIR: ${{ runner.temp }}/editor-release-assets
+          BUILD_COMMIT: ${{ github.sha }}
+        run: |
+          node apps/editor/scripts/release.mjs --mode collect --tag "$RELEASE_TAG" \
+            --out "$VN_EDITOR_OUT_DIR" --output "$ASSET_DIR" --commit "$BUILD_COMMIT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ matrix.tag }}
+          path: ${{ runner.temp }}/editor-release-assets
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  draft-release:
+    if: github.event_name == 'push'
+    needs: [preflight, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+      EXPECTED_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.preflight.outputs.tag }}
+          path: release-assets
+      - name: Verify checksums and tag, then create a preview draft
+        working-directory: release-assets
+        shell: bash
+        run: |
+          sha256sum --check SHA256SUMS
+          ACTUAL_COMMIT="$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)"
+          if [[ "$ACTUAL_COMMIT" != "$EXPECTED_COMMIT" ]]; then
+            echo 'Release tag moved after this build started' >&2
+            exit 1
+          fi
+          # A rerun can repair an incomplete draft, but never replace a published release.
+          RELEASES="$(gh api --paginate "repos/$GH_REPO/releases?per_page=100")"
+          EXISTING="$(jq -r --arg tag "$RELEASE_TAG" '.[] | select(.tag_name == $tag) | .draft' <<< "$RELEASES")"
+          if [[ -n "$EXISTING" && "$EXISTING" != "true" ]]; then
+            echo 'A published release already exists; use a new version' >&2
+            exit 1
+          fi
+          if [[ -z "$EXISTING" ]]; then
+            gh release create "$RELEASE_TAG" --verify-tag --draft --prerelease \
+              --title "$RELEASE_TAG" --notes-file RELEASE_NOTES.md
+          fi
+          ASSETS=()
+          for file in *; do
+            [[ "$file" == "RELEASE_NOTES.md" ]] || ASSETS+=("$file")
+          done
+          gh release upload "$RELEASE_TAG" "${ASSETS[@]}" --clobber
+          echo "Release draft ready: $RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"

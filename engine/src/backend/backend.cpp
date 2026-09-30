@@ -1267,6 +1267,48 @@ Json error_response(
 }  // namespace
 
 Json Backend::handle(const Json& request) {
+  const std::string method = request.is_object()
+      ? required_string(request, "method") : "";
+  const bool reset = method == "project.create" || method == "project.open";
+  const bool history_action = method == "history.undo" || method == "history.redo";
+  const bool mutation = !reset && !history_action && method != "ping" &&
+      method != "project.get" && method != "project.ensure" &&
+      method != "project.save" && method != "project.checkpoint";
+  std::optional<HistoryEntry> previous;
+  if (mutation && aggregate_) {
+    previous = HistoryEntry{project_file_to_json(*aggregate_).dump(), document_revision_};
+  }
+  const auto old_revision = revision_;
+  auto response = dispatch(request);
+  if (previous && revision_ != old_revision) {
+    undo_.push_back(std::move(*previous));
+    redo_.clear();
+    document_revision_ = revision_;
+    trim_history();
+  }
+  auto& session = response["result"]["session"];
+  session["documentRevision"] = document_revision_;
+  session["canUndo"] = !undo_.empty();
+  session["canRedo"] = !redo_.empty();
+  session["isDirty"] = aggregate_.has_value() &&
+      (!saved_document_revision_ || *saved_document_revision_ != document_revision_);
+  return response;
+}
+
+void Backend::trim_history() {
+  constexpr std::size_t max_entries = 100;
+  constexpr std::size_t max_bytes = 64 * 1024 * 1024;
+  std::size_t bytes = 0;
+  for (const auto& entry : undo_) bytes += entry.contents.size();
+  for (const auto& entry : redo_) bytes += entry.contents.size();
+  while (undo_.size() + redo_.size() > max_entries || bytes > max_bytes) {
+    auto& oldest = !undo_.empty() ? undo_ : redo_;
+    bytes -= oldest.front().contents.size();
+    oldest.pop_front();
+  }
+}
+
+Json Backend::dispatch(const Json& request) {
   if (!request.is_object()) {
     throw ProtocolError("invalid_request", "request must be a JSON object");
   }
@@ -1366,7 +1408,23 @@ Json Backend::handle(const Json& request) {
     return success_response(
         request_id(request), aggregate_, revision_, saved_revision_);
   }
-  if (method == "project.save") {
+  if (method == "history.undo" || method == "history.redo") {
+    require_params_with_optional(params, {}, {});
+    require_project();
+    auto& source = method == "history.undo" ? undo_ : redo_;
+    auto& destination = method == "history.undo" ? redo_ : undo_;
+    if (!source.empty()) {
+      auto candidate = project_file_from_json(Json::parse(source.back().contents));
+      destination.push_back({project_file_to_json(*aggregate_).dump(), document_revision_});
+      aggregate_ = std::move(candidate);
+      document_revision_ = source.back().document_revision;
+      source.pop_back();
+      ++revision_;
+      trim_history();
+    }
+    return success_response(request_id(request), aggregate_, revision_, saved_revision_);
+  }
+  if (method == "project.save" || method == "project.checkpoint") {
     require_project();
     const std::filesystem::path file_path = project_file_path(
         required_string(params, "filePath"));
@@ -1386,7 +1444,10 @@ Json Backend::handle(const Json& request) {
           "project file could not be saved safely");
     }
 
-    saved_revision_ = revision_;
+    if (method == "project.save") {
+      saved_revision_ = revision_;
+      saved_document_revision_ = document_revision_;
+    }
     return success_response(
         request_id(request), aggregate_, revision_, saved_revision_);
   }
@@ -3438,11 +3499,19 @@ Project& Backend::require_project() {
 }
 
 void Backend::reset_unsaved_session() {
+  undo_.clear();
+  redo_.clear();
+  document_revision_ = 0;
+  saved_document_revision_.reset();
   revision_ = 0;
   saved_revision_.reset();
 }
 
 void Backend::reset_opened_session() {
+  undo_.clear();
+  redo_.clear();
+  document_revision_ = 0;
+  saved_document_revision_ = 0;
   revision_ = 0;
   saved_revision_ = 0;
 }

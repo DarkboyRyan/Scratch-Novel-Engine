@@ -90,6 +90,7 @@ vi.mock('../../src/renderer/components/Toolbar', () => ({
     onWorkspaceSectionChange,
     onSaveProject,
     onOpenProject,
+    onUndo,
     projectNameDraft,
     isRenamingProject,
     onBeginRenameProject,
@@ -103,6 +104,7 @@ vi.mock('../../src/renderer/components/Toolbar', () => ({
     ) => void;
     onSaveProject: () => void;
     onOpenProject: () => void;
+    onUndo: () => void;
     projectNameDraft: string;
     isRenamingProject: boolean;
     onBeginRenameProject: () => void;
@@ -136,6 +138,7 @@ vi.mock('../../src/renderer/components/Toolbar', () => ({
       </button>
       <button type="button" onClick={onSaveProject}>Save</button>
       <button type="button" onClick={onOpenProject}>Open</button>
+      <button type="button" onClick={onUndo}>Undo</button>
       <button type="button" onClick={onBeginRenameProject}>Edit Project Name</button>
       {isRenamingProject && (
         <input
@@ -324,6 +327,9 @@ describe('EditorApplication Code mode integration', () => {
         return strictSavePrepared;
       }),
       exportGame: vi.fn(),
+      getRecoveryDrafts: vi.fn().mockResolvedValue(null),
+      checkpointDrafts: vi.fn().mockResolvedValue(undefined),
+      changeHistory: vi.fn().mockResolvedValue(true),
       getProjectSnapshot: vi.fn().mockResolvedValue(project),
       setSceneBackground: vi.fn().mockResolvedValue(true),
       setEngineMessage,
@@ -495,6 +501,26 @@ describe('EditorApplication Code mode integration', () => {
     expect(section()).toBe('dialogue');
     expect(mode()).toBe('blocks');
     expect(container.querySelector('[data-testid="block-editor"]')).not.toBeNull();
+  });
+
+  it('flushes each editor before invoking the shared project history and stops when a draft is invalid', async () => {
+    const history = appHooks.useEngineProject().changeHistory;
+    await clickButton('Undo');
+    expect(commitFormDraft).toHaveBeenCalled();
+    expect(history).toHaveBeenLastCalledWith('undo');
+    await clickMode('Blocks');
+    history.mockClear();
+    modeProbes.flushBlockDraft.mockClear();
+    await clickButton('Undo');
+    expect(modeProbes.flushBlockDraft).toHaveBeenCalledOnce();
+    expect(history).toHaveBeenCalledOnce();
+    history.mockClear();
+    modeProbes.flushBlockDraft.mockResolvedValueOnce(false);
+    await clickButton('Undo');
+    expect(history).not.toHaveBeenCalled();
+    await clickMode('Code');
+    await clickButton('Undo');
+    expect(history).toHaveBeenLastCalledWith('undo');
   });
 
   it('keeps the current view mounted when its flush rejects the switch', async () => {

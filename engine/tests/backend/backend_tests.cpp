@@ -6271,10 +6271,87 @@ void reorders_complete_logic_story_pages_via_protocol() {
             .at("id") == next_page_id);
 }
 
+
+void project_history_is_atomic_and_preserves_saved_identity() {
+  vnengine::backend::Backend backend;
+  TemporaryDirectory directory;
+  const auto file = directory.write("project.vn.json", "").string();
+  auto created = request(backend, 1, "project.create", {{"name", "Before"}});
+  CHECK(!created["result"]["session"]["canUndo"].get<bool>());
+  request(backend, 2, "project.save", {{"filePath", file}});
+  const auto renamed = request(backend, 3, "project.rename", {{"name", "After"}});
+  const auto revision = renamed["result"]["session"]["revision"].get<int>();
+  auto undo = request(backend, 4, "history.undo");
+  CHECK(undo["result"]["project"] == created["result"]["project"]);
+  CHECK(!undo["result"]["session"]["isDirty"].get<bool>());
+  CHECK(undo["result"]["session"]["revision"].get<int>() > revision);
+  CHECK(undo["result"]["session"]["canRedo"].get<bool>());
+  // No-op and rejected edits retain redo, and malformed history calls do not mutate.
+  request(backend, 5, "project.rename", {{"name", "Before"}});
+  CHECK(!request(backend, 6, "project.rename", {{"name", ""}})["ok"].get<bool>());
+  CHECK(!request(backend, 7, "history.redo", {{"unexpected", true}})["ok"].get<bool>());
+  const auto redo = request(backend, 8, "history.redo");
+  CHECK(redo["result"]["project"] == renamed["result"]["project"]);
+  CHECK(redo["result"]["session"]["isDirty"].get<bool>());
+  const auto saved = read_file(file);
+  request(backend, 9, "project.checkpoint", {{"filePath", file}});
+  CHECK(request(backend, 10, "project.get")["result"]["session"]["isDirty"].get<bool>());
+  request(backend, 11, "history.undo");
+  request(backend, 12, "project.rename", {{"name", "New branch"}});
+  CHECK(!request(backend, 13, "project.get")["result"]["session"]["canRedo"].get<bool>());
+  request(backend, 14, "project.open", {{"contents", saved}});
+  CHECK(!request(backend, 15, "project.get")["result"]["session"]["canUndo"].get<bool>());
+  const auto scene_id = created["result"]["project"]["entrySceneId"];
+  const Json condition{
+      {"left", {{"kind", "variable"}, {"name", "route"}}},
+      {"operator", "gte"}, {"right", {{"kind", "literal"}, {"value", 2}}}};
+  const auto logic = request(backend, 16, "logicIf.add", {{"sceneId", scene_id}, {"condition", condition}});
+  const auto else_id = logic["result"]["project"]["scenes"][0]["nodes"][1]["id"];
+  const auto dialogue = request(backend, 17, "dialogue.add", {
+      {"sceneId", scene_id}, {"beforeNodeId", else_id}, {"text", "Inside the branch"}});
+  const auto removed = request(backend, 18, "logicControl.delete", {
+      {"sceneId", scene_id}, {"nodeId", logic["result"]["nodeId"]}});
+  CHECK(removed["ok"].get<bool>());
+  CHECK(request(backend, 19, "history.undo")["result"]["project"] == dialogue["result"]["project"]);
+  CHECK(request(backend, 20, "history.redo")["result"]["project"] == removed["result"]["project"]);
+  request(backend, 21, "history.undo");
+  request(backend, 22, "project.save", {{"filePath", file}});
+  CHECK(request(backend, 23, "project.open", {{"contents", read_file(file)}})["result"]["project"] == dialogue["result"]["project"]);
+}
+
+void project_history_restores_asset_metadata_and_bounds_entries() {
+  vnengine::backend::Backend backend;
+  TemporaryDirectory directory;
+  const auto manifest = directory.write("project.vn.json", "").string();
+  const auto image = directory.write("source.png", png_image_bytes()).string();
+  request(backend, 1, "project.create");
+  const auto imported = request(backend, 2, "asset.import", {
+      {"kind", "image"}, {"sourceFilePath", image}, {"projectFilePath", manifest}});
+  CHECK(imported["ok"].get<bool>());
+  const auto asset = imported["result"]["assetId"];
+  request(backend, 3, "asset.deleteMany", {{"assetIds", Json::array({asset})}});
+  const auto restored = request(backend, 4, "history.undo");
+  CHECK(restored["result"]["assets"] == imported["result"]["assets"]);
+  CHECK(request(backend, 5, "project.save", {{"filePath", manifest}})["ok"].get<bool>());
+  CHECK(Json::parse(read_file(manifest))["assets"][0].contains("relativePath"));
+  request(backend, 6, "history.redo");
+  CHECK(request(backend, 7, "project.get")["result"]["assets"].empty());
+  request(backend, 8, "project.create");
+  for (int i = 0; i < 105; ++i) {
+    request(backend, 9 + i, "project.rename", {{"name", "Edit " + std::to_string(i)}});
+  }
+  for (int i = 0; i < 100; ++i) request(backend, 200 + i, "history.undo");
+  const auto bounded = request(backend, 301, "project.get");
+  CHECK(!bounded["result"]["session"]["canUndo"].get<bool>());
+  CHECK(bounded["result"]["project"]["name"] == "Edit 4");
+}
+
 }  // namespace
 
 int main() {
   const std::vector<std::pair<std::string, std::function<void()>>> tests{
+      {"project history preserves atomic edits and saved identity", project_history_is_atomic_and_preserves_saved_identity},
+      {"project history restores assets and bounds memory", project_history_restores_asset_metadata_and_bounds_entries},
       {"reads v1 and writes a migrated v22 document",
        reads_v1_and_writes_a_migrated_v22_document},
       {"round trips v2 visuals and preserves character order",

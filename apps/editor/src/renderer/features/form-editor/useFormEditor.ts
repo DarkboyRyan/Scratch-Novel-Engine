@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import type { RecoveryDrafts } from '../../../shared/projectFileProtocol';
 
 import type {
   BackgroundNode,
@@ -65,6 +66,7 @@ export function useFormEditor({
   const labels = useEditorLabels();
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const recoveryDraft = useRef<RecoveryDrafts['form']>(undefined);
 
   // 输入框草稿仍属于界面状态：输入时无需为每个按键都调用 C++。
   const [speaker, setSpeaker] = useState('');
@@ -205,6 +207,14 @@ export function useFormEditor({
     imageScaleDraftRef.current = null;
     setImageScaleDraftState(null);
   }
+
+  useEffect(() => {
+    const draft = recoveryDraft.current;
+    if (!draft || scene?.id !== draft.sceneId || selectedNodeId !== draft.nodeId) return;
+    recoveryDraft.current = undefined;
+    setSpeaker(draft.speaker);
+    setText(draft.text);
+  }, [scene?.id, selectedNodeId, project]);
 
   function resetEditorState() {
     setSelectedSceneId(null);
@@ -1057,6 +1067,14 @@ export function useFormEditor({
   }
 
   return {
+    restoreDraft(draft: NonNullable<RecoveryDrafts['form']>): void {
+      if (!project?.scenes.some((candidate) => candidate.id === draft.sceneId)) return;
+      recoveryDraft.current = draft;
+      setSelectedSceneId(draft.sceneId);
+      setSelectedNodeId(draft.nodeId);
+      setSpeaker(draft.speaker);
+      setText(draft.text);
+    },
     project,
     scene,
     selectedNode,

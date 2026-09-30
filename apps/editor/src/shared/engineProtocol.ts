@@ -16,6 +16,10 @@ import type {
 
 // C++、Electron Main、Preload 和 React 共同遵守的跨进程协议。
 export type EngineSessionState = {
+  documentRevision?: number;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  recoveryFailed?: boolean;
   revision: number;
   savedRevision: number | null;
   isDirty: boolean;
@@ -337,6 +341,8 @@ export type DeleteDialoguesParams = {
 };
 
 export const ENGINE_METHODS = [
+  'history.undo',
+  'history.redo',
   'project.create',
   'project.ensure',
   'project.get',
@@ -400,6 +406,8 @@ export const ENGINE_METHODS = [
 export type EngineMethod = (typeof ENGINE_METHODS)[number];
 
 export type EngineParamsByMethod = {
+  'history.undo': Record<string, never>;
+  'history.redo': Record<string, never>;
   'project.create': {
     name?: string;
     firstSceneName?: string;
@@ -506,7 +514,7 @@ export type OpenProjectBackendInvocation = {
 };
 
 export type SaveProjectBackendInvocation = {
-  method: 'project.save';
+  method: 'project.save' | 'project.checkpoint';
   params: {
     filePath: string;
   };
@@ -571,6 +579,8 @@ export type BackendResponse =
 
 // Renderer 只能使用业务级 API，不能接触 ipcRenderer 或任意 IPC channel。
 export type VnEngineApi = {
+  undo?(): Promise<EngineMutationResult>;
+  redo?(): Promise<EngineMutationResult>;
   // Renderer must refuse scale-bearing writes when an older live Preload is
   // still attached after HMR; otherwise the extra arguments can be dropped
   // silently and persisted as the backend default.

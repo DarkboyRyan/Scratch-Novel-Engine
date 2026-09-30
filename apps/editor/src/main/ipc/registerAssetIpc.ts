@@ -16,6 +16,7 @@ import {
 } from '../security/editorFrameTrust';
 import type { EditorWindowContexts } from '../window/EditorWindowContext';
 import { updateWindowDocumentPresentation } from '../window/updateWindowDocumentPresentation';
+import { checkpointRecovery } from '../project/ProjectRecoveryService';
 import { isAssetInvocation } from './validateAssetInvocation';
 
 const SAFE_ASSET_ERROR_CODES = new Set([
@@ -120,9 +121,11 @@ export function registerAssetIpc(
               session,
               language,
             );
+            await checkpointRecovery(context, result);
             return {
               ...result,
               session: {
+                ...result.session,
                 revision: session.revision,
                 savedRevision: session.savedRevision,
                 isDirty: session.isDirty,
@@ -166,9 +169,11 @@ export function registerAssetIpc(
             session,
             language,
           );
+          await checkpointRecovery(context, result);
           return {
             ...result,
             session: {
+              ...result.session,
               revision: session.revision,
               savedRevision: session.savedRevision,
               isDirty: session.isDirty,
@@ -295,6 +300,7 @@ export function registerAssetIpc(
           const publicResult: EngineMutationResult = {
             ...result,
             session: {
+              ...result.session,
               revision: session.revision,
               savedRevision: session.savedRevision,
               isDirty: session.isDirty,
@@ -323,6 +329,7 @@ export function registerAssetIpc(
           }
 
           // Absolute paths remain confined to this Main-process function.
+          await checkpointRecovery(context, publicResult);
           return { status: 'imported', result: publicResult };
         },
       );

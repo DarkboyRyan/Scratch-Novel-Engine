@@ -446,7 +446,7 @@ describe('AssetManager', () => {
     });
 
     expect(confirm).toHaveBeenCalledWith(
-      'Delete “Opening.mp4”? The engine will recheck the complete project. This removes the asset from the manifest but retains its underlying file as unreferenced data. The Editor cannot undo this action.',
+      'Delete “Opening.mp4”? The engine will recheck the complete project. This removes the asset from the manifest but retains its underlying file as unreferenced data. Project Undo can restore this asset.',
     );
     expect(onDeleteAssets).toHaveBeenCalledWith(['video-private-key']);
     expect(container.querySelector('[role="menu"]')).toBeNull();
@@ -640,7 +640,7 @@ describe('AssetManager', () => {
     });
 
     expect(confirm).toHaveBeenCalledWith(
-      'Delete “Opening.mp4”? The engine will recheck the complete project. This removes the asset from the manifest but retains its underlying file as unreferenced data. The Editor cannot undo this action.',
+      'Delete “Opening.mp4”? The engine will recheck the complete project. This removes the asset from the manifest but retains its underlying file as unreferenced data. Project Undo can restore this asset.',
     );
     expect(onDeleteAssets).toHaveBeenCalledWith(['video-private-key']);
     expect(container.querySelector('[role="status"]')?.textContent)

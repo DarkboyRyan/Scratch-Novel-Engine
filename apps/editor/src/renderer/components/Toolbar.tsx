@@ -21,6 +21,11 @@ import { useEditorLabels } from '../i18n/editorLocalization';
 import { EditorSettingsDialog } from './EditorSettingsDialog';
 
 type ToolbarProps = {
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  onRecover?: () => void;
   projectName: string;
   projectNameDraft: string;
   isRenamingProject: boolean;
@@ -70,6 +75,11 @@ function defaultApplicationId(projectName: string): string {
 }
 
 export function Toolbar({
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
+  onRecover,
   projectName,
   projectNameDraft,
   isRenamingProject,
@@ -243,6 +253,9 @@ export function Toolbar({
           className="project-file-actions"
           aria-label={labels.toolbar.projectFileActions}
         >
+          <button type="button" disabled={isBusy || !canUndo} onMouseDown={preserveRenameDraftFocus} onClick={onUndo} title={labels.toolbar.undo} aria-label={labels.toolbar.undo}>↶</button>
+          <button type="button" disabled={isBusy || !canRedo} onMouseDown={preserveRenameDraftFocus} onClick={onRedo} title={labels.toolbar.redo} aria-label={labels.toolbar.redo}>↷</button>
+          <button type="button" disabled={isBusy} onMouseDown={preserveRenameDraftFocus} onClick={onRecover}>{labels.toolbar.recover}</button>
           <button
             type="button"
             disabled={isBusy}

@@ -13,6 +13,9 @@
 
 ## 文件
 
+[`ProjectRecoveryService.ts`](./ProjectRecoveryService.ts) 管理窗口独立的恢复副本、文本草稿和
+恢复对话框；备份位于用户数据目录，恢复为未保存工程，不覆盖原项目。
+
 | 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
 | --- | --- | --- | --- |
 | [`ProjectFileSession.ts`](./ProjectFileSession.ts) | TypeScript | 维护项目路径、保存修订和脏状态。 | `ProjectFileSession` 的 bind/clear/update/snapshot 会话方法。 |

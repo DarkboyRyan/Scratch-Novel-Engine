@@ -194,6 +194,9 @@ export function EditorApplication({
   );
   const [blockDraftDirty, setBlockDraftDirty] = useState(false);
   const [codeDraftDirty, setCodeDraftDirty] = useState(false);
+  const [draftVersion, setDraftVersion] = useState(0);
+  const [recoveryLoadToken, setRecoveryLoadToken] = useState(0);
+  const [recoveryReady, setRecoveryReady] = useState(false);
   const codeDraftsRef = useRef<Map<string, CodeEditorDraft>>(new Map());
   const codeDraftSessionRef = useRef(0);
   const [sceneBackgroundScaleDraft, setSceneBackgroundScaleDraftState] =
@@ -240,6 +243,7 @@ export function EditorApplication({
         codeDraftsRef.current.set(key, draft);
       }
       setCodeDraftDirty(codeDraftsRef.current.size > 0);
+      setDraftVersion((value) => value + 1);
     },
     [],
   );
@@ -250,6 +254,9 @@ export function EditorApplication({
     create: async () => {},
     open: async () => {},
     save: async () => {},
+    undo: async () => {},
+    redo: async () => {},
+    recover: async () => {},
   });
 
   useEffect(() => {
@@ -281,7 +288,7 @@ export function EditorApplication({
     }
   };
 
-  const handleOpenProject = async () => {
+  const handleOpenProject = async (recover = false) => {
     if (
       isDirty &&
       !window.confirm(labels.app.confirmOpenWithUnsavedChanges)
@@ -289,8 +296,10 @@ export function EditorApplication({
       return;
     }
 
-    const status = await engine.openProject();
+    const status = await engine.openProject(recover);
     if (status === 'opened') {
+      setRecoveryReady(false);
+      setRecoveryLoadToken((value) => value + 1);
       codeDraftsRef.current.clear();
       codeDraftSessionRef.current += 1;
       setIsRenamingProject(false);
@@ -532,6 +541,62 @@ export function EditorApplication({
     return commitProjectName();
   };
 
+  const historyInProgress = useRef(false);
+  const handleHistory = async (direction: 'undo' | 'redo'): Promise<void> => {
+    if (engine.isBusy || gamePreview.session || historyInProgress.current) return;
+    historyInProgress.current = true;
+    try {
+      if (!(await prepareCurrentEdits())) return;
+      await engine.changeHistory(direction);
+    } finally {
+      historyInProgress.current = false;
+    }
+  };
+
+  const latestRecoveryRef = useRef({ engine, editor, project });
+  latestRecoveryRef.current = { engine, editor, project };
+  useEffect(() => {
+    if (!project) return;
+    let active = true;
+    setRecoveryReady(false);
+    void latestRecoveryRef.current.engine.getRecoveryDrafts().then((drafts) => {
+      if (!active) return;
+      if (drafts?.projectId === project.id) {
+        for (const draft of drafts.code) {
+          codeDraftsRef.current.set(`${codeDraftSessionRef.current}:${draft.key}`, {
+            source: draft.source, baseSource: draft.baseSource,
+          });
+        }
+        setCodeDraftDirty(codeDraftsRef.current.size > 0);
+        setDraftVersion((value) => value + 1);
+        if (drafts.form) latestRecoveryRef.current.editor.restoreDraft(drafts.form);
+        if (drafts.projectName !== undefined) {
+          setProjectNameDraft(drafts.projectName);
+          setIsRenamingProject(true);
+        }
+      }
+      setRecoveryReady(true);
+    }).catch(() => { if (active) setRecoveryReady(true); });
+    return () => { active = false; };
+  }, [project?.id, recoveryLoadToken]);
+
+  useEffect(() => {
+    if (!project || !recoveryReady) return;
+    const drafts = {
+      projectId: project.id,
+      code: [...codeDraftsRef.current].map(([key, draft]) => ({ key: key.slice(key.indexOf(':') + 1), ...draft })),
+      ...(editor.draftDirty && scene ? { form: {
+        sceneId: scene.id, nodeId: editor.selectedNodeId, speaker: editor.speaker, text: editor.text,
+      } } : {}),
+      ...(projectNameDraftDirty ? { projectName: projectNameDraft } : {}),
+    };
+    const timer = window.setTimeout(() => {
+      void latestRecoveryRef.current.engine.checkpointDrafts(drafts);
+    }, 750);
+    return () => window.clearTimeout(timer);
+  }, [project?.id, recoveryReady, draftVersion, editor.draftDirty, editor.speaker, editor.text,
+    editor.selectedNodeId, scene?.id, projectNameDraftDirty, projectNameDraft]);
+
   const handleSaveProject = async () => {
     await engine.saveProject(prepareCurrentEdits);
   };
@@ -772,11 +837,17 @@ export function EditorApplication({
         create: async () => {},
         open: async () => {},
         save: async () => {},
+        undo: async () => {},
+        redo: async () => {},
+        recover: async () => {},
       }
     : {
         create: handleCreateProject,
         open: handleOpenProject,
         save: handleSaveProject,
+        undo: () => handleHistory('undo'),
+        redo: () => handleHistory('redo'),
+        recover: () => handleOpenProject(true),
       };
 
   useEffect(() => {
@@ -785,10 +856,34 @@ export function EditorApplication({
         void latestActionsRef.current.create();
       } else if (command === 'open') {
         void latestActionsRef.current.open();
+      } else if (command === 'undo' || command === 'redo') {
+        const target = document.activeElement;
+        if (target instanceof HTMLElement && (target.matches('input, textarea') || target.isContentEditable)) {
+          document.execCommand(command);
+        } else {
+          void latestActionsRef.current[command]();
+        }
+      } else if (command === 'recover') {
+        void latestActionsRef.current.recover();
       } else {
         void latestActionsRef.current.save();
       }
     });
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.matches('input, textarea') || target.isContentEditable)) return;
+      if ((!event.ctrlKey && !event.metaKey) || event.altKey || event.repeat) return;
+      const key = event.key.toLowerCase();
+      if (key !== 'z' && key !== 'y') return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      void latestActionsRef.current[key === 'y' || event.shiftKey ? 'redo' : 'undo']();
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
   }, []);
 
   useEffect(() => {
@@ -902,6 +997,11 @@ export function EditorApplication({
       data-editor-theme={settings.colorTheme}
     >
       <Toolbar
+        canUndo={engine.canUndo || editor.draftDirty || blockDraftDirty || codeDraftDirty || projectNameDraftDirty}
+        canRedo={engine.canRedo}
+        onUndo={() => void handleHistory('undo')}
+        onRedo={() => void handleHistory('redo')}
+        onRecover={() => void handleOpenProject(true)}
         projectName={project.name}
         projectNameDraft={projectNameDraft}
         isRenamingProject={isRenamingProject}
@@ -912,7 +1012,7 @@ export function EditorApplication({
         isSaving={engine.isSaving}
         isExporting={engine.isExporting}
         engineMessage={editor.engineMessage}
-        operationMessage={engine.exportMessage}
+        operationMessage={engine.session.recoveryFailed ? labels.toolbar.recoveryFailed : engine.exportMessage}
         projectFolderName={engine.projectFolderName}
         language={settings.language}
         colorTheme={settings.colorTheme}

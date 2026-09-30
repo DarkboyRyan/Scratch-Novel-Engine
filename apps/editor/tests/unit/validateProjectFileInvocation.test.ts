@@ -8,6 +8,20 @@ import { describe, expect, it } from 'vitest';
 import { isProjectFileInvocation } from '../../src/main/ipc/validateProjectFileInvocation';
 
 describe('project file IPC validation', () => {
+  it('accepts bounded inert drafts and rejects paths, malformed fields and oversized recovery payloads', () => {
+    const draft = { projectId: 'story', code: [{ key: 'story:scene', source: 'invalid code', baseSource: '' }] };
+    expect(isProjectFileInvocation({ action: 'checkpoint-drafts', params: { drafts: draft } })).toBe(true);
+    expect(isProjectFileInvocation({ action: 'recover', params: {} })).toBe(true);
+    expect(isProjectFileInvocation({ action: 'recover', params: { filePath: '/tmp/forged' } })).toBe(false);
+    for (const drafts of [
+      { ...draft, filePath: '/tmp/forged' },
+      { ...draft, code: [{ ...draft.code[0], source: 12n }] },
+      { ...draft, code: [{ ...draft.code[0], source: '字'.repeat(750_000) }] },
+      { ...draft, code: Array(101).fill(draft.code[0]) },
+    ]) {
+      expect(isProjectFileInvocation({ action: 'checkpoint-drafts', params: { drafts } })).toBe(false);
+    }
+  });
   it('accepts create with an optional project name', () => {
     expect(
       isProjectFileInvocation({ action: 'create', params: {} }),

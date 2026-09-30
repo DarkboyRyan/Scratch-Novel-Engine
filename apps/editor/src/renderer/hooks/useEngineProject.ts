@@ -30,7 +30,7 @@ import {
   isImageScalePercent,
   isStartScreenStyleDocument,
 } from '../../shared/projectTypes';
-import type { ProjectFileSessionSnapshot } from '../../shared/projectFileProtocol';
+import type { ProjectFileSessionSnapshot, RecoveryDrafts } from '../../shared/projectFileProtocol';
 import { createAuthoringActions } from '../application/createAuthoringActions';
 import {
   getEditorPlatformGateway,
@@ -636,10 +636,12 @@ export function useEngineProject(
   useEffect(() => {
     let isActive = true;
 
-    initializationRequest.current ??= Promise.all([
-      requestInitialProject(platform),
-      platform.projectFiles.getSession(),
-    ]);
+    initializationRequest.current ??= (async () => {
+      const result = await requestInitialProject(platform);
+      // ensureProject can restore a crashed backend and change the file session.
+      const session = await platform.projectFiles.getSession();
+      return [result, session] as [EngineMutationResult, ProjectFileSessionSnapshot];
+    })();
 
     void initializationRequest.current
       .then(([result, session]) => {
@@ -755,7 +757,7 @@ export function useEngineProject(
     }
   }
 
-  async function openProject(): Promise<OpenProjectStatus> {
+  async function openProject(recover = false): Promise<OpenProjectStatus> {
     if (fileOperationInProgress.current) {
       return 'failed';
     }
@@ -767,7 +769,9 @@ export function useEngineProject(
 
     try {
       await waitForEngineActions();
-      const outcome = await platform.projectFiles.openProject();
+      const outcome = recover && platform.projectFiles.recoverProject
+        ? await platform.projectFiles.recoverProject()
+        : await platform.projectFiles.openProject();
 
       if (outcome.cancelled) {
         return 'cancelled';
@@ -1109,6 +1113,31 @@ export function useEngineProject(
   }
 
   return {
+    canUndo: session.canUndo ?? false,
+    canRedo: session.canRedo ?? false,
+    async changeHistory(direction: 'undo' | 'redo'): Promise<boolean> {
+      const action = platform.engine[direction];
+      if (!action) return false;
+      const result = await runEngineAction(() => action());
+      if (result) setProjectGeneration((current) => current + 1);
+      return result !== null;
+    },
+    async checkpointDrafts(drafts: RecoveryDrafts): Promise<void> {
+      if (fileOperationInProgress.current || !platform.projectFiles.checkpointDrafts) return;
+      // Use the same renderer queue without replacing the visible project or
+      // making text inputs busy merely because a draft is being backed up.
+      engineActionQueue.current = engineActionQueue.current.then(async () => {
+        if (fileOperationInProgress.current) return;
+        try {
+          const snapshot = await platform.projectFiles.checkpointDrafts!(drafts);
+          setSession((current) => ({ ...current, recoveryFailed: snapshot.recoveryFailed }));
+        } catch {
+          setSession((current) => ({ ...current, recoveryFailed: true }));
+        }
+      });
+      await engineActionQueue.current;
+    },
+    getRecoveryDrafts: () => platform.projectFiles.getRecoveryDrafts?.() ?? Promise.resolve(null),
     project: rendererProject,
     assets,
     projectGeneration,

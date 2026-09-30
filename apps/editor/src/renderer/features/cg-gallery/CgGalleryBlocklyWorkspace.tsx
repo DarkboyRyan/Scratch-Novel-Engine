@@ -115,6 +115,9 @@ export const CgGalleryBlocklyWorkspace = forwardRef<
         scaleSpeed: 1.1,
       },
     });
+    // Project history owns semantic edits across all three editor modes.
+    // Disable Blockly's separate event history (including its context menu).
+    workspace.MAX_UNDO = 0;
     workspaceRef.current = workspace;
     installInlineZoomControlIcons(workspace.getParentSvg());
     renderCgGalleryBlocks(

@@ -15,6 +15,7 @@ function manifestSha256(contents: string): string {
 export class ProjectFileSession {
   private projectRootPath: string | null = null;
   private logicalSavedRevision: number | null = null;
+  private savedDocumentRevision: number | null = null;
   private savedManifestSha256: string | null = null;
   private engineSession: EngineSessionState = {
     revision: 0,
@@ -50,6 +51,7 @@ export class ProjectFileSession {
   markCreated(engineSession: EngineSessionState): ProjectFileSessionSnapshot {
     this.projectRootPath = null;
     this.logicalSavedRevision = null;
+    this.savedDocumentRevision = null;
     this.savedManifestSha256 = null;
     this.applyEngineRevision(engineSession);
     return this.snapshot();
@@ -63,6 +65,7 @@ export class ProjectFileSession {
     this.projectRootPath = projectRootPath;
     this.logicalSavedRevision =
       engineSession.savedRevision ?? engineSession.revision;
+    this.savedDocumentRevision = engineSession.documentRevision ?? this.logicalSavedRevision;
     this.savedManifestSha256 = manifestContents === undefined
       ? null
       : manifestSha256(manifestContents);
@@ -77,6 +80,7 @@ export class ProjectFileSession {
   ): ProjectFileSessionSnapshot {
     this.projectRootPath = projectRootPath;
     this.logicalSavedRevision = engineSession.revision;
+    this.savedDocumentRevision = engineSession.documentRevision ?? engineSession.revision;
     this.savedManifestSha256 = manifestContents === undefined
       ? null
       : manifestSha256(manifestContents);
@@ -96,11 +100,12 @@ export class ProjectFileSession {
     // safely published it to the user's chosen file. Only mark the document
     // logically saved after markOpened/markSaved commits that external path.
     this.engineSession = {
+      ...engineSession,
       revision: engineSession.revision,
       savedRevision: this.logicalSavedRevision,
       isDirty:
         this.logicalSavedRevision === null ||
-        engineSession.revision !== this.logicalSavedRevision,
+        (engineSession.documentRevision ?? engineSession.revision) !== this.savedDocumentRevision,
     };
   }
 }

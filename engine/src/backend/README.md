@@ -13,6 +13,11 @@
 3. 成功变更推进 revision；合法 no-op 保持 revision；异常被转换为稳定错误响应。
 4. stdout 只输出单行 JSON 响应，诊断信息写 stderr，避免破坏协议流。
 
+成功修改进入窗口会话统一历史，`history.undo` / `history.redo` 恢复整个 Author 聚合。
+`revision` 递增，`documentRevision` 跟随历史状态，用于识别用户保存点；历史最多 100 条、
+64 MiB。Main 专用 `project.checkpoint` 原子写出恢复用快照，不改变保存点或历史。
+完整语义见 [撤销与恢复](../../../docs/editor-history-and-recovery.md)。
+
 `scene.content.replace` 接收不含隐藏 marker 的嵌套剧情草稿。协议边界限制为 2 MiB、
 10,000 个实体和 16 层控制结构，并在为数组分配内存前检查预算；CG body 在进入通用
 递归解析前即限定为对白。Core 只在候选 Project 完整通过结构、引用、资源类型和全局

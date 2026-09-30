@@ -36,6 +36,8 @@ Author v22 / Runtime v13 为两个页面加入严格样式 DTO，旧版本迁移
 
 ## 创作与剧情功能
 
+项目操作历史、保存点与恢复副本见 [编辑器撤销与恢复](./editor-history-and-recovery.md)。
+
 | 文档 | 适用场景 | 当前关键合同 |
 | --- | --- | --- |
 | [`game-preview-runtime.md`](./game-preview-runtime.md) | 修改 Editor 正式预览 | 输入、媒体、选择、跳转与纯状态机 |

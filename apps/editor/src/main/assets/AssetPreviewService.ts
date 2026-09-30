@@ -334,6 +334,7 @@ function freshGenerationToken(): string {
 
 export class AssetPreviewService {
   private activeProject: ActiveAssetPreviewProject | null = null;
+  private historicalAssets = new Map<string, PrivateAssetRecord>();
   private disposed = false;
 
   constructor(private readonly protocol: ProtocolRegistrar) {
@@ -406,6 +407,10 @@ export class AssetPreviewService {
     }
 
     const previous = this.activeProject;
+    if (rotateGeneration || previous?.projectId !== candidate.projectId) {
+      this.historicalAssets.clear();
+    }
+    for (const [id, asset] of candidate.assets) this.historicalAssets.set(id, { ...asset });
     const canReuseGeneration =
       !rotateGeneration &&
       previous?.projectFilePath === candidate.projectFilePath &&
@@ -522,6 +527,31 @@ export class AssetPreviewService {
         publicAsset.type,
       )}/${assetId}${extension}`,
     });
+    this.historicalAssets.set(assetId, { ...active.assets.get(assetId)! });
+    return true;
+  }
+
+  synchronizeHistory(result: EngineMutationResult): boolean {
+    const active = this.activeProject;
+    if (!active) return result.assets.length === 0;
+    if (active.projectId !== result.project.id) return false;
+    for (const [id, asset] of active.assets) this.historicalAssets.set(id, { ...asset });
+    const assets = new Map<string, PrivateAssetRecord>();
+    for (const asset of result.assets) {
+      const known = this.historicalAssets.get(asset.id);
+      if (!known || known.type !== asset.type) {
+        this.activeProject = null;
+        return false;
+      }
+      assets.set(asset.id, { ...known, ...asset });
+    }
+    this.activeProject = {
+      ...active,
+      assets,
+      generationToken: freshGenerationToken(),
+      previewTokensByAssetId: new Map(),
+      assetIdsByPreviewToken: new Map(),
+    };
     return true;
   }
 
@@ -577,6 +607,7 @@ export class AssetPreviewService {
     }
 
     const deletedIds = new Set(assetIds);
+    for (const [id, asset] of active.assets) this.historicalAssets.set(id, { ...asset });
     const remainingAssets = new Map(
       [...active.assets].filter(([id]) => !deletedIds.has(id)),
     );

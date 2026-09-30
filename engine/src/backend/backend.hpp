@@ -3,6 +3,7 @@
 #pragma once
 
 #include <cstdint>
+#include <deque>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -22,6 +23,8 @@ class Backend final {
 
  private:
   nlohmann::json handle(const nlohmann::json& request);
+  nlohmann::json dispatch(const nlohmann::json& request);
+  void trim_history();
   static nlohmann::json request_id(const nlohmann::json& request);
   ProjectAggregate& require_aggregate();
   Project& require_project();
@@ -38,6 +41,14 @@ class Backend final {
   // Electron Main remains the sole owner of the active path.
   std::uint64_t revision_ = 0;
   std::optional<std::uint64_t> saved_revision_;
+  struct HistoryEntry {
+    std::string contents;
+    std::uint64_t document_revision;
+  };
+  std::deque<HistoryEntry> undo_;
+  std::deque<HistoryEntry> redo_;
+  std::uint64_t document_revision_ = 0;
+  std::optional<std::uint64_t> saved_document_revision_;
 };
 
 }  // namespace vnengine::backend

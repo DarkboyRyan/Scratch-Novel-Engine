@@ -142,6 +142,29 @@ export class ProjectStorageSession {
     await this.discardTemporaryWorkspace();
   }
 
+  async restoreRecovery(
+    recoveryManifest: string,
+    validate: ValidateProjectSnapshot,
+  ): Promise<string> {
+    // Stage separately: failed recovery must preserve the current workspace.
+    const base = await realpath(tmpdir());
+    const candidate = await mkdtemp(path.join(base, 'vn-engine-project-'));
+    try {
+      await publishProjectSnapshot(recoveryManifest, candidate, validate);
+    } catch (error) {
+      await this.removeWorkspace(candidate);
+      throw error;
+    }
+    return projectManifestPath(candidate);
+  }
+
+  async adoptRecoveredWorkspace(manifest: string): Promise<void> {
+    await this.discardTemporaryWorkspace().catch((error: unknown) => {
+      console.error('[project-storage] old recovery workspace cleanup failed', error);
+    });
+    this.temporaryRootPath = path.dirname(manifest);
+  }
+
   private async ensureTemporaryProjectFilePath(): Promise<string> {
     if (this.temporaryRootPath === null) {
       const temporaryBase = await realpath(tmpdir());

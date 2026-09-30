@@ -26,6 +26,7 @@ import { registerExportIpc } from './main/ipc/registerExportIpc';
 import { registerProjectFileIpc } from './main/ipc/registerProjectFileIpc';
 import { installApplicationMenu } from './main/menu/installApplicationMenu';
 import { getEditorNativeLabels } from './main/i18n/editorNativeLabels';
+import { ProjectRecoveryService } from './main/project/ProjectRecoveryService';
 import { ProjectFileSession } from './main/project/ProjectFileSession';
 import { ProjectStorageSession } from './main/project/ProjectStorageSession';
 import { EditorSettingsManager } from './main/settings/EditorSettingsManager';
@@ -88,6 +89,7 @@ async function openEditorWindow(
   const projectFileSession = new ProjectFileSession();
   const projectStorageSession = new ProjectStorageSession();
   const fileOperationCoordinator = new FileOperationCoordinator();
+  const recoveryService = new ProjectRecoveryService(path.join(app.getPath('userData'), 'project-recovery'));
 
   trustedEditorLocations.set(webContentsId, entryUrl);
   editorWindowContexts.set(webContentsId, {
@@ -97,9 +99,11 @@ async function openEditorWindow(
     projectFileSession,
     projectStorageSession,
     fileOperationCoordinator,
+    recoveryService,
   });
 
   editorWindow.webContents.once('destroyed', () => {
+    recoveryService.dispose();
     trustedEditorLocations.delete(webContentsId);
     editorWindowContexts.delete(webContentsId);
     assetPreviewService.dispose();
@@ -120,6 +124,7 @@ async function openEditorWindow(
         },
       });
       const session = projectFileSession.markCreated(result.session);
+      recoveryService.observeProject(result.project.id);
       updateWindowDocumentPresentation(
         editorWindow,
         result.project.name,
@@ -128,6 +133,14 @@ async function openEditorWindow(
       );
     }
 
+    // Offer earlier recovery copies before the first renderer snapshot.
+    if (!options.sourceWindow) {
+      await recoveryService.offer(editorWindowContexts.get(webContentsId)!, currentEditorLanguage())
+        .catch((error: unknown) => {
+          // A damaged recovery copy must never prevent the editor from opening.
+          console.error('[project-recovery] startup recovery failed', error);
+        });
+    }
     await editorWindow.loadURL(entryUrl);
     // ready-to-show 负责避免白屏；这里再显式显示并聚焦，保证新建项目
     // 不会因为事件时序而成为隐藏窗口，也不会被旧窗口继续遮挡。

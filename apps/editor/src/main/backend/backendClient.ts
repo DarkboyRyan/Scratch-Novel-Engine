@@ -35,6 +35,9 @@ export function backendRequestTimeoutMs(
     invocation.method === 'asset.deleteMany' ||
     invocation.method === 'project.open' ||
     invocation.method === 'project.save' ||
+    invocation.method === 'project.checkpoint' ||
+    invocation.method === 'history.undo' ||
+    invocation.method === 'history.redo' ||
     invocation.method === 'scene.content.replace'
   ) {
     return null;

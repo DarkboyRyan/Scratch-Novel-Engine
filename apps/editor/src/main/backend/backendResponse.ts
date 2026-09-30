@@ -666,12 +666,24 @@ export function parseBackendResponse(line: string): BackendResponse {
     const rawResult = value.result;
     const rawAssets = rawResult.assets as Record<string, unknown>[];
     const rawSession = rawResult.session as Record<string, unknown>;
+    if (
+      ('documentRevision' in rawSession &&
+        (!Number.isSafeInteger(rawSession.documentRevision) || (rawSession.documentRevision as number) < 0)) ||
+      ('canUndo' in rawSession && typeof rawSession.canUndo !== 'boolean') ||
+      ('canRedo' in rawSession && typeof rawSession.canRedo !== 'boolean')
+    ) {
+      throw new Error('Invalid backend history state');
+    }
     const result: EngineMutationResult = {
       project: toPublicProjectDocument(
         rawResult.project as Record<string, unknown>,
       ),
       assets: rawAssets.map(toPublicAssetDocument),
       session: {
+        ...(typeof rawSession.documentRevision === 'number'
+          ? { documentRevision: rawSession.documentRevision } : {}),
+        ...(typeof rawSession.canUndo === 'boolean' ? { canUndo: rawSession.canUndo } : {}),
+        ...(typeof rawSession.canRedo === 'boolean' ? { canRedo: rawSession.canRedo } : {}),
         revision: rawSession.revision as number,
         savedRevision: rawSession.savedRevision as number | null,
         isDirty: rawSession.isDirty as boolean,
