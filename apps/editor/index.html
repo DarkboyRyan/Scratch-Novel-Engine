@@ -13,10 +13,27 @@
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: vn-asset:; media-src 'self' vn-asset:; connect-src 'self' ws://localhost:* ws://127.0.0.1:*; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; frame-ancestors 'none'"
     />
     <title>Scratch Novel Engine</title>
+    <link rel="stylesheet" href="/src/renderer/styles/startup.css" />
   </head>
 
-  <body>
-    <div id="root"></div>
+  <body style="margin: 0">
+    <div id="root">
+      <main class="editor-startup">
+        <section class="editor-startup-content">
+          <div class="editor-startup-mark" aria-hidden="true">S<span>N</span></div>
+          <h1>Scratch Novel Engine</h1>
+          <p class="editor-startup-title">Starting…</p>
+          <div class="editor-startup-status">
+            <span role="status">Loading editor interface…</span>
+            <span class="editor-startup-percent" aria-hidden="true">10%</span>
+          </div>
+          <div class="editor-startup-progress" role="progressbar" aria-busy="true" aria-label="Startup progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="10" aria-valuetext="Loading editor interface…">
+            <div class="editor-startup-progress-fill" style="width: 10%"></div>
+          </div>
+          <p class="editor-startup-hint">The first launch or recovery of a large project may take a little longer.</p>
+        </section>
+      </main>
+    </div>
     <script type="module" src="/src/renderer/index.tsx"></script>
   </body>
 </html>

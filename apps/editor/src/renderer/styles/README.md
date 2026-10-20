@@ -1,15 +1,17 @@
 # 样式系统
 
+[中文](./README.md) | [English](./README.en.md)
+
 [返回 Renderer](../README.md)
 
 本目录定义 Renderer 的全局视觉基础和编辑器业务界面样式。`base.css` 建立颜色、排版和原生控件基线，`editor.css` 保留组件和业务布局，`editorTheme.css` 最后加载，集中收敛编辑器的视觉层级与响应式体验。
 
-## 架构位置与工作方式
+## 工作方式
 
 1. Renderer 入口依次加载 `base.css`、`editor.css` 和 `editorTheme.css`。`base.css` 的 `:root` 定义 Daylight token，`:root[data-editor-theme='moonlight']` 只覆盖同一组语义 token；组件不得绕开 token 复制一套主题颜色。
 2. React 组件通过语义类名组合布局；Blockly 与 Player 预览等第三方或共享表面使用局部作用域覆盖。
 3. 设置加载后，`App` 把 `data-editor-theme="daylight|moonlight"` 写到文档根节点，并同步原生 `color-scheme`；编辑器根容器也暴露同名属性供局部视觉验证。
-4. 颜色主题只作用于 Editor chrome，包括顶栏、面板、表单、Blockly 外壳、Code 编辑器、资源管理和弹层。Player 预览中的作者页面样式、媒体内容以及导出游戏不随该偏好改变。
+4. 颜色主题只作用于 编辑器界面，包括顶栏、面板、表单、Blockly 外壳、Code 编辑器、资源管理和弹层。Player 预览中的作者页面样式、媒体内容以及导出游戏不随该偏好改变。
 5. 媒体查询根据窗口宽度、高度和语言密度调整尺寸，确保核心操作与滚动区域始终可达。
 
 ## 主题 token
@@ -27,11 +29,11 @@
 
 ## 文件
 
-| 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
-| --- | --- | --- | --- |
-| [base.css](./base.css) | CSS | 定义 Daylight / Moonlight 语义 token、排版、滚动条和基础元素样式 | `:root`、`:root[data-editor-theme='moonlight']`、`body`、`select`、`:focus-visible` |
-| [editor.css](./editor.css) | CSS | 定义编辑器布局、组件、Blockly、预览和响应式界面样式 | `.engine-startup`、`.engine-startup p`、`.engine-startup button`、`.editor-settings-bootstrap-indicator`、`to`、`.editor-settings-bootstrap-indicator` 等 427 项 |
-| [editorTheme.css](./editorTheme.css) | CSS | 统一工作台色彩、层级、控件密度、选中提示和可访问性降级 | `.toolbar`、`.editor-mode-button`、`.dialogue-list`、`.preview-stage`、`.asset-manager`、`prefers-reduced-motion` |
+| 文件 | 主要作用 |
+| --- | --- |
+| [base.css](./base.css) | 定义 Daylight / Moonlight 语义 token、排版、滚动条和基础元素样式 |
+| [editor.css](./editor.css) | 定义编辑器布局、组件、Blockly、预览和响应式界面样式 |
+| [editorTheme.css](./editorTheme.css) | 统一工作台色彩、层级、控件密度、选中提示和可访问性降级 |
 
 ## 开发与验证
 

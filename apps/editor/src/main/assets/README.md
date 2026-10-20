@@ -1,10 +1,12 @@
 # 资产预览
 
+[中文](./README.md) | [English](./README.en.md)
+
 [返回 Electron Main](../README.md)
 
 本目录负责把项目内受管媒体安全地提供给 Editor 预览，而不是向 Renderer 暴露真实文件路径。它通过自定义 `vn-asset://` 协议读取资产，并在打开流之前核对项目会话、文件身份、媒体内容和请求范围。
 
-## 架构位置与工作方式
+## 工作方式
 
 1. 项目工作流把当前项目根和资产清单交给 `AssetPreviewService` 准备会话。
 2. Renderer 请求受控协议 URL，服务规范化标识并委托 [`../media/`](../media/README.md) 校验格式和 Range。
@@ -12,9 +14,9 @@
 
 ## 文件
 
-| 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
-| --- | --- | --- | --- |
-| [`AssetPreviewService.ts`](./AssetPreviewService.ts) | Electron Protocol、Node.js FS/Stream | 将受管项目媒体暴露为 `vn-asset://` 预览。 | `AssetPreviewService`、`prepareProject`、协议处理；校验规范路径、文件身份、魔数、大小与字节范围。 |
+| 文件 | 主要作用 |
+| --- | --- |
+| [`AssetPreviewService.ts`](./AssetPreviewService.ts) | 将受管项目媒体暴露为 `vn-asset://` 预览。 |
 
 ## 开发与验证
 

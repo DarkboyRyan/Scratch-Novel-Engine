@@ -30,6 +30,7 @@ export function registerExportIpc(
       if (!context) {
         throw new Error('找不到当前编辑器窗口对应的项目会话');
       }
+      await context.initialize?.();
       return context.fileOperationCoordinator.runExclusive(() =>
         runExportGameWorkflow(context, invocation.params, getLanguage()),
       );

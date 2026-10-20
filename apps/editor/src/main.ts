@@ -25,14 +25,14 @@ import {
 import { registerExportIpc } from './main/ipc/registerExportIpc';
 import { registerProjectFileIpc } from './main/ipc/registerProjectFileIpc';
 import { installApplicationMenu } from './main/menu/installApplicationMenu';
-import { getEditorNativeLabels } from './main/i18n/editorNativeLabels';
+import { ProjectRecoveryService } from './main/project/ProjectRecoveryService';
 import { ProjectFileSession } from './main/project/ProjectFileSession';
 import { ProjectStorageSession } from './main/project/ProjectStorageSession';
 import { EditorSettingsManager } from './main/settings/EditorSettingsManager';
 import { EditorSettingsStore } from './main/settings/EditorSettingsStore';
-import type { EditorWindowContexts } from './main/window/EditorWindowContext';
+import type { EditorWindowContext, EditorWindowContexts } from './main/window/EditorWindowContext';
 import { FileOperationCoordinator } from './main/window/FileOperationCoordinator';
-import { updateWindowDocumentPresentation } from './main/window/updateWindowDocumentPresentation';
+import { createEditorWindowInitializer } from './main/window/initializeEditorWindow';
 import { DEFAULT_EDITOR_LANGUAGE } from './shared/editorSettingsProtocol';
 
 const trustedEditorLocations = new Map<number, string>();
@@ -74,8 +74,8 @@ async function openEditorWindow(
   options: OpenEditorWindowOptions = {},
 ): Promise<void> {
   const entryUrl = resolveEditorEntryUrl();
-  // 先延迟加载页面，确保 Renderer 发出第一条请求前，它的独立后端和会话
-  // 已经注册完成。新建窗口还会先在自己的后端中创建 Project。
+  // Register services before loading the page. Project initialization happens
+  // on the first IPC request while the renderer displays startup progress.
   const editorWindow = createEditorWindow(entryUrl, {
     deferLoad: true,
     sourceWindow: options.sourceWindow,
@@ -88,18 +88,28 @@ async function openEditorWindow(
   const projectFileSession = new ProjectFileSession();
   const projectStorageSession = new ProjectStorageSession();
   const fileOperationCoordinator = new FileOperationCoordinator();
+  const recoveryService = new ProjectRecoveryService(path.join(app.getPath('userData'), 'project-recovery'));
 
   trustedEditorLocations.set(webContentsId, entryUrl);
-  editorWindowContexts.set(webContentsId, {
+  const context: EditorWindowContext = {
     editorWindow,
     backendClient,
     assetPreviewService,
     projectFileSession,
     projectStorageSession,
     fileOperationCoordinator,
+    recoveryService,
+  };
+  context.initialize = createEditorWindowInitializer(context, {
+    createProject: options.createProject !== false,
+    projectName: options.projectName,
+    offerRecovery: !options.sourceWindow,
+    getLanguage: currentEditorLanguage,
   });
+  editorWindowContexts.set(webContentsId, context);
 
   editorWindow.webContents.once('destroyed', () => {
+    recoveryService.dispose();
     trustedEditorLocations.delete(webContentsId);
     editorWindowContexts.delete(webContentsId);
     assetPreviewService.dispose();
@@ -110,24 +120,6 @@ async function openEditorWindow(
   });
 
   try {
-    if (options.createProject !== false) {
-      const editorLanguage = currentEditorLanguage();
-      const result = await backendClient.request({
-        method: 'project.create',
-        params: {
-          name: options.projectName ?? getEditorNativeLabels(editorLanguage).window.untitledProject,
-          firstSceneName: editorLanguage === 'en-US' ? 'Scene 1' : '场景 1',
-        },
-      });
-      const session = projectFileSession.markCreated(result.session);
-      updateWindowDocumentPresentation(
-        editorWindow,
-        result.project.name,
-        session,
-        editorLanguage,
-      );
-    }
-
     await editorWindow.loadURL(entryUrl);
     // ready-to-show 负责避免白屏；这里再显式显示并聚焦，保证新建项目
     // 不会因为事件时序而成为隐藏窗口，也不会被旧窗口继续遮挡。

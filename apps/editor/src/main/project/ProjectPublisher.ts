@@ -291,7 +291,7 @@ async function rollbackPublishedAssets(
   }
 }
 
-async function atomicPublishManifest(
+export async function atomicPublishManifest(
   contents: Buffer,
   destinationPath: string,
 ): Promise<void> {
@@ -363,7 +363,7 @@ async function atomicPublishManifest(
   }
 }
 
-async function readStableManifestBytes(filePath: string): Promise<Buffer> {
+export async function readStableManifestBytes(filePath: string): Promise<Buffer> {
   const noFollow = constants.O_NOFOLLOW ?? 0;
   const manifest = await open(
     filePath,
@@ -394,6 +394,7 @@ export async function publishProjectSnapshot(
   backendProjectFilePath: string,
   targetProjectRootPath: string,
   validateBeforeCommit?: ValidateProjectSnapshot,
+  assetSourceRoot: string | null = path.dirname(backendProjectFilePath),
 ): Promise<string> {
   const backendPath = path.resolve(backendProjectFilePath);
   const targetPath = projectManifestPath(targetProjectRootPath);
@@ -419,10 +420,10 @@ export async function publishProjectSnapshot(
       );
     }
 
-    const sourceAssets = path.join(path.dirname(backendPath), 'assets');
-    let sourceAssetsExist = true;
+    const sourceAssets = path.join(assetSourceRoot ?? path.dirname(backendPath), 'assets');
+    let sourceAssetsExist = assetSourceRoot !== null;
     try {
-      await lstat(sourceAssets);
+      if (sourceAssetsExist) await lstat(sourceAssets);
     } catch (error) {
       if (errnoCode(error) === 'ENOENT') {
         sourceAssetsExist = false;

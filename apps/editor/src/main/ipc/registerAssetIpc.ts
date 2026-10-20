@@ -16,6 +16,7 @@ import {
 } from '../security/editorFrameTrust';
 import type { EditorWindowContexts } from '../window/EditorWindowContext';
 import { updateWindowDocumentPresentation } from '../window/updateWindowDocumentPresentation';
+import { checkpointRecovery } from '../project/ProjectRecoveryService';
 import { isAssetInvocation } from './validateAssetInvocation';
 
 const SAFE_ASSET_ERROR_CODES = new Set([
@@ -69,6 +70,8 @@ export function registerAssetIpc(
         throw new Error('找不到当前编辑器窗口对应的项目会话');
       }
 
+      await context.initialize?.();
+
       if (invocation.action === 'get-preview-url') {
         return context.assetPreviewService.getPreviewUrl(
           invocation.params.assetId,
@@ -120,9 +123,11 @@ export function registerAssetIpc(
               session,
               language,
             );
+            await checkpointRecovery(context, result);
             return {
               ...result,
               session: {
+                ...result.session,
                 revision: session.revision,
                 savedRevision: session.savedRevision,
                 isDirty: session.isDirty,
@@ -166,9 +171,11 @@ export function registerAssetIpc(
             session,
             language,
           );
+          await checkpointRecovery(context, result);
           return {
             ...result,
             session: {
+              ...result.session,
               revision: session.revision,
               savedRevision: session.savedRevision,
               isDirty: session.isDirty,
@@ -295,6 +302,7 @@ export function registerAssetIpc(
           const publicResult: EngineMutationResult = {
             ...result,
             session: {
+              ...result.session,
               revision: session.revision,
               savedRevision: session.savedRevision,
               isDirty: session.isDirty,
@@ -323,6 +331,7 @@ export function registerAssetIpc(
           }
 
           // Absolute paths remain confined to this Main-process function.
+          await checkpointRecovery(context, publicResult);
           return { status: 'imported', result: publicResult };
         },
       );

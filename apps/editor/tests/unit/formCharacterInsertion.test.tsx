@@ -143,6 +143,18 @@ describe('form character insertion', () => {
     return null;
   }
 
+  it('restores a recovered dialogue draft without applying it to the project', async () => {
+    await act(async () => {
+      current!.restoreDraft({ sceneId: 'scene-1', nodeId: 'dialogue-next', speaker: 'Recovered', text: 'Unsubmitted text' });
+    });
+    expect(current!.selectedNodeId).toBe('dialogue-next');
+    expect(current!.speaker).toBe('Recovered');
+    expect(current!.text).toBe('Unsubmitted text');
+    expect(current!.draftDirty).toBe(true);
+    expect(updateDialogue).not.toHaveBeenCalled();
+    expect(activeProject.scenes[0].nodes[2]).toMatchObject({ text: '下一对白' });
+  });
+
   beforeEach(async () => {
     (
       globalThis as typeof globalThis & {

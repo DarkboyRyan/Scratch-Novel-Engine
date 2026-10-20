@@ -11,6 +11,7 @@ import {
 import type { EditorWindowContexts } from '../window/EditorWindowContext';
 import { updateWindowDocumentPresentation } from '../window/updateWindowDocumentPresentation';
 import { isEngineInvocation } from './validateEngineInvocation';
+import { checkpointRecovery } from '../project/ProjectRecoveryService';
 
 export function registerEngineIpc(
   contexts: EditorWindowContexts,
@@ -33,14 +34,33 @@ export function registerEngineIpc(
         throw new Error('找不到当前编辑器窗口对应的项目会话');
       }
 
+      await context.initialize?.();
+
       // Engine mutations and project open/save/import share the same
       // per-window transaction boundary. Main enforces this even if a stale
       // Renderer tries to mutate between backend save and manifest publish.
       return context.fileOperationCoordinator.runExclusive(async () => {
-        const result = await context.backendClient.request(invocation);
+        let result = await context.backendClient.request(invocation);
+        if (invocation.method === 'project.ensure' &&
+            context.recoveryService?.hasDifferentProject(result.project.id)) {
+          // A restarted backend has lost its document. Detach the old save
+          // path before offering recovery so a blank session cannot overwrite it.
+          context.projectFileSession.markCreated(result.session);
+          context.recoveryService.startSession();
+          const recovered = await context.recoveryService.offer(context, getLanguage());
+          if (!recovered.cancelled) result = recovered.result;
+        }
+        context.recoveryService?.observeProject(result.project.id);
+        if (invocation.method === 'history.undo' || invocation.method === 'history.redo') {
+          context.assetPreviewService.synchronizeHistory(result);
+        }
         const session = context.projectFileSession.updateEngineSession(
           result.session,
         );
+        if (invocation.method !== 'project.get' && invocation.method !== 'project.ensure') {
+          await checkpointRecovery(context, result,
+            invocation.method === 'history.undo' || invocation.method === 'history.redo');
+        }
         updateWindowDocumentPresentation(
           context.editorWindow,
           result.project.name,
@@ -51,6 +71,7 @@ export function registerEngineIpc(
         return {
           ...result,
           session: {
+            ...result.session,
             revision: session.revision,
             savedRevision: session.savedRevision,
             isDirty: session.isDirty,

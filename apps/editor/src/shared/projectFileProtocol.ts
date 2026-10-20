@@ -1,6 +1,6 @@
 // 主要作用：定义项目新建、打开、保存和会话查询的共享 IPC 契约。
 // 关键实现：限制 Renderer 不传本机路径，并声明命令事件与 VnProjectFilesApi。
-import type { EngineMutationResult } from './engineProtocol';
+import type { EngineMutationResult, EngineSessionState } from './engineProtocol';
 
 // Renderer 只能表达文件操作意图；所有本机路径都由 Electron Main 的原生
 // 对话框产生，并且永远不会作为 IPC 参数从 Renderer 传入。
@@ -10,7 +10,17 @@ export const PROJECT_FILE_COMMAND_CHANNEL = 'vn-project-files:command';
 // always has this fixed private name inside that directory.
 export const PROJECT_FILE_NAME = 'project.vn.json';
 
+export type RecoveryDrafts = {
+  projectId: string;
+  code: { key: string; source: string; baseSource: string }[];
+  form?: { sceneId: string; nodeId: string | null; speaker: string; text: string };
+  projectName?: string;
+};
+
 export type ProjectFileInvocation =
+  | { action: 'recover'; params: Record<string, never> }
+  | { action: 'checkpoint-drafts'; params: { drafts: RecoveryDrafts } }
+  | { action: 'get-recovery-drafts'; params: Record<string, never> }
   | {
       action: 'create';
       params: {
@@ -32,7 +42,7 @@ export type ProjectFileInvocation =
 
 // C++ 管理 revision；Electron Main 只公开“是否已有持久化目录”，不会把
 // 用户本机的绝对路径跨过 IPC 暴露给 Renderer。
-export type ProjectFileSessionSnapshot = {
+export type ProjectFileSessionSnapshot = EngineSessionState & {
   hasStorage: boolean;
   projectFolderName: string | null;
   revision: number;
@@ -60,13 +70,17 @@ export type CreateProjectWindowResult = {
 };
 
 export type ProjectFileResponse =
+  | RecoveryDrafts | null
   | CreateProjectWindowResult
   | ProjectFileOperationResult
   | ProjectFileSessionSnapshot;
 
-export type ProjectFileCommand = 'new' | 'open' | 'save';
+export type ProjectFileCommand = 'new' | 'open' | 'save' | 'undo' | 'redo' | 'recover';
 
 export type VnProjectFilesApi = {
+  recoverProject?(): Promise<ProjectFileOperationResult>;
+  checkpointDrafts?(drafts: RecoveryDrafts): Promise<ProjectFileSessionSnapshot>;
+  getRecoveryDrafts?(): Promise<RecoveryDrafts | null>;
   createProject(name?: string): Promise<CreateProjectWindowResult>;
   openProject(): Promise<ProjectFileOperationResult>;
   saveProject(): Promise<ProjectFileOperationResult>;

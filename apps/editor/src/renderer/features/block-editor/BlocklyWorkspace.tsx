@@ -117,6 +117,7 @@ import {
   type BlockSelectionController,
 } from './blockSelection';
 import { BLOCKLY_WORKSPACE_MOVE_OPTIONS } from './blocklyWorkspaceMovement';
+import { DOCKED_TOOLBOX_PLUGINS } from './dockedToolbox';
 import {
   createBlockGroupDragController,
   type BlockGroupDragController,
@@ -658,6 +659,7 @@ export const BlocklyWorkspace = forwardRef<
           move: BLOCKLY_WORKSPACE_MOVE_OPTIONS,
           renderer: 'zelos',
           plugins: {
+            ...DOCKED_TOOLBOX_PLUGINS,
             connectionChecker: CharacterEffectConnectionChecker,
           },
           sounds: false,
@@ -675,6 +677,9 @@ export const BlocklyWorkspace = forwardRef<
       }
     })();
 
+    // Project history owns semantic edits across all three editor modes.
+    // Disable Blockly's separate event history (including its context menu).
+    workspace.MAX_UNDO = 0;
     workspaceRef.current = workspace;
     installInlineZoomControlIcons(workspace.getParentSvg());
 

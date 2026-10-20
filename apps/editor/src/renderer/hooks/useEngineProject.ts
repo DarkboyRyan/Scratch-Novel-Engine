@@ -30,7 +30,7 @@ import {
   isImageScalePercent,
   isStartScreenStyleDocument,
 } from '../../shared/projectTypes';
-import type { ProjectFileSessionSnapshot } from '../../shared/projectFileProtocol';
+import type { ProjectFileSessionSnapshot, RecoveryDrafts } from '../../shared/projectFileProtocol';
 import { createAuthoringActions } from '../application/createAuthoringActions';
 import {
   getEditorPlatformGateway,
@@ -55,7 +55,7 @@ export type ImportAssetStatus = ImportAssetResult['status'] | 'failed';
 export type ImportImageStatus = ImportAssetStatus;
 export type ExportGameStatus = 'exported' | 'cancelled' | 'failed';
 
-function requestInitialProject(
+async function requestInitialProject(
   platform: EditorPlatformGateway,
 ): Promise<EngineMutationResult> {
   // 每个 BrowserWindow 都拥有独立后端；不可使用模块级 Promise，否则开发
@@ -540,6 +540,7 @@ export function useEngineProject(
   // 这个计数让 Renderer 丢弃旧 URL，并按新项目会话重新申请。
   const [projectGeneration, setProjectGeneration] = useState(0);
   const [isInitializing, setIsInitializing] = useState(true);
+  const [initializationStage, setInitializationStage] = useState<'project' | 'session'>('project');
   const [pendingEngineActions, setPendingEngineActions] = useState(0);
   const [isFileOperating, setIsFileOperating] = useState(false);
   const [engineMessage, setEngineMessage] = useState('');
@@ -560,10 +561,8 @@ export function useEngineProject(
   }, [labels]);
   const fileOperationInProgress = useRef(false);
   const engineActionQueue = useRef<Promise<void>>(Promise.resolve());
-  const initializationRequest = useRef<Promise<[
-    EngineMutationResult,
-    ProjectFileSessionSnapshot,
-  ]> | null>(null);
+  const initializationRequest = useRef<Promise<EngineMutationResult> | null>(null);
+  const initialSessionRequest = useRef<Promise<ProjectFileSessionSnapshot> | null>(null);
   const isBusy =
     isInitializing ||
     pendingEngineActions > 0 ||
@@ -636,13 +635,16 @@ export function useEngineProject(
   useEffect(() => {
     let isActive = true;
 
-    initializationRequest.current ??= Promise.all([
-      requestInitialProject(platform),
-      platform.projectFiles.getSession(),
-    ]);
+    initializationRequest.current ??= requestInitialProject(platform);
 
     void initializationRequest.current
-      .then(([result, session]) => {
+      .then(async (result) => {
+        if (!isActive) return;
+        setInitializationStage('session');
+        // Read only after ensureProject/recovery has settled. Keep both
+        // requests stable when StrictMode repeats the effect.
+        initialSessionRequest.current ??= platform.projectFiles.getSession();
+        const session = await initialSessionRequest.current;
         if (isActive) {
           applyResult(result, {
             ...session,
@@ -755,7 +757,7 @@ export function useEngineProject(
     }
   }
 
-  async function openProject(): Promise<OpenProjectStatus> {
+  async function openProject(recover = false): Promise<OpenProjectStatus> {
     if (fileOperationInProgress.current) {
       return 'failed';
     }
@@ -767,7 +769,9 @@ export function useEngineProject(
 
     try {
       await waitForEngineActions();
-      const outcome = await platform.projectFiles.openProject();
+      const outcome = recover && platform.projectFiles.recoverProject
+        ? await platform.projectFiles.recoverProject()
+        : await platform.projectFiles.openProject();
 
       if (outcome.cancelled) {
         return 'cancelled';
@@ -1109,6 +1113,32 @@ export function useEngineProject(
   }
 
   return {
+    initializationStage,
+    canUndo: session.canUndo ?? false,
+    canRedo: session.canRedo ?? false,
+    async changeHistory(direction: 'undo' | 'redo'): Promise<boolean> {
+      const action = platform.engine[direction];
+      if (!action) return false;
+      const result = await runEngineAction(() => action());
+      if (result) setProjectGeneration((current) => current + 1);
+      return result !== null;
+    },
+    async checkpointDrafts(drafts: RecoveryDrafts): Promise<void> {
+      if (fileOperationInProgress.current || !platform.projectFiles.checkpointDrafts) return;
+      // Use the same renderer queue without replacing the visible project or
+      // making text inputs busy merely because a draft is being backed up.
+      engineActionQueue.current = engineActionQueue.current.then(async () => {
+        if (fileOperationInProgress.current) return;
+        try {
+          const snapshot = await platform.projectFiles.checkpointDrafts!(drafts);
+          setSession((current) => ({ ...current, recoveryFailed: snapshot.recoveryFailed }));
+        } catch {
+          setSession((current) => ({ ...current, recoveryFailed: true }));
+        }
+      });
+      await engineActionQueue.current;
+    },
+    getRecoveryDrafts: () => platform.projectFiles.getRecoveryDrafts?.() ?? Promise.resolve(null),
     project: rendererProject,
     assets,
     projectGeneration,

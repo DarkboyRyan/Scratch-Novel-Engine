@@ -11,6 +11,16 @@ import { describe, expect, it } from 'vitest';
 import { ProjectFileSession } from '../../src/main/project/ProjectFileSession';
 
 describe('ProjectFileSession logical save boundary', () => {
+  it('tracks the saved document through undo and redo without rolling back revision numbers', () => {
+    const session = new ProjectFileSession();
+    session.markOpened('/projects/story', { revision: 0, documentRevision: 0, savedRevision: 0, isDirty: false });
+    expect(session.updateEngineSession({ revision: 1, documentRevision: 1, savedRevision: 1, isDirty: false }).isDirty).toBe(true);
+    expect(session.updateEngineSession({ revision: 2, documentRevision: 0, savedRevision: 1, isDirty: true }).isDirty).toBe(false);
+    session.markSaved('/projects/story', { revision: 3, documentRevision: 3, savedRevision: 3, isDirty: false });
+    expect(session.updateEngineSession({ revision: 4, documentRevision: 0, savedRevision: 3, isDirty: true }).isDirty).toBe(true);
+    expect(session.updateEngineSession({ revision: 5, documentRevision: 3, savedRevision: 3, isDirty: true }).isDirty).toBe(false);
+    expect(session.snapshot().revision).toBe(5);
+  });
   it('stays logically dirty after a private C++ working save', () => {
     const session = new ProjectFileSession();
     session.markCreated({

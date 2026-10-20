@@ -73,8 +73,9 @@ export function installApplicationMenu(language: EditorLanguage = DEFAULT_EDITOR
     {
       label: labels.edit,
       submenu: [
-        { role: 'undo', label: labels.undo },
-        { role: 'redo', label: labels.redo },
+        { label: labels.undo, accelerator: 'CmdOrCtrl+Z', click: () => sendProjectCommand('undo') },
+        { label: labels.redo, accelerator: 'CmdOrCtrl+Shift+Z', click: () => sendProjectCommand('redo') },
+        { label: language === 'zh-CN' ? '恢复未保存的项目…' : 'Recover Unsaved Project…', click: () => sendProjectCommand('recover') },
         { type: 'separator' },
         { role: 'cut', label: labels.cut },
         { role: 'copy', label: labels.copy },

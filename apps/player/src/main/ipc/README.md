@@ -1,21 +1,21 @@
 # Player IPC
 
+[中文](./README.md) | [English](./README.en.md)
+
 [返回 Player Main](../README.md)
 
-IPC 模块是 Preload 白名单调用进入 Main 服务的唯一分派点。所有功能共用 `vn-player:request` 通道，但每次调用都携带判别式 action 和精确 params，便于集中拒绝未知字段与错误类型。
+这是 Preload 白名单请求进入 Main 服务的分派点。请求共用 `vn-player:request` 通道，以 action 与精确 params 区分，拒绝未知字段和错误类型。
 
-## 请求处理
+注册器先验证窗口和发送帧，再校验负载并取得窗口服务。存读档请求捕获游戏身份与会话代次；操作期间切换游戏时，过期请求以稳定错误拒绝。
 
-`registerPlayerIpc` 先确认事件来自已登记 Player 窗口及可信 frame，再用共享协议守卫验证负载，最后从 `PlayerWindowContexts` 取得该窗口的内容、存档和设置服务。存读档操作会捕获当前游戏身份与 generation；若用户在异步操作期间切换了 Bundle，结果以 stale session 拒绝，避免跨游戏写入。
+新增 action 时，同步共享协议、Preload、Gateway、参数校验和测试。不要接受任意对象、界面提供的磁盘路径或没有长度限制的资源标识。
 
-新增 action 时必须从 [`../../shared/playerProtocol.ts`](../../shared/playerProtocol.ts) 开始定义类型，并同步更新 Preload、Gateway、精确字段校验和 `registerPlayerIpc.test.ts`。不得接受任意对象、Renderer 提供的磁盘路径或未限制长度的资源标识。
+## 验证与运行
 
 ```bash
 pnpm --dir apps/player exec vitest run tests/unit/registerPlayerIpc.test.ts
 ```
 
-## 文件
+## 主要文件
 
-| 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
-| --- | --- | --- | --- |
-| [`registerPlayerIpc.ts`](./registerPlayerIpc.ts) | Electron IPC、TypeScript | 校验可信来源和调用负载并分派服务 | `registerPlayerIpc`、`isPlayerInvocation` |
+- [`registerPlayerIpc.ts`](./registerPlayerIpc.ts)

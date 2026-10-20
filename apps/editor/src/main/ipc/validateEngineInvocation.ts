@@ -399,6 +399,8 @@ export function isEngineInvocation(
       // Main→C++ 与 JSONL 集成测试使用。
       return false;
     case 'project.ensure':
+    case 'history.undo':
+    case 'history.redo':
     case 'project.get':
       return Object.keys(params).length === 0;
     case 'project.rename':

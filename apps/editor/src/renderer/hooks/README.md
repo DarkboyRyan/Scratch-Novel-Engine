@@ -1,10 +1,12 @@
 # React Hooks
 
+[中文](./README.md) | [English](./README.en.md)
+
 [返回 Renderer](../README.md)
 
 本目录保存跨多个 Renderer 组件复用、且具有明确生命周期的 React 状态 Hook。它们把平台订阅、异步请求和 Engine 项目状态收拢到稳定接口中，让组件专注于渲染与用户意图。
 
-## 架构位置与工作方式
+## 工作方式
 
 1. Hook 通过 Application Gateway 读取初始设置或项目，并注册平台变化订阅。
 2. 用户操作触发异步命令时，Hook 管理 loading、error、revision、dirty 等会话状态并忽略过期结果。
@@ -12,10 +14,10 @@
 
 ## 文件
 
-| 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
-| --- | --- | --- | --- |
-| [useEditorSettings.ts](./useEditorSettings.ts) | TypeScript | 读取、订阅并乐观更新编辑器语言与颜色主题，失败时恢复 Main 权威值 | `EditorSettingsState`、`useEditorSettings` |
-| [useEngineProject.ts](./useEngineProject.ts) | TypeScript | 管理引擎项目加载、刷新、修订、错误和保存状态 | `OpenProjectStatus`、`ImportAssetStatus`、`ImportImageStatus`、`ExportGameStatus`、`useEngineProject`、`EngineProjectState` |
+| 文件 | 主要作用 |
+| --- | --- |
+| [useEditorSettings.ts](./useEditorSettings.ts) | 读取、订阅并乐观更新编辑器语言与颜色主题，失败时恢复 Main 权威值 |
+| [useEngineProject.ts](./useEngineProject.ts) | 管理引擎项目加载、刷新、修订、错误和保存状态 |
 
 ## 开发与验证
 

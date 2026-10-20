@@ -1,10 +1,12 @@
 # Editor 源码
 
+[中文](./README.md) | [English](./README.en.md)
+
 [返回 Editor](../README.md)
 
 该目录按 Electron 进程边界组织 Editor 的运行代码。主机权限、桥接契约与界面实现相互隔离，使每一层都能在自己的信任边界内演进。入口文件只负责装配，具体业务下沉到对应子目录。
 
-## 架构位置与工作方式
+## 工作方式
 
 1. [`main.ts`](./main.ts) 启动 Electron Main，装配窗口、IPC、后端和持久化服务。
 2. [`preload.ts`](./preload.ts) 把 Shared 定义的最小接口桥接给沙箱 Renderer。
@@ -12,18 +14,18 @@
 
 ## 目录
 
-| 目录 | 框架技术 | 主要作用 |
-| --- | --- | --- |
-| [`main/`](./main/README.md) | Electron Main、Node.js | 管理窗口、后端、文件系统、媒体和导出。 |
-| [`renderer/`](./renderer/README.md) | React、Blockly | 提供项目编辑、资源管理和游戏预览界面。 |
-| [`shared/`](./shared/README.md) | TypeScript | 定义跨进程 DTO、IPC 通道和全局 API。 |
+| 目录 | 主要作用 |
+| --- | --- |
+| [`main/`](./main/README.md) | 管理窗口、后端、文件系统、媒体和导出。 |
+| [`renderer/`](./renderer/README.md) | 提供项目编辑、资源管理和游戏预览界面。 |
+| [`shared/`](./shared/README.md) | 定义跨进程 DTO、IPC 通道和全局 API。 |
 
 ## 文件
 
-| 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
-| --- | --- | --- | --- |
-| [`main.ts`](./main.ts) | Electron Main | 启动应用并组装窗口级服务。 | 生命周期监听、IPC 注册、设置加载与菜单安装。 |
-| [`preload.ts`](./preload.ts) | Electron contextBridge | 向 Renderer 暴露最小类型化 API。 | 包装 `ipcRenderer.invoke/on`，不泄露 Node 能力。 |
+| 文件 | 主要作用 |
+| --- | --- |
+| [`main.ts`](./main.ts) | 启动应用并组装窗口级服务。 |
+| [`preload.ts`](./preload.ts) | 向 Renderer 暴露最小类型化 API。 |
 
 ## 开发与验证
 

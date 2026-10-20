@@ -1,6 +1,8 @@
 # Code 编辑页
 
-[返回 Features](../README.md)
+[中文](./README.md) | [English](./README.en.md)
+
+[返回功能模块](../README.md)
 
 跨 Renderer、Electron、C++、Author/Runtime 与 Player 的完整实现见
 [Code Section 技术栈](../../../../../../docs/code-section-technical-stack.md)。
@@ -81,7 +83,7 @@ CG 画廊使用 `cg_gallery(...)`，并把页面特有字段换成
 - `surface_opacity` / `overlay_opacity`: 0–100 整数；`radius`: 0–48 整数像素。
 
 主界面额外允许 `layout: split-right | split-left | center` 和
-`background_fit: contain | cover`。解析器要求 exact fields，拒绝未知/重复/缺失字段、
+`background_fit: contain | cover`。解析器要求 完整字段匹配，拒绝未知/重复/缺失字段、
 越界数字、非规范颜色、错误 wrapper 和超过 16 KiB 的 UTF-8 源文本。它不接收
 原始 CSS、JavaScript、选择器、HTML 或 URL。
 

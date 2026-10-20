@@ -17,6 +17,7 @@ import type {
   ProjectDocument,
 } from '../../../shared/projectTypes';
 import { BLOCKLY_WORKSPACE_MOVE_OPTIONS } from '../block-editor/blocklyWorkspaceMovement';
+import { DOCKED_TOOLBOX_PLUGINS } from '../block-editor/dockedToolbox';
 import { installInlineZoomControlIcons } from '../block-editor/zoomControlIcons';
 import {
   getCgGalleryFieldUpdate,
@@ -104,6 +105,7 @@ export const CgGalleryBlocklyWorkspace = forwardRef<
       toolbox: createCgGalleryToolbox(initialLabelsRef.current),
       readOnly: false,
       move: BLOCKLY_WORKSPACE_MOVE_OPTIONS,
+      plugins: DOCKED_TOOLBOX_PLUGINS,
       renderer: 'zelos',
       sounds: false,
       zoom: {
@@ -115,6 +117,9 @@ export const CgGalleryBlocklyWorkspace = forwardRef<
         scaleSpeed: 1.1,
       },
     });
+    // Project history owns semantic edits across all three editor modes.
+    // Disable Blockly's separate event history (including its context menu).
+    workspace.MAX_UNDO = 0;
     workspaceRef.current = workspace;
     installInlineZoomControlIcons(workspace.getParentSvg());
     renderCgGalleryBlocks(

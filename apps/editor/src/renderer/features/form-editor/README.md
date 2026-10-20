@@ -1,10 +1,12 @@
 # 表单编辑器
 
+[中文](./README.md) | [English](./README.en.md)
+
 [返回功能模块](../README.md)
 
 本目录实现传统表单式的故事场景编辑体验，面向不希望直接操作 Blockly 的用户。它把场景列表、时间线、属性检查器和静态预览组合起来，并兼容作者工程中的选择、逻辑、CG 和人物状态。背景通过时间线中的“+ 背景”显式添加。
 
-## 架构位置与工作方式
+## 工作方式
 
 1. `useFormEditor.ts` 根据项目和当前场景管理选择、场景重命名、草稿与创作动作，`formLogicTree.ts` 把扁平逻辑标记组织成可读树，并按同一分支计算安全的上下移动锚点。
 2. `ScenePanel` 选择场景、原位修改当前场景名称或通过“+ 背景”等入口增删时间线节点，`InspectorPanel` 编辑节点属性及背景/立绘缩放并通过统一动作提交。
@@ -12,14 +14,14 @@
 
 ## 文件
 
-| 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
-| --- | --- | --- | --- |
-| [FormEditor.tsx](./FormEditor.tsx) | React + TypeScript | 组合场景表单、时间线、属性检查器和预览面板 | `FormEditor` |
-| [formLogicTree.ts](./formLogicTree.ts) | TypeScript | 把逻辑时间线节点转换为表单树，并生成不跨越隐藏结束或分页标记的移动与插入锚点 | `FormLogicTreeEntry`、`FormNodeMovePlan`、`createFormLogicTree`、`createFormNodeMovePlans`、`getFormNodeMovePlan`、`getCharacterInsertionPlan` |
-| [InspectorPanel.tsx](./InspectorPanel.tsx) | React + TypeScript | 编辑当前时间线节点的对白、媒体、角色和逻辑属性 | `InspectorPanel` |
-| [ScenePanel.tsx](./ScenePanel.tsx) | React + TypeScript | 管理场景列表、当前场景原位重命名、时间线节点选择及新增、排序、删除操作 | `ScenePanel`；双击或按 F2 编辑场景名，按分支启用上下移动，Enter/失焦提交，Escape 取消 |
-| [timelinePreview.ts](./timelinePreview.ts) | TypeScript | 从选中时间线位置推导背景、角色和媒体预览状态 | `TimelineCharacterState`、`TimelinePreviewState`、`deriveTimelinePreview` |
-| [useFormEditor.ts](./useFormEditor.ts) | TypeScript | 集中管理表单编辑器选择状态、对白与场景名草稿，以及场景/节点创作命令 | `useFormEditor`、`FormEditorState`、`beginSceneRename`、`commitSceneRename`、`commitPendingDraft` |
+| 文件 | 主要作用 |
+| --- | --- |
+| [FormEditor.tsx](./FormEditor.tsx) | 组合场景表单、时间线、属性检查器和预览面板 |
+| [formLogicTree.ts](./formLogicTree.ts) | 把逻辑时间线节点转换为表单树，并生成不跨越隐藏结束或分页标记的移动与插入锚点 |
+| [InspectorPanel.tsx](./InspectorPanel.tsx) | 编辑当前时间线节点的对白、媒体、角色和逻辑属性 |
+| [ScenePanel.tsx](./ScenePanel.tsx) | 管理场景列表、当前场景原位重命名、时间线节点选择及新增、排序、删除操作 |
+| [timelinePreview.ts](./timelinePreview.ts) | 从选中时间线位置推导背景、角色和媒体预览状态 |
+| [useFormEditor.ts](./useFormEditor.ts) | 集中管理表单编辑器选择状态、对白与场景名草稿，以及场景/节点创作命令 |
 
 ## 开发与验证
 

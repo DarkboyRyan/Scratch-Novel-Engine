@@ -1,53 +1,26 @@
-# Player UI Source
+# Player UI 源码
 
-[返回 Player UI](../README.md)
+[中文](./README.md) | [English](./README.en.md)
 
-源码分为界面组件、媒体控制与宿主无关工具。所有组件都从 [`index.ts`](./index.ts) 选择性导出；消费方不应依赖未公开的内部实现。
+[返回上级](../README.md)
 
-## 组件关系
+公共组件、Hook 和类型统一从 [`index.ts`](./index.ts) 导出。
 
-`PlayerUiProvider` 在顶层提供中英文标签和错误本地化，标题页、选项、CG 画廊、存档对话框与操作栏从 Context 读取相同文案。`TitleScreen` 组合作者配置的标题上方文字、游戏名、背景/BGM、开始或读取入口、选项和 CG Modal；`startScreen.eyebrow` 为空时不会渲染该行。`TitleScreen` / `CgGallery` 还把已验证的样式 DTO 映射为固定 CSS 变量和布局属性，供 Editor、Desktop 与 Web 共用。Player 应用也可以把 Dialog 单独用于游戏内界面。
+- `PlayerUiProvider` 提供中英文标签与错误本地化。
+- `TitleScreen`、`CgGallery`、`OptionsDialog`、`SaveSlotDialog` 和 `GameActionBar` 提供通用页面与交互。标题上方文字为空时隐藏；页面样式只映射为固定 CSS 变量和布局属性。
+- `VisualStage` 展示已解析的背景、人物、对白和特效。缩放范围为 10%–300%：背景以中心为锚点，立绘以底部中心为锚点。默认人物位置为 `(20,100)`、`(50,100)`、`(80,100)`；自定义位置使用同一锚点。无立绘仍是合法状态，图片失败只影响对应图层。
+- `PreviewVideo`、`usePreviewAudio` 和 `previewAudioController` 管理媒体生命周期；`mediaVolume` 合成主音量与通道音量；`useAutoFitScale` 适配容器尺寸。
 
-`VisualStage` 是纯舞台层，接收已经解析的背景、人物、对白、特效与缩放状态。剧情背景围绕
-舞台中心缩放，人物立绘围绕底部中心锚点缩放；比例由 Runtime 校验为 10%–300% 的整数。
-默认左、中、右位置通过 `DEFAULT_CHARACTER_SLOT_POSITIONS` 固定为 `(20,100)`、`(50,100)`、
-`(80,100)`，与自定义坐标共用同一个底部中心锚点。人物资源为空时仍保留合法的“无立绘”
-状态；图片加载失败只影响对应视觉层。`PreviewVideo`、`usePreviewAudio` 和
-`previewAudioController` 分别管理视频与 BGM/语音生命周期，并使用 `mediaVolume` 将主音量和
-通道音量合成。
+## 交互约定
 
-## 交互与媒体约束
+宿主负责 `MediaUrlResolver` 返回 URL 的安全性和生命周期。资源或 resolver 改变后丢弃旧异步结果，避免跨会话媒体残留。媒体操作需处理自动播放拒绝、结束、错误与暂停。
 
-资源组件只认识 asset ID 与 `MediaUrlResolver`，URL 的安全性和生命周期由宿主负责。异步解析必须在 asset ID 或 resolver 变化时丢弃旧结果，避免切换游戏后显示上一会话媒体。音频/视频操作要处理浏览器自动播放拒绝、结束、错误与暂停，不能把失败 Promise 变成未处理异常。
+弹窗需支持初始焦点、Tab 焦点循环、Escape 关闭和关闭后焦点恢复。文案同时补齐中英文，动效提供关闭或 reduced-motion 路径。受控属性不在组件内自行持久化。
 
-Modal 组件需要维持初始焦点、Tab 焦点圈、Escape 关闭和触发按钮焦点恢复。新增文案必须同时补齐中英文；新增动效需提供可关闭或 reduced-motion 路径，并保持受控 props 不被组件内部静默持久化。
-
-## 开发验证
-
-```bash
+```sh
 pnpm --dir packages/player-ui typecheck
 pnpm --dir apps/player exec vitest run \
   tests/unit/playerUiLocalization.test.tsx \
   tests/unit/playerMediaVolume.test.tsx \
   tests/unit/visualStageCharacterEffects.test.tsx
 ```
-
-## 文件
-
-| 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
-| --- | --- | --- | --- |
-| [`CgGallery.tsx`](./CgGallery.tsx) | React | 九宫格分页、资源解析与灯箱 CG 浏览 | `CgGallery`、`useResolvedGalleryImages` |
-| [`GameActionBar.tsx`](./GameActionBar.tsx) | React | 游戏内保存、读取、快进、选项和返回操作栏 | `GameActionBar`、pointer 快进事件 |
-| [`OptionsDialog.tsx`](./OptionsDialog.tsx) | React | 语言、音量和显示设置对话框 | `OptionsDialog`、焦点圈、能力禁用 |
-| [`PlayerUiProvider.tsx`](./PlayerUiProvider.tsx) | React Context | 提供语言、标签和本地化回调 | `PlayerUiProvider`、`usePlayerUiLabels` |
-| [`PreviewVideo.tsx`](./PreviewVideo.tsx) | React、HTMLMediaElement | 解析播放视频并处理状态 | `PreviewVideo`、结束/错误/暂停回调 |
-| [`SaveSlotDialog.tsx`](./SaveSlotDialog.tsx) | React | 展示和选择手动/快速存档槽 | `SaveSlotDialog`、`formatSaveTimestamp` |
-| [`TitleScreen.tsx`](./TitleScreen.tsx) | React | 标题页入口、背景音乐和功能 Modal | `TitleScreen`、`useResolvedTitleAsset` |
-| [`VisualStage.tsx`](./VisualStage.tsx) | React、CSS Animation | 背景、人物、对白和特效舞台 | `DEFAULT_CHARACTER_SLOT_POSITIONS`、`VisualStage`、`CharacterPortrait`、`effectStyle` |
-| [`index.ts`](./index.ts) | TypeScript | 公共 API 聚合入口 | 组件、Hooks、类型再导出 |
-| [`localization.ts`](./localization.ts) | TypeScript | 中英文标签和错误消息 | `PLAYER_UI_LABELS`、`normalizePlayerLanguage` |
-| [`mediaPort.ts`](./mediaPort.ts) | TypeScript | 宿主无关媒体解析接口 | `MediaUrlResolver` |
-| [`mediaVolume.ts`](./mediaVolume.ts) | TypeScript | 音量范围与通道合成 | `clampMediaVolume`、`effectiveMediaVolume` |
-| [`previewAudioController.ts`](./previewAudioController.ts) | TypeScript、HTMLAudioElement | 管理 BGM/语音通道生命周期 | `createPreviewAudioController`、播放/暂停/切换 |
-| [`useAutoFitScale.ts`](./useAutoFitScale.ts) | React、ResizeObserver | 计算和应用容器等比缩放 | `calculateAutoFitScale`、`useAutoFitScale` |
-| [`usePreviewAudio.ts`](./usePreviewAudio.ts) | React Hook | 把 Runtime 音频状态接入控制器 | `usePreviewAudio` |

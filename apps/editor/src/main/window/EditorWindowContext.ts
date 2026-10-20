@@ -7,6 +7,7 @@ import type { BackendClient } from '../backend/backendClient';
 import type { ProjectFileSession } from '../project/ProjectFileSession';
 import type { ProjectStorageSession } from '../project/ProjectStorageSession';
 import type { FileOperationCoordinator } from './FileOperationCoordinator';
+import type { ProjectRecoveryService } from '../project/ProjectRecoveryService';
 
 // 每个编辑器窗口都必须拥有独立的 C++ 子进程和文件会话。
 // 这样“新建项目”打开第二个窗口时，两个项目不会覆盖彼此的数据或路径。
@@ -17,6 +18,8 @@ export type EditorWindowContext = {
   projectFileSession: ProjectFileSession;
   projectStorageSession: ProjectStorageSession;
   fileOperationCoordinator: FileOperationCoordinator;
+  recoveryService?: ProjectRecoveryService;
+  initialize?: () => Promise<void>;
 };
 
 export type EditorWindowContexts = Map<number, EditorWindowContext>;

@@ -1,27 +1,18 @@
 # Scratch Novel Engine Player
 
+[中文](./README.md) | [English](./README.en.md)
+
 [返回应用目录](../README.md)
 
-Scratch Novel Engine Player 包含 Electron 桌面宿主与 Web Player，负责加载导出游戏、播放剧情、保存进度和发布模板。
+Scratch Novel Engine Player 包含 Electron 桌面宿主和 Web Player，用于加载导出游戏、播放剧情、保存进度和制作发布模板。桌面版支持打开外部 `.vngame` 目录或嵌入单个游戏；Web 版从同源静态站点读取游戏。两者共用 React 界面、Runtime 和组件库。
 
-Player 是运行时宿主，不负责编辑项目。桌面版既可以作为通用播放器打开外部 `.vngame` 目录，也可以在发布时嵌入单个游戏；Web 版则从同源静态站点读取已经导出的游戏。两种宿主共用 React 界面、Runtime 状态机与组件库，但使用不同的内容读取、存储和显示能力。
+桌面版由 Main、Preload 和 Renderer 组成：Main 管理文件、窗口、存档和媒体，Preload 仅暴露白名单 API，Renderer 通过 `PlayerGateway` 使用这些能力。Web 使用同一接口，改由 Fetch、IndexedDB 和 Fullscreen API 实现，不支持本地选包或调整系统窗口尺寸。
 
-## 架构概览
+当前支持 Runtime v1–v13。旧包会补齐图片缩放、默认语言及标题页/CG 样式；有玩家语言偏好时按宿主的存储规则应用，否则使用包默认语言。语言设置只影响播放器界面，作者文本保持原文。媒体使用受控 URL，存档使用版本化 Runtime 快照。
 
-桌面版由 Electron Main、Preload 和 Renderer 三层组成。Main 独占文件系统、原生窗口、存档目录和自定义媒体协议；Preload 只暴露 `VnPlayerApi` 中列出的调用；Renderer 通过 `PlayerGateway` 播放剧情，不接触绝对路径或原始文件句柄。Web 版实现同一个 Gateway，改用 Fetch、Web Crypto、IndexedDB 与 Fullscreen API，因此不能选择本地游戏目录，也不能调整操作系统窗口尺寸。
+以下命令均从仓库根目录运行。`start` 使用 `fixtures/game` 开发夹具；`prepare:web-template` 构建供 Editor 导出使用的 Web 模板。`.vite/`、`dist/`、`out/` 和 `node_modules/` 由工具生成，无需手工维护。
 
-正常加载流程是：宿主验证 `game.json`、`manifest.json` 及资源清单，生成只包含项目和安全资源标识的游戏视图，然后 Renderer 创建 Runtime 并交给共享 UI 展示。当前 Reader 支持 Runtime
-v1–v13；Runtime v11 是场景初始背景、时间线背景与人物立绘 10%–300% 缩放的
-历史里程碑，旧 v1–v10 内容统一补 100%。Runtime v12 要求
-`game.defaultLanguage`；v1–v11 迁移为 `zh-CN`。桌面和 Web 宿主在没有玩家持久语言时
-使用包默认；Web 只让同一项目、同一包默认语言下由玩家明确选择的语言优先，旧的全局
-语言值不会覆盖新导出包。作者文本始终保持原文。Runtime v13 为标题页和 CG 画廊加入
-严格样式 DTO；旧 v1–v12 内容补安全默认样式。存档保存的是版本化
-Runtime 快照；媒体始终通过宿主提供的受控 URL 解析，不把底层路径传给界面。
-
-## 本地开发
-
-在仓库根目录安装依赖后，可使用以下命令：
+## 验证与运行
 
 ```bash
 pnpm --dir apps/player start
@@ -31,32 +22,23 @@ pnpm --dir apps/player lint
 pnpm --dir apps/player prepare:web-template
 ```
 
-`start` 启动桌面 Player，开发模式会使用 [`fixtures/game`](./fixtures/game/) 中的最小运行包。`prepare:web-template` 构建并暂存供 Editor 导出的 Web Player 模板；生成的 `.vite/`、`dist/` 和 `out/` 不应手工维护。
+## 目录
 
-修改跨宿主行为时，应先确认能力属于 Gateway、共享协议还是某个宿主实现。文件读取、签名和存储策略不能下沉到 React 组件；仅桌面可用的能力必须通过 capability 字段或明确的错误结果表达，不能在 Web 中伪造成功。
+- [`src`](./src/README.md)
+- [`scripts`](./scripts/README.md)
+- [`tests`](./tests/README.md)
+- [`fixtures`](./fixtures/README.md)
 
-## 子目录
+## 主要文件
 
-| 目录 | 框架技术 | 主要作用 | 跳转 |
-| --- | --- | --- | --- |
-| `src` | Electron、React、TypeScript | Player 主进程、Preload、桌面界面、共享协议与 Web 实现 | [查看](./src/README.md) |
-| `scripts` | Node.js ESM、Electron Forge | 构建、签名、模板暂存和发布校验脚本 | [查看](./scripts/README.md) |
-| `tests` | Vitest、jsdom | Player 单元与集成测试 | [查看](./tests/README.md) |
-| `fixtures` | Runtime JSON | CI 与构建验证使用的最小游戏包 | [查看](./fixtures/README.md) |
-
-## 文件
-
-| 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
-| --- | --- | --- | --- |
-| [`.eslintrc.json`](./.eslintrc.json) | ESLint | Player TypeScript/React 静态检查规则 | Parser、Import 和 TypeScript 规则 |
-| [`forge.config.ts`](./forge.config.ts) | Electron Forge | 打包、制品、Fuse 与嵌入资源配置 | `verifyEmbeddedResource`、Forge makers/plugins |
-| [`forge.env.d.ts`](./forge.env.d.ts) | TypeScript | Forge Vite 环境类型入口 | `forge-vite-env` 类型引用 |
-| [`index.html`](./index.html) | HTML、CSP | 桌面 Renderer 页面容器 | `#root`、Renderer 模块入口 |
-| [`package.json`](./package.json) | pnpm、Electron | 依赖与开发、测试、构建命令 | `start`、`test`、`make`、CI scripts |
-| [`tsconfig.json`](./tsconfig.json) | TypeScript | Player 编译边界和路径设置 | Electron/DOM 类型、workspace 引用 |
-| [`vite.main.config.ts`](./vite.main.config.ts) | Vite | Main 进程构建 | `defineConfig` |
-| [`vite.preload.config.ts`](./vite.preload.config.ts) | Vite | Preload 构建 | `defineConfig` |
-| [`vite.renderer.config.ts`](./vite.renderer.config.ts) | Vite、React | 桌面 Renderer 构建 | React 插件、workspace 依赖排除 |
-| [`vite.web.config.ts`](./vite.web.config.ts) | Vite、React | Web Player 模板构建 | 固定 `base`、安全输出目录 |
-
-`.vite/`、`dist/`、`out/`、`node_modules/` 为生成或依赖目录，不纳入源码索引。
+- [`fixtures/game`](./fixtures/game/)
+- [`.eslintrc.json`](./.eslintrc.json)
+- [`forge.config.ts`](./forge.config.ts)
+- [`forge.env.d.ts`](./forge.env.d.ts)
+- [`index.html`](./index.html)
+- [`package.json`](./package.json)
+- [`tsconfig.json`](./tsconfig.json)
+- [`vite.main.config.ts`](./vite.main.config.ts)
+- [`vite.preload.config.ts`](./vite.preload.config.ts)
+- [`vite.renderer.config.ts`](./vite.renderer.config.ts)
+- [`vite.web.config.ts`](./vite.web.config.ts)

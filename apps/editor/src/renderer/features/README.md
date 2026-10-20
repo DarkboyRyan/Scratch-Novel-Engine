@@ -1,10 +1,12 @@
 # 功能模块
 
+[中文](./README.md) | [English](./README.en.md)
+
 [返回 Renderer](../README.md)
 
 Features 按用户能够感知的创作能力组织 Renderer 代码，而不是按 React 文件类型分组。每个模块可以包含自己的组件、投影逻辑和事件转换，但共享创作动作、媒体端口与本地化仍来自上层目录。
 
-## 架构位置与工作方式
+## 工作方式
 
 1. `App` 根据当前编辑界面选择标题、CG 画廊、表单故事、Blockly 故事或 Code Feature。
 2. Feature 将作者工程投影成适合当前 UI 的状态，并把编辑事件转换为 Application 层动作。
@@ -21,12 +23,6 @@ Features 按用户能够感知的创作能力组织 Renderer 代码，而不是�
 | [form-editor](./form-editor/README.md) | 传统表单模式的场景、时间线和节点属性编辑。 |
 | [game-preview](./game-preview/README.md) | 编辑器内正式运行预览及共享播放器适配。 |
 | [start-screen](./start-screen/README.md) | 标题界面的表单、Blockly 编辑和界面导航。 |
-
-## 文件
-
-| 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
-| --- | --- | --- | --- |
-| — | — | 本目录仅用于组织子模块 | 参见上方子目录 |
 
 ## 开发与验证
 

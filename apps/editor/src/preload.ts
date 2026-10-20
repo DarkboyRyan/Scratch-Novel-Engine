@@ -40,6 +40,7 @@ import {
   type ProjectFileInvocation,
   type ProjectFileOperationResult,
   type ProjectFileSessionSnapshot,
+  type RecoveryDrafts,
   type VnProjectFilesApi,
 } from './shared/projectFileProtocol';
 
@@ -133,6 +134,8 @@ const vnEngine: VnEngineApi = {
   imageScaleContractVersion: 1,
   surfaceStyleContractVersion: 1,
   storyCodeContractVersion: 1,
+  undo: () => invokeEngine({ method: 'history.undo', params: {} }),
+  redo: () => invokeEngine({ method: 'history.redo', params: {} }),
   ensureProject: () =>
     invokeEngine({ method: 'project.ensure', params: {} }),
   getProject: () =>
@@ -403,6 +406,9 @@ const vnEngine: VnEngineApi = {
 };
 
 type ProjectFileResultByAction = {
+  recover: ProjectFileOperationResult;
+  'checkpoint-drafts': ProjectFileSessionSnapshot;
+  'get-recovery-drafts': RecoveryDrafts | null;
   create: CreateProjectWindowResult;
   open: ProjectFileOperationResult;
   save: ProjectFileOperationResult;
@@ -416,6 +422,9 @@ function invokeProjectFile<Action extends ProjectFileInvocation['action']>(
 }
 
 const vnProjectFiles: VnProjectFilesApi = {
+  recoverProject: () => invokeProjectFile({ action: 'recover', params: {} }),
+  checkpointDrafts: (drafts) => invokeProjectFile({ action: 'checkpoint-drafts', params: { drafts } }),
+  getRecoveryDrafts: () => invokeProjectFile({ action: 'get-recovery-drafts', params: {} }),
   createProject: (name) =>
     invokeProjectFile({ action: 'create', params: { name } }),
   openProject: () =>

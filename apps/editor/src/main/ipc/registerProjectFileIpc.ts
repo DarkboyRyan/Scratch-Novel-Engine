@@ -39,6 +39,7 @@ export function registerProjectFileIpc(
         throw new Error('找不到当前编辑器窗口对应的项目会话');
       }
 
+      await context.initialize?.();
       return runProjectFileWorkflow(
         context,
         invocation,

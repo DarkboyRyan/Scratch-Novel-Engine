@@ -112,6 +112,8 @@ async function openProject(
     result.session,
     preparedPreview.manifestContents,
   );
+  context.recoveryService?.startSession();
+  context.recoveryService?.observeProject(result.project.id);
   updateWindowDocumentPresentation(
     context.editorWindow,
     result.project.name,
@@ -271,9 +273,13 @@ async function saveProject(
     result.session,
     publishedManifestContents,
   );
+  await context.recoveryService?.clear().catch((error: unknown) => {
+    console.error('[project-recovery] saved copy cleanup failed', error);
+  });
   const publicResult = {
     ...result,
     session: {
+      ...result.session,
       revision: session.revision,
       savedRevision: session.savedRevision,
       isDirty: session.isDirty,
@@ -303,6 +309,21 @@ export async function runProjectFileWorkflow(
   language: EditorLanguage = 'zh-CN',
 ): Promise<ProjectFileResponse> {
   switch (invocation.action) {
+    case 'get-recovery-drafts':
+      return context.recoveryService?.getDrafts() ?? null;
+    case 'recover':
+      return context.fileOperationCoordinator.runExclusive(async () =>
+        context.recoveryService?.offer(context, language, true) ?? cancelledResult(context),
+      );
+    case 'checkpoint-drafts':
+      return context.fileOperationCoordinator.runExclusive(async () => {
+        const result = await context.backendClient.request({ method: 'project.get', params: {} });
+        if (result.project.id !== invocation.params.drafts.projectId) {
+          throw new Error('Recovery draft belongs to another project');
+        }
+        await context.recoveryService?.capture(context, result, invocation.params.drafts);
+        return { ...context.projectFileSession.snapshot(), recoveryFailed: result.session.recoveryFailed ?? false };
+      });
     case 'get-session':
       return context.projectFileSession.snapshot();
     case 'create':

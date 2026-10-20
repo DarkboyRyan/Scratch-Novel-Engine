@@ -741,14 +741,46 @@ describe('useEngineProject asset state', () => {
     });
 
     expect(ensureProject).toHaveBeenCalledTimes(1);
+    expect(current?.initializationStage).toBe('project');
+    expect(current?.isBusy).toBe(true);
+    expect(platform.projectFiles.getSession).not.toHaveBeenCalled();
+
+    let resolveSession!: (value: EngineProjectState['session']) => void;
+    const pendingSession = new Promise<EngineProjectState['session']>((resolve) => {
+      resolveSession = resolve;
+    });
+    vi.mocked(platform.projectFiles.getSession).mockReturnValue(pendingSession);
 
     await act(async () => {
       resolveInitialProject(initialResult);
       await pendingInitialProject;
     });
 
+    expect(current?.initializationStage).toBe('session');
+    expect(current?.project).toBeNull();
+    expect(current?.isBusy).toBe(true);
+    expect(platform.projectFiles.getSession).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolveSession({ hasStorage: true, projectFolderName: 'story', ...initialResult.session });
+      await pendingSession;
+    });
     expect(current?.project?.name).toBe('Initial story');
     expect(current?.engineMessage).toBe('');
+    expect(current?.isBusy).toBe(false);
+  });
+
+  it.each(['project', 'session'] as const)('stops loading with an error if the %s stage fails', async (stage) => {
+    const failure = new Error('Startup unavailable');
+    if (stage === 'project') {
+      vi.mocked(platform.engine.ensureProject).mockRejectedValue(failure);
+    } else {
+      vi.mocked(platform.projectFiles.getSession).mockRejectedValue(failure);
+    }
+    await act(async () => root.render(<Harness />));
+    expect(current?.initializationStage).toBe(stage);
+    expect(current?.project).toBeNull();
+    expect(current?.engineMessage).toBe('Startup unavailable');
+    expect(current?.isBusy).toBe(false);
   });
 
   it('applies an imported video to the public resource list', async () => {

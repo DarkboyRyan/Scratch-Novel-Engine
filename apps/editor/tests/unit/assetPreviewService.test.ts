@@ -284,6 +284,24 @@ afterEach(async () => {
 });
 
 describe('AssetPreviewService', () => {
+  it('restores logically deleted assets for undo and revokes obsolete capabilities for redo', async () => {
+    const { projectFilePath } = await makeProject();
+    const { service, request } = makeService();
+    const original = resultFor();
+    await service.activateProjectFile(projectFilePath, original);
+    const oldUrl = service.getPreviewUrl('asset-1')!;
+    const removed = { ...original, assets: [] };
+    expect(service.revokeDeletedAssets(['asset-1'], removed)).toBe(true);
+    expect((await request(oldUrl)).status).toBe(404);
+    expect(service.synchronizeHistory(original)).toBe(true);
+    const restoredUrl = service.getPreviewUrl('asset-1')!;
+    expect(restoredUrl).not.toBe(oldUrl);
+    expect((await request(restoredUrl)).status).toBe(200);
+    expect(service.synchronizeHistory(removed)).toBe(true);
+    expect(service.getPreviewUrl('asset-1')).toBeNull();
+    expect((await request(restoredUrl)).status).toBe(404);
+    service.dispose();
+  });
   it('serves a manifest-known image by opaque ID without exposing a path', async () => {
     const { projectFilePath, assetFilePath } = await makeProject();
     const { service, request } = makeService();
