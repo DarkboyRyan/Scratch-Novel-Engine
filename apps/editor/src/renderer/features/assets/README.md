@@ -1,10 +1,12 @@
 # 资源管理
 
+[中文](./README.md) | [English](./README.en.md)
+
 [返回功能模块](../README.md)
 
 本目录负责在 Renderer 中展示项目图片、音频和视频资源，并提供集中导入、搜索、分类、预览与引用查看。它只处理资产 ID、显示名称和受控预览 URL，真实文件路径、选择、复制和内容校验都由 Main 完成。
 
-## 架构位置与工作方式
+## 工作方式
 
 1. `AssetManager` 是与剧情流程并列的独立工作区。默认保留项目顺序，可按类型和 Unicode 规范化后的名称搜索，也可切换为名称排序。
 2. 详情区可重命名资源；名称会由 Renderer 做非空与 256 UTF-8 字节的长度预检，再交给 C++ 权威规则处理重名冲突。资源卡右键或 `Shift+F10` 会打开同一套重命名和删除操作，重命名直接聚焦详情区现有输入框。
@@ -18,15 +20,15 @@
 
 ## 文件
 
-| 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
-| --- | --- | --- | --- |
-| [assetDragTypes.ts](./assetDragTypes.ts) | TypeScript | 声明图片资源拖拽的数据类型与序列化协议 | `VN_IMAGE_ASSET_DRAG_TYPE`、`VN_AUDIO_ASSET_DRAG_TYPE`、`VN_VIDEO_ASSET_DRAG_TYPE` |
-| [AssetManager.tsx](./AssetManager.tsx) | React + TypeScript | 展示独立资源库，支持分类、搜索、排序、导入、右键菜单、重命名、零引用删除、单选详情和按需预览 | `AssetManager`、`filterAndSortAssets`、`validateAssetDisplayName` |
-| [SceneBackgroundSettings.tsx](./SceneBackgroundSettings.tsx) | React + TypeScript | 在 Blockly 剧情页编辑场景初始背景和缩放设置 | `SceneBackgroundSettings` |
-| [assetReferences.ts](./assetReferences.ts) | TypeScript | 扫描指定资源的页面与剧情引用 | `collectAssetReferences` |
-| [logicalAssetPath.ts](./logicalAssetPath.ts) | TypeScript | 为 Code DSL 与资源详情生成同一份安全逻辑路径 | `logicalAssetPath`、`missingLogicalAssetPath` |
-| [ResourcePanel.tsx](./ResourcePanel.tsx) | React + TypeScript | 展示项目资源，支持导入、预览、拖拽及场景初始背景缩放 | `ResourcePanel` |
-| [useAssetPreviewUrls.ts](./useAssetPreviewUrls.ts) | TypeScript | 解析资源预览 URL 并在依赖变化时释放旧地址 | `useAssetPreviewUrls` |
+| 文件 | 主要作用 |
+| --- | --- |
+| [assetDragTypes.ts](./assetDragTypes.ts) | 声明图片资源拖拽的数据类型与序列化协议 |
+| [AssetManager.tsx](./AssetManager.tsx) | 展示独立资源库，支持分类、搜索、排序、导入、右键菜单、重命名、零引用删除、单选详情和按需预览 |
+| [SceneBackgroundSettings.tsx](./SceneBackgroundSettings.tsx) | 在 Blockly 剧情页编辑场景初始背景和缩放设置 |
+| [assetReferences.ts](./assetReferences.ts) | 扫描指定资源的页面与剧情引用 |
+| [logicalAssetPath.ts](./logicalAssetPath.ts) | 为 Code DSL 与资源详情生成同一份安全逻辑路径 |
+| [ResourcePanel.tsx](./ResourcePanel.tsx) | 展示项目资源，支持导入、预览、拖拽及场景初始背景缩放 |
+| [useAssetPreviewUrls.ts](./useAssetPreviewUrls.ts) | 解析资源预览 URL 并在依赖变化时释放旧地址 |
 
 ## 开发与验证
 

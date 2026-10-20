@@ -33,6 +33,7 @@ import { subscribeEditorProjectFileCommands } from './application/editorPlatform
 import { ErrorDialog } from './components/ErrorDialog';
 import { CreateProjectDialog } from './components/CreateProjectDialog';
 import { RendererErrorBoundary } from './components/RendererErrorBoundary';
+import { StartupScreen } from './components/StartupScreen';
 import { Toolbar } from './components/Toolbar';
 import {
   BlockEditor,
@@ -832,7 +833,7 @@ export function EditorApplication({
     }
   };
 
-  latestActionsRef.current = gamePreview.session
+  latestActionsRef.current = gamePreview.session || !project || !scene
     ? {
         create: async () => {},
         open: async () => {},
@@ -919,17 +920,11 @@ export function EditorApplication({
 
   if (!project || !scene) {
     return (
-      <main className="engine-startup" role="status">
-        <strong>Scratch Novel Engine</strong>
-        <p>
-          {editor.engineMessage || labels.app.starting}
-        </p>
-        {editor.engineMessage && (
-          <button type="button" onClick={() => window.location.reload()}>
-            {labels.app.reconnect}
-          </button>
-        )}
-      </main>
+      <StartupScreen
+        phase={engine.initializationStage}
+        language={settings.language}
+        error={editor.engineMessage}
+      />
     );
   }
 
@@ -1313,12 +1308,7 @@ export default function App() {
   }, [settings?.colorTheme]);
 
   if (settings === null) {
-    return (
-      <main className="engine-startup" role="status" aria-busy="true">
-        <strong>Scratch Novel Engine</strong>
-        <span className="editor-settings-bootstrap-indicator" aria-hidden="true" />
-      </main>
-    );
+    return <StartupScreen phase="settings" />;
   }
 
   return (

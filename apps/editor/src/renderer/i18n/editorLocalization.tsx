@@ -71,6 +71,15 @@ const zhCN = {
     missingPortrait: '缺失立绘',
     unsavedWindowTitle: '未保存',
   },
+  startup: {
+    settings: '正在读取编辑器设置…',
+    project: '正在准备项目与恢复会话…',
+    session: '正在同步项目状态…',
+    progress: '启动进度',
+    failed: '编辑器启动失败',
+    interrupted: '加载已中断',
+    hint: '首次启动或恢复较大项目可能需要更长时间。',
+  },
   toolbar: {
     undo: '撤销项目操作', redo: '重做项目操作', recover: '恢复', recoveryFailed: '恢复副本更新失败，请手动保存项目。',
     projectFileActions: '项目文件操作',
@@ -595,6 +604,15 @@ const enUS = {
     currentSceneMissing: 'The current scene is missing, so preview cannot start.',
     entrySceneMissing: 'The entry scene is missing, so the full title-screen flow cannot be previewed.',
     missingPortrait: 'Missing portrait', unsavedWindowTitle: 'Unsaved',
+  },
+  startup: {
+    settings: 'Reading editor settings…',
+    project: 'Preparing project and session recovery…',
+    session: 'Synchronizing project state…',
+    progress: 'Startup progress',
+    failed: 'The editor could not start',
+    interrupted: 'Loading interrupted',
+    hint: 'The first launch or recovery of a large project may take a little longer.',
   },
   toolbar: {
     undo: 'Undo project edit', redo: 'Redo project edit', recover: 'Recover', recoveryFailed: 'Recovery copy could not be updated. Please save your project.',

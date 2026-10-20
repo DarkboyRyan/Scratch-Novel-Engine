@@ -1,10 +1,12 @@
 # Renderer 渲染层
 
+[中文](./README.md) | [English](./README.en.md)
+
 [返回 Editor 源码](../README.md)
 
 Renderer 是 Electron Editor 的 React 界面层，负责界面组合、项目会话和各创作功能入口。它运行在沙箱中，只消费 Application 层端口和 Preload 网关，不直接访问文件系统、子进程或 Electron Main 实现。
 
-## 架构位置与工作方式
+## 工作方式
 
 1. [`index.tsx`](./index.tsx) 建立 React 根并加载全局样式，[`App.tsx`](./App.tsx) 组合项目状态、编辑模式与全局对话框，同时把语言和颜色主题应用到文档根节点。
 2. [`hooks/`](./hooks/README.md) 读取 EditorSettings v2 和项目会话，Application 动作把 UI 意图转换为类型化 Engine/平台调用。
@@ -23,12 +25,12 @@ Renderer 是 Electron Editor 的 React 界面层，负责界面组合、项目�
 
 ## 文件
 
-| 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
-| --- | --- | --- | --- |
-| [App.tsx](./App.tsx) | React + TypeScript | 组织编辑器主界面的项目会话、编辑模式、预览与全局对话框状态 | `App` |
-| [index.tsx](./index.tsx) | React + TypeScript | 创建 React 根节点并挂载编辑器应用与国际化上下文 | 模块内部类型与实现 |
-| [projectSavePreparation.ts](./projectSavePreparation.ts) | TypeScript | 在保存前同步当前编辑模式中的草稿并返回可保存状态 | `prepareProjectSave` |
-| [projectSessionPresentation.ts](./projectSessionPresentation.ts) | TypeScript | 根据项目会话状态生成窗口标题与未保存标记 | `projectWindowTitle`、`projectSaveStatus` |
+| 文件 | 主要作用 |
+| --- | --- |
+| [App.tsx](./App.tsx) | 组织编辑器主界面的项目会话、编辑模式、预览与全局对话框状态 |
+| [index.tsx](./index.tsx) | 创建 React 根节点并挂载编辑器应用与国际化上下文 |
+| [projectSavePreparation.ts](./projectSavePreparation.ts) | 在保存前同步当前编辑模式中的草稿并返回可保存状态 |
+| [projectSessionPresentation.ts](./projectSessionPresentation.ts) | 根据项目会话状态生成窗口标题与未保存标记 |
 
 ## 开发与验证
 

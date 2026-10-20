@@ -1,75 +1,46 @@
-<!-- 文件职责：作为内部技术文档入口；关键内容：当前架构、编辑能力、运行时、存储与发布文档导航。 -->
+# 技术文档
 
-# Scratch Novel Engine 内部技术文档
+**中文** | [English](./README.en.md)
+
+这里记录跨模块设计和功能实现。建议先了解整体架构与工程存储，再按功能查阅专题；各源码目录的 README 提供本地开发入口和验证命令。
+
+当前数据格式为 Author v22、Runtime v13 和 Snapshot v5；Author 和 Runtime 分别兼容读取 v1–v22 与 v1–v13。迁移规则和具体限制见相关专题。
+
+## 架构与工程
+
+- [整体架构与进程边界](./architecture.md)
+- [代码组织、共享包与依赖方向](./code-organization-and-decoupling.md)
+- [工程目录、媒体资源与安全读写](./project-folder-storage.md)
+- [技术栈与设计取舍说明](./technical-stack-interview-guide.md)
+
+## 创作与剧情
+
+- [撤销、重做、保存点与崩溃恢复](./editor-history-and-recovery.md)
+- [正式预览与剧情运行](./game-preview-runtime.md)
+- [代码编辑、页面样式与受限 DSL](./code-section-technical-stack.md)
+- [变量、条件与循环积木](./logic-blockly-implementation.md)
+- [剧情内 CG 展示与时序](./cg-display-blockly-implementation.md)
+- [CG 画廊、分页与大图查看](./cg-gallery-implementation.md)
+- [人物立绘与剧情图片缩放](./character-portrait-implementation.md)
+- [人物立绘特效](./character-portrait-effects.md)
+- [选择分支](./choice-branch-implementation.md)
+- [场景跳转](./scene-jump-implementation.md)
+- [语音与背景音乐](./audio-implementation.md)
+- [视频播放](./video-playback-block.md)
+
+## 播放器与发布
+
+- [桌面内容包与独立游戏导出](./game-export-player.md)
+- [Web 播放器导出与部署](./web-player-export.md)
+- [存读档与快照](./save-load-implementation.md)
+- [播放器语言、音量与显示设置](./player-options-implementation.md)
+- [编辑器语言、主题与设置同步](./editor-localization-implementation.md)
+- [编辑器安装包构建与发布](./editor-release.md)
+
+## 维护约定
+
+- 产品名称统一使用 Scratch Novel Engine；代码中的 `@vnengine/*`、`window.vnEngine`、`vn_engine_*`、`vn-engine-*`、`.vnengine` 及 `VN Engine Player` 等兼容标识保持原样。
+- 代码、协议和安全边界变化时，同步更新文档；明确区分当前格式与历史版本。
+- 使用相对链接，避免引用本机路径和构建产物；删除重复副本，保留专题中的独有说明。
 
 [返回项目首页](../README.md)
-
-`docs/` 记录跨模块设计、格式迁移、安全边界和完整功能链路。它面向需要理解“一个功能如何
-贯穿 Editor、C++、Runtime 与 Player”的开发者；各源码目录 README 仍负责本目录的日常入口、
-文件职责和验证命令，两者互相补充而不重复。
-
-当前实现基线为 Author v22、Runtime v13 和 Snapshot v5。Author/Runtime Reader 分别兼容
-v1–v22 与 v1–v13。Runtime v11 是剧情图片缩放的历史里程碑；缩放覆盖场景初始
-背景、时间线背景与人物立绘，使用 10%–300% 整数且默认 100%。Runtime v12
-用 `game.defaultLanguage` 记录导出时 Main 权威 Editor 语言，旧 v1–v11 迁移为
-`zh-CN`；玩家已持久语言优先，作者文本不翻译。标题页背景和 CG 不在该缩放范围。
-Author v22 / Runtime v13 为两个页面加入严格样式 DTO，旧版本迁移为安全默认值。
-源码与自动测试是最终事实来源；
-文档若与实现不一致，应在同一个改动中更新，而不是保留两套当前说法。
-
-## 推荐阅读顺序
-
-1. 先阅读 [当前架构](./architecture.md)，建立 Renderer、Preload、Main、C++ 与共享包边界。
-2. 再阅读 [代码组织与解耦](./code-organization-and-decoupling.md) 和
-   [项目文件夹与媒体资源](./project-folder-storage.md)，理解依赖方向与存储安全。
-3. 按正在修改的功能选择下方专题，沿 Author → Compiler → Runtime → Player 链路检查。
-4. 准备发布时阅读桌面与 Web 导出文档，并执行应用 README 中列出的验证命令。
-
-## 架构、存储与工程说明
-
-| 文档 | 适用场景 | 主要内容 |
-| --- | --- | --- |
-| [`architecture.md`](./architecture.md) | 了解全局调用链 | Renderer、Preload、Main、C++ Core/Backend、Runtime 与存储边界 |
-| [`code-organization-and-decoupling.md`](./code-organization-and-decoupling.md) | 调整模块或依赖 | Shared packages、application ports、Main 服务和单向依赖 |
-| [`project-folder-storage.md`](./project-folder-storage.md) | 修改打开、保存或资源 | 项目目录、原子保存、安全导入和 capability URL |
-| [`technical-stack-interview-guide.md`](./technical-stack-interview-guide.md) | 快速讲解工程 | 当前技术栈、关键调用链、设计取舍和常见问答 |
-
-## 创作与剧情功能
-
-项目操作历史、保存点与恢复副本见 [编辑器撤销与恢复](./editor-history-and-recovery.md)。
-
-| 文档 | 适用场景 | 当前关键合同 |
-| --- | --- | --- |
-| [`game-preview-runtime.md`](./game-preview-runtime.md) | 修改 Editor 正式预览 | 输入、媒体、选择、跳转与纯状态机 |
-| [`code-section-technical-stack.md`](./code-section-technical-stack.md) | 修改 Code 编辑页或 DSL | 剧情/页面语法、草稿隔离、IPC、C++ 原子提交、三视图联动与安全预算 |
-| [`logic-blockly-implementation.md`](./logic-blockly-implementation.md) | 修改变量或控制积木 | Set/Change、If/Else、Repeat、配对标记、预算和快照 |
-| [`cg-display-blockly-implementation.md`](./cg-display-blockly-implementation.md) | 修改剧情内 CG | 对白专用 C 形 body、0–60 秒 lead-in、暂停和读档 |
-| [`cg-gallery-implementation.md`](./cg-gallery-implementation.md) | 修改项目级 CG 画廊 | 至少一页、每页九槽、跨页唯一、分页与大图 |
-| [`character-portrait-implementation.md`](./character-portrait-implementation.md) | 修改人物立绘或剧情图片缩放 | Author v19 `show/clear` 与 v21 缩放契约、待选图占位、层级和预览 |
-| [`character-portrait-effects.md`](./character-portrait-effects.md) | 修改人物特效 | Author v18 / Runtime v9 历史里程碑、七类 sidecar 特效、暂停和 Snapshot v4 |
-| [`choice-branch-implementation.md`](./choice-branch-implementation.md) | 修改选项分支 | Choice/Option 稳定 ID、场景目标、Blockly 与 Player UI |
-| [`scene-jump-implementation.md`](./scene-jump-implementation.md) | 修改显式跳转 | Author、IPC、投影与 Runtime 跳转语义 |
-| [`audio-implementation.md`](./audio-implementation.md) | 修改语音或 BGM | 导入、节点、预览、循环与音量通道 |
-| [`video-playback-block.md`](./video-playback-block.md) | 修改阻塞视频 | 资源校验、Range、播放完成、跳过与预览 |
-
-## Player、设置与发布
-
-| 文档 | 适用场景 | 主要内容 |
-| --- | --- | --- |
-| [`game-export-player.md`](./game-export-player.md) | 修改桌面内容包或发布 | Runtime v13 Bundle、页面样式、默认语言、模板、签名、公证和 CI 门禁 |
-| [`web-player-export.md`](./web-player-export.md) | 修改 WebGL/Web Player ZIP | Runtime v13 页面样式/包语言、Vite 模板、WebGateway、IndexedDB、ZIP 事务和部署限制 |
-| [`save-load-implementation.md`](./save-load-implementation.md) | 修改保存读取 | 三个手动槽、快速槽、Snapshot v5、游戏身份隔离和原子存储 |
-| [`player-options-implementation.md`](./player-options-implementation.md) | 修改 Player 选项 | 包默认/玩家持久语言优先级、四路音量、窗口/全屏、三档尺寸和设置迁移 |
-| [`editor-localization-implementation.md`](./editor-localization-implementation.md) | 修改 Editor 设置 | EditorSettings v2、语言与 Daylight / Moonlight、v1 迁移、多窗口同步、Runtime 默认语言和 Blockly 标签 |
-
-## 文档维护约定
-
-- 产品品牌统一写作 `Scratch Novel Engine`；需要区分应用时使用
-  `Scratch Novel Engine Editor` 与 `Scratch Novel Engine Player`。
-- `@vnengine/*`、`window.vnEngine`、`vn_engine_*`、`vn-engine-*`、`.vnengine`，以及
-  当前 Electron 模板中的 `VN Engine Player` 可执行文件/Helper 名称，均是仍在使用的
-  兼容技术标识。引用它们时必须保留精确字面值，并明确其不是当前产品品牌。
-- 专题描述当前实现时，明确标出 Author、Runtime 与 Snapshot 版本，不把历史里程碑写成现状。
-- 代码、协议或安全策略变化时，同步更新相应目录 README、专题文档和自动测试。
-- 链接使用相对路径；不要链接构建目录、生成产物或本机路径。
-- 未来失效的设计稿移入 `archive/` 并标明历史背景；归档内容不作为当前技术栈依据。

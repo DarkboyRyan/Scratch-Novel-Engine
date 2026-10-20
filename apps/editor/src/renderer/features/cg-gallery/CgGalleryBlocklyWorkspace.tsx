@@ -17,6 +17,7 @@ import type {
   ProjectDocument,
 } from '../../../shared/projectTypes';
 import { BLOCKLY_WORKSPACE_MOVE_OPTIONS } from '../block-editor/blocklyWorkspaceMovement';
+import { DOCKED_TOOLBOX_PLUGINS } from '../block-editor/dockedToolbox';
 import { installInlineZoomControlIcons } from '../block-editor/zoomControlIcons';
 import {
   getCgGalleryFieldUpdate,
@@ -104,6 +105,7 @@ export const CgGalleryBlocklyWorkspace = forwardRef<
       toolbox: createCgGalleryToolbox(initialLabelsRef.current),
       readOnly: false,
       move: BLOCKLY_WORKSPACE_MOVE_OPTIONS,
+      plugins: DOCKED_TOOLBOX_PLUGINS,
       renderer: 'zelos',
       sounds: false,
       zoom: {

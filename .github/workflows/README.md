@@ -1,36 +1,23 @@
 # GitHub Actions 工作流
 
-[返回 GitHub 自动化](../AUTOMATION.md)
+**中文** | [English](./README.en.md)
 
-这里定义 Scratch Novel Engine 的跨平台质量门禁与发布流水线。各工作流先验证源码、依赖和输入，再生成制品；内部构建、Editor 测试版、独立游戏与正式 Player 的签名等级和发布权限彼此隔离。
+这里定义跨平台检查、独立游戏构建和应用发布流程。
 
-## 工作流关系
+| 工作流 | 用途 |
+| --- | --- |
+| [editor-release.yml](./editor-release.yml) | 根据 `editor-v*-mac` / `editor-v*-windows` 标签构建 Editor，校验资源并创建预发布草稿；支持手动构建 |
+| [player-ci.yml](./player-ci.yml) | 在 PR、main 推送或手动触发时，执行 macOS、Windows、Linux 的 Runtime、Player、Editor 与 C++ 检查 |
+| [player-game-build.yml](./player-game-build.yml) | 供受信任调用方复用，校验 `.vngame` 后将其注入 Player 并构建独立游戏 |
+| [player-release.yml](./player-release.yml) | 根据 `player-v*` 标签，在受保护环境中签名、公证并发布 Player |
 
-Pull Request、`main` push 或人工调度首先进入 `player-ci.yml`，在 macOS arm64、Windows x64 和 Linux x64 上执行 Runtime、Player、Editor 与 C++ 检查，并验证通用及嵌入式 Player 制品。`player-game-build.yml` 是供受信任调用方复用的独立游戏构建入口，它接收已经上传的 `.vngame`，再次验证后才注入 Player。`player-release.yml` 只响应 `player-v*` 标签，在受保护环境中完成预检、签名、公证、校验和与 GitHub Release 发布。
-
-这三条路径会调用 [`../../apps/player/scripts/`](../../apps/player/scripts/README.md) 中的安全脚本，而不会在 YAML 中重复实现 Bundle、元数据或制品校验。任何脚本接口变更都应同步检查这里的参数和环境变量。
-
-## 文件索引
-
-`editor-release.yml` 响应 `editor-v*-mac` / `editor-v*-windows`，在对应平台构建 Editor，
-验证内置运行资源并创建预发布草稿。也支持手动构建，不创建标签或 Release。
-首次版本步骤见 [Editor 发布](../../docs/editor-release.md)。
-
-| 文件 | 框架 / 技术 | 主要作用 | 关键实现 |
-| --- | --- | --- | --- |
-| [`editor-release.yml`](./editor-release.yml) | GitHub Actions、Electron Forge | Editor 双平台预发布草稿。 | 平台标签、版本校验、原生构建、内置资源检查和 SHA-256。 |
-| [`player-ci.yml`](./player-ci.yml) | GitHub Actions、pnpm、CMake | PR 与 main 的跨平台内部质量门禁。 | Editor/Player/Runtime 测试、C++ CTest、Win/macOS/Linux 矩阵。 |
-| [`player-game-build.yml`](./player-game-build.yml) | Reusable Workflow、Electron Forge | 将已验证 `.vngame` 注入并构建签名游戏应用。 | 输入校验、平台签名、artifact 发布。 |
-| [`player-release.yml`](./player-release.yml) | GitHub Actions、GitHub Release | 从 `player-v*` tag 生成正式 Player 安装包。 | protected environment、签名、公证和不可变 Release。 |
-
-## 安全约束
-
-- `permissions` 保持最小化；只有实际发布步骤才能提升内容写入权限。
-- 外部 Action 必须固定到完整提交 SHA，不能改成浮动 tag。
-- Workflow 输入在进入 Shell、路径或应用元数据前必须由仓库脚本严格校验。
-- 正式发布缺少证书、公证凭据或 GPG 材料时必须失败，不能生成未签名替代品。
-- 临时证书、钥匙串和下载的 Bundle 只能放在 Runner 临时目录，不应写回工作区或上传为普通日志。
+内容包与制品校验统一使用 [Player 脚本](../../apps/player/scripts/README.md)。修改脚本接口时，同步检查工作流参数和环境变量。
 
 ## 修改与验证
 
-先按工作流顺序运行 Runtime、Player、Editor 和 C++ 的本地检查；涉及打包时再运行对应的 `package`、`make` 或脚本测试。Pull Request 中至少观察三平台内部矩阵，发布流程的改动还应通过人工触发或受保护环境中的候选演练验证，而不是直接用正式标签试错。
+- 权限按需授予；外部 Action 固定到完整提交 SHA。
+- 工作流输入须经仓库脚本校验后才能用于 Shell、路径或应用元数据。
+- 正式发布缺少签名、公证或 GPG 材料时应失败；临时证书、钥匙串和内容包仅保存在 Runner 临时目录。
+- 先运行相关模块的本地检查，再验证三平台 CI。发布改动通过手动构建或候选演练验证。
+
+[自动化说明](../AUTOMATION.md) · [Editor 发布步骤](../../docs/editor-release.md)

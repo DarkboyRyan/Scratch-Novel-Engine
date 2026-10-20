@@ -1,40 +1,24 @@
 # 应用程序
 
-[返回项目首页](../README.md)
+**中文** | [English](./README.en.md)
 
-`apps/` 放置最终交付给作者和玩家的应用。Editor 拥有创作与导出能力，Player 只消费已经
-导出的只读内容；两者复用 `packages/` 中的平台无关 Runtime 与 UI，但各自保留独立的
-Electron Main、Preload、安全边界和发布流程。
+`apps/` 包含面向创作者的编辑器和面向玩家的播放器。两者共享剧情运行时与界面组件，但分别维护 Electron 主进程、进程通信和发布流程。
 
-## 架构位置
+| 应用 | 用途 |
+| --- | --- |
+| [Editor](./editor/README.md) | 编辑剧情、管理资源、预览并导出游戏 |
+| [Player](./player/README.md) | 运行导出的游戏，提供存读档、CG 画廊和播放设置 |
 
-Editor Renderer 不直接读写磁盘，而是通过受限 IPC 调用 Electron Main，再由 Main 驱动
-C++ JSONL Backend。Player 使用独立的 Main/Preload 加载并校验 Runtime Bundle，桌面版与
-Web 版随后都把规范化项目交给同一 Runtime 执行。
+## 工作流程
 
-## 应用索引
-
-| 子目录 | 框架 / 技术 | 主要作用 |
-| --- | --- | --- |
-| [`editor/`](./editor/README.md) | Electron、React、Blockly、TypeScript | 创作工程、管理资源、预览剧情并导出桌面/Web 游戏。 |
-| [`player/`](./player/README.md) | Electron、React、Vite、HTML5 | 运行导出游戏，提供标题页、CG、设置、存读档和播放控制。 |
-
-## 核心工作流
-
-1. Editor 打开或创建 Author Project，由 C++ Core 验证并维护权威状态。
-2. Renderer 通过表单或 Blockly 发出原子编辑命令，并使用共享 Runtime 进行正式语义预览。
-3. 导出器将 Author v22 编译为 Runtime v13 内容包，剥离仅用于创作的节点、校验资源闭包，并写入页面样式与导出时 Main 权威 Editor 语言。
-4. Desktop/Web Player 严格读取内容包，执行剧情，并在平台存储中隔离设置与 Snapshot v5。
-
-当前剧情图片缩放覆盖场景初始背景、时间线背景节点和人物立绘节点，范围为 10%–300% 的
-整数，默认 100%；标题页背景与 CG 仍保持原有尺寸语义。
-Runtime v11 是该缩放能力的历史里程碑；v12 新增包默认语言，v13 新增标题页和
-CG 画廊样式。Player Reader 兼容 v1–v13，旧 v1–v11 缺失语言时补 `zh-CN`，旧 v1–v12
-缺失样式时补默认，玩家已持久的语言仍优先。
+1. 编辑器创建或打开创作工程，由 C++ 后端校验并维护工程状态。
+2. 表单、Blockly 和代码编辑通过受限的进程通信提交修改，正式预览使用共享运行时。
+3. 导出器将创作工程编译为运行内容包，校验资源并记录页面样式和默认界面语言。
+4. 桌面或 Web 播放器加载内容包，运行剧情并保存玩家设置与存档。
 
 ## 开发与验证
 
-应用没有共享的根脚本，请在目标目录执行命令：
+在项目根目录执行所需应用的命令：
 
 ```sh
 pnpm --dir apps/editor start
@@ -48,5 +32,6 @@ pnpm --dir apps/player lint
 pnpm --dir apps/player test
 ```
 
-涉及跨应用显示或运行行为时，还应验证 [`packages/runtime/`](../packages/runtime/README.md)
-和 [`packages/player-ui/`](../packages/player-ui/README.md)；不要在 Player 中重新实现一套剧情状态机。
+跨应用的剧情与显示改动，还需验证 [Runtime](../packages/runtime/README.md) 和[共享 UI](../packages/player-ui/README.md)。架构与数据格式见[技术文档](../docs/README.md)。
+
+[返回项目首页](../README.md)

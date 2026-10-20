@@ -74,6 +74,28 @@ function defaultApplicationId(projectName: string): string {
   return `com.vnengine.${suffix.length > 0 ? suffix : 'game'}`;
 }
 
+function HistoryIcon({ redo = false }: { redo?: boolean }) {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <g transform={redo ? 'translate(24 0) scale(-1 1)' : undefined}>
+        <path d="M9 5 4 10l5 5" />
+        <path d="M4 10h9a7 7 0 0 1 7 7v2" />
+      </g>
+    </svg>
+  );
+}
+
 export function Toolbar({
   canUndo = false,
   canRedo = false,
@@ -253,8 +275,28 @@ export function Toolbar({
           className="project-file-actions"
           aria-label={labels.toolbar.projectFileActions}
         >
-          <button type="button" disabled={isBusy || !canUndo} onMouseDown={preserveRenameDraftFocus} onClick={onUndo} title={labels.toolbar.undo} aria-label={labels.toolbar.undo}>↶</button>
-          <button type="button" disabled={isBusy || !canRedo} onMouseDown={preserveRenameDraftFocus} onClick={onRedo} title={labels.toolbar.redo} aria-label={labels.toolbar.redo}>↷</button>
+          <button
+            type="button"
+            className="project-history-action"
+            disabled={isBusy || !canUndo}
+            onMouseDown={preserveRenameDraftFocus}
+            onClick={onUndo}
+            title={labels.toolbar.undo}
+            aria-label={labels.toolbar.undo}
+          >
+            <HistoryIcon />
+          </button>
+          <button
+            type="button"
+            className="project-history-action"
+            disabled={isBusy || !canRedo}
+            onMouseDown={preserveRenameDraftFocus}
+            onClick={onRedo}
+            title={labels.toolbar.redo}
+            aria-label={labels.toolbar.redo}
+          >
+            <HistoryIcon redo />
+          </button>
           <button type="button" disabled={isBusy} onMouseDown={preserveRenameDraftFocus} onClick={onRecover}>{labels.toolbar.recover}</button>
           <button
             type="button"

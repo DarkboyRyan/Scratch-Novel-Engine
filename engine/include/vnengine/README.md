@@ -1,30 +1,21 @@
-# Scratch Novel Engine 公共 API
+# 领域 API
 
-[返回公共头文件](../README.md)
+[中文](./README.md) | [English](./README.en.md)
 
-本目录定义 Scratch Novel Engine 的权威领域接口。`model.hpp` 描述项目是什么，`project.hpp` 描述
-项目可以如何被查询和原子修改。实现方可以替换前端或协议层，但必须继续遵守这里的聚合
-约束。
+[返回上级](../README.md)
 
-## 使用方式
+- [`model.hpp`](./model.hpp)：项目、场景、资源、CG 和时间线节点，包括 `ProjectAggregate`、`SceneNode` 和人物特效。
+- [`project.hpp`](./project.hpp)：`IdGenerator`、创建、查询、校验和原子编辑命令。
 
-只读代码包含 `vnengine/model.hpp` 并通过判别联合访问时间线节点。变更代码包含
-`vnengine/project.hpp`，由 `IdGenerator` 产生稳定 ID，再调用对应命令。命令会先验证
-场景、资源类型、锚点和控制范围；预期失败通过结果枚举返回，不应由调用方先改对象再补救。
+变更通过命令完成：先检查目标、资源、锚点和控制范围，再一次提交；预期失败通过结果枚举返回。
 
-逻辑、CG 与人物节点是闭合的数据结构：控制块以配对标记落在扁平时间线中；人物
-`show` 占位与 `clear` 命令具有不同约束；场景初始背景、时间线背景和人物立绘缩放使用
-10–300 的整数，空背景与 clear 必须为 100；CG 画廊和媒体引用在整个 Project Aggregate
-范围内校验。
+If/Else、Repeat 和 CG 使用配对标记。人物 `show` 占位与 `clear` 各有约束；剧情背景和立绘缩放为 10–300 的整数，空背景与 `clear` 必须为 100。CG 画廊每页恰好九个槽，资源引用在整个项目范围内校验。
 
-## 文件索引
+其他格式约束：
 
-| 文件 | 主要作用 | 关键类型 / API |
-| --- | --- | --- |
-| [`model.hpp`](./model.hpp) | 定义项目、场景、资源、CG 及全部时间线节点。 | `ProjectAggregate`、`SceneNode`、`CharacterNodeMode`、`CharacterEffect` |
-| [`project.hpp`](./project.hpp) | 声明创建、查询、校验和原子编辑命令。 | `IdGenerator`、`create_empty_project_aggregate`、节点命令、聚合校验 |
+- 标题上方文字默认 `A VN ENGINE STORY`，空字符串表示隐藏；不得有首尾 ASCII 空白或 NUL，最多 256 个 UTF-8 字节。
+- 人物 `show + assetId:null` 可用于编辑占位，但导出必须拒绝；`clear` 的资源、精确位置和特效都必须为空。
+- CG 画廊至少一页，每页九个可空图片槽；非空资源 ID 在整个画廊内不得重复。剧情 CG 只包含对白，入场等待为 0–60 秒。
+- 页面样式只包含固定枚举、受限整数和规范 `#RRGGBB` 颜色，不保存 CSS、JS 或 URL。变量和控制条件使用受限逻辑 AST，不执行任意脚本。
 
-## 扩展新节点
-
-新增节点通常需要同步完成模型判别项、查询函数、增删改结果类型、控制边界检查和聚合校验，
-再在 Backend 增加 JSON 映射与版本迁移。完成后运行完整 CTest，而不是只验证能编译。
+新增节点时，同步更新模型、查询、命令结果、控制范围和聚合校验，再补 Backend 映射、迁移与完整 CTest。

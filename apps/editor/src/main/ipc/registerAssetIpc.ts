@@ -70,6 +70,8 @@ export function registerAssetIpc(
         throw new Error('找不到当前编辑器窗口对应的项目会话');
       }
 
+      await context.initialize?.();
+
       if (invocation.action === 'get-preview-url') {
         return context.assetPreviewService.getPreviewUrl(
           invocation.params.assetId,

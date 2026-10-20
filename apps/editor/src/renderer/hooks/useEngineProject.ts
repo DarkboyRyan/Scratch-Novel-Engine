@@ -55,7 +55,7 @@ export type ImportAssetStatus = ImportAssetResult['status'] | 'failed';
 export type ImportImageStatus = ImportAssetStatus;
 export type ExportGameStatus = 'exported' | 'cancelled' | 'failed';
 
-function requestInitialProject(
+async function requestInitialProject(
   platform: EditorPlatformGateway,
 ): Promise<EngineMutationResult> {
   // 每个 BrowserWindow 都拥有独立后端；不可使用模块级 Promise，否则开发
@@ -540,6 +540,7 @@ export function useEngineProject(
   // 这个计数让 Renderer 丢弃旧 URL，并按新项目会话重新申请。
   const [projectGeneration, setProjectGeneration] = useState(0);
   const [isInitializing, setIsInitializing] = useState(true);
+  const [initializationStage, setInitializationStage] = useState<'project' | 'session'>('project');
   const [pendingEngineActions, setPendingEngineActions] = useState(0);
   const [isFileOperating, setIsFileOperating] = useState(false);
   const [engineMessage, setEngineMessage] = useState('');
@@ -560,10 +561,8 @@ export function useEngineProject(
   }, [labels]);
   const fileOperationInProgress = useRef(false);
   const engineActionQueue = useRef<Promise<void>>(Promise.resolve());
-  const initializationRequest = useRef<Promise<[
-    EngineMutationResult,
-    ProjectFileSessionSnapshot,
-  ]> | null>(null);
+  const initializationRequest = useRef<Promise<EngineMutationResult> | null>(null);
+  const initialSessionRequest = useRef<Promise<ProjectFileSessionSnapshot> | null>(null);
   const isBusy =
     isInitializing ||
     pendingEngineActions > 0 ||
@@ -636,15 +635,16 @@ export function useEngineProject(
   useEffect(() => {
     let isActive = true;
 
-    initializationRequest.current ??= (async () => {
-      const result = await requestInitialProject(platform);
-      // ensureProject can restore a crashed backend and change the file session.
-      const session = await platform.projectFiles.getSession();
-      return [result, session] as [EngineMutationResult, ProjectFileSessionSnapshot];
-    })();
+    initializationRequest.current ??= requestInitialProject(platform);
 
     void initializationRequest.current
-      .then(([result, session]) => {
+      .then(async (result) => {
+        if (!isActive) return;
+        setInitializationStage('session');
+        // Read only after ensureProject/recovery has settled. Keep both
+        // requests stable when StrictMode repeats the effect.
+        initialSessionRequest.current ??= platform.projectFiles.getSession();
+        const session = await initialSessionRequest.current;
         if (isActive) {
           applyResult(result, {
             ...session,
@@ -1113,6 +1113,7 @@ export function useEngineProject(
   }
 
   return {
+    initializationStage,
     canUndo: session.canUndo ?? false,
     canRedo: session.canRedo ?? false,
     async changeHistory(direction: 'undo' | 'redo'): Promise<boolean> {

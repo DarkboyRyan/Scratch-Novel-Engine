@@ -1,12 +1,14 @@
 # 游戏预览
 
+[中文](./README.md) | [English](./README.en.md)
+
 [返回功能模块](../README.md)
 
 本目录在 Editor 内运行接近正式 Player 的剧情预览，覆盖对白、选项、CG、音视频、剧情
 背景/立绘缩放和人物特效。它复用 Runtime 与 Player UI 契约，但使用 Editor 的受控媒体
 解析和预览会话，因此不会绕过未保存工程或启动独立应用。
 
-## 架构位置与工作方式
+## 工作方式
 
 1. 上层把当前作者工程编译或投影成预览可接受的数据，并选择从项目开头或指定场景启动。
 2. `useGamePreview.ts` 和 `previewRuntime.ts` 维护会话、推进对白、等待 CG 前置时长并处理选择分支。
@@ -14,14 +16,14 @@
 
 ## 文件
 
-| 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
-| --- | --- | --- | --- |
-| [GamePreview.tsx](./GamePreview.tsx) | React + TypeScript | 呈现正式游戏预览并驱动对白、选项、CG、视频和角色特效 | `GamePreview` |
-| [previewAudioController.ts](./previewAudioController.ts) | TypeScript | 兼容导出共享播放器 UI 的预览音频控制器 | `createPreviewAudioController` |
-| [previewRuntime.ts](./previewRuntime.ts) | TypeScript | 兼容导出运行时预览状态归约器和相关类型 | `advanceGamePreview`、`completeGamePreviewCgLeadIn`、`getGamePreviewChoices`、`selectGamePreviewChoice`、`startGamePreview`、`startGamePreviewAtScene` 等 7 项 |
-| [PreviewVideo.tsx](./PreviewVideo.tsx) | React + TypeScript | 兼容导出共享播放器 UI 的视频预览组件 | `PreviewVideo` |
-| [useGamePreview.ts](./useGamePreview.ts) | TypeScript | 创建并维护编辑器内游戏预览会话状态 | `GamePreviewSession`、`useGamePreview` |
-| [usePreviewAudio.ts](./usePreviewAudio.ts) | TypeScript | 兼容导出共享播放器 UI 的预览音频 Hook | `usePreviewAudio` |
+| 文件 | 主要作用 |
+| --- | --- |
+| [GamePreview.tsx](./GamePreview.tsx) | 呈现正式游戏预览并驱动对白、选项、CG、视频和角色特效 |
+| [previewAudioController.ts](./previewAudioController.ts) | 兼容导出共享播放器 UI 的预览音频控制器 |
+| [previewRuntime.ts](./previewRuntime.ts) | 兼容导出运行时预览状态归约器和相关类型 |
+| [PreviewVideo.tsx](./PreviewVideo.tsx) | 兼容导出共享播放器 UI 的视频预览组件 |
+| [useGamePreview.ts](./useGamePreview.ts) | 创建并维护编辑器内游戏预览会话状态 |
+| [usePreviewAudio.ts](./usePreviewAudio.ts) | 兼容导出共享播放器 UI 的预览音频 Hook |
 
 ## 开发与验证
 

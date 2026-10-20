@@ -1,8 +1,10 @@
 # Scratch Novel Engine Editor
 
+[中文](./README.md) | [English](./README.en.md)
+
 [返回应用目录](../README.md)
 
-Scratch Novel Engine Editor 是基于 Electron、React、Blockly 与 C++20 后端的视觉小说创作工具。它同时提供表单、图形化编辑和 Code 页，并把资源管理、即时预览、项目持久化和多平台导出组织在同一工作流中。Renderer 只通过类型化 Preload API 访问主机能力，项目写入、媒体读取和导出均由 Main 进程负责。
+Scratch Novel Engine Editor 是基于 Electron、React、Blockly 与 C++20 后端的视觉小说创作工具。它提供表单、Blockly 和 Code 三种编辑方式，并整合资源管理、预览、项目保存和多平台导出。Renderer 只通过类型化 Preload API 访问主机能力，项目写入、媒体读取和导出均由 Main 进程负责。
 
 Code 页按编辑目标分为两类：故事场景可编辑封闭剧情 DSL，并通过 C++ 原子场景替换
 同步 Form、Blockly 与预览；主界面和 CG 画廊可编辑受限样式 DSL，提交后写入权威
@@ -25,27 +27,27 @@ Player 共用同一语义，标题页背景和 CG 不显示该缩放控件。v22
 
 ## 模块导航
 
-| 目录 | 框架技术 | 主要作用 |
-| --- | --- | --- |
-| [`src/`](./src/README.md) | TypeScript、Electron、React | Editor 应用源码与进程边界。 |
-| [`src/main/`](./src/main/README.md) | Electron Main、Node.js | 窗口、IPC、项目文件、媒体和导出。 |
-| [`src/renderer/`](./src/renderer/README.md) | React、Blockly | 可视化编辑界面与游戏预览。 |
-| [`src/shared/`](./src/shared/README.md) | TypeScript DTO | Main、Preload、Renderer 共用协议。 |
-| [`tests/`](./tests/README.md) | Vitest | 单元测试和跨组件集成测试。 |
+| 目录 | 主要作用 |
+| --- | --- |
+| [`src/`](./src/README.md) | Editor 应用源码与进程边界。 |
+| [`src/main/`](./src/main/README.md) | 窗口、IPC、项目文件、媒体和导出。 |
+| [`src/renderer/`](./src/renderer/README.md) | 可视化编辑界面与游戏预览。 |
+| [`src/shared/`](./src/shared/README.md) | Main、Preload、Renderer 共用协议。 |
+| [`tests/`](./tests/README.md) | 单元测试和跨组件集成测试。 |
 
-## 根文件
+## 配置文件
 
-| 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
-| --- | --- | --- | --- |
-| [`.eslintrc.json`](./.eslintrc.json) | ESLint、TypeScript ESLint | 约束进程依赖方向和代码规范。 | 禁止 Renderer 访问 Node/Main，限制 Shared 使用 Node 内建模块。 |
-| [`forge.config.ts`](./forge.config.ts) | Electron Forge、Vite、Fuses | 配置应用打包和平台安装包。 | 校验后端及 Player 模板目录，装配 Maker、VitePlugin、FusesPlugin。 |
-| [`forge.env.d.ts`](./forge.env.d.ts) | TypeScript | 引入 Forge Vite 环境类型。 | 声明入口名与开发服务器等构建全局变量。 |
-| [`index.html`](./index.html) | HTML、CSP | Renderer 的安全页面入口。 | 提供 React 根节点、严格 CSP 和模块入口。 |
-| [`package.json`](./package.json) | pnpm、Electron Forge | 定义依赖和开发、测试、打包命令。 | `start`、`typecheck`、`test`、`make` 等脚本。 |
-| [`tsconfig.json`](./tsconfig.json) | TypeScript | Editor 的严格类型检查配置。 | 开启 strict、未使用成员检查和 React JSX。 |
-| [`vite.main.config.ts`](./vite.main.config.ts) | Vite | 构建 Electron Main。 | `defineConfig` 提供独立主进程入口配置。 |
-| [`vite.preload.config.ts`](./vite.preload.config.ts) | Vite | 构建沙箱 Preload。 | `defineConfig` 隔离桥接脚本产物。 |
-| [`vite.renderer.config.ts`](./vite.renderer.config.ts) | Vite、React | 构建 Renderer。 | React 插件与 `optimizeDeps` 工作区依赖边界。 |
+| 文件 | 主要作用 |
+| --- | --- |
+| [`.eslintrc.json`](./.eslintrc.json) | 约束进程依赖方向和代码规范。 |
+| [`forge.config.ts`](./forge.config.ts) | 配置应用打包和平台安装包。 |
+| [`forge.env.d.ts`](./forge.env.d.ts) | 引入 Forge Vite 环境类型。 |
+| [`index.html`](./index.html) | Renderer 的安全页面入口。 |
+| [`package.json`](./package.json) | 定义依赖和开发、测试、打包命令。 |
+| [`tsconfig.json`](./tsconfig.json) | Editor 的严格类型检查配置。 |
+| [`vite.main.config.ts`](./vite.main.config.ts) | 构建 Electron Main。 |
+| [`vite.preload.config.ts`](./vite.preload.config.ts) | 构建沙箱 Preload。 |
+| [`vite.renderer.config.ts`](./vite.renderer.config.ts) | 构建 Renderer。 |
 
 ## 常用命令
 
@@ -59,6 +61,8 @@ Player 共用同一语义，标题页背景和 CG 不显示该缩放控件。v22
 
 ## 开发提示
 
+- 启动窗口会显示阶段进度：加载界面 → 读取设置 → 准备项目与恢复会话 → 同步项目状态，完成后进入编辑器。百分比表示初始化阶段，不代表剩余时间；启动失败可点击“重新连接”。
+- `start` 在 Electron 启动前执行的 C++ 编译和 Player 模板准备仍在终端显示日志。修改 Main 启动逻辑后需要完全退出并重新启动 Editor。
 - 修改跨进程能力时，应同步检查 [`src/shared/`](./src/shared/README.md)、Preload 和对应 Main IPC，避免让 Renderer 直接依赖 Node.js。
 - `.vite/`、`out/`、`dist/`、`node_modules/` 与 CMake 构建目录都是生成内容，不属于手写源码索引。
 - 日常提交至少运行 `pnpm --dir apps/editor typecheck`、`pnpm --dir apps/editor lint` 和与改动最相关的 Vitest；涉及真实后端或导出契约时再运行完整 `test`。

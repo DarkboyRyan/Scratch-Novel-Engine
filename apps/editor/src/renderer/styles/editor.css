@@ -1,6 +1,6 @@
 /*
  * 文件主要作用：定义编辑器布局、组件、Blockly、预览和响应式界面样式。
- * 包含实现：`.engine-startup`、`.engine-startup p`、`.engine-startup button`、`.editor-settings-bootstrap-indicator`、`to`、`.editor-settings-bootstrap-indicator` 等 427 项。
+ * 包含实现：启动错误页、编辑器工具栏、工作区、资源面板和预览布局。
  */
 
 .engine-startup {
@@ -26,28 +26,6 @@
   background: var(--primary);
   border: 0;
   border-radius: 7px;
-}
-
-.editor-settings-bootstrap-indicator {
-  width: 22px;
-  height: 22px;
-  margin: 14px auto 0;
-  border: 2px solid var(--border);
-  border-top-color: var(--primary);
-  border-radius: 50%;
-  animation: editor-settings-spin 700ms linear infinite;
-}
-
-@keyframes editor-settings-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .editor-settings-bootstrap-indicator {
-    animation: none;
-  }
 }
 
 .editor {
@@ -130,6 +108,16 @@
 .project-file-actions button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+.project-file-actions .project-history-action {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  min-height: 32px;
+  padding: 5px;
 }
 
 .export-dialog-backdrop {

@@ -38,6 +38,33 @@ describe('engine IPC transaction boundary', () => {
     vi.clearAllMocks();
   });
 
+  it('does not read the first project snapshot until startup recovery settles', async () => {
+    let completeStartup!: () => void;
+    const startup = new Promise<void>((resolve) => { completeStartup = resolve; });
+    const result = {
+      project: { id: 'recovered', name: 'Recovered story' },
+      session: { revision: 3, savedRevision: null, isDirty: true },
+    };
+    const request = vi.fn().mockResolvedValue(result);
+    const contexts = new Map([[7, {
+      editorWindow: {
+        setTitle: vi.fn(), setDocumentEdited: vi.fn(), setRepresentedFilename: vi.fn(),
+      },
+      backendClient: { request },
+      projectFileSession: new ProjectFileSession(),
+      fileOperationCoordinator: new FileOperationCoordinator(),
+      initialize: () => startup,
+    }]]) as unknown as EditorWindowContexts;
+    registerEngineIpc(contexts, new Map([[7, 'file:///editor/index.html']]));
+    const handler = electronMocks.handle.mock.calls[0][1] as RegisteredHandler;
+    const pending = handler(trustedEvent(), { method: 'project.ensure', params: {} });
+    await Promise.resolve();
+    expect(request).not.toHaveBeenCalled();
+    completeStartup();
+    await expect(pending).resolves.toMatchObject(result);
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects an editor mutation while a file transaction owns the window', async () => {
     const coordinator = new FileOperationCoordinator();
     const request = vi.fn();

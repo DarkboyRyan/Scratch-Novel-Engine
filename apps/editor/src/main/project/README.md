@@ -1,10 +1,12 @@
 # 项目文件
 
+[中文](./README.md) | [English](./README.en.md)
+
 [返回 Electron Main](../README.md)
 
 本目录管理作者项目从目录选择到原子保存的完整生命周期。项目目录是用户可见的最小持久化单位，固定清单为 `project.vn.json`，本机路径始终由 Main 控制，Renderer 只看到会话状态和受控资产标识。
 
-## 架构位置与工作方式
+## 工作方式
 
 1. `ProjectFileWorkflow.ts` 响应新建、打开和保存，使用原生对话框取得用户选择。
 2. 路径策略和存储会话规范化项目根、隔离临时资产，并把合法项目装入 C++ 后端和预览服务。
@@ -16,13 +18,13 @@
 [`ProjectRecoveryService.ts`](./ProjectRecoveryService.ts) 管理窗口独立的恢复副本、文本草稿和
 恢复对话框；备份位于用户数据目录，恢复为未保存工程，不覆盖原项目。
 
-| 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
-| --- | --- | --- | --- |
-| [`ProjectFileSession.ts`](./ProjectFileSession.ts) | TypeScript | 维护项目路径、保存修订和脏状态。 | `ProjectFileSession` 的 bind/clear/update/snapshot 会话方法。 |
-| [`ProjectFileWorkflow.ts`](./ProjectFileWorkflow.ts) | Electron Dialog、Node.js Path | 编排新建、打开和保存。 | `runProjectFileWorkflow`；协调后端、路径策略、发布器、预览和窗口。 |
-| [`ProjectPathPolicy.ts`](./ProjectPathPolicy.ts) | Node.js FS | 规范并约束项目根目录和清单路径。 | `validateProjectRootPath`、`canonicalizeProjectRootPath`、`resolveProjectManifestPath`、安全创建/清理。 |
-| [`ProjectPublisher.ts`](./ProjectPublisher.ts) | Node.js FS、Crypto | 原子发布后端保存快照。 | `publishProjectSnapshot`；验证快照、临时写入、同步并替换正式清单。 |
-| [`ProjectStorageSession.ts`](./ProjectStorageSession.ts) | Node.js FS | 管理项目资产存储会话。 | `ProjectStorageSession`；受控根目录、临时区、资产导入和安全相对路径。 |
+| 文件 | 主要作用 |
+| --- | --- |
+| [`ProjectFileSession.ts`](./ProjectFileSession.ts) | 维护项目路径、保存修订和脏状态。 |
+| [`ProjectFileWorkflow.ts`](./ProjectFileWorkflow.ts) | 编排新建、打开和保存。 |
+| [`ProjectPathPolicy.ts`](./ProjectPathPolicy.ts) | 规范并约束项目根目录和清单路径。 |
+| [`ProjectPublisher.ts`](./ProjectPublisher.ts) | 原子发布后端保存快照。 |
+| [`ProjectStorageSession.ts`](./ProjectStorageSession.ts) | 管理项目资产存储会话。 |
 
 ## 开发与验证
 

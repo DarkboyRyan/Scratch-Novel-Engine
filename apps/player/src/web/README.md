@@ -1,22 +1,18 @@
 # Web Player
 
+[中文](./README.md) | [English](./README.en.md)
+
 [返回 Player Source](../README.md)
 
-使用浏览器原生能力实现与桌面 Player 相同的 Gateway。
+Web Player 是随导出游戏部署的静态宿主，复用 Renderer 和共享 UI，以 Fetch 读取同源内容、IndexedDB 保存进度和设置、Fullscreen API 控制全屏。
 
-Web Player 是随 Web 导出包部署的静态宿主。它复用桌面 Renderer 与 `@vnengine/player-ui`，但不需要 Electron：内容来自同源 HTTP(S)，存档和设置进入当前浏览器的 IndexedDB，全屏使用标准 Fullscreen API。
+启动时读取 `web-export.json`，再加载 `game/<build-id>/` 中的运行包。Loader 校验来源、重定向、大小、UTF-8、版本、构建标识和资源清单，资源 URL 不能逃离同源游戏目录。Web 版仅运行嵌入游戏，不支持本地选包或调整系统窗口；退出会重新加载页面。
 
-## 启动与内容加载
+存档按项目 ID、Runtime 版本和内容指纹隔离。通用设置全局保存，玩家明确选择的语言按项目 ID 与包默认语言保存；旧全局语言不会覆盖新包默认值。默认语言来源下的全屏或音量更新也不会固化语言。
 
-`index.tsx` 创建 React 根节点并把 `webPlayerGateway` 注入 `App`。Gateway 首次使用时通过 `WebBundleLoader` 读取根目录的 `web-export.json`，再定位 `game/<build-id>/game.json` 和 `manifest.json`。Loader 限制协议、重定向来源、文档大小和 UTF-8，调用共享 Runtime Schema，并核对描述文件中的版本/build ID；资源 URL 只从已验证清单生成，且不能逃离同源游戏目录。
+部署必须使用 HTTP(S)，不能直接打开 `file://`。保持描述文件、游戏目录和模板资源的相对位置，不要混合多个导出包。
 
-Web 导出是嵌入式单游戏模式，因此 `openGame` 明确拒绝本地选包，“退出”会重新加载页面。浏览器可用时提供全屏，但 `windowSizeControlsEnabled` 始终为 false，因为网页不能调整操作系统窗口。
-
-## 存储与部署约束
-
-`WebStorage` 以项目 ID、Runtime 版本和 `game.json` 内容指纹隔离存档，恢复时重新校验快照与资源引用。音量等通用设置继续写入全局 `settings-v2`，但语言只有在玩家明确修改语言时才会按“项目 ID + 当前包默认语言”保存；旧的未分域 `settings-v2` 只迁移非语言设置，不能再用历史中文覆盖新导出的英文包。没有同域显式偏好时使用 Runtime v12 引入的 `game.defaultLanguage`。Runtime v13 的标题页/CG 样式在共享 UI 中使用，不写入 IndexedDB。全屏状态以浏览器当前状态为准并通过串行队列协调，默认语言来源下的浏览器全屏或音量更新不会固化语言。
-
-Web Player 必须由 HTTP 或 HTTPS 静态服务器提供，直接打开 `file://` 不受支持。部署时需保持 `web-export.json`、带 build ID 的游戏目录和模板资源相对关系，不要把多个导出的 payload 手工混合。验证命令：
+## 验证与运行
 
 ```bash
 pnpm --dir apps/player exec vitest run \
@@ -26,12 +22,10 @@ pnpm --dir apps/player exec vitest run \
 pnpm --dir apps/player prepare:web-template
 ```
 
-## 文件
+## 主要文件
 
-| 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
-| --- | --- | --- | --- |
-| [`WebBundleLoader.ts`](./WebBundleLoader.ts) | Fetch、Web Crypto | 受限拉取并校验静态运行包 | `loadWebBundle`、大小限制、SHA-256 |
-| [`WebPlayerGateway.ts`](./WebPlayerGateway.ts) | Browser APIs | 实现加载、存档、设置、全屏和媒体端口 | `WebPlayerGateway`、`webPlayerGateway` |
-| [`WebStorage.ts`](./WebStorage.ts) | IndexedDB | 持久化 Web 设置和版本化存档 | `IndexedDbDocumentStore`、`WebPlayerStorage` |
-| [`index.html`](./index.html) | HTML、CSP | Web Player 安全页面容器 | `#root`、模块入口 |
-| [`index.tsx`](./index.tsx) | ReactDOM | Web Player 启动入口 | `createRoot`、Web Gateway 注入 |
+- [`WebBundleLoader.ts`](./WebBundleLoader.ts)
+- [`WebPlayerGateway.ts`](./WebPlayerGateway.ts)
+- [`WebStorage.ts`](./WebStorage.ts)
+- [`index.html`](./index.html)
+- [`index.tsx`](./index.tsx)

@@ -1,10 +1,12 @@
 # 标题界面
 
+[中文](./README.md) | [English](./README.en.md)
+
 [返回功能模块](../README.md)
 
 本目录编辑游戏标题页的标题上方文字、显示名称、背景图和循环音乐，并管理标题页、CG 画廊与故事编辑界面之间的导航。表单与固定结构 Blockly 写回标题内容/媒体；Code 页通过受限 DSL 独立更新 `startScreen.style`。
 
-## 架构位置与工作方式
+## 工作方式
 
 1. `startScreenScene.ts` 保存当前 Editor surface 与返回关系，`StartScreenEditor` 根据编辑模式选择表单或 Blockly。
 2. 两种编辑器从项目生成标题页投影，资源拖放或字段变化经统一动作提交；Blockly 事件由 `startScreenBlockEvents.ts` 解析。
@@ -18,14 +20,14 @@
 
 ## 文件
 
-| 文件 | 框架技术 | 主要作用 | 关键函数与实现 |
-| --- | --- | --- | --- |
-| [startScreenBlockEvents.ts](./startScreenBlockEvents.ts) | TypeScript + Blockly | 把标题界面积木字段变化转换为项目补丁 | `getStartScreenFieldUpdate` |
-| [StartScreenBlocklyWorkspace.tsx](./StartScreenBlocklyWorkspace.tsx) | React + TypeScript + Blockly | 管理标题界面 Blockly 工作区及资源拖放同步 | `StartScreenBlocklyWorkspaceHandle`、`StartScreenBlocklyWorkspace` |
-| [startScreenBlocks.ts](./startScreenBlocks.ts) | TypeScript + Blockly | 注册并投影标题上方文字、游戏名、背景和音乐积木 | `START_SCREEN_ROOT_BLOCK_TYPE`、`START_SCREEN_BACKGROUND_BLOCK_TYPE`、`START_SCREEN_MUSIC_BLOCK_TYPE`、`START_SCREEN_BLOCK_IDS`、`START_SCREEN_BLOCK_FIELDS`、`StartScreenAssetLabels` 等 13 项 |
-| [StartScreenEditor.tsx](./StartScreenEditor.tsx) | React + TypeScript | 在表单与积木模式间切换标题界面编辑器 | `StartScreenEditorHandle`、`StartScreenEditor` |
-| [StartScreenFormEditor.tsx](./StartScreenFormEditor.tsx) | React + TypeScript | 提供标题上方文字、游戏名、背景图和背景音乐的表单配置界面 | `StartScreenFormEditor` |
-| [startScreenScene.ts](./startScreenScene.ts) | TypeScript | 管理标题、CG 画廊和故事三类编辑界面导航状态 | `START_SCREEN_SCENE_ID`、`CG_GALLERY_SCENE_ID`、`EditorSurface`、`EditorSurfaceAction`、`initialEditorSurface`、`editorSurfaceReducer` 等 10 项 |
+| 文件 | 主要作用 |
+| --- | --- |
+| [startScreenBlockEvents.ts](./startScreenBlockEvents.ts) | 把标题界面积木字段变化转换为项目补丁 |
+| [StartScreenBlocklyWorkspace.tsx](./StartScreenBlocklyWorkspace.tsx) | 管理标题界面 Blockly 工作区及资源拖放同步 |
+| [startScreenBlocks.ts](./startScreenBlocks.ts) | 注册并投影标题上方文字、游戏名、背景和音乐积木 |
+| [StartScreenEditor.tsx](./StartScreenEditor.tsx) | 在表单与积木模式间切换标题界面编辑器 |
+| [StartScreenFormEditor.tsx](./StartScreenFormEditor.tsx) | 提供标题上方文字、游戏名、背景图和背景音乐的表单配置界面 |
+| [startScreenScene.ts](./startScreenScene.ts) | 管理标题、CG 画廊和故事三类编辑界面导航状态 |
 
 ## 开发与验证
 

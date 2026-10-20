@@ -34,6 +34,8 @@ export function registerEngineIpc(
         throw new Error('找不到当前编辑器窗口对应的项目会话');
       }
 
+      await context.initialize?.();
+
       // Engine mutations and project open/save/import share the same
       // per-window transaction boundary. Main enforces this even if a stale
       // Renderer tries to mutate between backend save and manifest publish.

@@ -1,0 +1,96 @@
+/* Shared by the HTML shell and React: visible before the editor bundle loads. */
+.editor-startup {
+  display: grid;
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 40px;
+  margin: 0;
+  color: var(--text, #22252b);
+  background: var(--canvas, #f3f5f7);
+  font-family: var(--font-body, system-ui, -apple-system, "PingFang SC", sans-serif);
+  text-align: left;
+  place-content: center;
+}
+
+.editor-startup-content { width: min(400px, calc(100vw - 80px)); }
+.engine-startup.editor-startup { padding: 40px; text-align: left; }
+
+.editor-startup-mark {
+  display: flex;
+  align-items: baseline;
+  width: fit-content;
+  margin-bottom: 24px;
+  color: var(--primary, #514f9d);
+  font-family: var(--font-display, "Avenir Next", "Segoe UI", sans-serif);
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: -0.08em;
+}
+
+.editor-startup-mark span {
+  padding-left: 8px;
+  margin-left: 10px;
+  border-left: 1px solid var(--border-strong, #c7ced7);
+  transform: translateY(6px);
+}
+
+.editor-startup h1 {
+  margin: 0;
+  font-family: var(--font-display, "Avenir Next", "Segoe UI", sans-serif);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.editor-startup .editor-startup-title {
+  margin: 10px 0 38px;
+  color: var(--text-muted, #6e7480);
+  font-size: 14px;
+}
+
+.editor-startup-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.editor-startup-percent {
+  color: var(--text-muted, #6e7480);
+  font-variant-numeric: tabular-nums;
+}
+
+.editor-startup-progress {
+  height: 6px;
+  overflow: hidden;
+  background: var(--border, #dce1e7);
+  border-radius: 3px;
+}
+
+.editor-startup-progress-fill {
+  height: 100%;
+  background: var(--primary, #514f9d);
+  border-radius: inherit;
+  transition: width 240ms ease-out;
+}
+
+.editor-startup .editor-startup-hint,
+.editor-startup .editor-startup-error {
+  margin: 16px 0 0;
+  color: var(--text-muted, #6e7480);
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.editor-startup .editor-startup-error { color: var(--danger, #b55a65); }
+.editor-startup[data-failed='true'] .editor-startup-progress-fill { background: var(--danger, #b55a65); }
+.editor-startup button { margin-top: 20px; }
+.editor-startup button:focus-visible { outline: 2px solid var(--focus-ring, #7775bd); outline-offset: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .editor-startup-progress-fill { transition: none; }
+}

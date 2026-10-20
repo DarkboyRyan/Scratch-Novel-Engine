@@ -1100,8 +1100,18 @@
 .blockly-workspace .blocklySvg,
 .blockly-workspace .blocklyMainBackground {
   background-color: var(--blockly-workspace) !important;
+}
+
+/* SVG paint properties inherit. Keep the canvas border off the SVG root so
+   it cannot outline every glyph, field and nested block. */
+.blockly-workspace .blocklyMainBackground {
   fill: var(--blockly-workspace) !important;
   stroke: var(--border) !important;
+}
+
+.blockly-workspace .blocklyText,
+.blockly-workspace .blocklyFlyoutLabelText {
+  stroke: none;
 }
 
 .blocklyToolbox,
@@ -1234,6 +1244,8 @@ textarea.blocklyHtmlInput {
 .blockly-workspace .blocklyEditableText > .blocklyFieldRect,
 .blockly-workspace .blocklyEditableField > rect,
 .blockly-workspace .blocklyEditableField > .blocklyFieldRect,
+.blockly-workspace .blocklyNonEditableField > rect,
+.blockly-workspace .blocklyNonEditableField > .blocklyFieldRect,
 .vn-story-continuation-sequence-field > rect,
 .vn-story-continuation-sequence-field > .blocklyFieldRect {
   fill: var(--blockly-field) !important;
@@ -1242,10 +1254,24 @@ textarea.blocklyHtmlInput {
   stroke-width: 1px !important;
 }
 
-.blockly-workspace .blocklyEditableText text,
-.blockly-workspace .blocklyEditableField text,
+/* Outrank Zelos' .zelos-renderer.classic-theme .blocklyDropdownText rule,
+   including when Blockly injects its stylesheet after this one. */
+.blockly-workspace .blocklyEditableText text.blocklyText,
+.blockly-workspace .blocklyEditableField text.blocklyText,
+.blockly-workspace .blocklyNonEditableField text.blocklyText,
 .vn-story-continuation-sequence-field text {
   fill: var(--blockly-field-text) !important;
+}
+
+/* Blockly appends its SVG dropdown arrow after the option image. Recolour
+   only that arrow to remain visible on our themed field backgrounds. */
+.blockly-workspace .blocklyDropdownField > image:last-child {
+  filter: brightness(0);
+  opacity: 0.75;
+}
+
+:root[data-editor-theme='moonlight'] .blockly-workspace .blocklyDropdownField > image:last-child {
+  filter: brightness(0) invert(1);
 }
 
 .vn-blockly-asset-name-popup,

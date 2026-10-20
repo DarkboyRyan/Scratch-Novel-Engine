@@ -19,6 +19,7 @@ export type EditorWindowContext = {
   projectStorageSession: ProjectStorageSession;
   fileOperationCoordinator: FileOperationCoordinator;
   recoveryService?: ProjectRecoveryService;
+  initialize?: () => Promise<void>;
 };
 
 export type EditorWindowContexts = Map<number, EditorWindowContext>;
