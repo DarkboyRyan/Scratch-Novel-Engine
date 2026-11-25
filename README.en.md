@@ -14,6 +14,22 @@ Scratch Novel Engine is a visual novel creation tool. Write stories using forms,
 - Export content bundles for the desktop player, a Web player, or standalone games.
 - Use the editor and players in Chinese or English.
 
+## Interface preview
+
+These screenshots show the main interfaces with a blank project.
+
+| Title screen | Story form |
+| --- | --- |
+| ![Title screen editor and preview](./figure/editor-en.png) | ![Story form and dialogue manager](./figure/story-form-en.png) |
+
+| Blockly editor | Code editor |
+| --- | --- |
+| ![Blockly story blocks and workspace](./figure/blockly-en.png) | ![Story code editor](./figure/code-en.png) |
+
+| Asset manager | CG gallery |
+| --- | --- |
+| ![Image, audio, and video asset manager](./figure/assets-en.png) | ![CG gallery page editor](./figure/gallery-en.png) |
+
 ## Quick start
 
 Requires Node.js 24, pnpm 11.18.0, CMake 3.20+, and a C++20 compiler. An internet connection is needed to fetch dependencies on the first build.

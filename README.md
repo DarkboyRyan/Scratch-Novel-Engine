@@ -14,6 +14,22 @@ Scratch Novel Engine 是一款视觉小说创作工具，支持通过表单、Bl
 - 导出桌面播放器内容包、Web 播放器或独立游戏。
 - 编辑器和播放器均支持中英文界面。
 
+## 界面预览
+
+以下截图展示空白工程下的主要界面。
+
+| 主界面 | 剧情表单 |
+| --- | --- |
+| ![主界面编辑与预览](./figure/editor-zh.png) | ![剧情表单与对话管理](./figure/story-form-zh.png) |
+
+| Blockly 图形化编辑 | 代码编辑 |
+| --- | --- |
+| ![Blockly 剧情积木与工作区](./figure/blockly-zh.png) | ![剧情代码编辑器](./figure/code-zh.png) |
+
+| 资源管理 | CG 画廊 |
+| --- | --- |
+| ![图片、音频与视频资源管理](./figure/assets-zh.png) | ![CG 画廊页面编辑](./figure/gallery-zh.png) |
+
 ## 快速开始
 
 需要 Node.js 24、pnpm 11.18.0、CMake 3.20+ 和支持 C++20 的编译器。首次构建需联网获取依赖。
